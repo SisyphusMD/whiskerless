@@ -1,0 +1,95 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "whiskerless"
+version = "0.1.0"
+description = "Un-cloud your Whisker devices — fully-local MQTT control + telemetry for the Litter-Robot 4."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Cody Bryant" }]
+keywords = ["litter-robot", "whisker", "mqtt", "home-assistant", "local", "iot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Typing :: Typed",
+]
+
+# aiomqtt is the only hard runtime dep: it carries the codec/command layer that
+# both the CLI and the Home Assistant integration build on. BLE re-provisioning
+# is bench-only, so bleak is an optional extra rather than a baseline cost.
+dependencies = ["aiomqtt>=2.0.0"]
+
+[project.optional-dependencies]
+ble = ["bleak>=0.22.0"]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+# Home Assistant integration tests (Python 3.13). Install in a separate env:
+#   pip install -e '.[test-ha]' && pytest tests/integration
+test-ha = [
+    "pytest-homeassistant-custom-component",
+    "syrupy>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/SisyphusMD/whiskerless"
+Documentation = "https://github.com/SisyphusMD/whiskerless/tree/main/docs"
+Source = "https://github.com/SisyphusMD/whiskerless"
+Issues = "https://github.com/SisyphusMD/whiskerless/issues"
+
+[project.scripts]
+whiskerless = "whiskerless.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/whiskerless"]
+
+[tool.ruff]
+line-length = 100
+# py312 so ruff parses the integration's PEP 695 syntax (HA runs on 3.13); the
+# library itself stays 3.11-compatible and mypy enforces that separately.
+target-version = "py312"
+src = ["src", "tests", "custom_components"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PTH", "BLE"]
+ignore = [
+    "E501",                       # long protocol comments/tables are allowed
+    "ASYNC109",                   # a `timeout` param that wraps asyncio.timeout is a fine API
+    "RUF001", "RUF002", "RUF003", # typographic en-dashes in prose/ranges are intentional
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The CLI is a short-lived process; blocking input()/path reads in async handlers
+# are acceptable rather than worth an executor hop.
+"src/whiskerless/cli.py" = ["ASYNC230", "ASYNC240", "ASYNC250"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["whiskerless"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+disallow_any_generics = true
+files = ["src/whiskerless"]
+
+[[tool.mypy.overrides]]
+# bleak ships no py.typed in some releases; keep BLE typing best-effort.
+module = ["bleak.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

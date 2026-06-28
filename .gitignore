@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local scratch / research notes (not shipped)
+.research/
+
+# Operator-only mirror bootstrap (embeds private Forgejo hostnames) — keep local
+/scripts/setup-mirrors.sh
+
+# Secrets & device-specific material — NEVER commit these
+*.pem
+*.key
+ca.crt
+secrets.yaml
+
+# OS
+.DS_Store

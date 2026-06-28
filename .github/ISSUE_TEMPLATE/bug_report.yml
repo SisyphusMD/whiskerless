@@ -1,0 +1,38 @@
+name: Bug report
+description: Something isn't working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! Please include enough detail to reproduce.
+  - type: input
+    id: version
+    attributes:
+      label: whiskerless version
+      placeholder: "0.1.0 (and HA version if relevant)"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part?
+      options:
+        - Home Assistant integration
+        - CLI / library
+        - BLE re-provisioning
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Robot firmware version
+      description: From the "Refresh"/version report, e.g. ESP 1.1.75.
+      placeholder: "1.1.75"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what you got. Include logs (redact your serial).
+    validations:
+      required: true

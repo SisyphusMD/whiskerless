@@ -1,0 +1,90 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "discovery_confirm": {
+        "title": "Add Litter-Robot",
+        "description": "A Litter-Robot 4 (serial {serial}) was found on your MQTT broker. Give it a name — this becomes the device name and is used to generate its entity IDs.",
+        "data": {
+          "name": "Name"
+        },
+        "data_description": {
+          "name": "A friendly name for this robot, e.g. \"Upstairs litterbox\". You can rename it later."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "discovery_only": "Litter-Robots are added automatically when they connect to your MQTT broker. Provision a robot onto your broker (see the documentation) and it will appear here to add.",
+      "invalid_discovery_info": "The discovery message did not contain a usable serial number."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "ready": "Ready",
+          "cat_detected": "Cat detected",
+          "clean_cycle": "Clean cycle",
+          "empty_cycle": "Empty cycle",
+          "cat_sensor_timing": "Cat sensor timing",
+          "bonnet_removed": "Bonnet removed",
+          "powering_up": "Powering up",
+          "powering_down": "Powering down",
+          "off": "Off"
+        }
+      },
+      "litter_level": { "name": "Litter level" },
+      "waste_drawer_level": { "name": "Waste drawer level" },
+      "pet_weight": { "name": "Pet weight" },
+      "clean_cycle_count": { "name": "Clean cycle count" },
+      "wifi_rssi": { "name": "Wi-Fi signal" },
+      "litter_level_mm": { "name": "Litter level distance" }
+    },
+    "binary_sensor": {
+      "cat_detected": { "name": "Cat detected" },
+      "drawer_full": { "name": "Waste drawer full" },
+      "bonnet_removed": { "name": "Bonnet removed" },
+      "globe_motor_fault": { "name": "Globe motor fault" }
+    },
+    "select": {
+      "night_light_mode": {
+        "name": "Night light",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "on": "[%key:common::state::on%]",
+          "auto": "Auto"
+        }
+      },
+      "clean_cycle_wait": { "name": "Clean cycle wait time" }
+    },
+    "switch": {
+      "keypad_lockout": { "name": "Control lock" },
+      "panel_sleep_mode": { "name": "Panel sleep mode" },
+      "weekday_sleep": { "name": "Weekday sleep schedule" }
+    },
+    "number": {
+      "night_light_brightness": { "name": "Night light brightness" }
+    },
+    "time": {
+      "panel_sleep_time": { "name": "Panel sleep time" },
+      "panel_wake_time": { "name": "Panel wake time" }
+    },
+    "button": {
+      "start_clean_cycle": { "name": "Start clean cycle" },
+      "refresh": { "name": "Refresh" }
+    }
+  },
+  "exceptions": {
+    "mqtt_unavailable": {
+      "message": "The Home Assistant MQTT integration is not available."
+    },
+    "no_response": {
+      "message": "The Litter-Robot did not respond to a state request."
+    },
+    "command_failed": {
+      "message": "Failed to send the command to the Litter-Robot: {error}."
+    }
+  }
+}

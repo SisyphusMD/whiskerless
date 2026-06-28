@@ -1,0 +1,37 @@
+{
+  "entity": {
+    "sensor": {
+      "litter_level": { "default": "mdi:gauge" },
+      "waste_drawer_level": { "default": "mdi:delete" },
+      "pet_weight": { "default": "mdi:cat" },
+      "clean_cycle_count": { "default": "mdi:counter" },
+      "litter_level_mm": { "default": "mdi:ruler" }
+    },
+    "binary_sensor": {
+      "cat_detected": { "default": "mdi:cat" },
+      "drawer_full": { "default": "mdi:delete-alert" },
+      "bonnet_removed": { "default": "mdi:alert-circle" },
+      "globe_motor_fault": { "default": "mdi:alert" }
+    },
+    "select": {
+      "night_light_mode": { "default": "mdi:lightbulb-night" },
+      "clean_cycle_wait": { "default": "mdi:timer-cog" }
+    },
+    "switch": {
+      "keypad_lockout": { "default": "mdi:lock" },
+      "panel_sleep_mode": { "default": "mdi:sleep" },
+      "weekday_sleep": { "default": "mdi:calendar-clock" }
+    },
+    "number": {
+      "night_light_brightness": { "default": "mdi:brightness-6" }
+    },
+    "time": {
+      "panel_sleep_time": { "default": "mdi:weather-night" },
+      "panel_wake_time": { "default": "mdi:weather-sunny" }
+    },
+    "button": {
+      "start_clean_cycle": { "default": "mdi:broom" },
+      "refresh": { "default": "mdi:refresh" }
+    }
+  }
+}

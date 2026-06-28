@@ -1,0 +1,87 @@
+name: Publish
+
+# Runs on the Forgejo source when a v* tag lands (from release.yml). It is the
+# only place that can reach everything (Forgejo, the internal NAS, GitHub, PyPI),
+# so it orchestrates the releases. The GitHub mirror's release-macos.yml appends
+# the signed .pkg to the GitHub + public-Forgejo releases; the `nas-pkg` job here
+# then bridges that .pkg over to the internal NAS (which GitHub can't reach).
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build + upload
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          twine upload dist/*
+
+  releases:
+    name: Create releases + Linux binary (Forgejo, NAS, GitHub)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build Linux binary
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m pip install ".[ble]"
+          pyinstaller --onefile --name whiskerless-linux-x86_64 \
+            --collect-all bleak --collect-all aiomqtt packaging/launcher.py
+      - name: Release notes from CHANGELOG
+        run: bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
+      - name: Create the three releases with the Linux binary
+        run: |
+          chmod +x packaging/forgejo-release.sh packaging/github-release.sh
+          BIN=dist/whiskerless-linux-x86_64
+          packaging/forgejo-release.sh forgejo.bryantserver.com \
+            "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN"
+          packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
+            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN"
+          packaging/github-release.sh \
+            "${{ secrets.GH_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN"
+
+  nas-pkg:
+    name: Bridge the macOS .pkg → NAS
+    needs: releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for the .pkg on the public Forgejo release, then copy to NAS
+        run: |
+          set -euo pipefail
+          API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
+          # The .pkg is built + notarized on GitHub (slow), then appended to the
+          # public Forgejo release. Wait for it (up to 30 min), then copy to NAS.
+          urls=""
+          for _ in $(seq 1 180); do
+            urls=$(curl -sf "$API/releases/tags/$GITHUB_REF_NAME" \
+              | jq -r '.assets[]? | select(.name | endswith(".pkg")) | .browser_download_url' || true)
+            [ -n "$urls" ] && break
+            sleep 10
+          done
+          if [ -z "$urls" ]; then
+            echo "::warning::no .pkg on the Forgejo release after 30m; NAS release will lack it"
+            exit 0
+          fi
+          echo "$urls" | while read -r u; do [ -n "$u" ] && curl -sSL -O "$u"; done
+          bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
+          chmod +x packaging/forgejo-release.sh
+          packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
+            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md *.pkg

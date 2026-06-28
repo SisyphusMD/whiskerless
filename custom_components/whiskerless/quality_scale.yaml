@@ -1,0 +1,96 @@
+# Self-assessment against the Home Assistant Integration Quality Scale.
+# The official badge applies only to integrations merged into homeassistant/core;
+# this is built to platinum standards as a HACS integration and structured so a
+# later core submission is small.
+rules:
+  # Bronze
+  action-setup:
+    status: exempt
+    comment: This integration does not register custom service actions.
+  appropriate-polling:
+    status: exempt
+    comment: This is a push integration; state arrives over MQTT. A long heartbeat only detects an unresponsive robot.
+  brands:
+    status: exempt
+    comment: Distributed via HACS; not submitted to the home-assistant/brands repository.
+  common-modules: done
+  config-flow-test-coverage: done
+  config-flow: done
+  dependency-transparency: done
+  docs-actions:
+    status: exempt
+    comment: This integration does not register custom service actions.
+  docs-conditions:
+    status: exempt
+    comment: This integration does not provide conditions.
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  docs-triggers:
+    status: exempt
+    comment: This integration does not provide triggers.
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure:
+    status: exempt
+    comment: Robots are discovered via their own MQTT messages, which already proves liveness; there is no broker connection to test in the flow.
+  test-before-setup: done
+  unique-config-entry: done
+
+  # Silver
+  action-exceptions: done
+  config-entry-unloading: done
+  docs-configuration-parameters:
+    status: exempt
+    comment: This integration does not provide an options flow.
+  docs-installation-parameters: done
+  entity-unavailable: done
+  integration-owner: done
+  log-when-unavailable: done
+  parallel-updates: done
+  reauthentication-flow:
+    status: exempt
+    comment: No credentials are stored; the broker connection is owned by Home Assistant's MQTT integration.
+  test-coverage: done
+
+  # Gold
+  devices: done
+  diagnostics: done
+  discovery-update-info:
+    status: exempt
+    comment: No connection details are stored to update; the broker is Home Assistant's MQTT integration.
+  discovery: done
+  docs-data-update: done
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices: done
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices:
+    status: exempt
+    comment: One robot per config entry, created from its MQTT discovery.
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done
+  entity-translations: done
+  exception-translations: done
+  icon-translations: done
+  reconfiguration-flow:
+    status: exempt
+    comment: A config entry holds only the robot's identity (and a display name); there are no connection settings to reconfigure.
+  repair-issues:
+    status: exempt
+    comment: There are no user-actionable repair issues to raise.
+  stale-devices:
+    status: exempt
+    comment: One robot per config entry; removing the entry removes the device.
+
+  # Platinum
+  async-dependency: done
+  inject-websession:
+    status: exempt
+    comment: No HTTP requests are made; the integration uses Home Assistant's MQTT connection.
+  strict-typing: done

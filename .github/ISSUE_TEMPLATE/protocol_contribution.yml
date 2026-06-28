@@ -1,0 +1,49 @@
+name: Protocol finding (help crack the missing commands)
+description: Share a captured command or a confirmed register so we can close an open item
+labels: ["protocol"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some actions are deliberately **not** exposed yet — power on/off, the empty
+        cycle, and the panel/drawer resets — because we couldn't pin their exact
+        register+value to safe, proven confidence (see
+        [compatibility.md](../../docs/devices/litter-robot-4/compatibility.md)).
+
+        The zero-risk way to crack one: subscribe to your own broker's
+        `prod/LR4/<serial>/command` topic, press the button in the **Whisker app**,
+        and capture the literal `{"serial","data":["0x02RRVVVV"]}` it publishes.
+        That gives the register+value with no motor or brick risk. Share it here!
+  - type: dropdown
+    id: action
+    attributes:
+      label: Which action did you capture?
+      options:
+        - powerOn
+        - powerOff
+        - emptyCycle
+        - shortResetPress (panel reset)
+        - reset waste drawer
+        - other / a new register
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Robot firmware version
+      placeholder: "ESP 1.1.75"
+    validations:
+      required: true
+  - type: textarea
+    id: payload
+    attributes:
+      label: The captured command payload(s)
+      description: The exact `0x...` codes the app published, and how you captured them.
+      placeholder: '{"serial":"LR4Cxxxxxx","data":["0x02300001"]}'
+    validations:
+      required: true
+  - type: textarea
+    id: effect
+    attributes:
+      label: Observed effect
+      description: What the robot did, and any before/after state (e.g. unitPowerStatus, odometer counts).

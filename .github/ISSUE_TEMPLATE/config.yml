@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/SisyphusMD/whiskerless/tree/main/docs
+    about: Setup, protocol reference, and recovery guides.

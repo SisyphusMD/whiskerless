@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "gitAuthor": "Renovate Bot <renovate@users.noreply.github.com>",
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "separateMinorPatch": true,
+  "enabledManagers": ["pep621", "github-actions", "pip_requirements"],
+  "packageRules": [
+    {
+      "description": "Automerge patch + digest bumps; minor/major reviewed manually.",
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "Keep the integration's pinned lib requirement in lockstep manually.",
+      "matchFileNames": ["custom_components/whiskerless/manifest.json"],
+      "enabled": false
+    }
+  ]
+}

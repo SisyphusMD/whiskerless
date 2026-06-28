@@ -1,0 +1,91 @@
+# Example Home Assistant automations for a Litter-Robot 4 via whiskerless.
+#
+# Entity IDs below assume the device is named "Litter-Robot 4" (the default), so
+# entities are slugged `*.litter_robot_4_*`. If you renamed the device, adjust
+# the entity IDs to match (check Developer Tools → States).
+#
+# Copy the blocks you want into your automations.yaml, or recreate them in the
+# UI automation editor.
+
+# --- Notify when the waste drawer is nearly full ---------------------------
+- alias: "Litter-Robot - waste drawer almost full"
+  description: "Ping when the drawer crosses 90% so you can empty it before it fills."
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.litter_robot_4_waste_drawer_level
+      above: 90
+  actions:
+    - action: notify.notify
+      data:
+        title: "Litter-Robot"
+        message: "Waste drawer is {{ states('sensor.litter_robot_4_waste_drawer_level') }}% full — time to empty it."
+
+# --- Auto clean a few minutes after the cat leaves -------------------------
+# The robot already cycles on its own wait timer; this is an example of driving
+# it yourself. The Start clean cycle button moves the globe, so only fire it
+# when you're confident the box is empty.
+- alias: "Litter-Robot - clean shortly after the cat leaves"
+  description: "Run a clean cycle 4 minutes after the cat-detected sensor clears."
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.litter_robot_4_cat_detected
+      from: "on"
+      to: "off"
+      for:
+        minutes: 4
+  conditions:
+    # Don't start a cycle if a fault is present or the bonnet is off.
+    - condition: state
+      entity_id: binary_sensor.litter_robot_4_globe_motor_fault
+      state: "off"
+    - condition: state
+      entity_id: binary_sensor.litter_robot_4_bonnet_removed
+      state: "off"
+  actions:
+    - action: button.press
+      target:
+        entity_id: button.litter_robot_4_start_clean_cycle
+
+# --- Alert on a globe motor fault ------------------------------------------
+- alias: "Litter-Robot - globe motor fault"
+  description: "Tell me immediately if the globe motor reports a fault."
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.litter_robot_4_globe_motor_fault
+      to: "on"
+  actions:
+    - action: notify.notify
+      data:
+        title: "Litter-Robot"
+        message: "Globe motor fault detected — check the robot."
+
+# --- Log the cat's weight on each visit ------------------------------------
+# Captures pet_weight whenever a cat is detected, so you can chart it over time.
+- alias: "Litter-Robot - log pet weight per visit"
+  description: "Record the measured weight each time a cat is detected."
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.litter_robot_4_cat_detected
+      to: "on"
+  conditions:
+    - condition: template
+      value_template: "{{ states('sensor.litter_robot_4_pet_weight') not in ['unknown', 'unavailable', 'none'] }}"
+  actions:
+    - action: logbook.log
+      data:
+        name: "Litter-Robot"
+        message: "Visit logged at {{ states('sensor.litter_robot_4_pet_weight') }} lb."
+        entity_id: sensor.litter_robot_4_pet_weight
+
+# --- Switch the night light to Auto at sunset ------------------------------
+- alias: "Litter-Robot - night light auto at sunset"
+  description: "Let the robot manage its night light automatically after dark."
+  triggers:
+    - trigger: sun
+      event: sunset
+  actions:
+    - action: select.select_option
+      target:
+        entity_id: select.litter_robot_4_night_light
+      data:
+        option: "auto"

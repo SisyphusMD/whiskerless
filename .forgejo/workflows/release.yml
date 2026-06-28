@@ -1,0 +1,123 @@
+name: Release
+
+# Cut a release from main: pick the bump in the Forgejo UI. This advances the
+# CHANGELOG, bumps every version string, runs the test gate, then commits + tags.
+# The tag triggers publish.yml (PyPI + Linux binary + the forgejo/nas/github
+# releases) and, on the GitHub mirror, the macOS .pkg job.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Cut release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse non-main dispatches
+        run: |
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "::error::Release must be dispatched from main; got '${{ github.ref_name }}'"
+            exit 1
+          fi
+
+      - name: Checkout (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "forgejo-actions[bot]"
+          git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
+
+      - name: Compute next version
+        id: ver
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          PREV_TAG=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1 || true)
+          CURRENT="${PREV_TAG#v}"; CURRENT="${CURRENT:-0.0.0}"
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+          case "$BUMP" in
+            patch) PATCH=$((PATCH + 1)) ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+          esac
+          NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${NEXT} (bump=${BUMP}, previous=${PREV_TAG:-none})"
+
+      - name: Sanity guards
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          grep -qE '^## \[Unreleased\]' CHANGELOG.md || { echo "::error::Missing '## [Unreleased]'"; exit 1; }
+          ! grep -qE "^## \[${VERSION}\]" CHANGELOG.md || { echo "::error::CHANGELOG already has [${VERSION}]"; exit 1; }
+          ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || { echo "::error::Tag ${TAG} exists"; exit 1; }
+
+      - name: Promote [Unreleased] in CHANGELOG
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%d)
+          awk -v ver="$VERSION" -v date="$DATE" '
+            /^## \[Unreleased\]/ {
+              print "## [Unreleased]"; print ""; print "## [" ver "] - " date; next
+            }
+            { print }
+          ' CHANGELOG.md > CHANGELOG.md.new
+          mv CHANGELOG.md.new CHANGELOG.md
+
+      - name: Bump version strings
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          V='[0-9]+\.[0-9]+\.[0-9]+'
+          sed -i -E "s/^version = \"$V\"/version = \"$VERSION\"/" pyproject.toml
+          sed -i -E "s/^__version__ = \"$V\"/__version__ = \"$VERSION\"/" src/whiskerless/__init__.py
+          sed -i -E "s/\"version\": \"$V\"/\"version\": \"$VERSION\"/" custom_components/whiskerless/manifest.json
+          sed -i -E "s/\"whiskerless==$V\"/\"whiskerless==$VERSION\"/" custom_components/whiskerless/manifest.json
+          git --no-pager diff
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test gate
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,ble]"
+          ruff check src custom_components tests
+          mypy
+          pytest -q
+
+      - name: Commit, tag, push
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+        run: |
+          set -euo pipefail
+          git add CHANGELOG.md pyproject.toml src/whiskerless/__init__.py custom_components/whiskerless/manifest.json
+          git commit -m "release: ${VERSION}"
+          git tag "${TAG}"
+          AUTH_B64=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
+          git -c "http.extraheader=Authorization: Basic ${AUTH_B64}" push origin "HEAD:${{ github.ref_name }}"
+          git -c "http.extraheader=Authorization: Basic ${AUTH_B64}" push origin "${TAG}"
