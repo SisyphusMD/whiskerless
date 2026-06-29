@@ -30,7 +30,6 @@
       "panel_wake_time": { "default": "mdi:weather-sunny" }
     },
     "button": {
-      "start_clean_cycle": { "default": "mdi:broom" },
       "refresh": { "default": "mdi:refresh" }
     }
   }

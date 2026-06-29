@@ -39,8 +39,10 @@ async def test_entity_states(
     assert state.state == expected
 
 
-async def test_clean_cycle_button_exists(
+async def test_clean_cycle_button_absent(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
+    # The cleanCycle trigger was never recovered (the old 0xA3 guess resets the
+    # robot), so no clean-cycle button is exposed.
     await setup_integration(hass, mock_config_entry, state_payload)
-    assert hass.states.get("button.litter_robot_4_start_clean_cycle") is not None
+    assert hass.states.get("button.litter_robot_4_start_clean_cycle") is None

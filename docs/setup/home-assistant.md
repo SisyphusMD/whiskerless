@@ -84,28 +84,16 @@ work the same way; each becomes its own device.
 - **Clean cycle wait time** (select)
 - **Control lock**, **Panel sleep mode**, **Weekday sleep schedule** (switches)
 - **Panel sleep time** / **Panel wake time** (time entities)
-- **Start clean cycle** (button)
 
 Settings writes are verified by reading them back, and the schedule times retry
 automatically (the robot commits those with a little latency).
 
-> **The clean-cycle button drives the motor.** Pressing it starts a real cycle.
-> On a dashboard you can add a confirmation prompt to the button card:
->
-> ```yaml
-> type: button
-> entity: button.litter_robot_4_start_clean_cycle
-> tap_action:
->   action: toggle
->   confirmation:
->     text: Start a clean cycle?
-> ```
-
 ## What's *not* exposed
 
-Power on/off, the empty cycle, and the panel/drawer resets aren't included —
-their exact commands couldn't be verified safely from the firmware, so they're
-intentionally left out rather than shipped as risky guesses. See
+There are **no action buttons** (clean cycle, empty cycle, power, resets). Their
+exact commands couldn't be verified safely from the firmware — the byte once mapped
+to "clean cycle" was proven on a live robot to reset the unit, not run a cycle — so
+they're intentionally left out rather than shipped as risky guesses. See
 [../devices/litter-robot-4/compatibility.md](../devices/litter-robot-4/compatibility.md).
 
 ## Troubleshooting

@@ -17,18 +17,6 @@ for the register meanings.
 | Versions | `0x02AE0000` | ESP / PIC / laser-board firmware |
 | Read a register | `0x01RR0000` | echoes `0xRRVVVV` |
 
-## Clean cycle (motor — gated)
-
-| Action | Code | Notes |
-|---|---|---|
-| Clean cycle | `0x02A30000` | Runs a real clean cycle. The only motor command. |
-
-This is the single command that moves the globe. whiskerless requires an explicit
-opt-in to send it (`allow_motor=True`), and the CLI/Home-Assistant button gate it
-behind a confirmation. The robot's pinch / cat-detect / bonnet interlocks live in
-its own controller and **cannot** be defeated by a command — the worst realistic
-case is a mistimed cycle, not a hazard.
-
 ## Settings (safe, reversible)
 
 All validated by a live read-modify-restore sweep; encodings are PROVEN.
@@ -52,10 +40,12 @@ a slight delay).
 whiskerless classifies every command before it can reach the wire
 ([`safety.py`](../../../src/whiskerless/safety.py)):
 
-- **Never send (refused unconditionally):** `0xAC` (main-board flash), `0xA4`
-  (globe-motor OTA), `0xAD` (hardware reset). No flag lets these through — they can
-  brick a controller.
-- **Motor (opt-in required):** the clean cycle.
+- **Never send (refused unconditionally):** `0xA3` (reset / main-board-OTA
+  orchestrator — proven to reboot the robot), `0xA4` (globe-motor OTA), `0xAC`
+  (main-board flash), `0xAD` (hardware reset). No flag lets these through — they can
+  reset or brick a controller.
+- **Motor (opt-in required):** none currently. No opcode is yet proven to drive the
+  globe; the gate stays in the guard for a future, confirmed cleanCycle trigger.
 - **Dangerous (override required):** any untraced opcode, control-band register,
   or calibration register. The generic write has no firmware whitelist, so anything
   unrecognised defaults to "refuse unless you really mean it".
@@ -63,14 +53,17 @@ whiskerless classifies every command before it can reach the wire
 
 ## What's deliberately *not* here
 
-Power on/off, the empty cycle, and the panel/drawer/scale resets are **not
-exposed**. We could not pin their exact register+value to safe, proven confidence:
-the part of the robot's controller firmware that handles those inbound commands is
-**physically absent** from the public firmware image, and the candidate registers
-recovered by analysis are unproven and contradict each other (three different
-registers were proposed for "power" alone). Shipping them as guesses would mean
-blind writes into the dangerous control band.
+The clean cycle, power on/off, the empty cycle, and the panel/drawer/scale resets
+are **not exposed**. We could not pin their exact register+value to safe, proven
+confidence: the part of the controller firmware that dispatches those inbound
+commands lives in a bootloader region **physically absent** from every public OTA
+image, and the candidate registers recovered by analysis are unproven and contradict
+each other (three different registers were proposed for "power" alone). The byte once
+shipped as the clean cycle, `0x02A30000`, was proven on a live robot to **reset** the
+unit, not run a cycle — so it's now refused, not exposed.
 
 So they're left out — on purpose — rather than shipped unsafe. There's a clean,
 **zero-risk** way to crack them (capture what the Whisker app actually sends) and a
-[contribution path](compatibility.md#open-items) to do it. Help welcome.
+[contribution path](compatibility.md#open-items) to do it; see the
+[reverse-engineering writeup](../../reverse-engineering.md#the-action-commands-why-theyre-still-missing)
+for the full hunt. Help welcome.

@@ -72,7 +72,6 @@
       "panel_wake_time": { "name": "Panel wake time" }
     },
     "button": {
-      "start_clean_cycle": { "name": "Start clean cycle" },
       "refresh": { "name": "Refresh" }
     }
   },

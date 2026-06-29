@@ -44,7 +44,7 @@ class Opcode(IntEnum):
 
     REQUEST_STATE = 0xA0       # full named state doc → /state (READ-only)   PROVEN
     REPORT_SCHEDULE = 0xA1     # sleep/wake schedule + wifiRssi → /activity   PROVEN
-    CLEAN_CYCLE = 0xA3         # real motor clean cycle on fw 1.1.75          PROVEN (MOTOR)
+    RESET_MB_OTA = 0xA3        # reset / main-board-OTA orchestrator — live: reboots or no-ops   NEVER
     GLOBE_MOTOR_OTA = 0xA4     # globe-motor OTA stager — BRICK RISK          NEVER
     REPORT_WIFI_EVENT = 0xA7   # wifi-event report → /activity (value 0 only) PROVEN
     REPORT_TOF = 0xA9          # ToF / sensor burst → /activity (READ-only)   PROVEN

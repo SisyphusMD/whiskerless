@@ -1,9 +1,9 @@
 """whiskerless command-line interface.
 
 A friendly front-end over the library: re-provision a robot onto your broker,
-watch its telemetry, read/decode its state, change settings (with read-back
-verify), and run a confirmation-gated clean cycle. Every send goes through the
-safety guard, so the CLI cannot fire a brick/reset-class command.
+watch its telemetry, read/decode its state, and change settings (with read-back
+verify). Every send goes through the safety guard, so the CLI cannot fire a
+brick/reset-class command.
 """
 
 from __future__ import annotations
@@ -97,19 +97,6 @@ async def _cmd_set(args: argparse.Namespace) -> int:
         return 0
     print(f"{args.setting}: write not confirmed after {args.retries} tries", file=sys.stderr)
     return 1
-
-
-async def _cmd_clean_cycle(args: argparse.Namespace) -> int:
-    if not args.yes and not _confirm(
-        "Run a CLEAN CYCLE? The globe will rotate — make sure it is in a normal "
-        "position and no cat is inside. Type 'yes': "
-    ):
-        print("aborted", file=sys.stderr)
-        return 1
-    async with _link(args) as link:
-        await link.publish(commands.clean_cycle(), allow_motor=True)
-    print("clean cycle started")
-    return 0
 
 
 async def _cmd_send(args: argparse.Namespace) -> int:
@@ -283,11 +270,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_set.add_argument("--retries", type=int, default=3)
     p_set.add_argument("--timeout", type=float, default=8.0)
     p_set.set_defaults(func=_cmd_set)
-
-    p_clean = sub.add_parser("clean-cycle", help="run a clean cycle (confirmation-gated motor)")
-    add_conn(p_clean)
-    p_clean.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
-    p_clean.set_defaults(func=_cmd_clean_cycle)
 
     p_send = sub.add_parser("send", help="send a raw 0xTTRRVVVV code (guarded by safety)")
     add_conn(p_send)

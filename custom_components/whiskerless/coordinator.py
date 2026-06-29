@@ -145,8 +145,8 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         await super().async_shutdown()
 
     # --- publishing (every send is guarded) ----------------------------------
-    async def _publish(self, command: Command, *, allow_motor: bool = False) -> None:
-        assert_sendable(command.code, allow_motor=allow_motor)
+    async def _publish(self, command: Command) -> None:
+        assert_sendable(command.code)
         await mqtt.async_publish(
             self.hass,
             command_topic(self.serial),
@@ -220,6 +220,3 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         await self._write_and_verify(
             commands.set_panel_wake_time(minutes), lambda s: s.panel_wake_time == minutes
         )
-
-    async def async_start_clean_cycle(self) -> None:
-        await self._publish(commands.clean_cycle(), allow_motor=True)

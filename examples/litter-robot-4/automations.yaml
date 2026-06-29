@@ -20,32 +20,6 @@
         title: "Litter-Robot"
         message: "Waste drawer is {{ states('sensor.litter_robot_4_waste_drawer_level') }}% full — time to empty it."
 
-# --- Auto clean a few minutes after the cat leaves -------------------------
-# The robot already cycles on its own wait timer; this is an example of driving
-# it yourself. The Start clean cycle button moves the globe, so only fire it
-# when you're confident the box is empty.
-- alias: "Litter-Robot - clean shortly after the cat leaves"
-  description: "Run a clean cycle 4 minutes after the cat-detected sensor clears."
-  triggers:
-    - trigger: state
-      entity_id: binary_sensor.litter_robot_4_cat_detected
-      from: "on"
-      to: "off"
-      for:
-        minutes: 4
-  conditions:
-    # Don't start a cycle if a fault is present or the bonnet is off.
-    - condition: state
-      entity_id: binary_sensor.litter_robot_4_globe_motor_fault
-      state: "off"
-    - condition: state
-      entity_id: binary_sensor.litter_robot_4_bonnet_removed
-      state: "off"
-  actions:
-    - action: button.press
-      target:
-        entity_id: button.litter_robot_4_start_clean_cycle
-
 # --- Alert on a globe motor fault ------------------------------------------
 - alias: "Litter-Robot - globe motor fault"
   description: "Tell me immediately if the globe motor reports a fault."

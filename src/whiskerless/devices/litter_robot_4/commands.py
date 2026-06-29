@@ -5,10 +5,13 @@ safety :class:`~whiskerless.safety.Hazard`, and — for settings writes — the
 register/value to read back afterward (the firmware commits some writes with
 variable latency, so callers verify and retry; see ``protocol.write_setting``).
 
-Only PROVEN-safe actions are exposed. powerOn/powerOff/emptyCycle/shortResetPress
-are deliberately absent: reverse-engineering could not pin their register+value
-to actionable confidence, and the candidate writes land in the dangerous control
-band. They are tracked as open items in the docs, not shipped as guesses.
+No globe-driving actions are exposed. cleanCycle, powerOn/powerOff, emptyCycle, and
+shortResetPress are deliberately absent: the firmware's inbound-action dispatch lives
+in a bootloader partition missing from every public image, so their register+value
+could not be pinned to actionable confidence. The byte once shipped here as
+"cleanCycle" (``0x02A30000``) was proven on a live robot to RESET the unit, not run a
+cycle (see ``docs/reverse-engineering.md``). They are tracked as open items in the
+docs, not shipped as guesses.
 """
 
 from __future__ import annotations
@@ -60,12 +63,6 @@ def report_version() -> Command:
 def read_register(register: int) -> Command:
     """A type-1 read of any register (the safest possible operation)."""
     return _cmd(encode_read(register), f"read 0x{register:02X}", register=register)
-
-
-# --- motor (gated) -----------------------------------------------------------
-def clean_cycle() -> Command:
-    """Run a clean cycle. Drives the globe motor — gate behind confirmation."""
-    return _cmd(encode_write(const.Opcode.CLEAN_CYCLE, 0), "cleanCycle")
 
 
 # --- settings writes (SAFE, reversible, read-back-verified) ------------------

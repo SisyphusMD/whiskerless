@@ -24,11 +24,16 @@ from .exceptions import DangerousCommandError, MotorCommandError, NeverSendError
 #: Brick- or reset-class opcodes. Refused unconditionally — no override exists.
 #: 0xAC erases/writes main-board flash; 0xA4 stages a globe-motor-controller OTA
 #: (a near-miss in testing — it bailed only because a magic register check
-#: failed); 0xAD pulses the PIC reset line. All three can leave the robot dead.
-NEVER_SEND_OPCODES: frozenset[int] = frozenset({0xA4, 0xAC, 0xAD})
+#: failed); 0xAD pulses the PIC reset line; 0xA3 is the reset / main-board-OTA
+#: orchestrator — a live robot proved 0x02A30000 reboots it (it was long mislabeled
+#: "cleanCycle"). All four can reset or brick the robot.
+NEVER_SEND_OPCODES: frozenset[int] = frozenset({0xA3, 0xA4, 0xAC, 0xAD})
 
-#: Opcode that drives the globe motor (clean cycle). Allowed only with opt-in.
-MOTOR_OPCODES: frozenset[int] = frozenset({0xA3})
+#: Opcodes that drive the globe motor (clean / empty cycle). Intentionally empty:
+#: the real cleanCycle trigger lives in firmware we could not recover (see docs),
+#: and 0xA3 — the byte once assumed here — turned out to reset the robot (now in
+#: NEVER_SEND_OPCODES). The gate stays wired so a confirmed motor opcode slots in.
+MOTOR_OPCODES: frozenset[int] = frozenset()
 
 #: Report macros that are safe to send with a zero value (PROVEN live). A
 #: non-zero value on these indexes a firmware jump table, so it is treated as

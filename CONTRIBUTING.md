@@ -45,9 +45,12 @@ Some commands drive a motor, and a few can brick a control board. So **every
 outbound command is classified and gated by `src/whiskerless/safety.py`**, and
 both the CLI and the integration funnel through it.
 
-- `0xAC`, `0xA4`, `0xAD` (flash erase, globe-motor OTA, hardware reset) are
-  **refused unconditionally** — there is no override flag. Do not add one.
-- The clean cycle (`0xA3`) is the only motor command and requires `allow_motor`.
+- `0xA3`, `0xA4`, `0xAC`, `0xAD` (reset / main-board-OTA orchestrator, globe-motor
+  OTA, flash erase, hardware reset) are **refused unconditionally** — there is no
+  override flag. Do not add one.
+- No motor command is exposed: no opcode is yet proven to drive the globe (the old
+  `0xA3` guess turned out to reset the robot). The `MOTOR` / `allow_motor` gate stays
+  wired for a future, confirmed cleanCycle trigger.
 - Untraced / control-band / calibration writes are refused unless explicitly
   allowed.
 

@@ -10,15 +10,18 @@ non-settings opcode on *your* exact build.
 
 | Opcode | On 1.1.65 (static RE) | On 1.1.75 (live) |
 |---|---|---|
-| `0xA3` | main-board OTA orchestrator | **real clean cycle** |
+| `0xA3` | reset / main-board-OTA orchestrator | reset / no-op (NOT a clean cycle) |
 | `0xA0` `0xA1` `0xA7` `0xA9` `0xAE` | reports | reports (same) |
 | settings `0x05`–`0x2B` | settings | settings (same) |
 
-The lesson: the safe surface (reads, reports, settings) is consistent; the
-**action** opcodes are the ones that move between versions. whiskerless treats
-`0xA3` as a motor command and gates it accordingly. Check your firmware version
-with the version report (`0x02AE0000`, or the integration's *Refresh* + version
-sensors) before relying on any action opcode.
+`0xA3` was once read as the clean-cycle trigger and *looked* like one in passing —
+but a live capture proved `0x02A30000` **reboots** the robot (`odometerPowerCycles`
+ticks; `odometerCleanCycles` does not); the "cycle" seen was the automatic
+first-cycle-after-power-on. So `0xA3` is reset/OTA on both builds and whiskerless now
+refuses it (never-send). The lesson: the safe surface (reads, reports, settings) is
+consistent across versions; **action** opcodes inherited from the cloud verb map must
+be confirmed live before they're trusted. Check your firmware version with the
+version report (`0x02AE0000`, or the integration's *Refresh* + version sensors).
 
 ## Weekday schedule
 
@@ -38,20 +41,23 @@ correct the mapping.
 
 ## Open items
 
-Four discrete actions are **not yet exposed** because we couldn't pin their exact
+Five discrete actions are **not yet exposed** because we couldn't pin their exact
 register+value safely:
 
 | Action | Status |
 |---|---|
+| `cleanCycle` | unproven — the `0xA3` it was mapped to is a **reset** (live-proven), real trigger unknown |
 | `powerOn` / `powerOff` | unproven — three contradictory candidate registers |
 | `emptyCycle` | unproven — no cloud command string exists to cross-check |
 | `shortResetPress` (panel reset) | unproven — candidate register looks like a display command |
 | reset waste drawer | likely none — the pending-flag register is read-only |
 
-The handler for these lives in a part of the controller firmware that is
-**physically truncated out of the public image**, so static analysis can't recover
-them, and blind-probing the control band is exactly the kind of write the safety
-guard refuses.
+The dispatch for these lives in the main board's **bootloader region**, which is
+**absent from every public OTA image** (the OTA blobs are app-region only), so static
+analysis can't recover them, and blind-probing the control band is exactly the kind
+of write the safety guard refuses. The full hunt — including why no complete firmware
+dump exists publicly and what it would take to get one — is in the
+[reverse-engineering writeup](../../reverse-engineering.md#the-action-commands-why-theyre-still-missing).
 
 ### The zero-risk way to crack them
 

@@ -122,20 +122,19 @@ whiskerless state --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
 
 # 4. Change a setting (writes, then reads back to confirm).
 whiskerless set night-light-mode auto --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
-
-# 5. Run a clean cycle (asks for confirmation first).
-whiskerless clean-cycle --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
 ```
 
 ## Safety first
 
-This library can put commands on the wire that drive a motor or, in the worst
-case, brick a control board. So it guards every send:
+This library talks straight to a robot's controller, and some opcodes can reset it
+or, in the worst case, brick a control board. So it guards every send:
 
-- **Three opcodes are refused unconditionally** (`0xAC`, `0xA4`, `0xAD` — flash
-  erase, globe-motor OTA, hardware reset). No flag lets them through.
-- The **clean cycle** (the only motor command) requires explicit opt-in and the
-  CLI/integration gate it behind a confirmation.
+- **Four opcodes are refused unconditionally** (`0xA3`, `0xA4`, `0xAC`, `0xAD` —
+  reset / main-board-OTA orchestrator, globe-motor OTA, flash erase, hardware reset).
+  No flag lets them through.
+- **No motor command is exposed.** No opcode is yet proven to drive the globe — the
+  byte once shipped as "clean cycle" turned out to *reset* the robot — so the motor
+  gate sits empty until a real trigger is confirmed.
 - **Untraced / control-band / calibration writes** are refused unless you
   override them on purpose.
 
@@ -144,13 +143,15 @@ the integration funnel through it — see [`docs/devices/litter-robot-4/`](docs/
 
 ## What's *not* here
 
-Power on/off, the empty cycle, and the panel/drawer resets are **deliberately
-omitted**. Reverse-engineering could not pin their exact register+value to safe,
-actionable confidence (the relevant firmware partition is physically absent from
-the public image and the candidates are unproven and contradictory). Shipping
-them as guesses would risk dangerous control-band writes. They're tracked as open
-items with a clear path to close them — see
-[`docs/devices/litter-robot-4/compatibility.md`](docs/devices/litter-robot-4/compatibility.md)
+The clean cycle, power on/off, the empty cycle, and the panel/drawer resets are
+**deliberately omitted**. Reverse-engineering could not pin their exact
+register+value to safe, actionable confidence — the firmware that dispatches those
+inbound actions lives in a bootloader region absent from every public image, and the
+byte once shipped as "clean cycle" was proven on a live robot to reset the unit, not
+cycle it. Shipping the candidates as guesses would risk dangerous control-band
+writes. They're tracked as open items with a clear path to close them — see the
+[reverse-engineering writeup](docs/reverse-engineering.md#the-action-commands-why-theyre-still-missing),
+[`docs/devices/litter-robot-4/compatibility.md`](docs/devices/litter-robot-4/compatibility.md),
 and the issue templates. Contributions welcome.
 
 ## Repository layout

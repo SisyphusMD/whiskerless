@@ -1,8 +1,9 @@
 """Button platform for Whiskerless.
 
-Only PROVEN-safe actions: the clean cycle (the single validated motor command)
-and a manual state refresh. Power / empty / reset are deliberately absent — see
-the docs for why they are not yet exposed.
+Only a manual state refresh for now. The action buttons (clean / empty cycle,
+power, resets) are absent: their firmware triggers were never recovered — the byte
+once shipped as "cleanCycle" was proven to reset the robot — so none are exposed
+until a real one is confirmed. See the docs for the hunt and how to help.
 """
 
 from __future__ import annotations
@@ -30,11 +31,6 @@ class WhiskerlessButtonEntityDescription(ButtonEntityDescription):
 
 
 BUTTONS: tuple[WhiskerlessButtonEntityDescription, ...] = (
-    WhiskerlessButtonEntityDescription(
-        key="start_clean_cycle",
-        translation_key="start_clean_cycle",
-        press_fn=lambda coordinator: coordinator.async_start_clean_cycle(),
-    ),
     WhiskerlessButtonEntityDescription(
         key="refresh",
         translation_key="refresh",

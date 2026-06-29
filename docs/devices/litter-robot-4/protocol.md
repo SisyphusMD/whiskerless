@@ -67,7 +67,7 @@ The robot's network brain exposes exactly two things:
 |---|---|---|---|
 | `0xA0` | requestState | builds the full state document → `state` | safe (read-only) |
 | `0xA1` | schedule / RSSI report | sleep-wake schedule + `wifiRssi` → `activity` | safe |
-| `0xA3` | clean cycle | runs a real clean cycle (fw 1.1.75) | **motor** — gated |
+| `0xA3` | reset / MB-OTA | reboots the robot or no-ops — **not** a clean cycle (live-proven) | **never send** |
 | `0xA4` | globe-motor OTA | stages a motor-controller firmware flash | **never send** |
 | `0xA7` | wifi-event report | wifi event → `activity` (send value `0`) | safe (value 0) |
 | `0xA9` | ToF / sensor read | distance + crosstalk burst → `activity` | safe (read-only) |

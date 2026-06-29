@@ -270,12 +270,6 @@ class LitterRobot4Client:
             lambda s: s.panel_wake_time == minutes_since_midnight,
         )
 
-    async def async_start_clean_cycle(self) -> None:
-        link = self._link
-        if link is None:
-            raise WhiskerlessConnectionError(f"not connected to {self.host}")
-        await link.publish(commands.clean_cycle(), allow_motor=True)
-
     async def async_refresh(self) -> None:
         await self.async_get_robot()
 

@@ -12,11 +12,6 @@ def test_request_state() -> None:
     assert cmd.hazard is Hazard.SAFE
 
 
-def test_clean_cycle_is_motor() -> None:
-    assert commands.clean_cycle().code == "0x02A30000"
-    assert commands.clean_cycle().hazard is Hazard.MOTOR
-
-
 def test_settings_carry_register_and_value() -> None:
     cmd = commands.set_night_light_mode(2)
     assert cmd.code == "0x02180002"
