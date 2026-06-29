@@ -14,19 +14,13 @@ permissions:
 
 jobs:
   build:
-    name: Build signed pkg (${{ matrix.arch }})
+    name: Build signed pkg (arm64)
     # Forgejo Actions also reads .github/workflows, but has no macOS runner — so
     # only run on GitHub (server_url is the Forgejo instance URL on Forgejo).
+    # Apple Silicon only: GitHub's Intel (macos-13) runners are deprecated and
+    # queue indefinitely. Intel-Mac users can use `uvx whiskerless` / `pipx`.
     if: ${{ github.server_url == 'https://github.com' }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            arch: arm64
-          - os: macos-13
-            arch: x86_64
+    runs-on: macos-14
     env:
       APP_CERT_P12: ${{ secrets.MACOS_APP_CERT_P12 }}
       INSTALLER_CERT_P12: ${{ secrets.MACOS_INSTALLER_CERT_P12 }}
@@ -61,7 +55,7 @@ jobs:
       - name: Sign, package, notarize, staple
         run: |
           set -euo pipefail
-          PKG="whiskerless-macos-${{ matrix.arch }}.pkg"
+          PKG="whiskerless-macos-arm64.pkg"
           codesign --force --options runtime --timestamp \
             --entitlements packaging/entitlements.plist --sign "$APP_IDENTITY" dist/whiskerless
           mkdir -p root/usr/local/bin
@@ -75,8 +69,8 @@ jobs:
           xcrun stapler staple "$PKG"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: pkg-${{ matrix.arch }}
-          path: whiskerless-macos-${{ matrix.arch }}.pkg
+          name: pkg-arm64
+          path: whiskerless-macos-arm64.pkg
 
   publish:
     name: Append the signed .pkg to the GitHub + Forgejo releases

@@ -67,8 +67,9 @@ build for your OS from the releases page —
 [Forgejo (primary)](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases)
 or [GitHub (mirror)](https://github.com/SisyphusMD/whiskerless/releases):
 
-- **macOS** — download the **signed installer** (`whiskerless-macos-arm64.pkg` or
-  `-x86_64.pkg`), double-click to install, then run it in any terminal:
+- **macOS (Apple Silicon)** — download the **signed installer**
+  (`whiskerless-macos-arm64.pkg`), double-click to install, then run it in any
+  terminal:
 
   ```bash
   whiskerless provision      # prompts for everything
@@ -76,7 +77,9 @@ or [GitHub (mirror)](https://github.com/SisyphusMD/whiskerless/releases):
 
   It's signed and **notarized by Apple**, so there's no "unidentified developer"
   warning. The first time it scans, macOS asks to let your terminal use
-  Bluetooth — allow it.
+  Bluetooth — allow it. To update later, just download the newer `.pkg` and
+  double-click — it installs over the old one in place.
+  *(Intel Macs: use the PyPI CLI below — `uvx whiskerless provision`.)*
 
 - **Linux** — download `whiskerless-linux-x86_64` and run it:
 
@@ -84,6 +87,16 @@ or [GitHub (mirror)](https://github.com/SisyphusMD/whiskerless/releases):
   chmod +x ./whiskerless-linux-x86_64
   ./whiskerless-linux-x86_64 provision
   ```
+
+- **Windows** — no standalone binary, but the PyPI CLI works **natively** —
+  `bleak` drives Windows' built-in Bluetooth:
+
+  ```powershell
+  uvx whiskerless provision
+  ```
+
+  (Don't run the Linux binary under WSL: WSL can't reach the Bluetooth adapter,
+  so provisioning won't work there.)
 
 Prefer not to install anything? `uvx whiskerless provision` runs it one-shot.
 

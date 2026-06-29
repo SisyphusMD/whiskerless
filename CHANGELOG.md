@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The macOS installer is **Apple Silicon only** (`whiskerless-macos-arm64.pkg`) —
+  GitHub's Intel runners are deprecated. Intel-Mac and Windows users run the
+  cross-platform PyPI CLI (`uvx whiskerless`); `bleak` drives Bluetooth natively
+  on both.
+
 ## [0.1.0] - 2026-06-29
 
 ### Added
