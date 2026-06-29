@@ -22,7 +22,7 @@ from .exceptions import (
 from .mqtt import MqttSettings
 from .safety import Hazard, assert_sendable, classify_code
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "DangerousCommandError",

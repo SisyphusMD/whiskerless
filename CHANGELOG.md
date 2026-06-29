@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-29
+
 ### Fixed
 
 - The signed macOS installer (Apple Silicon + Intel) now builds and ships;
