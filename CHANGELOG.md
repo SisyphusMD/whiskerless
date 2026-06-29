@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-29
+
 ### Added
 
 - **`whiskerless` Python library** — fully-local MQTT control + telemetry for the
