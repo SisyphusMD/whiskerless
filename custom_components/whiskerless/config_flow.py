@@ -39,7 +39,10 @@ class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
         if serial is None:
             return self.async_abort(reason="invalid_discovery_info")
         await self.async_set_unique_id(serial)
-        self._abort_if_unique_id_configured()
+        # The robot's own state messages re-trigger this discovery; abort without
+        # reloading (the default would reload the entry on every state message,
+        # since the discovery carries no connection info to act on).
+        self._abort_if_unique_id_configured(reload_on_update=False)
         self._serial = serial
         self.context["title_placeholders"] = {"name": f"Litter-Robot 4 ({serial})"}
         return await self.async_step_discovery_confirm()
