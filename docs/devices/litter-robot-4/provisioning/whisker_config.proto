@@ -1,0 +1,106 @@
+// whisker_config.proto
+//
+// Reconstructed from the Litter-Robot 4 ESP firmware (ESP_1_1_65_OTA.bin,
+// component whisker_provisioning, proto-c/whisker.pb-c.c). This is the BLE
+// protocomm endpoint "whisker-config": get/set the device id (serial) and
+// reboot the device.
+//
+// PROVENANCE: every field NUMBER, label, wire-type, and enum value below was
+// byte-verified from the protobuf-c descriptor tables in the firmware image
+// (DROM segment, load base 0x3f400000). Field/enum NAMES are the exact strings
+// from the binary. proto3 implicit-presence (all fields PROTOBUF_C_LABEL_NONE).
+
+syntax = "proto3";
+
+package whisker.config;
+
+// ---- enums (byte-verified) -------------------------------------------------
+
+// Discriminator carried in WhiskerConfigPayload.msg. The firmware advertises
+// DEVICE_REBOOT in the enum even though no dedicated reboot-request *message*
+// fields exist (the reboot messages are empty markers).
+enum WhiskerConfigMsgType {
+  UNKNOWN_CONFIG_TYPE    = 0;
+  DEVICE_ID_REQUEST      = 1;
+  DEVICE_ID_RESPONSE     = 2;
+  DEVICE_REBOOT_REQUEST  = 3;
+  DEVICE_REBOOT_RESPONSE = 4;
+  DEVICE_ID_SET_REQUEST  = 5;
+  DEVICE_ID_SET_RESPONSE = 6;
+}
+
+// Stock esp-idf protocomm status (constants.proto). Mirrored here so this file
+// compiles standalone; values byte-verified against the firmware Status enum.
+enum Status {
+  Success          = 0;
+  InvalidSecScheme = 1;
+  InvalidProto     = 2;
+  TooManySessions  = 3;
+  InvalidArgument  = 4;
+  InternalError    = 5;
+  CryptoError      = 6;
+  InvalidSession   = 7;
+}
+
+// ---- messages (byte-verified field numbers) --------------------------------
+
+// DEVICE_ID get request. Empty in firmware (n_fields=0).
+message WhiskerDeviceRequest {
+}
+
+// DEVICE_ID get response. device_id is `bytes` in the firmware descriptor
+// (the get path returns the serial as raw bytes).
+message WhiskerDeviceResponse {
+  bytes device_id = 1;   // byte-verified
+}
+
+// DEVICE_REBOOT request. Empty marker (n_fields=0).
+message WhiskerDeviceRebootRequest {
+}
+
+// DEVICE_REBOOT response. Empty marker (n_fields=0).
+message WhiskerDeviceRebootResponse {
+}
+
+// DEVICE_ID_SET request. device_id is `string` here (set path takes text).
+message WhiskerDeviceSetIdRequest {
+  string device_id = 1;   // byte-verified
+}
+
+// DEVICE_ID_SET response. Empty in firmware; outcome via payload.status.
+message WhiskerDeviceSetIdResponse {
+}
+
+// Top-level wrapper for the "whisker-config" endpoint. Field numbers
+// byte-verified (msg=1, status=2, oneof arms 10..15).
+message WhiskerConfigPayload {
+  WhiskerConfigMsgType msg = 1;   // byte-verified
+  Status status            = 2;   // byte-verified  (set on responses)
+  oneof payload {
+    WhiskerDeviceRequest        whisker_device_request        = 10;  // byte-verified
+    WhiskerDeviceResponse       whisker_device_response       = 11;  // byte-verified
+    WhiskerDeviceRebootRequest  whisker_reboot_request        = 12;  // byte-verified
+    WhiskerDeviceRebootResponse whisker_reboot_response       = 13;  // byte-verified
+    WhiskerDeviceSetIdRequest   whisker_device_set_id_request = 14;  // byte-verified
+    WhiskerDeviceSetIdResponse  whisker_device_set_id_response = 15; // byte-verified
+  }
+}
+
+// ============================================================================
+// Standard esp-idf protocomm endpoints also exposed by this device (NOT redefined
+// here to avoid type collisions). These are STOCK upstream protos: the firmware
+// descriptors were decoded and their field numbers / enum values match esp-idf
+// unmodified, so use the upstream .proto files verbatim with esp_prov.py:
+//
+//   "prov-session"  session.proto    (security0 = Sec0; Sec0Payload/SessionData)
+//   "prov-scan"     wifi_scan.proto  (WiFiScanPayload, WiFiScanMsgType 0..5)
+//   "prov-config"   wifi_config.proto(WiFiConfigPayload, WiFiConfigMsgType 0..5)
+//   "proto-ver"     plain version string/JSON (not protobuf)
+//
+// Byte-verified upstream enum values present in this firmware (for reference):
+//   WiFiConfigMsgType: TypeCmdGetStatus=0 TypeRespGetStatus=1 TypeCmdSetConfig=2
+//                      TypeRespSetConfig=3 TypeCmdApplyConfig=4 TypeRespApplyConfig=5
+//   WiFiScanMsgType:   TypeCmdScanStart=0 TypeRespScanStart=1 TypeCmdScanStatus=2
+//                      TypeRespScanStatus=3 TypeCmdScanResult=4 TypeRespScanResult=5
+//   CmdSetConfig fields: bytes ssid=1, bytes passphrase=2, bytes bssid=3, int32 channel=4
+// ============================================================================

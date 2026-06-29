@@ -1,0 +1,125 @@
+// whisker_mqtt_config.proto
+//
+// Reconstructed from the Litter-Robot 4 ESP firmware (ESP_1_1_65_OTA.bin,
+// component whisker_provisioning, proto-c/mqtt.pb-c.c). This is the BLE
+// protocomm endpoint "mqtt-config" used to re-provision the AWS-IoT / MQTT
+// trust + endpoint configuration over GATT.
+//
+// PROVENANCE: every field NUMBER, label, wire-type, and enum value below was
+// byte-verified by decoding the protobuf-c ProtobufCMessageDescriptor /
+// ProtobufCFieldDescriptor / ProtobufCEnumDescriptor tables in the firmware
+// image (DROM segment, load base 0x3f400000). Field NAMES and enum NAMES are
+// the exact strings from the binary. Nothing here is guessed.
+//
+// protobuf-c emits proto2-style descriptors but every field has
+// PROTOBUF_C_LABEL_NONE (3), i.e. proto3 implicit-presence semantics, so this
+// is expressed as proto3. The handler reads `msg` to dispatch and fills the
+// matching oneof arm; `status` is only set on responses.
+
+syntax = "proto3";
+
+package whisker.mqtt;
+
+// ---- enums (byte-verified) -------------------------------------------------
+
+// Discriminator carried in MqttConfigPayload.msg.
+enum MqttConfigMsgType {
+  CERT_WRITE_REQUEST      = 0;
+  CERT_WRITE_RESPONSE     = 1;
+  ENDPOINT_WRITE_REQUEST  = 2;
+  ENDPOINT_WRITE_RESPONSE = 3;
+  APPLY_CONFIG_REQUEST    = 4;
+  APPLY_CONFIG_RESPONSE   = 5;
+}
+
+// Which provisioned credential a CERT_WRITE targets.
+// CERT_AWS_ROOT_CERT is the server-trust root CA -> provision OUR CA here so the
+// robot trusts our local mosquitto broker.
+enum CertificateType {
+  CERT_UNKNOWN_TYPE  = 0;
+  CERT_AWS_ROOT_CERT = 1;
+  CERT_DEVICE_CERT   = 2;
+  CERT_DEVICE_KEY    = 3;
+}
+
+// Which endpoint string an ENDPOINT_WRITE targets.
+// ENDPOINT_HOST is the broker hostname (TLS SNI / mbedtls_ssl_set_hostname
+// verify target). CLOUD/DEVICE endpoints are the MQTT topics (see CONTRACT.md
+// for the sub-vs-pub interpretation, which is inferred, not byte-proven).
+enum EndpointType {
+  ENDPOINT_UNKNOWN_ENDPOINT = 0;
+  ENDPOINT_CLOUD_ENDPOINT   = 1;
+  ENDPOINT_DEVICE_ENDPOINT  = 2;
+  ENDPOINT_HOST             = 3;
+}
+
+// Stock esp-idf protocomm status (constants.proto). Mirrored here so this file
+// compiles standalone; values byte-verified against the firmware Status enum.
+enum Status {
+  Success          = 0;
+  InvalidSecScheme = 1;
+  InvalidProto     = 2;
+  TooManySessions  = 3;
+  InvalidArgument  = 4;
+  InternalError    = 5;
+  CryptoError      = 6;
+  InvalidSession   = 7;
+}
+
+// ---- messages (byte-verified field numbers) --------------------------------
+
+// CERT_WRITE request. Chunked: a single credential larger than the BLE MTU is
+// written across multiple requests. `key` carries the chunk bytes (PEM/DER),
+// `total_size` the full credential length, `offset` this chunk's start, `size`
+// this chunk's length. The device reassembles by offset and commits to NVS
+// namespace "mqtt" on APPLY_CONFIG.
+//
+// NOTE: the chunk-payload field is named "key" and typed `string` in the
+// firmware descriptor (not "payload"/"data", and not `bytes`). PEM text is
+// ASCII so `string` round-trips; for DER use the raw bytes verbatim.
+message MqttCertificateWriteRequest {
+  CertificateType type = 1;   // byte-verified
+  string key           = 2;   // byte-verified  (chunk bytes; PEM/DER text)
+  int32 total_size     = 3;   // byte-verified  (full credential size)
+  int32 offset         = 4;   // byte-verified  (this chunk's offset)
+  int32 size           = 5;   // byte-verified  (this chunk's length)
+}
+
+// CERT_WRITE response. Empty in firmware (n_fields=0); outcome is conveyed by
+// MqttConfigPayload.status on the response payload.
+message MqttCertificateWriteResponse {
+}
+
+// ENDPOINT_WRITE request. `topic` holds the string value for the selected
+// EndpointType (hostname for ENDPOINT_HOST; topic for CLOUD/DEVICE).
+message MqttEndpointWriteRequest {
+  EndpointType type = 1;   // byte-verified
+  string topic      = 2;   // byte-verified  (the endpoint/host string value)
+}
+
+// ENDPOINT_WRITE response. Empty in firmware; outcome via payload.status.
+message MqttEndpointWriteResponse {
+}
+
+// APPLY_CONFIG request. Empty in firmware; commits staged certs+endpoints.
+message MqttApplyConfigRequest {
+}
+
+// APPLY_CONFIG response. Empty in firmware; outcome via payload.status.
+message MqttApplyConfigResponse {
+}
+
+// Top-level wrapper for the "mqtt-config" endpoint. Field numbers byte-verified
+// (msg=1, status=2, oneof arms 10..15).
+message MqttConfigPayload {
+  MqttConfigMsgType msg = 1;   // byte-verified  (dispatch discriminator)
+  Status status         = 2;   // byte-verified  (set on responses)
+  oneof payload {
+    MqttCertificateWriteRequest  certificate_write_request  = 10;  // byte-verified
+    MqttCertificateWriteResponse certificate_write_response = 11;  // byte-verified
+    MqttEndpointWriteRequest     endpoint_write_request     = 12;  // byte-verified
+    MqttEndpointWriteResponse    endpoint_write_response    = 13;  // byte-verified
+    MqttApplyConfigRequest       apply_config_request       = 14;  // byte-verified
+    MqttApplyConfigResponse      apply_config_response      = 15;  // byte-verified
+  }
+}
