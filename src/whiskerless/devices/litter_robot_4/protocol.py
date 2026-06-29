@@ -51,12 +51,18 @@ def build_command_payload(serial: str, *codes: str) -> str:
     return encode_command_payload(serial, list(codes))
 
 
-def parse_message(topic: str, payload: bytes | str) -> StateMessage | ActivityMessage | None:
+def parse_message(
+    topic: str, payload: bytes | bytearray | str
+) -> StateMessage | ActivityMessage | None:
     """Decode an inbound MQTT message, or ``None`` if it is not a robot event."""
     if topic.endswith("/command"):
         return None  # our own command echo
 
-    text = payload.decode("utf-8", "replace") if isinstance(payload, bytes) else payload
+    text = (
+        payload.decode("utf-8", "replace")
+        if isinstance(payload, (bytes, bytearray))
+        else payload
+    )
     try:
         body = json.loads(text)
     except (json.JSONDecodeError, ValueError):

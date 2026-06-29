@@ -1,0 +1,23 @@
+name: Validate (hassfest)
+
+# hassfest is a GitHub-ecosystem action that the Forgejo runner can't fetch (it
+# resolves actions from data.forgejo.org, which has no home-assistant/actions). So
+# it runs only on GitHub; the guard makes Forgejo skip the job — Forgejo reads
+# .github/workflows too, but evaluates the job `if` before fetching the action.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  hassfest:
+    name: hassfest (HA manifest validation)
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master

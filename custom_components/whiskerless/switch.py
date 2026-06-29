@@ -90,10 +90,10 @@ class WhiskerlessSwitch(WhiskerlessEntity, SwitchEntity):
 
     @exception_handler
     @override
-    async def async_turn_on(self, **kwargs: Any) -> None:
+    async def async_turn_on(self, /, **kwargs: Any) -> None:
         await self.entity_description.set_fn(self.coordinator, True)
 
     @exception_handler
     @override
-    async def async_turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(self, /, **kwargs: Any) -> None:
         await self.entity_description.set_fn(self.coordinator, False)

@@ -39,7 +39,7 @@ def exception_handler[EntityT: WhiskerlessEntity, **P](
 ) -> Callable[Concatenate[EntityT, P], Coroutine[Any, Any, None]]:
     """Translate a lib error from a command method into a HomeAssistantError."""
 
-    async def handler(self: EntityT, *args: P.args, **kwargs: P.kwargs) -> None:
+    async def handler(self: EntityT, /, *args: P.args, **kwargs: P.kwargs) -> None:
         try:
             await func(self, *args, **kwargs)
         except WhiskerlessError as error:

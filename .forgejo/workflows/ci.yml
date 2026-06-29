@@ -44,15 +44,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,test-ha]"
       - name: Mypy (integration, strict)
-        # The integration uses PEP 695 syntax (HA runs 3.13); override pyproject's
-        # 3.11 library pin so the type alias / generic defs parse.
-        run: mypy --strict --python-version 3.13 custom_components/whiskerless
+        # --python-version 3.13: the integration uses PEP 695 syntax (HA runs 3.13);
+        # override pyproject's 3.11 library pin so the type alias / generic defs parse.
+        # --namespace-packages --explicit-package-bases: check it as
+        # custom_components.whiskerless so `from whiskerless import …` resolves to the
+        # installed library, not the same-named integration package (matches runtime).
+        run: >-
+          mypy --strict --python-version 3.13 --namespace-packages
+          --explicit-package-bases custom_components/whiskerless
       - name: Pytest (integration)
         run: pytest tests/integration
-
-  hassfest:
-    name: hassfest (HA manifest validation)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: home-assistant/actions/hassfest@master
