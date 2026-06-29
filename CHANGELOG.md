@@ -8,9 +8,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- The signed macOS installer now builds on current runner images (`macos-15` +
-  `macos-15-intel`, Apple Silicon and Intel); `0.1.0` targeted the since-retired
-  `macos-13` image, so that release shipped without the macOS `.pkg`.
+- The signed macOS installer (Apple Silicon + Intel) now builds and ships;
+  `0.1.0` targeted the since-retired `macos-13` runner image, so that release
+  shipped without the macOS `.pkg`.
 
 ## [0.1.0] - 2026-06-29
 

@@ -23,10 +23,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
+          # macos-26 is GitHub's current beta image (not yet GA) — bleeding-edge by choice.
+          - os: macos-26
             arch: arm64
-          # macos-15-intel is the last free x86_64 macOS image (supported ~until 2027).
-          - os: macos-15-intel
+          # x86_64 macOS is being sunset by GitHub (~2027); macos-26-intel is the latest Intel image.
+          - os: macos-26-intel
             arch: x86_64
     env:
       APP_CERT_P12: ${{ secrets.MACOS_APP_CERT_P12 }}
