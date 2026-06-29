@@ -67,9 +67,9 @@ build for your OS from the releases page —
 [Forgejo (primary)](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases)
 or [GitHub (mirror)](https://github.com/SisyphusMD/whiskerless/releases):
 
-- **macOS (Apple Silicon)** — download the **signed installer**
-  (`whiskerless-macos-arm64.pkg`), double-click to install, then run it in any
-  terminal:
+- **macOS** — download the **signed installer** for your chip
+  (`whiskerless-macos-arm64.pkg` for Apple Silicon, `whiskerless-macos-x86_64.pkg`
+  for Intel), double-click to install, then run it in any terminal:
 
   ```bash
   whiskerless provision      # prompts for everything
@@ -79,7 +79,6 @@ or [GitHub (mirror)](https://github.com/SisyphusMD/whiskerless/releases):
   warning. The first time it scans, macOS asks to let your terminal use
   Bluetooth — allow it. To update later, just download the newer `.pkg` and
   double-click — it installs over the old one in place.
-  *(Intel Macs: use the PyPI CLI below — `uvx whiskerless provision`.)*
 
 - **Linux** — download `whiskerless-linux-x86_64` and run it:
 
