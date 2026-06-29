@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-29
+
 ### Removed
 
 - **The clean-cycle command** — the Home Assistant button, the CLI `clean-cycle`
