@@ -1,19 +1,39 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "gitAuthor": "Renovate Bot <renovate@users.noreply.github.com>",
+  "gitAuthor": "Renovate Bot <renovate@bryantserver.local>",
+  "assignees": ["cody"],
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
   "separateMinorPatch": true,
-  "enabledManagers": ["pep621", "github-actions", "pip_requirements"],
+  "fetchChangeLogs": "pr",
+  "enabledManagers": ["pep621", "github-actions"],
+  "github-actions": {
+    "managerFilePatterns": ["/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/"]
+  },
   "packageRules": [
     {
-      "description": "Automerge patch + digest bumps; minor/major reviewed manually.",
+      "description": "Major Updates",
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["major-update"]
+    },
+    {
+      "description": "Minor Updates",
+      "matchUpdateTypes": ["minor"],
+      "addLabels": ["minor-update"]
+    },
+    {
+      "description": "Patch Updates",
+      "matchUpdateTypes": ["patch"],
+      "addLabels": ["patch-update"]
+    },
+    {
+      "description": "Automerge patches and digests (keeps the pinned action SHAs fresh); minor/major reviewed manually.",
       "matchUpdateTypes": ["patch", "digest"],
       "automerge": true
     },
     {
-      "description": "Keep the integration's pinned lib requirement in lockstep manually.",
+      "description": "The integration's pinned lib requirement is bumped by the release workflow, not Renovate.",
       "matchFileNames": ["custom_components/whiskerless/manifest.json"],
       "enabled": false
     }
