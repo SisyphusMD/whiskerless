@@ -7,9 +7,9 @@ third-party servers. Your robot talks to *your* broker, and that's it.
 > **Primary repository**: developed at [forgejo.bryantserver.com/SisyphusMD/whiskerless](https://forgejo.bryantserver.com/SisyphusMD/whiskerless). The [GitHub copy](https://github.com/SisyphusMD/whiskerless) is a read-only mirror (HACS installs from it). **Please file issues and pull requests on [GitHub](https://github.com/SisyphusMD/whiskerless/issues)** — the Forgejo repository does not take external issues.
 
 > **Status: beta.** The local protocol was recovered by reverse-engineering and
-> validated against a real robot. Re-provisioning, telemetry, settings, and the
-> clean cycle are proven on hardware. A few discrete actions (power, empty,
-> resets) are intentionally left out — see [What's *not* here](#whats-not-here).
+> validated against a real robot. Re-provisioning, telemetry, and settings are
+> proven on hardware. The discrete actions (clean cycle, power, empty, resets)
+> are intentionally left out — see [What's *not* here](#whats-not-here).
 
 <!-- A screenshot/GIF of the Home Assistant device page goes here once captured. -->
 
@@ -44,7 +44,7 @@ The robot stores all of its cloud identity in NVS and exposes esp-idf
 **protocomm** provisioning over BLE with no PIN. whiskerless writes *your* CA into
 its root-CA slot and *your* broker IP as its host, then commits. From then on the
 robot connects to your broker over TLS and speaks plain JSON — `requestState`,
-settings writes, clean cycle, and a live telemetry stream. Full detail in
+settings writes, and a live telemetry stream. Full detail in
 [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## Install
@@ -69,10 +69,11 @@ or [GitHub (mirror)](https://github.com/SisyphusMD/whiskerless/releases):
 
 - **macOS** — download the **signed installer** for your chip
   (`whiskerless-macos-arm64.pkg` for Apple Silicon, `whiskerless-macos-x86_64.pkg`
-  for Intel), double-click to install, then run it in any terminal:
+  for Intel), double-click to install, then run it in any terminal — it prompts
+  for everything:
 
   ```bash
-  whiskerless provision      # prompts for everything
+  whiskerless provision
   ```
 
   It's signed and **notarized by Apple**, so there's no "unidentified developer"
@@ -101,26 +102,34 @@ Prefer not to install anything? `uvx whiskerless provision` runs it one-shot.
 
 ### CLI / library (PyPI)
 
-```bash
-uvx whiskerless provision         # one-shot, no install
-pipx install whiskerless          # CLI on your PATH
-pip install 'whiskerless[ble]'    # library + BLE re-provisioning
-```
+- One-shot, no install: `uvx whiskerless provision`
+- CLI on your PATH: `pipx install whiskerless`
+- Library + BLE re-provisioning: `pip install 'whiskerless[ble]'`
 
 ## Quickstart (CLI)
 
+Re-provision the robot onto your broker (one-time, over BLE; prompts for anything
+you omit — `--host-ip` is your broker's address):
+
 ```bash
-# 1. Re-provision the robot onto your broker (one-time, over BLE).
-#    Prompts for anything you omit; --host-ip is your broker's address.
 whiskerless provision --serial LR4Cxxxxxx --host-ip <broker-ip> --ca ca.crt --wifi-ssid MyIoT
+```
 
-# 2. Watch it.
+Watch it:
+
+```bash
 whiskerless monitor --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
+```
 
-# 3. Read its decoded state.
+Read its decoded state:
+
+```bash
 whiskerless state --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
+```
 
-# 4. Change a setting (writes, then reads back to confirm).
+Change a setting (writes, then reads back to confirm):
+
+```bash
 whiskerless set night-light-mode auto --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
 ```
 
