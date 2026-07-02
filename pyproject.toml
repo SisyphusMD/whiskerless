@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "whiskerless"
-version = "0.1.2"
+version = "0.1.3"
 description = "Un-cloud your Whisker devices — fully-local MQTT control + telemetry for the Litter-Robot 4."
 readme = "README.md"
 license = "MIT"

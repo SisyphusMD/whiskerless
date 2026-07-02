@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-02
+
 ### Added
 
 - **BLE provisioning now fails on non-LR4 devices.** The serial is validated up
