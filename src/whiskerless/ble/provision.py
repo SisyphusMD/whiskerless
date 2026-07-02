@@ -18,10 +18,15 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ..exceptions import ProvisioningError
 from . import messages as m
+from .messages import PROV_SERVICE_UUID
 from .transport import ProtocommBLE
+
+if TYPE_CHECKING:
+    from bleak import BleakClient
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +50,16 @@ class ProvisioningConfig:
     chunk_size: int | None = None
     reboot: bool = True
 
+    def __post_init__(self) -> None:
+        # The serial becomes the MQTT client-id and the topic segment, so it must
+        # be the LR4 form (labels print it uppercase; normalize typed input).
+        self.serial = self.serial.strip().upper()
+        if not self.serial.startswith("LR4"):
+            raise ProvisioningError(
+                f"serial {self.serial!r} is not a Litter-Robot 4 serial "
+                "(expected LR4…, e.g. LR4C123456) — this provisioner only supports the LR4"
+            )
+
     def resolved_command_topic(self) -> str:
         return self.command_topic or f"prod/LR4/{self.serial}/command"
 
@@ -62,11 +77,27 @@ class ProvisioningResult:
     message: str = ""
 
 
+def _assert_lr4(client: BleakClient) -> None:
+    """Refuse any connected device that lacks the LR4 provisioning GATT service.
+
+    Guards the ``--address`` path (which accepts an arbitrary BLE address) and any
+    other Whisker model: writing LR4 topics/config onto a different device is
+    never safe, so fail before touching an endpoint.
+    """
+    uuids = {service.uuid.lower() for service in client.services}
+    if PROV_SERVICE_UUID not in uuids:
+        raise ProvisioningError(
+            f"device at {client.address} does not expose the LR4 provisioning service "
+            f"({PROV_SERVICE_UUID}) — not a Litter-Robot 4; refusing to provision"
+        )
+
+
 async def read_device_mac(address: str, *, scan_timeout: float = 15.0) -> str | None:
     """Read-only preflight — connect and return the robot's 6-byte MAC."""
     from bleak import BleakClient  # lazy: bleak is the [ble] extra
 
     async with BleakClient(address) as client:
+        _assert_lr4(client)
         transport = ProtocommBLE(client)
         await transport.discover_endpoints()
         response = await transport.request(m.EP_WHISKER, m.whisker_device_id_request())
@@ -95,6 +126,7 @@ async def provision_robot(
             on_step(message)
 
     async with BleakClient(address) as client:
+        _assert_lr4(client)
         mtu = getattr(client, "mtu_size", 0) or 0
         chunk_size = config.chunk_size or max(64, mtu - 40)
         step(f"connected to {address} (MTU={mtu or '?'}, cert chunk={chunk_size})")

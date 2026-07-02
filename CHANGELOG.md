@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **BLE provisioning now fails on non-LR4 devices.** The serial is validated up
+  front (must be the `LR4…` form; normalized to the label's uppercase), and after
+  connecting the provisioner verifies the device exposes the LR4 provisioning
+  GATT service before writing anything — closing the `--address` path that
+  previously accepted an arbitrary BLE address.
+
 ## [0.1.2] - 2026-06-29
 
 ### Removed

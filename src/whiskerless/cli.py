@@ -115,25 +115,27 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
 
     from . import ble
 
-    serial = args.serial or input("robot serial (LR4Cxxxxxx): ").strip()
+    serial = args.serial or input("robot serial (LR4Cxxxxxx — on the robot's label / Whisker app): ").strip()
     host = args.host_ip or input("broker IP (e.g. 192.168.1.10): ").strip()
     ca_path = args.ca or input("path to your CA PEM: ").strip()
     ssid = args.wifi_ssid or input("WiFi SSID: ").strip()
     wifi_pass = args.wifi_pass if args.wifi_pass is not None else getpass.getpass(f"WiFi password for {ssid!r}: ")
 
     ca_pem = Path(ca_path).read_text(encoding="utf-8")
+    # Validates the serial (LR4-only) before the slow BLE scan.
+    config = ble.ProvisioningConfig(
+        serial=serial, host=host, ca_pem=ca_pem, wifi_ssid=ssid, wifi_pass=wifi_pass,
+    )
+
     robots = await ble.scan(timeout=args.scan_timeout, address=args.address)
     if not robots:
         print("no LR4 found advertising — press the robot's Connect button to enter pairing mode", file=sys.stderr)
         return 1
     target = _pick_robot(robots, args.address)
 
-    config = ble.ProvisioningConfig(
-        serial=serial, host=host, ca_pem=ca_pem, wifi_ssid=ssid, wifi_pass=wifi_pass,
-    )
     mac = await ble.read_device_mac(target.address)
     print(f"\n  RE-PROVISION robot at {target.address} (MAC {mac})\n"
-          f"    serial : {serial}\n    broker : {host}\n    wifi   : {ssid}\n"
+          f"    serial : {config.serial}\n    broker : {host}\n    wifi   : {ssid}\n"
           f"    reversible via the Whisker app\n")
     if not args.yes and not _confirm("Proceed? Type 'yes': "):
         print("aborted", file=sys.stderr)
