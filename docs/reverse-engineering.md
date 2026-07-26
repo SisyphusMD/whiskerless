@@ -85,12 +85,15 @@ shipping a reset disguised as a cycle.
 
 The motor and power logic runs on the main board's **PIC18F67K40**; the ESP just
 forwards each `0x02RRVVVV` over UART. Disassembling the largest public OTA image
-(`LR4_2910_0A00_0247`, 126 KB) recovers the inbound UART parser — but the action
-**dispatch** it calls funnels through a linker trampoline
-(`CALL 0x02536 → GOTO 0x1EC16`) into the top ~3.8 KB **bootloader** region
-(`0x1F0F6+`). That region is **factory-flashed and never shipped in an OTA image**,
-so the bytes that map cleanCycle / power / empty / reset to motor actions are
-physically absent from *every* public image. The candidate registers earlier passes
+(`LR4_2910_0A00_0247`, 126 KB) recovers the raw UART receive code — but not the
+command parser or action **dispatch** it feeds. That image is itself **truncated
+mid-application at `0x1EDB6`**: the receive fragments it contains have no in-image
+callers, and the loop that sequences the 7-byte frame, the register→action dispatch
+table, and the response-frame builder all sit above the cut — in the ~832-byte
+application tail (`0x1EDB6–0x1F0F6`) and the ~3.8 KB **bootloader** (`0x1F0F6+`, the
+reset-vector target), both **factory-flashed and never shipped in any OTA image**. So
+the bytes that map cleanCycle / power / empty / reset to motor actions are physically
+absent from *every* public image. The candidate registers earlier passes
 proposed are unproven and contradict each other (three different registers were
 floated for "power" alone) — exactly the dangerous control-band writes the safety
 guard refuses.
