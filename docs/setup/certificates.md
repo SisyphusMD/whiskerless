@@ -39,8 +39,18 @@ A long-lived CA (10 years here) so you don't have to revisit the robot often.
 openssl genrsa -out ca.key 2048
 openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 \
   -subj "/CN=whiskerless local CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
   -out ca.crt
 ```
+
+> The `keyUsage` extension matters: Python 3.13 turns on strict X.509
+> verification (`VERIFY_X509_STRICT`) by default, and a CA without it makes the
+> `whiskerless` CLI fail with `CA cert does not include key usage extension` —
+> even though the robot itself (mbedTLS) accepts the CA fine. If you already
+> provisioned a robot with a CA that lacks the extension, you don't have to
+> re-provision: run the CLI on Python 3.12 (`uvx --python 3.12 …`) or regenerate
+> the CA with the flags above when convenient.
 
 ## Generate the broker server cert (with IP SAN)
 

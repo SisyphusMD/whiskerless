@@ -73,10 +73,11 @@ subsequent reports.
 ## "Can I brick it?"
 
 Normal use can't. whiskerless classifies every command and **unconditionally
-refuses** the three brick/reset-class opcodes (main-board flash, globe-motor OTA,
-hardware reset) — there's no flag that lets them through. The single motor
-command (clean cycle) requires explicit opt-in and is confirmation-gated in the
-CLI and (via a card confirmation) in Home Assistant. Settings writes are all
+refuses** the brick/reset-class opcodes (reset / main-board OTA, globe-motor OTA,
+flash erase, hardware reset) — there's no flag that lets them through. No motor
+command ships at all: the discrete actions (clean cycle, power, empty, resets)
+are deliberately omitted until their opcodes are proven safe — see
+[What's *not* here](../README.md#whats-not-here). Settings writes are all
 reversible and verified by read-back. See
 [devices/litter-robot-4/commands.md](devices/litter-robot-4/commands.md) for the
 full safe-list / never-send breakdown.

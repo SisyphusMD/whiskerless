@@ -92,17 +92,19 @@ or [GitHub (mirror)](https://github.com/SisyphusMD/whiskerless/releases):
   `bleak` drives Windows' built-in Bluetooth:
 
   ```powershell
-  uvx whiskerless provision
+  uvx --from 'whiskerless[ble]' whiskerless provision
   ```
 
   (Don't run the Linux binary under WSL: WSL can't reach the Bluetooth adapter,
   so provisioning won't work there.)
 
-Prefer not to install anything? `uvx whiskerless provision` runs it one-shot.
+Prefer not to install anything? `uvx --from 'whiskerless[ble]' whiskerless provision`
+runs it one-shot (the `[ble]` extra brings in the Bluetooth stack that provisioning
+needs — plain `uvx whiskerless` installs the base package without it).
 
 ### CLI / library (PyPI)
 
-- One-shot, no install: `uvx whiskerless provision`
+- One-shot, no install: `uvx --from 'whiskerless[ble]' whiskerless provision`
 - CLI on your PATH: `pipx install whiskerless`
 - Library + BLE re-provisioning: `pip install 'whiskerless[ble]'`
 
