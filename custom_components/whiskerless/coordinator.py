@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import override
 
 from homeassistant.components import mqtt
@@ -22,12 +23,19 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from whiskerless import WhiskerlessError
 from whiskerless.devices.litter_robot_4 import LitterRobot4State, commands
 from whiskerless.devices.litter_robot_4 import const as lr4
 from whiskerless.devices.litter_robot_4.commands import Command
 from whiskerless.devices.litter_robot_4.const import command_topic, subscribe_topic
+from whiskerless.devices.litter_robot_4.events import (
+    CatWeightMeasured,
+    HopperDispensed,
+    HopperLinkChanged,
+    events_from_readings,
+)
 from whiskerless.devices.litter_robot_4.protocol import (
     ActivityMessage,
     StateMessage,
@@ -47,9 +55,18 @@ _ACTIVITY_THROTTLE = 2.0
 
 @dataclass
 class WhiskerlessData:
-    """The coordinator's data payload."""
+    """The coordinator's data payload.
+
+    ``robot`` is the latest full-state snapshot. The remaining fields are
+    derived from the activity stream, which carries facts the state document
+    never does (per-visit cat weight, hopper dispenses, hopper link state).
+    """
 
     robot: LitterRobot4State
+    cat_weight_lb: float | None = None
+    last_cat_visit: datetime | None = None
+    hopper_connected: bool | None = None
+    last_hopper_dispensed: datetime | None = None
 
 
 class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
@@ -73,6 +90,40 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._io_lock = asyncio.Lock()
         self._last_activity_refresh = 0.0
         self._tasks: set[asyncio.Task[None]] = set()
+        # Activity-derived facts (never present in the state document).
+        self._cat_weight_lb: float | None = None
+        self._last_cat_visit: datetime | None = None
+        self._hopper_connected: bool | None = None
+        self._last_hopper_dispensed: datetime | None = None
+
+    def _build_data(self, robot: LitterRobot4State) -> WhiskerlessData:
+        """Combine the state snapshot with the activity-derived facts."""
+        return WhiskerlessData(
+            robot=robot,
+            cat_weight_lb=self._cat_weight_lb,
+            last_cat_visit=self._last_cat_visit,
+            hopper_connected=self._hopper_connected,
+            last_hopper_dispensed=self._last_hopper_dispensed,
+        )
+
+    @callback
+    def _handle_activity_events(self, message: ActivityMessage) -> bool:
+        """Fold an activity message's semantic events into the derived facts."""
+        changed = False
+        for event in events_from_readings(message.readings):
+            if isinstance(event, CatWeightMeasured):
+                self._cat_weight_lb = event.weight_lb
+                self._last_cat_visit = dt_util.utcnow()
+                changed = True
+            elif isinstance(event, HopperDispensed):
+                self._last_hopper_dispensed = dt_util.utcnow()
+                self._hopper_connected = True  # it just dispensed
+                changed = True
+            elif isinstance(event, HopperLinkChanged):
+                if event.connected != self._hopper_connected:
+                    self._hopper_connected = event.connected
+                    changed = True
+        return changed
 
     @override
     async def _async_setup(self) -> None:
@@ -98,8 +149,10 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             if isinstance(parsed, StateMessage):
                 self._robot = parsed.state
                 self._state_event.set()
-                self.async_set_updated_data(WhiskerlessData(robot=parsed.state))
+                self.async_set_updated_data(self._build_data(parsed.state))
             elif isinstance(parsed, ActivityMessage):
+                if self._handle_activity_events(parsed) and self._robot is not None:
+                    self.async_set_updated_data(self._build_data(self._robot))
                 self._schedule_activity_refresh()
         except Exception:  # noqa: BLE001 — a bad message must never break the subscription
             LOGGER.exception("Error handling MQTT message for %s", self.serial)
@@ -133,7 +186,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                     translation_domain=DOMAIN, translation_key="no_response"
                 ) from err
             assert self._robot is not None
-            return WhiskerlessData(robot=self._robot)
+            return self._build_data(self._robot)
 
     @override
     async def async_shutdown(self) -> None:
@@ -172,7 +225,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                             await self._state_event.wait()
                             self._state_event.clear()
                             if self._robot is not None and verify(self._robot):
-                                self.async_set_updated_data(WhiskerlessData(robot=self._robot))
+                                self.async_set_updated_data(self._build_data(self._robot))
                                 return
         raise WhiskerlessError(f"{command.label} did not commit")
 

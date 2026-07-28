@@ -35,18 +35,47 @@
           "off": "Off"
         }
       },
-      "litter_level": { "name": "Litter level" },
-      "waste_drawer_level": { "name": "Waste drawer level" },
-      "pet_weight": { "name": "Pet weight" },
-      "clean_cycle_count": { "name": "Clean cycle count" },
-      "wifi_rssi": { "name": "Wi-Fi signal" },
-      "litter_level_mm": { "name": "Litter level distance" }
+      "litter_level": {
+        "name": "Litter level"
+      },
+      "waste_drawer_level": {
+        "name": "Waste drawer level"
+      },
+      "pet_weight": {
+        "name": "Pet weight"
+      },
+      "clean_cycle_count": {
+        "name": "Clean cycle count"
+      },
+      "wifi_rssi": {
+        "name": "Wi-Fi signal"
+      },
+      "litter_level_mm": {
+        "name": "Litter level distance"
+      },
+      "last_cat_visit": {
+        "name": "Last cat visit"
+      },
+      "last_hopper_dispensed": {
+        "name": "Last hopper dispense"
+      }
     },
     "binary_sensor": {
-      "cat_detected": { "name": "Cat detected" },
-      "drawer_full": { "name": "Waste drawer full" },
-      "bonnet_removed": { "name": "Bonnet removed" },
-      "globe_motor_fault": { "name": "Globe motor fault" }
+      "cat_detected": {
+        "name": "Cat detected"
+      },
+      "drawer_full": {
+        "name": "Waste drawer full"
+      },
+      "bonnet_removed": {
+        "name": "Bonnet removed"
+      },
+      "globe_motor_fault": {
+        "name": "Globe motor fault"
+      },
+      "hopper_connected": {
+        "name": "Hopper"
+      }
     },
     "select": {
       "night_light_mode": {
@@ -57,22 +86,38 @@
           "auto": "Auto"
         }
       },
-      "clean_cycle_wait": { "name": "Clean cycle wait time" }
+      "clean_cycle_wait": {
+        "name": "Clean cycle wait time"
+      }
     },
     "switch": {
-      "keypad_lockout": { "name": "Control lock" },
-      "panel_sleep_mode": { "name": "Panel sleep mode" },
-      "weekday_sleep": { "name": "Weekday sleep schedule" }
+      "keypad_lockout": {
+        "name": "Control lock"
+      },
+      "panel_sleep_mode": {
+        "name": "Panel sleep mode"
+      },
+      "weekday_sleep": {
+        "name": "Weekday sleep schedule"
+      }
     },
     "number": {
-      "night_light_brightness": { "name": "Night light brightness" }
+      "night_light_brightness": {
+        "name": "Night light brightness"
+      }
     },
     "time": {
-      "panel_sleep_time": { "name": "Panel sleep time" },
-      "panel_wake_time": { "name": "Panel wake time" }
+      "panel_sleep_time": {
+        "name": "Panel sleep time"
+      },
+      "panel_wake_time": {
+        "name": "Panel wake time"
+      }
     },
     "button": {
-      "refresh": { "name": "Refresh" }
+      "refresh": {
+        "name": "Refresh"
+      }
     }
   },
   "exceptions": {

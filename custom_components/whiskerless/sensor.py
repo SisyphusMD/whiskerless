@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import override
 
 from homeassistant.components.sensor import (
@@ -25,7 +26,7 @@ from homeassistant.helpers.typing import StateType
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
 
-from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
+from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator, WhiskerlessData
 from .entity import WhiskerlessEntity
 
 PARALLEL_UPDATES = 0
@@ -78,14 +79,6 @@ SENSORS: tuple[WhiskerlessSensorEntityDescription, ...] = (
         value_fn=lambda robot: robot.waste_drawer_level,
     ),
     WhiskerlessSensorEntityDescription(
-        key="pet_weight",
-        translation_key="pet_weight",
-        device_class=SensorDeviceClass.WEIGHT,
-        native_unit_of_measurement=UnitOfMass.POUNDS,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda robot: robot.cat_weight,
-    ),
-    WhiskerlessSensorEntityDescription(
         key="clean_cycle_count",
         translation_key="clean_cycle_count",
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -115,6 +108,42 @@ SENSORS: tuple[WhiskerlessSensorEntityDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class WhiskerlessDataSensorEntityDescription(SensorEntityDescription):
+    """Describes a sensor fed from activity-derived data (not the state doc)."""
+
+    data_fn: Callable[[WhiskerlessData], StateType | datetime]
+
+
+# These facts exist ONLY in the activity stream: the local state document never
+# carries cat weight, and hopper dispenses are pure events. Values start unknown
+# after a restart and populate on the next visit / dispense.
+DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
+    WhiskerlessDataSensorEntityDescription(
+        key="pet_weight",
+        translation_key="pet_weight",
+        device_class=SensorDeviceClass.WEIGHT,
+        native_unit_of_measurement=UnitOfMass.POUNDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        data_fn=lambda data: data.cat_weight_lb
+        if data.cat_weight_lb is not None
+        else data.robot.cat_weight,
+    ),
+    WhiskerlessDataSensorEntityDescription(
+        key="last_cat_visit",
+        translation_key="last_cat_visit",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        data_fn=lambda data: data.last_cat_visit,
+    ),
+    WhiskerlessDataSensorEntityDescription(
+        key="last_hopper_dispensed",
+        translation_key="last_hopper_dispensed",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        data_fn=lambda data: data.last_hopper_dispensed,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: WhiskerlessConfigEntry,
@@ -122,7 +151,13 @@ async def async_setup_entry(
 ) -> None:
     """Set up Whiskerless sensors."""
     coordinator = entry.runtime_data
-    async_add_entities(WhiskerlessSensor(coordinator, description) for description in SENSORS)
+    entities: list[SensorEntity] = [
+        WhiskerlessSensor(coordinator, description) for description in SENSORS
+    ]
+    entities.extend(
+        WhiskerlessDataSensor(coordinator, description) for description in DATA_SENSORS
+    )
+    async_add_entities(entities)
 
 
 class WhiskerlessSensor(WhiskerlessEntity, SensorEntity):
@@ -143,3 +178,23 @@ class WhiskerlessSensor(WhiskerlessEntity, SensorEntity):
     @override
     def native_value(self) -> StateType:
         return self.entity_description.value_fn(self._robot)
+
+
+class WhiskerlessDataSensor(WhiskerlessEntity, SensorEntity):
+    """A Whiskerless sensor fed from activity-derived coordinator data."""
+
+    entity_description: WhiskerlessDataSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: WhiskerlessCoordinator,
+        description: WhiskerlessDataSensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{coordinator.serial}_{description.key}"
+
+    @property
+    @override
+    def native_value(self) -> StateType | datetime:
+        return self.entity_description.data_fn(self.coordinator.data)

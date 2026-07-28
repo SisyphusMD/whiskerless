@@ -12,6 +12,13 @@ from .codec import (
     encode_write,
 )
 from .commands import Command
+from .events import (
+    CatWeightMeasured,
+    HopperDispensed,
+    HopperLinkChanged,
+    LitterRobotEvent,
+    events_from_readings,
+)
 from .link import LitterRobot4Link
 from .models import LitterRobot4State, litter_level_percent_from_mm
 from .protocol import (
@@ -24,7 +31,11 @@ from .protocol import (
 __all__ = [
     "ActivityMessage",
     "ActivityReading",
+    "CatWeightMeasured",
     "Command",
+    "HopperDispensed",
+    "HopperLinkChanged",
+    "LitterRobotEvent",
     "LitterRobot4Client",
     "LitterRobot4Link",
     "LitterRobot4State",
@@ -36,6 +47,7 @@ __all__ = [
     "encode_command_payload",
     "encode_read",
     "encode_write",
+    "events_from_readings",
     "litter_level_percent_from_mm",
     "parse_message",
 ]
