@@ -15,6 +15,7 @@ from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from whiskerless import WhiskerlessError
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
@@ -31,6 +32,20 @@ class WhiskerlessNumberEntityDescription(NumberEntityDescription):
     set_fn: Callable[[WhiskerlessCoordinator, int], Awaitable[None]]
 
 
+async def _set_panel_high(coordinator: WhiskerlessCoordinator, value: int) -> None:
+    low = coordinator.data.robot.display_intensity_low
+    if low is None:
+        raise WhiskerlessError("panel brightness not yet reported; refresh first")
+    await coordinator.async_set_panel_brightness(value, low)
+
+
+async def _set_panel_low(coordinator: WhiskerlessCoordinator, value: int) -> None:
+    high = coordinator.data.robot.display_intensity_high
+    if high is None:
+        raise WhiskerlessError("panel brightness not yet reported; refresh first")
+    await coordinator.async_set_panel_brightness(high, value)
+
+
 NUMBERS: tuple[WhiskerlessNumberEntityDescription, ...] = (
     WhiskerlessNumberEntityDescription(
         key="night_light_brightness",
@@ -43,6 +58,30 @@ NUMBERS: tuple[WhiskerlessNumberEntityDescription, ...] = (
         mode=NumberMode.SLIDER,
         value_fn=lambda robot: robot.night_light_brightness,
         set_fn=lambda coordinator, value: coordinator.async_set_night_light_brightness(value),
+    ),
+    WhiskerlessNumberEntityDescription(
+        key="panel_brightness_high",
+        translation_key="panel_brightness_high",
+        entity_category=EntityCategory.CONFIG,
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement=PERCENTAGE,
+        mode=NumberMode.SLIDER,
+        value_fn=lambda robot: robot.display_intensity_high,
+        set_fn=_set_panel_high,
+    ),
+    WhiskerlessNumberEntityDescription(
+        key="panel_brightness_low",
+        translation_key="panel_brightness_low",
+        entity_category=EntityCategory.CONFIG,
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement=PERCENTAGE,
+        mode=NumberMode.SLIDER,
+        value_fn=lambda robot: robot.display_intensity_low,
+        set_fn=_set_panel_low,
     ),
 )
 

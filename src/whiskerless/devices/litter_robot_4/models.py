@@ -53,6 +53,8 @@ class LitterRobot4State:
     usb_fault_status: int | None = None
     is_bonnet_removed: bool | None = None
     is_night_light_led_on: bool | None = None
+    display_intensity_high: int | None = None  # panel brightness, active (%)
+    display_intensity_low: int | None = None   # panel brightness, dimmed (%)
     globe_motor_fault: int | None = None
     globe_motor_retract_fault: int | None = None
 
@@ -118,6 +120,8 @@ class LitterRobot4State:
             usb_fault_status=_int(g("USBFaultStatus")),
             is_bonnet_removed=_bool(g("isBonnetRemoved")),
             is_night_light_led_on=_bool(g("isNightLightLEDOn")),
+            display_intensity_high=_int(g("DisplayIntensityHigh")),
+            display_intensity_low=_int(g("DisplayIntensityLow")),
             globe_motor_fault=_int(g("globeMotorFaultStatus")),
             globe_motor_retract_fault=_int(g("globeMotorRetractFaultStatus")),
             is_dfi_full=_bool(g("isDFIFull")),

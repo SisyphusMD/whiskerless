@@ -189,6 +189,12 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             lambda s: s.night_light_brightness == percent,
         )
 
+    async def async_set_panel_brightness(self, high: int, low: int) -> None:
+        await self._write_and_verify(
+            commands.set_panel_brightness(high, low),
+            lambda s: s.display_intensity_high == high and s.display_intensity_low == low,
+        )
+
     async def async_set_clean_cycle_wait(self, minutes: int) -> None:
         await self._write_and_verify(
             commands.set_clean_cycle_wait_minutes(minutes),

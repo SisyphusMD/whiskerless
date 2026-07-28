@@ -61,3 +61,12 @@ def test_litter_level_percent_bounds(mm: int, expected_floor: int) -> None:
     assert litter_level_percent_from_mm(mm) >= 0
     if mm >= 1000:
         assert litter_level_percent_from_mm(mm) == 0
+
+
+def test_display_intensity_decoded() -> None:
+    # Real 1.4.4 state doc carries DisplayIntensityHigh/Low as separate ints.
+    state = LitterRobot4State.from_state_doc(
+        {"DisplayIntensityHigh": 40, "DisplayIntensityLow": 50}
+    )
+    assert state.display_intensity_high == 40
+    assert state.display_intensity_low == 50
