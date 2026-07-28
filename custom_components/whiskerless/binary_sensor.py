@@ -70,9 +70,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up Whiskerless binary sensors."""
     coordinator = entry.runtime_data
-    async_add_entities(
+    entities: list[BinarySensorEntity] = [
         WhiskerlessBinarySensor(coordinator, description) for description in BINARY_SENSORS
-    )
+    ]
+    entities.append(WhiskerlessHopperConnectedSensor(coordinator))
+    async_add_entities(entities)
 
 
 class WhiskerlessBinarySensor(WhiskerlessEntity, BinarySensorEntity):
@@ -93,3 +95,23 @@ class WhiskerlessBinarySensor(WhiskerlessEntity, BinarySensorEntity):
     @override
     def is_on(self) -> bool | None:
         return self.entity_description.value_fn(self._robot)
+
+
+class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
+    """LitterHopper link state, derived from the activity stream (reg 0x57).
+
+    The state document carries no hopper fields locally; the link register is
+    the only signal. Unknown until the hopper first speaks (visit or dispense).
+    """
+
+    _attr_translation_key = "hopper_connected"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+
+    def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.serial}_hopper_connected"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        return self.coordinator.data.hopper_connected

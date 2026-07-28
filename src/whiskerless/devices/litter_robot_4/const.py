@@ -122,9 +122,20 @@ class Register(IntEnum):
     GLOBE_MOTOR_RETRACT_FAULT_STATUS = 0x4D
     ROBOT_CYCLE_STATUS = 0x4E
     ROBOT_CYCLE_STATE = 0x4F
+    # Hopper link/state channel (activity only; not in the state document).
+    # Live-observed on ESP 1.4.4 with a LitterHopper: 0xFFF1 (-15) = link lost
+    # (fires on hopper detach AND bonnet lift — the hopper rides on the bonnet);
+    # positive values (19/30/35-48/87) form an init/measurement sequence whose
+    # exact meaning is still open. See docs/devices/litter-robot-4/registers.md.
+    HOPPER_LINK = 0x57
     TOF1 = 0x58
     TOF2 = 0x59
     TOF3 = 0x5A
+
+
+# HOPPER_LINK (0x57) value meaning "hopper disconnected" (int16 -15, live-PROVEN
+# on detach/reattach and bonnet lift/reseat).
+HOPPER_LINK_DISCONNECTED = 0xFFF1
 
 
 # Per-weekday sleep/wake registers (0x1E–0x2B). Sun→Sat, sleep-then-wake per day.
