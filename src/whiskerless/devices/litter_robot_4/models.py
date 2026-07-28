@@ -87,19 +87,43 @@ class LitterRobot4State:
     def from_state_doc(cls, raw: dict[str, Any]) -> LitterRobot4State:
         """Decode a raw ``…/state`` document into a normalized snapshot."""
         g = raw.get
-        robot_status = _enum(g("robotStatus"), const.ROBOT_STATUS, const.ROBOT_STATUS_STRINGS)
+        esp_firmware = _str(g("espFirmware"))
+        # ESP >= 1.4 remapped the robotStatus enum; pick the map by firmware.
+        robot_status = _enum(
+            g("robotStatus"), const.robot_status_map(esp_firmware), const.ROBOT_STATUS_STRINGS
+        )
+        robot_cycle_status = _enum(g("robotCycleStatus"), const.ROBOT_CYCLE_STATUS)
+        # Fall back to the cycle machine when robotStatus is an unmapped int, so
+        # is_cleaning survives future enum drift.
+        is_cleaning = (
+            robot_status in const.CLEANING_STATUSES
+            or robot_cycle_status in const.ACTIVE_CYCLE_STATUSES
+        )
 
         litter_pct = _int(g("litterLevelPercentage"))
         litter_mm = _int(g("litterLevel"))
-        if litter_pct is None and litter_mm is not None:
+        if is_cleaning:
+            # The ToF sensors read the rotating globe, not the litter bed, while
+            # a cycle runs (observed: 574 mm mid-cycle on a 460 mm fill). Suppress
+            # rather than publish garbage.
+            litter_pct = litter_mm = None
+        elif litter_pct is None and litter_mm is not None:
             litter_pct = litter_level_percent_from_mm(litter_mm)
+
+        pic_firmware = _str(g("picFirmwareVersion"))
+        if pic_firmware is None:
+            # The local state doc carries the PIC identity as four mb* fields;
+            # the cloud presents them joined (e.g. "10535.2560.4.4").
+            parts = [_int(g(k)) for k in ("mbHardware", "mbBom", "mbSuite", "mbRevision")]
+            if all(p is not None for p in parts) and any(parts):
+                pic_firmware = ".".join(str(p) for p in parts)
 
         return cls(
             robot_status=robot_status,
             robot_status_raw=g("robotStatus"),
-            robot_cycle_status=_enum(g("robotCycleStatus"), const.ROBOT_CYCLE_STATUS),
+            robot_cycle_status=robot_cycle_status,
             robot_cycle_state=_enum(g("robotCycleState"), const.ROBOT_CYCLE_STATE),
-            is_cleaning=robot_status in const.CLEANING_STATUSES,
+            is_cleaning=is_cleaning,
             waste_drawer_level=_int(g("DFILevelPercent")),
             litter_level=litter_pct,
             litter_level_mm=litter_mm,
@@ -132,8 +156,8 @@ class LitterRobot4State:
             cat_detected=_bool(g("catDetect")),
             sleep_status=g("sleepStatus"),
             wifi_rssi=_int(g("wifiRssi")),
-            esp_firmware=_str(g("espFirmware")),
-            pic_firmware=_str(g("picFirmwareVersion")),
+            esp_firmware=esp_firmware,
+            pic_firmware=pic_firmware,
             laser_board_firmware=_str(g("laserBoardVersion")),
             is_hopper_removed=_bool(g("isHopperRemoved")),
             hopper_status=g("hopperStatus"),
