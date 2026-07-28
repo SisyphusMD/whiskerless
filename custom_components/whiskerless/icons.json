@@ -74,6 +74,12 @@
     "number": {
       "night_light_brightness": {
         "default": "mdi:brightness-6"
+      },
+      "panel_brightness_high": {
+        "default": "mdi:brightness-7"
+      },
+      "panel_brightness_low": {
+        "default": "mdi:brightness-4"
       }
     },
     "time": {

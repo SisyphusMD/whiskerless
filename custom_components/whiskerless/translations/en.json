@@ -116,6 +116,12 @@
     "number": {
       "night_light_brightness": {
         "name": "Night light brightness"
+      },
+      "panel_brightness_high": {
+        "name": "Panel brightness (active)"
+      },
+      "panel_brightness_low": {
+        "name": "Panel brightness (dimmed)"
       }
     },
     "time": {

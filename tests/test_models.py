@@ -130,3 +130,10 @@ def test_pic_firmware_not_composed_from_zeros() -> None:
         {"mbHardware": 0, "mbBom": 0, "mbSuite": 0, "mbRevision": 0}
     )
     assert state.pic_firmware is None
+def test_display_intensity_decoded() -> None:
+    # Real 1.4.4 state doc carries DisplayIntensityHigh/Low as separate ints.
+    state = LitterRobot4State.from_state_doc(
+        {"DisplayIntensityHigh": 40, "DisplayIntensityLow": 50}
+    )
+    assert state.display_intensity_high == 40
+    assert state.display_intensity_low == 50
