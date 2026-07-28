@@ -139,6 +139,35 @@ ROBOT_STATUS: dict[int, str] = {
     10: "cat_detected",  # PROVEN (cat / weight pause)
     13: "clean_cycle",   # PROVEN (cycling)
 }
+
+# robotStatus on ESP >= 1.4: the firmware REMAPS the enum — most notably 10 now
+# means "clean cycle in progress", NOT the 1.1.x cat/weight pause. Every value
+# below was live-observed on an ESP 1.4.4 robot (labeled button session + 17
+# natural cat visits / 15 auto cycles over 42 h of raw capture).
+ROBOT_STATUS_ESP_1_4: dict[int, str] = {
+    4: "ready",
+    5: "bonnet_removed",
+    6: "cat_sensor_timing",   # post-visit countdown, early tick
+    7: "cat_sensor_timing",   # countdown / weight-hold (red panel light)
+    10: "clean_cycle",        # != 1.1.x, where 10 is the cat/weight pause
+    25: "cat_detected",       # weight on the scale / cat inside
+}
+
+
+def robot_status_map(esp_firmware: str | None) -> dict[int, str]:
+    """Pick the robotStatus int map for the reporting firmware.
+
+    ESP >= 1.4 remapped the enum (see :data:`ROBOT_STATUS_ESP_1_4`). Unknown or
+    unparsable versions keep the legacy map, matching pre-1.4 behavior.
+    """
+    if esp_firmware:
+        try:
+            major, minor = (int(part) for part in esp_firmware.split(".")[:2])
+        except ValueError:
+            return ROBOT_STATUS
+        if (major, minor) >= (1, 4):
+            return ROBOT_STATUS_ESP_1_4
+    return ROBOT_STATUS
 ROBOT_STATUS_STRINGS: dict[str, str] = {
     "robot_idle": "ready",
     "robot_clean": "clean_cycle",
@@ -155,8 +184,29 @@ ROBOT_STATUS_STRINGS: dict[str, str] = {
 CLEANING_STATUSES: frozenset[str] = frozenset({"clean_cycle", "empty_cycle"})
 
 NIGHT_LIGHT_MODE: dict[int, str] = {0: "off", 1: "on", 2: "auto"}  # PROVEN
-ROBOT_CYCLE_STATUS: dict[int, str] = {0: "init", 1: "idle", 2: "dump", 3: "home"}
-ROBOT_CYCLE_STATE: dict[int, str] = {1: "idle", 2: "cycle", 3: "cycle", 4: "cycle"}
+# ESP 1.4.4 marches cycleStatus 2→3→4→5→1 per cycle (live-observed, 15/15);
+# 4/5 are later phases of the same cycle and are labeled generically until
+# their exact meaning is pinned.
+ROBOT_CYCLE_STATUS: dict[int, str] = {
+    0: "init",
+    1: "idle",
+    2: "dump",
+    3: "home",
+    4: "cycle",   # ESP 1.4.x later cycle phase
+    5: "cycle",   # ESP 1.4.x final cycle phase
+}
+# ESP 1.4.4 also emits transient 12 (0x0C) / 15 (0x0F) states mid-cycle.
+ROBOT_CYCLE_STATE: dict[int, str] = {
+    1: "idle",
+    2: "cycle",
+    3: "cycle",
+    4: "cycle",
+    12: "cycle",  # ESP 1.4.x dump/return excursion
+    15: "cycle",  # ESP 1.4.x dump/return excursion
+}
+# cycleStatus values that mean a cycle is actively running (used as a fallback
+# is_cleaning signal when robotStatus is an unmapped int).
+ACTIVE_CYCLE_STATUSES: frozenset[str] = frozenset({"dump", "home", "cycle"})
 
 # nightLightBrightness presets pylitterbot uses (the % is direct, these are labels).
 BRIGHTNESS_PRESETS: dict[str, int] = {"low": 25, "medium": 50, "high": 100}
