@@ -184,16 +184,20 @@ ROBOT_STATUS_STRINGS: dict[str, str] = {
 CLEANING_STATUSES: frozenset[str] = frozenset({"clean_cycle", "empty_cycle"})
 
 NIGHT_LIGHT_MODE: dict[int, str] = {0: "off", 1: "on", 2: "auto"}  # PROVEN
-# ESP 1.4.4 marches cycleStatus 2→3→4→5→1 per cycle (live-observed, 15/15);
-# 4/5 are later phases of the same cycle and are labeled generically until
-# their exact meaning is pinned.
+# ESP 1.4.4 marches cycleStatus 2→3→4→5→1 per cycle (live-observed, 15/15).
+# Phase names from the cloud's own strings, captured live during an
+# app-triggered cycle on a cloud-connected 1.4.4 robot:
+# CYCLE_DUMP → CYCLE_DFI → CYCLE_LEVEL → CYCLE_HOME → CYCLE_IDLE.
+# NOTE: on 1.4.x, 3 = the DFI (drawer measurement) phase — the legacy "home"
+# label for 3 does not match this firmware; 5 is the home/return phase (this
+# is also when the LitterHopper dispenses: during CYCLE_LEVEL, value 4).
 ROBOT_CYCLE_STATUS: dict[int, str] = {
     0: "init",
     1: "idle",
     2: "dump",
-    3: "home",
-    4: "cycle",   # ESP 1.4.x later cycle phase
-    5: "cycle",   # ESP 1.4.x final cycle phase
+    3: "home",    # legacy label; on ESP >= 1.4 this phase is CYCLE_DFI
+    4: "level",   # CYCLE_LEVEL (hopper dispenses here)
+    5: "home",    # CYCLE_HOME
 }
 # ESP 1.4.4 also emits transient 12 (0x0C) / 15 (0x0F) states mid-cycle.
 ROBOT_CYCLE_STATE: dict[int, str] = {
