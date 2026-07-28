@@ -210,7 +210,7 @@ ROBOT_CYCLE_STATE: dict[int, str] = {
 }
 # cycleStatus values that mean a cycle is actively running (used as a fallback
 # is_cleaning signal when robotStatus is an unmapped int).
-ACTIVE_CYCLE_STATUSES: frozenset[str] = frozenset({"dump", "home", "cycle"})
+ACTIVE_CYCLE_STATUSES: frozenset[str] = frozenset({"dump", "home", "level", "cycle"})
 
 # nightLightBrightness presets pylitterbot uses (the % is direct, these are labels).
 BRIGHTNESS_PRESETS: dict[str, int] = {"low": 25, "medium": 50, "high": 100}
