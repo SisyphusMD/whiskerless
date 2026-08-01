@@ -58,6 +58,9 @@
       },
       "last_hopper_dispensed": {
         "name": "Last hopper dispense"
+      },
+      "last_visit_duration": {
+        "name": "Last visit duration"
       }
     },
     "binary_sensor": {
@@ -75,6 +78,9 @@
       },
       "hopper_connected": {
         "name": "Hopper"
+      },
+      "waste_drawer_removed": {
+        "name": "Waste drawer removed"
       }
     },
     "select": {

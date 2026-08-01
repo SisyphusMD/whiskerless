@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from whiskerless.devices.litter_robot_4.codec import decode_activity_code
 from whiskerless.devices.litter_robot_4.events import (
+    CatVisitEnded,
     CatWeightMeasured,
+    DrawerBayChanged,
     HopperDispensed,
     HopperLinkChanged,
     events_from_readings,
@@ -44,6 +46,36 @@ def test_hopper_link_lost_and_restored() -> None:
     assert all(isinstance(e, HopperLinkChanged) and e.connected for e in restored)
 
 
+def test_visit_duration_from_visit_close() -> None:
+    # Real capture 2026-07-31 19:14Z: visit closed with 0xBC0011 = 17 s.
+    events = _events("0x570013", "0xBC0011", "0xB90001")
+    assert [e for e in events if isinstance(e, CatVisitEnded)] == [
+        CatVisitEnded(duration_s=17)
+    ]
+
+
+def test_zero_duration_hop_through_is_reported() -> None:
+    # Real captures: <5 s forced placements closed with 0xBC0000 and no weight.
+    assert _events("0xBC0000") == [CatVisitEnded(duration_s=0)]
+
+
+def test_button_tare_duration_artifact_is_dropped() -> None:
+    # Real capture 2026-07-27 02:14Z: Reset press emitted 0xBC0250 (592) —
+    # a tare artifact, not a visit; the plausibility cap drops it.
+    assert _events("0xBC0250") == []
+
+
+def test_drawer_bay_removed_and_inserted() -> None:
+    # Real capture 2026-08-01 14:54-14:56Z (narrated bag change).
+    assert _events("0x56000A") == [DrawerBayChanged(removed=True, raw=0x000A)]
+    assert _events("0x56000E") == [DrawerBayChanged(removed=False, raw=0x000E)]
+
+
+def test_drawer_bay_unknown_code_passes_through_undecoded() -> None:
+    events = _events("0x560001")
+    assert events == [DrawerBayChanged(removed=None, raw=0x0001)]
+
+
 def test_unknown_registers_ignored() -> None:
     # A slice of real telemetry that must never produce events or raise.
-    assert _events("0x3C0236", "0x6620F1", "0xBC0250", "0x0B0016", "0x341064") == []
+    assert _events("0x3C0236", "0x6620F1", "0x6F0013", "0x0B0016", "0x341064") == []

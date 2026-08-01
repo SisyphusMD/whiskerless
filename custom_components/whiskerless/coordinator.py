@@ -31,7 +31,9 @@ from whiskerless.devices.litter_robot_4 import const as lr4
 from whiskerless.devices.litter_robot_4.commands import Command
 from whiskerless.devices.litter_robot_4.const import command_topic, subscribe_topic
 from whiskerless.devices.litter_robot_4.events import (
+    CatVisitEnded,
     CatWeightMeasured,
+    DrawerBayChanged,
     HopperDispensed,
     HopperLinkChanged,
     events_from_readings,
@@ -65,8 +67,10 @@ class WhiskerlessData:
     robot: LitterRobot4State
     cat_weight_lb: float | None = None
     last_cat_visit: datetime | None = None
+    last_visit_duration_s: int | None = None
     hopper_connected: bool | None = None
     last_hopper_dispensed: datetime | None = None
+    drawer_removed: bool | None = None
 
 
 class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
@@ -93,8 +97,10 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         # Activity-derived facts (never present in the state document).
         self._cat_weight_lb: float | None = None
         self._last_cat_visit: datetime | None = None
+        self._last_visit_duration_s: int | None = None
         self._hopper_connected: bool | None = None
         self._last_hopper_dispensed: datetime | None = None
+        self._drawer_removed: bool | None = None
 
     def _build_data(self, robot: LitterRobot4State) -> WhiskerlessData:
         """Combine the state snapshot with the activity-derived facts."""
@@ -102,8 +108,10 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             robot=robot,
             cat_weight_lb=self._cat_weight_lb,
             last_cat_visit=self._last_cat_visit,
+            last_visit_duration_s=self._last_visit_duration_s,
             hopper_connected=self._hopper_connected,
             last_hopper_dispensed=self._last_hopper_dispensed,
+            drawer_removed=self._drawer_removed,
         )
 
     @callback
@@ -122,6 +130,16 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             elif isinstance(event, HopperLinkChanged):
                 if event.connected != self._hopper_connected:
                     self._hopper_connected = event.connected
+                    changed = True
+            elif isinstance(event, CatVisitEnded):
+                # The duration closes a visit even when it was too short for a
+                # weight event, so it also stamps last_cat_visit.
+                self._last_visit_duration_s = event.duration_s
+                self._last_cat_visit = dt_util.utcnow()
+                changed = True
+            elif isinstance(event, DrawerBayChanged):
+                if event.removed is not None and event.removed != self._drawer_removed:
+                    self._drawer_removed = event.removed
                     changed = True
         return changed
 

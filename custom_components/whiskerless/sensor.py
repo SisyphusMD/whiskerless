@@ -19,6 +19,7 @@ from homeassistant.const import (
     EntityCategory,
     UnitOfLength,
     UnitOfMass,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -140,6 +141,16 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         translation_key="last_hopper_dispensed",
         device_class=SensorDeviceClass.TIMESTAMP,
         data_fn=lambda data: data.last_hopper_dispensed,
+    ),
+    # Seconds of settled weight (reg 0xBC). Reported even for visits too short
+    # to produce a weight event, so short hop-throughs still show up here.
+    WhiskerlessDataSensorEntityDescription(
+        key="last_visit_duration",
+        translation_key="last_visit_duration",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        data_fn=lambda data: data.last_visit_duration_s,
     ),
 )
 
