@@ -131,11 +131,27 @@ class Register(IntEnum):
     TOF1 = 0x58
     TOF2 = 0x59
     TOF3 = 0x5A
+    # Waste-drawer bay events (activity only). Silent for 6 days of continuous
+    # capture until the drawer physically moved during an owner-narrated bag
+    # change: value 10 on pull-out, 14 on re-insert. Single-session evidence;
+    # values outside {10, 14} are passed through undecoded.
+    DRAWER_BAY = 0x56
+    # Visit duration in seconds of settled weight on the scale (activity only;
+    # fires once at visit end alongside the 0xB9 closure marker). Live-proven
+    # against narrated visits: forced <5 s placements report 0, natural visits
+    # 9-21 s. It also gates CAT_WEIGHT: ~9 s+ always produced a weight event,
+    # 8 s and below often none. A Reset button press emits an unrelated large
+    # value (592 observed) on the same register — see events.py's cap.
+    CAT_VISIT_DURATION = 0xBC
 
 
 # HOPPER_LINK (0x57) value meaning "hopper disconnected" (int16 -15, live-PROVEN
 # on detach/reattach and bonnet lift/reseat).
 HOPPER_LINK_DISCONNECTED = 0xFFF1
+
+# DRAWER_BAY (0x56) event codes (single narrated bag-change session, 1.4.4).
+DRAWER_BAY_REMOVED = 0x000A
+DRAWER_BAY_INSERTED = 0x000E
 
 
 # Per-weekday sleep/wake registers (0x1E–0x2B). Sun→Sat, sleep-then-wake per day.

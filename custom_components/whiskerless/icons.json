@@ -21,6 +21,9 @@
       },
       "last_hopper_dispensed": {
         "default": "mdi:grain"
+      },
+      "last_visit_duration": {
+        "default": "mdi:timer-sand"
       }
     },
     "binary_sensor": {
@@ -38,6 +41,9 @@
       },
       "hopper_connected": {
         "default": "mdi:silo"
+      },
+      "waste_drawer_removed": {
+        "default": "mdi:tray-remove"
       }
     },
     "select": {

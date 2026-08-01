@@ -74,6 +74,7 @@ async def async_setup_entry(
         WhiskerlessBinarySensor(coordinator, description) for description in BINARY_SENSORS
     ]
     entities.append(WhiskerlessHopperConnectedSensor(coordinator))
+    entities.append(WhiskerlessDrawerRemovedSensor(coordinator))
     async_add_entities(entities)
 
 
@@ -115,3 +116,24 @@ class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
     @override
     def is_on(self) -> bool | None:
         return self.coordinator.data.hopper_connected
+
+
+class WhiskerlessDrawerRemovedSensor(WhiskerlessEntity, BinarySensorEntity):
+    """Waste-drawer bay state, derived from the activity stream (reg 0x56).
+
+    The DFI fields in the state document never flag a pulled drawer; the bay
+    register is the only signal. Unknown until the drawer first moves — the
+    register is otherwise completely silent.
+    """
+
+    _attr_translation_key = "waste_drawer_removed"
+    _attr_device_class = BinarySensorDeviceClass.OPENING
+
+    def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.serial}_waste_drawer_removed"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        return self.coordinator.data.drawer_removed
