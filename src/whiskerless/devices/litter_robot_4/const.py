@@ -99,13 +99,22 @@ class Register(IntEnum):
     ODOMETER_EMPTY_CYCLES = 0x3F
     ODOMETER_FILTER_CYCLES = 0x40
     IS_DFI_RESET_PENDING = 0x41      # read-only — NOT writable (0x02410001 is a no-op)
-    DFI_NUMBER_OF_CYCLES = 0x42
-    DFI_LEVEL_PERCENT = 0x43         # waste drawer % (direct)
+    DFI_NUMBER_OF_CYCLES = 0x42      # cycles since last gauge reset; nothing physical
+                                     # resets it on 1.4.4 (survives a drawer empty)
+    # The drawer gauge is measurement-only on 1.4.4: it is read by three lasers
+    # during the CYCLE_DFI phase (globe inverted) and NOT cleared by emptying
+    # the drawer or pressing Reset — it self-corrects on the next cycle.
+    # Percent tracks the primary raw laser (activity reg 0x48) at ≈ 0.70×raw
+    # (r = 0.999 over a 38-cycle capture).
+    DFI_LEVEL_PERCENT = 0x43         # waste drawer % (derived, see above)
     IS_DFI_FULL = 0x44
     DFI_FULL_COUNTER = 0x45
     DFI_TRIGGER_COUNT = 0x46
     LITTER_LEVEL = 0x47              # mm
-    IS_DFI_PARTIAL_FULL = 0x4B
+    IS_DFI_PARTIAL_FULL = 0x4B       # one drawer SECTOR reads high while the rest
+                                     # don't (three lasers = three sectors) — seen
+                                     # live when a fresh bag liner bunched under
+                                     # one laser: 21 % overall yet partial-full=1
     GLOBE_MOTOR_RETRACT_FAULT_STATUS = 0x4D
     ROBOT_CYCLE_STATUS = 0x4E
     ROBOT_CYCLE_STATE = 0x4F
@@ -204,7 +213,14 @@ ROBOT_CYCLE_STATE: dict[int, str] = {
     1: "idle",
     2: "cycle",
     3: "cycle",
-    4: "cycle",
+    # 4 = safety pause: a cat entered mid-cycle and the globe halted.
+    # Owner-witnessed live (2026-07-31): cat jumped into a running cycle →
+    # cat-detect burst + state 4, globe stopped; robotStatus stayed at
+    # clean-cycle (10) throughout, so this state is the ONLY pause signal.
+    # A Cycle press resumed, re-running the phase ladder from the top
+    # without a second odometer tick. Every other capture of 4 (10/10)
+    # coincided with cat-detect activity mid-cycle.
+    4: "cat_interrupt",
     12: "cycle",  # ESP 1.4.x dump/return excursion
     15: "cycle",  # ESP 1.4.x dump/return excursion
 }
