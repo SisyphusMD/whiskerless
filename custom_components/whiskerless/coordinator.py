@@ -138,7 +138,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 self._last_cat_visit = dt_util.utcnow()
                 changed = True
             elif isinstance(event, DrawerBayChanged):
-                if event.removed is not None and event.removed != self._drawer_removed:
+                if event.removed != self._drawer_removed:
                     self._drawer_removed = event.removed
                     changed = True
         return changed

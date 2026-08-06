@@ -66,14 +66,18 @@ def test_button_tare_duration_artifact_is_dropped() -> None:
 
 
 def test_drawer_bay_removed_and_inserted() -> None:
-    # Real capture 2026-08-01 14:54-14:56Z (narrated bag change).
+    # Real captures: narrated pulls 2026-08-01 and 2026-08-06 both emitted 10
+    # on removal; the re-insert code VARIED (14, then 28), so any non-10 value
+    # reads as seated.
     assert _events("0x56000A") == [DrawerBayChanged(removed=True, raw=0x000A)]
     assert _events("0x56000E") == [DrawerBayChanged(removed=False, raw=0x000E)]
+    assert _events("0x56001C") == [DrawerBayChanged(removed=False, raw=0x001C)]
 
 
-def test_drawer_bay_unknown_code_passes_through_undecoded() -> None:
-    events = _events("0x560001")
-    assert events == [DrawerBayChanged(removed=None, raw=0x0001)]
+def test_drawer_bay_unknown_code_reads_as_seated() -> None:
+    # 12 fires occasionally with the drawer seated (real capture 2026-08-03) —
+    # unknown codes must not latch "removed".
+    assert _events("0x56000C") == [DrawerBayChanged(removed=False, raw=0x000C)]
 
 
 def test_unknown_registers_ignored() -> None:
