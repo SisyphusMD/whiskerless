@@ -131,10 +131,11 @@ class Register(IntEnum):
     TOF1 = 0x58
     TOF2 = 0x59
     TOF3 = 0x5A
-    # Waste-drawer bay events (activity only). Silent for 6 days of continuous
-    # capture until the drawer physically moved during an owner-narrated bag
-    # change: value 10 on pull-out, 14 on re-insert. Single-session evidence;
-    # values outside {10, 14} are passed through undecoded.
+    # Waste-drawer bay events (activity only). Near-silent in continuous
+    # capture except when the drawer moves. Two narrated pulls both emitted
+    # 10 on removal; re-insert codes VARY (14, then 28 five days later), and
+    # 12 fires occasionally with the drawer seated. Decode: 10 = removed,
+    # anything else = seated.
     DRAWER_BAY = 0x56
     # Visit duration in seconds of settled weight on the scale (activity only;
     # fires once at visit end alongside the 0xB9 closure marker). Live-proven
@@ -149,9 +150,10 @@ class Register(IntEnum):
 # on detach/reattach and bonnet lift/reseat).
 HOPPER_LINK_DISCONNECTED = 0xFFF1
 
-# DRAWER_BAY (0x56) event codes (single narrated bag-change session, 1.4.4).
+# DRAWER_BAY (0x56) removal code — consistent across both narrated pulls.
+# (Re-insert codes vary — 14, 28 observed — so there is no INSERTED constant;
+# any non-removal value means seated.)
 DRAWER_BAY_REMOVED = 0x000A
-DRAWER_BAY_INSERTED = 0x000E
 
 
 # Per-weekday sleep/wake registers (0x1E–0x2B). Sun→Sat, sleep-then-wake per day.

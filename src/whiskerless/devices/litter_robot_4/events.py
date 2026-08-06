@@ -26,7 +26,6 @@ from dataclasses import dataclass
 
 from .codec import ActivityReading
 from .const import (
-    DRAWER_BAY_INSERTED,
     DRAWER_BAY_REMOVED,
     HOPPER_LINK_DISCONNECTED,
     Register,
@@ -91,11 +90,13 @@ class CatVisitEnded:
 class DrawerBayChanged:
     """The waste drawer was removed or re-inserted (register 0x56).
 
-    ``removed`` is None for codes outside the two live-proven values
-    (10 = removed, 14 = inserted); ``raw`` always carries the wire value.
+    Removal consistently emits 10 (2/2 narrated pulls); re-insert codes VARY
+    (14 and 28 observed), and low codes (12) fire occasionally with the drawer
+    seated. So the decode is: 10 = removed, anything else = seated — which is
+    also self-healing if an unknown code appears. ``raw`` carries the wire value.
     """
 
-    removed: bool | None
+    removed: bool
     raw: int
 
 
@@ -132,10 +133,9 @@ def events_from_readings(readings: list[ActivityReading]) -> list[LitterRobotEve
             if reading.value <= _VISIT_DURATION_MAX_S:
                 events.append(CatVisitEnded(duration_s=reading.value))
         elif reading.register == Register.DRAWER_BAY:
-            removed: bool | None = None
-            if reading.value == DRAWER_BAY_REMOVED:
-                removed = True
-            elif reading.value == DRAWER_BAY_INSERTED:
-                removed = False
-            events.append(DrawerBayChanged(removed=removed, raw=reading.value))
+            events.append(
+                DrawerBayChanged(
+                    removed=reading.value == DRAWER_BAY_REMOVED, raw=reading.value
+                )
+            )
     return events
