@@ -99,8 +99,12 @@ class Register(IntEnum):
     ODOMETER_EMPTY_CYCLES = 0x3F
     ODOMETER_FILTER_CYCLES = 0x40
     IS_DFI_RESET_PENDING = 0x41      # read-only — NOT writable (0x02410001 is a no-op)
-    DFI_NUMBER_OF_CYCLES = 0x42      # cycles since last gauge reset; nothing physical
-                                     # resets it on 1.4.4 (survives a drawer empty)
+    DFI_NUMBER_OF_CYCLES = 0x42      # cycles since the firmware last DETECTED a
+                                     # drawer empty. Not cleared by the empty itself
+                                     # or by Reset; the firmware zeroes it (with
+                                     # 0x45/0x46) on the first post-empty cycle whose
+                                     # measurement confirms the drop — live-seen
+                                     # twice, one and two cycles after a bag change
     # The drawer gauge is measurement-only on 1.4.4: it is read by three lasers
     # during the CYCLE_DFI phase (globe inverted) and NOT cleared by emptying
     # the drawer or pressing Reset — it self-corrects on the next cycle.
