@@ -24,6 +24,9 @@
       },
       "last_visit_duration": {
         "default": "mdi:timer-sand"
+      },
+      "hopper_fill": {
+        "default": "mdi:gauge"
       }
     },
     "binary_sensor": {

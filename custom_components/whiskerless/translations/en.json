@@ -61,6 +61,9 @@
       },
       "last_visit_duration": {
         "name": "Last visit duration"
+      },
+      "hopper_fill": {
+        "name": "Hopper fill (raw)"
       }
     },
     "binary_sensor": {
