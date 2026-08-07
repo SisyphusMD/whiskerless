@@ -56,14 +56,23 @@ class CatWeightMeasured:
 
 @dataclass(frozen=True, slots=True)
 class HopperDispensed:
-    """The hopper dispensed litter (register 0x0C).
+    """One phase of a hopper dispense (register 0x0C).
 
-    ``raw`` is the phase-tagged wire value (observed as a burst of 2-3 codes per
-    dispense, hi-nibble indexed, e.g. 0x010A/0x1059/0x2078); its exact meaning
-    is still open, so it is passed through undecoded.
+    A dispense is a burst of 2-3 hi-nibble-indexed codes (e.g.
+    0x010A/0x1059/0x2078). ``phase`` is the hi-nibble, ``value`` the low
+    12 bits, ``raw`` the wire value. Phase semantics from an 11-day capture
+    spanning a full hopper drain:
+
+    * phase 0 — routine step marker (266/271/276 observed, invariant)
+    * phase 1 — **the hopper's own fill gauge**: 89-92 while maintained near
+      the owner's ~90% target, declining monotonically (76→66) as the hopper
+      ran down. Unitless until the empty/refill anchors calibrate it.
+    * phase 2 — routine step marker (120-121 observed, invariant)
     """
 
     raw: int
+    phase: int
+    value: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +130,13 @@ def events_from_readings(readings: list[ActivityReading]) -> list[LitterRobotEve
             if reading.value:  # a 0 reading carries no measurement
                 events.append(CatWeightMeasured(weight_lb=reading.value / 100))
         elif reading.register == Register.LITTER_HOPPER_DISPENSED:
-            events.append(HopperDispensed(raw=reading.value))
+            events.append(
+                HopperDispensed(
+                    raw=reading.value,
+                    phase=reading.value >> 12,
+                    value=reading.value & 0x0FFF,
+                )
+            )
         elif reading.register == Register.HOPPER_LINK:
             events.append(
                 HopperLinkChanged(

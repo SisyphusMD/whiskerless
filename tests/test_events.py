@@ -32,10 +32,19 @@ def test_hopper_dispense_burst() -> None:
     # Real capture 2026-07-27 04:00-04:01Z: three phase-tagged dispense codes.
     events = _events("0x0C010A", "0x0C1059", "0x0C2078")
     assert events == [
-        HopperDispensed(raw=0x010A),
-        HopperDispensed(raw=0x1059),
-        HopperDispensed(raw=0x2078),
+        HopperDispensed(raw=0x010A, phase=0, value=0x10A),
+        HopperDispensed(raw=0x1059, phase=1, value=0x059),
+        HopperDispensed(raw=0x2078, phase=2, value=0x078),
     ]
+
+
+def test_hopper_fill_gauge_is_dispense_phase_1() -> None:
+    # Real captures across the hopper drain: phase-1 value fell 89 -> 66
+    # (0x1059 on 07-27 near the ~90% maintain target, 0x1042 on 08-06).
+    near_full = _events("0x0C1059")[0]
+    assert (near_full.phase, near_full.value) == (1, 89)
+    near_empty = _events("0x0C1042")[0]
+    assert (near_empty.phase, near_empty.value) == (1, 66)
 
 
 def test_hopper_link_lost_and_restored() -> None:

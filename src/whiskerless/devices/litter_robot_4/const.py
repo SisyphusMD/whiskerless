@@ -155,6 +155,10 @@ HOPPER_LINK_DISCONNECTED = 0xFFF1
 # any non-removal value means seated.)
 DRAWER_BAY_REMOVED = 0x000A
 
+# LITTER_HOPPER_DISPENSED (0x0C) phase whose value is the hopper's own fill
+# gauge (see events.HopperDispensed).
+HOPPER_DISPENSE_FILL_PHASE = 1
+
 
 # Per-weekday sleep/wake registers (0x1E–0x2B). Sun→Sat, sleep-then-wake per day.
 # ASSUMED layout (the round-trip is PROVEN; the exact day ordering is inferred —

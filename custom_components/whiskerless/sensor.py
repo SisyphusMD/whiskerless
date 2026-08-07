@@ -152,6 +152,16 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         data_fn=lambda data: data.last_visit_duration_s,
     ),
+    # The hopper's own fill gauge (dispense phase-1 value): ~90 near a 90%
+    # maintain target, declining monotonically as the hopper drains. Unitless
+    # raw until the empty/refill anchors calibrate a scale; updates only when
+    # a dispense runs.
+    WhiskerlessDataSensorEntityDescription(
+        key="hopper_fill",
+        translation_key="hopper_fill",
+        state_class=SensorStateClass.MEASUREMENT,
+        data_fn=lambda data: data.hopper_fill_raw,
+    ),
 )
 
 

@@ -70,6 +70,7 @@ class WhiskerlessData:
     last_visit_duration_s: int | None = None
     hopper_connected: bool | None = None
     last_hopper_dispensed: datetime | None = None
+    hopper_fill_raw: int | None = None
     drawer_removed: bool | None = None
 
 
@@ -100,6 +101,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._last_visit_duration_s: int | None = None
         self._hopper_connected: bool | None = None
         self._last_hopper_dispensed: datetime | None = None
+        self._hopper_fill_raw: int | None = None
         self._drawer_removed: bool | None = None
 
     def _build_data(self, robot: LitterRobot4State) -> WhiskerlessData:
@@ -111,6 +113,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             last_visit_duration_s=self._last_visit_duration_s,
             hopper_connected=self._hopper_connected,
             last_hopper_dispensed=self._last_hopper_dispensed,
+            hopper_fill_raw=self._hopper_fill_raw,
             drawer_removed=self._drawer_removed,
         )
 
@@ -126,6 +129,8 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             elif isinstance(event, HopperDispensed):
                 self._last_hopper_dispensed = dt_util.utcnow()
                 self._hopper_connected = True  # it just dispensed
+                if event.phase == lr4.HOPPER_DISPENSE_FILL_PHASE:
+                    self._hopper_fill_raw = event.value
                 changed = True
             elif isinstance(event, HopperLinkChanged):
                 if event.connected != self._hopper_connected:
