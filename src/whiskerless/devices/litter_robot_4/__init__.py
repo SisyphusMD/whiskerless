@@ -13,7 +13,9 @@ from .codec import (
 )
 from .commands import Command
 from .events import (
+    CatVisitEnded,
     CatWeightMeasured,
+    DrawerBayChanged,
     HopperDispensed,
     HopperLinkChanged,
     LitterRobotEvent,
@@ -31,14 +33,16 @@ from .protocol import (
 __all__ = [
     "ActivityMessage",
     "ActivityReading",
+    "CatVisitEnded",
     "CatWeightMeasured",
     "Command",
+    "DrawerBayChanged",
     "HopperDispensed",
     "HopperLinkChanged",
-    "LitterRobotEvent",
     "LitterRobot4Client",
     "LitterRobot4Link",
     "LitterRobot4State",
+    "LitterRobotEvent",
     "StateMessage",
     "build_command_payload",
     "commands",

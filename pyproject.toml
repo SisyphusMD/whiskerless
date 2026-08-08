@@ -57,10 +57,15 @@ packages = ["src/whiskerless"]
 
 [tool.ruff]
 line-length = 100
-# py312 so ruff parses the integration's PEP 695 syntax (HA runs on 3.13); the
-# library itself stays 3.11-compatible and mypy enforces that separately.
-target-version = "py312"
+# The repo has two floors: the library ships to PyPI at 3.11+, the integration
+# runs on HA's 3.13 and uses PEP 695 freely. A single target-version can't say
+# that — at py312 ruff pushes the library toward 3.12-only syntax (UP040), and
+# at py311 it rejects the integration's `type` aliases as invalid syntax.
+target-version = "py311"
 src = ["src", "tests", "custom_components"]
+
+[tool.ruff.per-file-target-version]
+"custom_components/**" = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PTH", "BLE"]

@@ -23,6 +23,7 @@ Consumers feed :func:`events_from_readings` the readings of one
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypeAlias
 
 from .codec import ActivityReading
 from .const import (
@@ -109,7 +110,9 @@ class DrawerBayChanged:
     raw: int
 
 
-type LitterRobotEvent = (
+# PEP 695 `type` syntax is 3.12+; the library floor is 3.11 (the integration,
+# which runs on HA's 3.13, uses it freely).
+LitterRobotEvent: TypeAlias = (
     CatWeightMeasured
     | HopperDispensed
     | HopperLinkChanged
