@@ -73,7 +73,14 @@ class Register(IntEnum):
     IS_DEBUG_MODE_ACTIVE = 0x05      # 64800-tick countdown when armed (not a bool)
     RTC_CHIP_ID = 0x06
     UNIT_POWER_TYPE = 0x07
-    PANEL_BRIGHTNESS = 0x0E          # hi-byte = High, lo-byte = Low
+    # Panel brightness, packed: hi-byte = DisplayIntensityHigh, lo-byte =
+    # DisplayIntensityLow. High/Low name the AMBIENT light level, not the
+    # brightness rank — behaviorally PROVEN on a live 1.4.4 robot with a
+    # two-observation test: hi-byte forced to 5 → panel maximally dim in
+    # daylight (hi = brightness in a BRIGHT room); at stock 40/50 in a
+    # darkened room the panel stepped slightly BRIGHTER (lo = brightness in
+    # a DARK room). Yes: the stock config is brighter at night (40/50).
+    PANEL_BRIGHTNESS = 0x0E
     CAT_WEIGHT = 0x09                # activity: raw int16 / 100 = lb
     LITTER_HOPPER_DISPENSED = 0x0C   # activity
     CLEAN_CYCLE_WAIT_TIME = 0x16     # minutes (direct)

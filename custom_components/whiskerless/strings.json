@@ -97,10 +97,10 @@
         "name": "Night light brightness"
       },
       "panel_brightness_high": {
-        "name": "Panel brightness (active)"
+        "name": "Panel brightness (bright room)"
       },
       "panel_brightness_low": {
-        "name": "Panel brightness (dimmed)"
+        "name": "Panel brightness (dark room)"
       }
     },
     "time": {
