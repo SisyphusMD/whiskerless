@@ -23,7 +23,7 @@ def test_parse_state_document() -> None:
 
 
 def test_parse_state_by_type_field() -> None:
-    raw = {"type": "state", "robotStatus": 13}
+    raw = {"type": "state", "robotStatus": 10}
     message = parse_message("prod/LR4/LR4C000001/activity", json.dumps(raw))
     assert isinstance(message, StateMessage)
     assert message.state.is_cleaning is True

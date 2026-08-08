@@ -54,11 +54,26 @@ The firmware emits raw integers; whiskerless decodes them (and tolerates the
 cloud-style strings, too). Values tagged PROVEN are confirmed live; others are
 named but their exact integers aren't all pinned yet.
 
-- **robotStatus (`0x34`):** `4` = ready, `10` = cat/weight pause, `13` = cleaning
-  (PROVEN). Other states (empty, find-dump, bonnet, power-up/down/off,
-  cat-detect-delay) exist; their integers are LOW confidence.
-- **robotCycleStatus (`0x4E`):** `1` = idle/complete, `2` = dump.
-- **robotCycleState (`0x4F`):** `1` = idle; `2`/`3`/`4` = cycle progression.
+- **robotStatus (`0x34`):** `4` = ready, `10` = **clean cycle in progress**, `5` =
+  bonnet removed, `6`/`7` = post-visit countdown, `25` = cat detected / weight on
+  the scale. `4` and `10` are live-captured on both ESP 1.1.75 and 1.4.4; the rest
+  on 1.4.4 only. There is no firmware split — the two builds agree on every value
+  either has been seen to emit.
+  This table previously read `10` = cat/weight pause and `13` = cleaning, tagged
+  PROVEN. That came from a static firmware-RE brief and was never checked against
+  a live cycle. A narrated manual cycle on 1.1.75 holds `robotStatus` at `10` for
+  the entire cycle with `catDetect` at `0` throughout, and `13` has never appeared
+  on either firmware. Other cloud-string states (empty, find-dump, power-up/down,
+  filter-change) exist; their integers remain unpinned.
+- **robotCycleStatus (`0x4E`):** `1` = idle/complete, then `2` → `3` → `4` → `5` → `1`
+  per cycle. The cloud names them DUMP → DFI → LEVEL → HOME → IDLE; the drawer is
+  measured during `3` and the LitterHopper dispenses during `4`. Captured on both
+  1.1.75 and 1.4.4.
+- **robotCycleState (`0x4F`):** `1` = idle; `2`/`3` = cycle progression with
+  transient `12`/`15` excursions; **`4` = the mid-cycle cat-interrupt pause**. The
+  pause is visible only here — `robotStatus` stays at `10` (cleaning) throughout —
+  and it self-clears when the cat leaves, resuming without any button press
+  (owner-witnessed on both firmwares).
 - **nightLightMode (`0x18`):** `0` = off, `1` = on, `2` = auto (PROVEN).
 - **nightLightBrightness (`0x19`):** direct %, common presets 25 / 50 / 100.
 - **globeMotorFault / Retract (`0x35` / `0x4D`):** `0` = none, `1..9` = fault.

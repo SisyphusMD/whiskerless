@@ -90,17 +90,15 @@ class LitterRobot4State:
         """Decode a raw ``…/state`` document into a normalized snapshot."""
         g = raw.get
         esp_firmware = _str(g("espFirmware"))
-        # ESP >= 1.4 remapped the robotStatus enum; pick the map by firmware.
-        robot_status = _enum(
-            g("robotStatus"), const.robot_status_map(esp_firmware), const.ROBOT_STATUS_STRINGS
-        )
+        robot_status = _enum(g("robotStatus"), const.ROBOT_STATUS, const.ROBOT_STATUS_STRINGS)
         robot_cycle_status = _enum(g("robotCycleStatus"), const.ROBOT_CYCLE_STATUS)
-        # Fall back to the cycle machine when robotStatus is an unmapped int, so
-        # is_cleaning survives future enum drift.
-        is_cleaning = (
-            robot_status in const.CLEANING_STATUSES
-            or robot_cycle_status in const.ACTIVE_CYCLE_STATUSES
-        )
+        # The cycle machine is a fallback for an UNMAPPED robotStatus only. A
+        # known-idle status must win over a stale or lagging robotCycleStatus,
+        # or a resting robot reports cleaning and loses both litter readings.
+        if robot_status is None or robot_status not in const.KNOWN_STATUSES:
+            is_cleaning = robot_cycle_status in const.ACTIVE_CYCLE_STATUSES
+        else:
+            is_cleaning = robot_status in const.CLEANING_STATUSES
 
         litter_pct = _int(g("litterLevelPercentage"))
         litter_mm = _int(g("litterLevel"))

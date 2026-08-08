@@ -193,42 +193,17 @@ WEEKDAY_SCHEDULE_REGS: dict[str, tuple[int, int]] = {
 
 
 # --- Enums (firmware emits raw ints; decoders also accept cloud strings) ------
-# robotStatus (0x34): only 4/10/13 are PROVEN; the rest are named for the cloud
-# strings the device may emit but their integers are not yet pinned.
+# robotStatus (0x34). One map for every firmware: 1.1.75 and 1.4.4 agree on every
+# value either has been observed to emit, so there is deliberately no version
+# gate here. Values are tagged with the firmware they were captured on.
 ROBOT_STATUS: dict[int, str] = {
-    4: "ready",          # PROVEN
-    10: "cat_detected",  # PROVEN (cat / weight pause)
-    13: "clean_cycle",   # PROVEN (cycling)
+    4: "ready",               # live-captured, 1.1.75 + 1.4.4
+    5: "bonnet_removed",      # live-captured, 1.4.4
+    6: "cat_sensor_timing",   # post-visit countdown, early tick (1.4.4)
+    7: "cat_sensor_timing",   # countdown / weight-hold, red panel light (1.4.4)
+    10: "clean_cycle",        # live-captured, 1.1.75 + 1.4.4
+    25: "cat_detected",       # weight on the scale / cat inside (1.4.4)
 }
-
-# robotStatus on ESP >= 1.4: the firmware REMAPS the enum — most notably 10 now
-# means "clean cycle in progress", NOT the 1.1.x cat/weight pause. Every value
-# below was live-observed on an ESP 1.4.4 robot (labeled button session + 17
-# natural cat visits / 15 auto cycles over 42 h of raw capture).
-ROBOT_STATUS_ESP_1_4: dict[int, str] = {
-    4: "ready",
-    5: "bonnet_removed",
-    6: "cat_sensor_timing",   # post-visit countdown, early tick
-    7: "cat_sensor_timing",   # countdown / weight-hold (red panel light)
-    10: "clean_cycle",        # != 1.1.x, where 10 is the cat/weight pause
-    25: "cat_detected",       # weight on the scale / cat inside
-}
-
-
-def robot_status_map(esp_firmware: str | None) -> dict[int, str]:
-    """Pick the robotStatus int map for the reporting firmware.
-
-    ESP >= 1.4 remapped the enum (see :data:`ROBOT_STATUS_ESP_1_4`). Unknown or
-    unparsable versions keep the legacy map, matching pre-1.4 behavior.
-    """
-    if esp_firmware:
-        try:
-            major, minor = (int(part) for part in esp_firmware.split(".")[:2])
-        except ValueError:
-            return ROBOT_STATUS
-        if (major, minor) >= (1, 4):
-            return ROBOT_STATUS_ESP_1_4
-    return ROBOT_STATUS
 ROBOT_STATUS_STRINGS: dict[str, str] = {
     "robot_idle": "ready",
     "robot_clean": "clean_cycle",
@@ -243,6 +218,15 @@ ROBOT_STATUS_STRINGS: dict[str, str] = {
 }
 # Status values that mean the globe is actively cycling.
 CLEANING_STATUSES: frozenset[str] = frozenset({"clean_cycle", "empty_cycle"})
+
+# Every slug the decoder produces from a value it actually recognized. An
+# unmapped int decodes to "unknown_N" and an unseen cloud string passes through
+# verbatim (the firmware has string families we have never captured, e.g. the
+# filter-change wizard) — in both cases the status is not understood and
+# is_cleaning must defer to the cycle machine rather than assume "not cleaning".
+KNOWN_STATUSES: frozenset[str] = frozenset(ROBOT_STATUS.values()) | frozenset(
+    ROBOT_STATUS_STRINGS.values()
+)
 
 NIGHT_LIGHT_MODE: dict[int, str] = {0: "off", 1: "on", 2: "auto"}  # PROVEN
 # ESP 1.4.4 marches cycleStatus 2→3→4→5→1 per cycle (live-observed, 15/15).

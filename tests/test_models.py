@@ -11,7 +11,7 @@ from whiskerless.devices.litter_robot_4.models import (
 
 
 def test_enum_from_raw_int() -> None:
-    state = LitterRobot4State.from_state_doc({"robotStatus": 13, "nightLightMode": 2})
+    state = LitterRobot4State.from_state_doc({"robotStatus": 10, "nightLightMode": 2})
     assert state.robot_status == "clean_cycle"
     assert state.night_light_mode == "auto"
     assert state.is_cleaning is True
@@ -76,11 +76,19 @@ def test_esp14_status_10_is_cleaning() -> None:
     assert state.is_cleaning is True
 
 
-def test_legacy_status_10_still_cat_detected() -> None:
+def test_status_10_is_cleaning_on_every_firmware() -> None:
+    # Both captured firmwares agree; there is no version gate. The 1.1.75 case
+    # is the narrated manual cycle in CAPTURE_1175_CYCLING below.
     for doc in ({"robotStatus": 10}, {"robotStatus": 10, "espFirmware": "1.1.75"}):
         state = LitterRobot4State.from_state_doc(doc)
-        assert state.robot_status == "cat_detected"
-        assert state.is_cleaning is False
+        assert state.robot_status == "clean_cycle"
+        assert state.is_cleaning is True
+
+
+def test_status_13_was_never_real() -> None:
+    # The old table claimed 13 = cycling, from a static RE brief. It has never
+    # been observed on the wire on either firmware, so it must not decode.
+    assert LitterRobot4State.from_state_doc({"robotStatus": 13}).robot_status == "unknown_13"
 
 
 def test_esp14_new_status_values() -> None:
@@ -89,9 +97,80 @@ def test_esp14_new_status_values() -> None:
         assert LitterRobot4State.from_state_doc({"robotStatus": raw, **V14}).robot_status == slug
 
 
-def test_unparsable_firmware_uses_legacy_map() -> None:
+def test_unparsable_firmware_still_decodes() -> None:
     state = LitterRobot4State.from_state_doc({"robotStatus": 10, "espFirmware": "weird"})
-    assert state.robot_status == "cat_detected"
+    assert state.robot_status == "clean_cycle"
+
+
+# Real payloads, trimmed from a narrated capture on LR4C654321 (ESP 1.1.75):
+# the owner pressed Cycle, the robot ran a full cycle, and both docs below are
+# verbatim field subsets of what landed on the broker.
+CAPTURE_1175_CYCLING = {
+    "robotStatus": 10,
+    "robotCycleStatus": 4,
+    "robotCycleState": 3,
+    "catDetect": 0,
+    "litterLevel": 575,
+    "DFILevelPercent": 71,
+    "isDFIFull": 0,
+    "espFirmware": "1.1.75",
+    "mbHardware": 10500,
+    "mbBom": 3072,
+    "mbSuite": 2,
+    "mbRevision": 89,
+}
+CAPTURE_1175_IDLE = {
+    "robotStatus": 4,
+    "robotCycleStatus": 1,
+    "robotCycleState": 1,
+    "catDetect": 0,
+    "litterLevel": 453,
+    "DFILevelPercent": 71,
+    "isDFIFull": 0,
+    "espFirmware": "1.1.75",
+}
+
+
+def test_real_1175_capture_mid_cycle() -> None:
+    state = LitterRobot4State.from_state_doc(CAPTURE_1175_CYCLING)
+    assert state.robot_status == "clean_cycle"
+    assert state.is_cleaning is True
+    # catDetect is 0 for the whole cycle, which is what disproves the old
+    # "10 = cat/weight pause" reading.
+    assert state.cat_detected is False
+    # 575 mm is the ToF reading the rotating globe, not the litter bed.
+    assert state.litter_level is None
+    assert state.litter_level_mm is None
+    assert state.pic_firmware == "10500.3072.2.89"
+
+
+def test_real_1175_capture_idle() -> None:
+    state = LitterRobot4State.from_state_doc(CAPTURE_1175_IDLE)
+    assert state.robot_status == "ready"
+    assert state.is_cleaning is False
+    assert state.litter_level_mm == 453
+    assert state.waste_drawer_level == 71
+
+
+def test_unmapped_cloud_string_defers_to_the_cycle_machine() -> None:
+    # The firmware has string families we have never captured (the filter-change
+    # wizard, for one). An unrecognized status must not read as "not cleaning",
+    # or mid-cycle ToF garbage gets published as a litter level.
+    state = LitterRobot4State.from_state_doc(
+        {"robotStatus": "ROBOT_CHANGE_FILTER", "robotCycleStatus": 4, "litterLevel": 575}
+    )
+    assert state.is_cleaning is True
+    assert state.litter_level_mm is None
+
+
+def test_known_idle_status_beats_stale_cycle_status() -> None:
+    # A lagging robotCycleStatus must not make a resting robot report cleaning,
+    # which would also blank both litter readings.
+    state = LitterRobot4State.from_state_doc(
+        {"robotStatus": 4, "robotCycleStatus": 4, "litterLevel": 453}
+    )
+    assert state.is_cleaning is False
+    assert state.litter_level_mm == 453
 
 
 def test_is_cleaning_falls_back_to_cycle_status() -> None:
