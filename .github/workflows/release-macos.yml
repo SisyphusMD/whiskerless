@@ -93,6 +93,26 @@ jobs:
           merge-multiple: true
       - name: Release notes from CHANGELOG
         run: bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
+      - name: Wait for the pinned library to exist on PyPI
+        # github-release.sh CREATES the release if it is missing, and this
+        # workflow is triggered by the tag independently of Forgejo's
+        # publish.yml. Without this wait a slow or failed PyPI upload would let
+        # HACS offer an update whose manifest pins a version pip cannot install.
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # PEP 440: the tag says 0.2.0-rc.1, PyPI normalizes it to 0.2.0rc1.
+          pypi_version="$(printf '%s' "$version" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
+          for _ in $(seq 1 60); do
+            if curl -sSfI -o /dev/null \
+              "https://pypi.org/pypi/whiskerless/${pypi_version}/json"; then
+              echo "whiskerless ${pypi_version} is on PyPI"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::whiskerless ${pypi_version} never appeared on PyPI"
+          exit 1
       - name: Append the .pkg to the GitHub + public-Forgejo releases
         run: |
           chmod +x packaging/github-release.sh packaging/forgejo-release.sh

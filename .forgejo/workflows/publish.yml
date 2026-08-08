@@ -26,11 +26,18 @@ jobs:
         run: |
           python -m pip install --upgrade build twine
           python -m build
-          twine upload dist/*
+          # Idempotent: a partial upload must stay retryable, otherwise the
+          # release gate below blocks forever on the already-published file.
+          twine upload --skip-existing dist/*
 
   releases:
     name: Create releases + Linux binary (Forgejo, NAS, GitHub)
     runs-on: ubuntu-latest
+    # The integration manifest pins whiskerless==<this version>, and HACS offers
+    # the update as soon as the GitHub release exists. Publishing that before
+    # PyPI has the version leaves the first updaters unable to set the
+    # integration up at all.
+    needs: pypi
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

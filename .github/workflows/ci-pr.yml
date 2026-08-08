@@ -1,26 +1,26 @@
-name: CI
+name: CI (pull requests)
 
+# Forgejo is the source of truth and runs CI on every push to main, but issues
+# and PRs deliberately live on the GitHub mirror — where, until this existed, a
+# contributor's PR got no checks at all and breakage was only found by hand.
+# This mirrors the Forgejo library + integration jobs for the PR surface only.
 on:
-  push:
-    branches: [main]
-    tags: ["v*.*.*"]
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  quality:
+  library:
     name: Lint, type-check, test (library, ${{ matrix.python-version }})
+    # Forgejo Actions also reads .github/workflows; without this the same jobs
+    # would run twice there (server_url is the Forgejo instance URL on Forgejo).
+    if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # Both ends of the supported range: 3.11 is the floor pyproject
-        # advertises, and running only the newest interpreter let 3.12-only
-        # syntax reach the library unnoticed.
         python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,6 +40,7 @@ jobs:
 
   homeassistant:
     name: Type-check + test the integration
+    if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,11 +52,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,test-ha]"
       - name: Mypy (integration, strict)
-        # --python-version 3.13: the integration uses PEP 695 syntax (HA runs 3.13);
-        # override pyproject's 3.11 library pin so the type alias / generic defs parse.
-        # --namespace-packages --explicit-package-bases: check it as
-        # custom_components.whiskerless so `from whiskerless import …` resolves to the
-        # installed library, not the same-named integration package (matches runtime).
+        # --python-version 3.13: the integration uses PEP 695 syntax (HA runs
+        # 3.13); --explicit-package-bases resolves `whiskerless` to the installed
+        # library rather than the same-named integration package.
         run: >-
           mypy --strict --python-version 3.13 --namespace-packages
           --explicit-package-bases custom_components/whiskerless
