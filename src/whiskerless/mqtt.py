@@ -37,11 +37,30 @@ def build_tls_context(settings: MqttSettings) -> ssl.SSLContext | None:
     """Build the SSL context for ``settings`` (or ``None`` for a plaintext link)."""
     if not settings.tls:
         return None
-    context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
-    if settings.ca_cert_data:
-        context.load_verify_locations(cadata=settings.ca_cert_data)
-    elif settings.ca_cert_path:
-        context.load_verify_locations(cafile=str(Path(settings.ca_cert_path)))
+    if settings.ca_cert_data or settings.ca_cert_path:
+        # Passing the CA to create_default_context skips load_default_certs, so
+        # this context trusts ONLY the pinned CA — correct for a broker on your
+        # own network, and it keeps the relaxation below off the system roots.
+        # ca_cert_data wins when both are set, as it always has.
+        context = ssl.create_default_context(
+            purpose=ssl.Purpose.SERVER_AUTH,
+            cafile=(
+                None
+                if settings.ca_cert_data or settings.ca_cert_path is None
+                else str(Path(settings.ca_cert_path))
+            ),
+            cadata=settings.ca_cert_data,
+        )
+        # Python 3.13+ enables VERIFY_X509_STRICT by default, which rejects a CA
+        # lacking a keyUsage extension — including CAs built from this project's
+        # own documented openssl recipe. That CA is written into the robot's
+        # flash during BLE provisioning and cannot be rotated without a physical
+        # bench visit, and the robot's own mbedTLS accepts it, so refusing here
+        # strands the user with no remedy. Chain verification and hostname
+        # checking both stay on.
+        context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    else:
+        context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
     # The broker ignores the robot's client cert (require_certificate false), so
     # we present none. Hostname matching is optional because the robot is often
     # reached by IP / through a port-forward; the CA check always stands.

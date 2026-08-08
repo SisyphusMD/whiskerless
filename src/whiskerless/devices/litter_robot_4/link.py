@@ -19,6 +19,7 @@ from types import TracebackType
 
 import aiomqtt
 
+from ...exceptions import WhiskerlessConnectionError
 from ...mqtt import MqttSettings, create_client
 from ...safety import assert_sendable
 from . import commands
@@ -43,9 +44,17 @@ class LitterRobot4Link:
         return self._client
 
     async def __aenter__(self) -> LitterRobot4Link:
-        await self._client.__aenter__()
-        if self._subscribe:
-            await self._client.subscribe(subscribe_topic(self.serial), qos=1)
+        try:
+            await self._client.__aenter__()
+            if self._subscribe:
+                await self._client.subscribe(subscribe_topic(self.serial), qos=1)
+        except aiomqtt.MqttError as err:
+            # aiomqtt reports "timed out" for an unreachable broker and bare TLS
+            # text for a rejected CA. Neither says where it was pointed, and an
+            # unhandled MqttError reaches the CLI as a traceback.
+            raise WhiskerlessConnectionError(
+                f"cannot reach broker at {self._settings.host}:{self._settings.port} ({err})"
+            ) from err
         return self
 
     async def __aexit__(
