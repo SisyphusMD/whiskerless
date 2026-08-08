@@ -53,8 +53,8 @@ class LitterRobot4State:
     usb_fault_status: int | None = None
     is_bonnet_removed: bool | None = None
     is_night_light_led_on: bool | None = None
-    display_intensity_high: int | None = None  # panel brightness, active (%)
-    display_intensity_low: int | None = None   # panel brightness, dimmed (%)
+    display_intensity_high: int | None = None  # panel % in BRIGHT ambient (proven)
+    display_intensity_low: int | None = None   # panel % in DARK ambient (proven)
     globe_motor_fault: int | None = None
     globe_motor_retract_fault: int | None = None
 
