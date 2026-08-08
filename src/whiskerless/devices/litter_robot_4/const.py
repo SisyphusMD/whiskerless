@@ -268,4 +268,7 @@ ACTIVE_CYCLE_STATUSES: frozenset[str] = frozenset({"dump", "home", "level", "cyc
 BRIGHTNESS_PRESETS: dict[str, int] = {"low": 25, "medium": 50, "high": 100}
 
 # clean-cycle wait-time minutes the app offers.
-CLEAN_CYCLE_WAIT_MINUTES: tuple[int, ...] = (3, 7, 15, 25, 30)
+# Register 0x16 holds plain minutes; the robot accepts any value in this range
+# (live-tested at 3, 7 and 20), and the app exposes the whole span.
+CLEAN_CYCLE_WAIT_MIN_MINUTES = 3
+CLEAN_CYCLE_WAIT_MAX_MINUTES = 30

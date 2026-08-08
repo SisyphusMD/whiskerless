@@ -19,7 +19,6 @@ from .entity import WhiskerlessEntity, exception_handler
 PARALLEL_UPDATES = 1
 
 _NIGHT_LIGHT_MODE_INDEX = {name: value for value, name in const.NIGHT_LIGHT_MODE.items()}
-_WAIT_OPTIONS = [str(minutes) for minutes in const.CLEAN_CYCLE_WAIT_MINUTES]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -40,18 +39,6 @@ SELECTS: tuple[WhiskerlessSelectEntityDescription, ...] = (
         select_fn=lambda coordinator, option: coordinator.async_set_night_light_mode(
             _NIGHT_LIGHT_MODE_INDEX[option]
         ),
-    ),
-    WhiskerlessSelectEntityDescription(
-        key="clean_cycle_wait",
-        translation_key="clean_cycle_wait",
-        entity_category=EntityCategory.CONFIG,
-        options=_WAIT_OPTIONS,
-        current_fn=lambda robot: (
-            str(robot.clean_cycle_wait_minutes)
-            if robot.clean_cycle_wait_minutes is not None
-            else None
-        ),
-        select_fn=lambda coordinator, option: coordinator.async_set_clean_cycle_wait(int(option)),
     ),
 )
 

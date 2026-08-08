@@ -20,7 +20,7 @@ pytestmark = pytest.mark.usefixtures("mqtt_mock")
         ("binary_sensor.litter_robot_4_waste_drawer_full", "off"),
         ("binary_sensor.litter_robot_4_cat_detected", "off"),
         ("select.litter_robot_4_night_light", "auto"),
-        ("select.litter_robot_4_clean_cycle_wait_time", "15"),
+        ("number.litter_robot_4_clean_cycle_wait_time", "15"),
         ("switch.litter_robot_4_control_lock", "off"),
         ("number.litter_robot_4_night_light_brightness", "50"),
         ("time.litter_robot_4_panel_sleep_time", "22:00:00"),

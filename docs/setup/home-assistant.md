@@ -81,7 +81,9 @@ work the same way; each becomes its own device.
 **Controls**
 
 - **Night light** (select: off / on / auto) and **Night light brightness** (number)
-- **Clean cycle wait time** (select)
+- **Clean cycle wait time** (number, 3–30 minutes)
+- **Panel brightness (bright room)** / **(dark room)** (numbers) — High/Low name the
+  ambient light level, not the brightness rank
 - **Control lock**, **Panel sleep mode**, **Weekday sleep schedule** (switches)
 - **Panel sleep time** / **Panel wake time** (time entities)
 

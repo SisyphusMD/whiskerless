@@ -36,6 +36,16 @@ def _globe_fault(robot: LitterRobot4State) -> bool | None:
     return robot.globe_motor_fault != 0
 
 
+# Entities built by hand rather than from a description, so the retired-entity
+# sweep in __init__ can still account for their keys. A key missing here gets its
+# registry entry deleted and recreated on every reload, losing the user's entity
+# ID, name, area and enabled state — test_retired_entities guards against that.
+STANDALONE_KEYS: tuple[str, ...] = (
+    "hopper_connected",
+    "hopper_empty",
+    "waste_drawer_removed",
+)
+
 BINARY_SENSORS: tuple[WhiskerlessBinarySensorEntityDescription, ...] = (
     WhiskerlessBinarySensorEntityDescription(
         key="cat_detected",

@@ -4,7 +4,7 @@
     "step": {
       "discovery_confirm": {
         "title": "Add Litter-Robot",
-        "description": "A Litter-Robot 4 (serial {serial}) was found on your MQTT broker. Give it a name — this becomes the device name and is used to generate its entity IDs.",
+        "description": "A Litter-Robot 4 (serial {serial}) was found on your MQTT broker. Give it a name \u2014 this becomes the device name and is used to generate its entity IDs.",
         "data": {
           "name": "Name"
         },
@@ -97,9 +97,6 @@
           "on": "[%key:common::state::on%]",
           "auto": "Auto"
         }
-      },
-      "clean_cycle_wait": {
-        "name": "Clean cycle wait time"
       }
     },
     "switch": {
@@ -114,6 +111,9 @@
       }
     },
     "number": {
+      "clean_cycle_wait": {
+        "name": "Clean cycle wait time"
+      },
       "night_light_brightness": {
         "name": "Night light brightness"
       },

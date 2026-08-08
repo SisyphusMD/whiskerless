@@ -11,12 +11,12 @@ from homeassistant.components.number import (
     NumberEntityDescription,
     NumberMode,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from whiskerless import WhiskerlessError
-from whiskerless.devices.litter_robot_4 import LitterRobot4State
+from whiskerless.devices.litter_robot_4 import LitterRobot4State, const
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity, exception_handler
@@ -47,6 +47,20 @@ async def _set_panel_low(coordinator: WhiskerlessCoordinator, value: int) -> Non
 
 
 NUMBERS: tuple[WhiskerlessNumberEntityDescription, ...] = (
+    # Register 0x16 stores plain minutes and the robot accepts any value in the
+    # range, so this is a number rather than a fixed set of presets.
+    WhiskerlessNumberEntityDescription(
+        key="clean_cycle_wait",
+        translation_key="clean_cycle_wait",
+        entity_category=EntityCategory.CONFIG,
+        native_min_value=const.CLEAN_CYCLE_WAIT_MIN_MINUTES,
+        native_max_value=const.CLEAN_CYCLE_WAIT_MAX_MINUTES,
+        native_step=1,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        mode=NumberMode.BOX,
+        value_fn=lambda robot: robot.clean_cycle_wait_minutes,
+        set_fn=lambda coordinator, value: coordinator.async_set_clean_cycle_wait(value),
+    ),
     WhiskerlessNumberEntityDescription(
         key="night_light_brightness",
         translation_key="night_light_brightness",
