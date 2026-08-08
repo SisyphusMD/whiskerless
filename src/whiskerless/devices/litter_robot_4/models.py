@@ -102,7 +102,7 @@ class LitterRobot4State:
 
         litter_pct = _int(g("litterLevelPercentage"))
         litter_mm = _int(g("litterLevel"))
-        if is_cleaning:
+        if is_cleaning or robot_status in const.LITTER_UNRELIABLE_STATUSES:
             # The ToF sensors read the rotating globe, not the litter bed, while
             # a cycle runs (observed: 574 mm mid-cycle on a 460 mm fill). Suppress
             # rather than publish garbage.

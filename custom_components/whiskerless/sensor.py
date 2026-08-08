@@ -42,6 +42,7 @@ STATUS_OPTIONS = [
     "empty_cycle",
     "cat_sensor_timing",
     "bonnet_removed",
+    "changing_filter",
     "powering_up",
     "powering_down",
     "off",

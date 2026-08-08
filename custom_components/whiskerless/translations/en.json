@@ -32,7 +32,8 @@
           "bonnet_removed": "Bonnet removed",
           "powering_up": "Powering up",
           "powering_down": "Powering down",
-          "off": "Off"
+          "off": "Off",
+          "changing_filter": "Changing filter"
         }
       },
       "litter_level": {

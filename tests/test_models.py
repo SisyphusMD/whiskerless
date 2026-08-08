@@ -157,9 +157,20 @@ def test_unmapped_cloud_string_defers_to_the_cycle_machine() -> None:
     # wizard, for one). An unrecognized status must not read as "not cleaning",
     # or mid-cycle ToF garbage gets published as a litter level.
     state = LitterRobot4State.from_state_doc(
-        {"robotStatus": "ROBOT_CHANGE_FILTER", "robotCycleStatus": 4, "litterLevel": 575}
+        {"robotStatus": "ROBOT_NOT_INVENTED_YET", "robotCycleStatus": 4, "litterLevel": 575}
     )
     assert state.is_cleaning is True
+    assert state.litter_level_mm is None
+
+
+def test_the_filter_wizard_suppresses_litter_readings() -> None:
+    # The globe parks INVERTED for the whole wizard, so the ToF is not looking
+    # at the litter bed even though this is not a clean cycle.
+    state = LitterRobot4State.from_state_doc(
+        {"robotStatus": "ROBOT_CHANGE_FILTER", "litterLevel": 575}
+    )
+    assert state.robot_status == "changing_filter"
+    assert state.is_cleaning is False
     assert state.litter_level_mm is None
 
 

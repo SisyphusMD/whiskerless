@@ -215,9 +215,19 @@ ROBOT_STATUS_STRINGS: dict[str, str] = {
     "robot_power_up": "powering_up",
     "robot_power_down": "powering_down",
     "robot_power_off": "off",
+    # The filter-change wizard parks the globe inverted and waits for a physical
+    # press. Captured from a cloud-connected 1.4.4 robot; the matching local ints
+    # have not been observed, so only the string form decodes for now.
+    "robot_change_filter": "changing_filter",
 }
 # Status values that mean the globe is actively cycling.
 CLEANING_STATUSES: frozenset[str] = frozenset({"clean_cycle", "empty_cycle"})
+
+# Statuses where the ToF sensors are not looking at a level litter bed, so any
+# litter reading is meaningless. Broader than CLEANING_STATUSES: the
+# filter-change wizard parks the globe inverted for minutes at a time without
+# ever being a clean cycle.
+LITTER_UNRELIABLE_STATUSES: frozenset[str] = CLEANING_STATUSES | frozenset({"changing_filter"})
 
 # Every slug the decoder produces from a value it actually recognized. An
 # unmapped int decodes to "unknown_N" and an unseen cloud string passes through
