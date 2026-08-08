@@ -78,9 +78,19 @@ class HopperDispensed:
 
 @dataclass(frozen=True, slots=True)
 class HopperLinkChanged:
-    """Hopper link state (register 0x57): connected, or link lost (-15)."""
+    """Hopper link state (register 0x57).
 
-    connected: bool
+    Positive values are the healthy per-visit choreography (19-48 observed).
+    Negative values are faults, of which only -15 is characterized (detach, and
+    any bonnet movement — the hopper mounts on the bonnet). A second negative,
+    -30, was captured on 1.1.75 around waste-drawer service on a robot whose
+    hopper was attached, so the fault space is wider than one code.
+
+    ``connected`` is therefore tri-state: ``None`` for a negative we cannot
+    name, rather than forcing an unrecognized fault to read as connected.
+    """
+
+    connected: bool | None
     raw: int
 
 
@@ -121,6 +131,14 @@ LitterRobotEvent: TypeAlias = (
 )
 
 
+def _hopper_connected(value: int) -> bool | None:
+    """Resolve a 0x57 reading to link state, or None when the code is unknown."""
+    if value == HOPPER_LINK_DISCONNECTED:
+        return False
+    # int16: the fault codes are negative, the healthy choreography positive.
+    return True if value < 0x8000 else None
+
+
 def events_from_readings(readings: list[ActivityReading]) -> list[LitterRobotEvent]:
     """Extract the semantic events from one activity message's readings.
 
@@ -143,7 +161,7 @@ def events_from_readings(readings: list[ActivityReading]) -> list[LitterRobotEve
         elif reading.register == Register.HOPPER_LINK:
             events.append(
                 HopperLinkChanged(
-                    connected=reading.value != HOPPER_LINK_DISCONNECTED,
+                    connected=_hopper_connected(reading.value),
                     raw=reading.value,
                 )
             )

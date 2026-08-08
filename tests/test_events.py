@@ -55,6 +55,13 @@ def test_hopper_link_lost_and_restored() -> None:
     assert all(isinstance(e, HopperLinkChanged) and e.connected for e in restored)
 
 
+def test_unknown_hopper_fault_is_not_reported_as_connected() -> None:
+    # 0x57FFE2 (-30) was captured on 1.1.75 around waste-drawer service, on a
+    # robot whose hopper was attached. It is a fault we cannot name, so it must
+    # read unknown rather than falling through to "connected".
+    assert _events("0x57FFE2") == [HopperLinkChanged(connected=None, raw=0xFFE2)]
+
+
 def test_visit_duration_from_visit_close() -> None:
     # Real capture 2026-07-31 19:14Z: visit closed with 0xBC0011 = 17 s.
     events = _events("0x570013", "0xBC0011", "0xB90001")
