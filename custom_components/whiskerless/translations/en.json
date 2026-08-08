@@ -84,6 +84,9 @@
       },
       "waste_drawer_removed": {
         "name": "Waste drawer removed"
+      },
+      "hopper_empty": {
+        "name": "Hopper out of litter"
       }
     },
     "select": {

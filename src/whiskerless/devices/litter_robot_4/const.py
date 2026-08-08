@@ -159,6 +159,14 @@ DRAWER_BAY_REMOVED = 0x000A
 # gauge (see events.HopperDispensed).
 HOPPER_DISPENSE_FILL_PHASE = 1
 
+# Fill-gauge bands from a full live drain-to-refill arc (11 days, ESP 1.4.4):
+# 89-92 maintained · 76→66 draining · 66-70 flatlined EMPTY (floor reading of
+# the bare auger; the firmware itself never flags empty and keeps running a
+# normal dispense every cycle) · 84 immediately after a refill (fresh litter
+# mounds unevenly before dispenses redistribute it). The bands don't overlap;
+# <= this threshold means empty.
+HOPPER_FILL_EMPTY_MAX = 72
+
 
 # Per-weekday sleep/wake registers (0x1E–0x2B). Sun→Sat, sleep-then-wake per day.
 # ASSUMED layout (the round-trip is PROVEN; the exact day ordering is inferred —

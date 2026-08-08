@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
+from whiskerless.devices.litter_robot_4 import const as lr4
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity
@@ -74,6 +75,7 @@ async def async_setup_entry(
         WhiskerlessBinarySensor(coordinator, description) for description in BINARY_SENSORS
     ]
     entities.append(WhiskerlessHopperConnectedSensor(coordinator))
+    entities.append(WhiskerlessHopperEmptySensor(coordinator))
     entities.append(WhiskerlessDrawerRemovedSensor(coordinator))
     async_add_entities(entities)
 
@@ -116,6 +118,31 @@ class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
     @override
     def is_on(self) -> bool | None:
         return self.coordinator.data.hopper_connected
+
+
+class WhiskerlessHopperEmptySensor(WhiskerlessEntity, BinarySensorEntity):
+    """Hopper out of litter, from the fill gauge (dispense phase 1).
+
+    The firmware never flags empty — it keeps running a normal dispense every
+    cycle, delivering nothing. The gauge gives it away: it flatlines at its
+    66-70 floor when empty vs 76+ whenever litter is present (live-proven
+    across a full drain-to-refill arc). Unknown until the first dispense.
+    """
+
+    _attr_translation_key = "hopper_empty"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.serial}_hopper_empty"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        raw = self.coordinator.data.hopper_fill_raw
+        if raw is None:
+            return None
+        return raw <= lr4.HOPPER_FILL_EMPTY_MAX
 
 
 class WhiskerlessDrawerRemovedSensor(WhiskerlessEntity, BinarySensorEntity):
