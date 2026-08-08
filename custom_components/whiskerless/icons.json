@@ -47,6 +47,9 @@
       },
       "waste_drawer_removed": {
         "default": "mdi:tray-remove"
+      },
+      "hopper_empty": {
+        "default": "mdi:silo-outline"
       }
     },
     "select": {
