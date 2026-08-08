@@ -54,7 +54,6 @@ _STATE_TIMEOUT = 10.0
 _VERIFY_TIMEOUT = 8.0
 _ACTIVITY_THROTTLE = 2.0
 
-
 @dataclass
 class WhiskerlessData:
     """The coordinator's data payload.
@@ -69,6 +68,9 @@ class WhiskerlessData:
     last_cat_visit: datetime | None = None
     last_visit_duration_s: int | None = None
     hopper_connected: bool | None = None
+    # Distinguishes "never heard from the link register" from a reading we
+    # heard but cannot name: only the former may fall back to a restored value.
+    hopper_link_reported: bool = False
     last_hopper_dispensed: datetime | None = None
     hopper_fill_raw: int | None = None
     drawer_removed: bool | None = None
@@ -100,9 +102,12 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._last_cat_visit: datetime | None = None
         self._last_visit_duration_s: int | None = None
         self._hopper_connected: bool | None = None
+        self._hopper_link_reported = False
         self._last_hopper_dispensed: datetime | None = None
         self._hopper_fill_raw: int | None = None
         self._drawer_removed: bool | None = None
+
+
 
     def _build_data(self, robot: LitterRobot4State) -> WhiskerlessData:
         """Combine the state snapshot with the activity-derived facts."""
@@ -112,6 +117,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             last_cat_visit=self._last_cat_visit,
             last_visit_duration_s=self._last_visit_duration_s,
             hopper_connected=self._hopper_connected,
+            hopper_link_reported=self._hopper_link_reported,
             last_hopper_dispensed=self._last_hopper_dispensed,
             hopper_fill_raw=self._hopper_fill_raw,
             drawer_removed=self._drawer_removed,
@@ -128,12 +134,19 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 changed = True
             elif isinstance(event, HopperDispensed):
                 self._last_hopper_dispensed = dt_util.utcnow()
+                # Dispensing is proof of a working link, same as a 0x57 report.
+                self._hopper_link_reported = True
                 self._hopper_connected = True  # it just dispensed
                 if event.phase == lr4.HOPPER_DISPENSE_FILL_PHASE:
                     self._hopper_fill_raw = event.value
                 changed = True
             elif isinstance(event, HopperLinkChanged):
-                if event.connected != self._hopper_connected:
+                # Always republish: the first reading may be an unnamed fault,
+                # which is None and must surface as unknown rather than leaving
+                # the entity on whatever it restored.
+                first_report = not self._hopper_link_reported
+                self._hopper_link_reported = True
+                if first_report or event.connected != self._hopper_connected:
                     self._hopper_connected = event.connected
                     changed = True
             elif isinstance(event, CatVisitEnded):
@@ -147,6 +160,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                     self._drawer_removed = event.removed
                     changed = True
         return changed
+
 
     @override
     async def _async_setup(self) -> None:

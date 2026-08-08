@@ -87,6 +87,18 @@ work the same way; each becomes its own device.
 - **Control lock**, **Panel sleep mode**, **Weekday sleep schedule** (switches)
 - **Panel sleep time** / **Panel wake time** (time entities)
 
+**LitterHopper (optional hardware)**
+
+The hopper is invisible in the local state document — every hopper fact comes
+from the activity stream — so these four entities ship **disabled** rather than
+reading unknown forever on the robots that don't have one. If yours does, enable
+them once in the device page:
+
+- **Hopper** (connected), **Hopper out of litter**, **Hopper fill (raw)**,
+  **Last hopper dispense**
+
+They populate on the next visit or dispense.
+
 Settings writes are verified by reading them back, and the schedule times retry
 automatically (the robot commits those with a little latency).
 

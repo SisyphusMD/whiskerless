@@ -11,8 +11,10 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
 from whiskerless.devices.litter_robot_4 import const as lr4
@@ -110,7 +112,30 @@ class WhiskerlessBinarySensor(WhiskerlessEntity, BinarySensorEntity):
         return self.entity_description.value_fn(self._robot)
 
 
-class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
+class _RestoringBinarySensor(WhiskerlessEntity, BinarySensorEntity, RestoreEntity):
+    """Base for sensors whose only source is an activity event.
+
+    The robot speaks these registers on an event and never in the state
+    document, so a restart would otherwise blank them until the next drawer
+    pull, visit or dispense — potentially days for the drawer.
+    """
+
+    def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
+        super().__init__(coordinator)
+        self._restored: bool | None = None
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None and last.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            self._restored = last.state == STATE_ON
+
+    def _with_restore(self, current: bool | None) -> bool | None:
+        return self._restored if current is None else current
+
+
+class WhiskerlessHopperConnectedSensor(_RestoringBinarySensor):
     """LitterHopper link state, derived from the activity stream (reg 0x57).
 
     The state document carries no hopper fields locally; the link register is
@@ -118,6 +143,7 @@ class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
     """
 
     _attr_translation_key = "hopper_connected"
+    _attr_entity_registry_enabled_default = False
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
 
     def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
@@ -127,10 +153,15 @@ class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
     @property
     @override
     def is_on(self) -> bool | None:
-        return self.coordinator.data.hopper_connected
+        data = self.coordinator.data
+        if data.hopper_link_reported:
+            # 0x57 deliberately reports None for a fault we cannot name; a
+            # restored value must not dress that up as connected.
+            return data.hopper_connected
+        return self._restored
 
 
-class WhiskerlessHopperEmptySensor(WhiskerlessEntity, BinarySensorEntity):
+class WhiskerlessHopperEmptySensor(_RestoringBinarySensor):
     """Hopper out of litter, from the fill gauge (dispense phase 1).
 
     The firmware never flags empty — it keeps running a normal dispense every
@@ -140,6 +171,7 @@ class WhiskerlessHopperEmptySensor(WhiskerlessEntity, BinarySensorEntity):
     """
 
     _attr_translation_key = "hopper_empty"
+    _attr_entity_registry_enabled_default = False
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
     def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
@@ -151,11 +183,11 @@ class WhiskerlessHopperEmptySensor(WhiskerlessEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         raw = self.coordinator.data.hopper_fill_raw
         if raw is None:
-            return None
+            return self._restored
         return raw <= lr4.HOPPER_FILL_EMPTY_MAX
 
 
-class WhiskerlessDrawerRemovedSensor(WhiskerlessEntity, BinarySensorEntity):
+class WhiskerlessDrawerRemovedSensor(_RestoringBinarySensor):
     """Waste-drawer bay state, derived from the activity stream (reg 0x56).
 
     The DFI fields in the state document never flag a pulled drawer; the bay
@@ -173,4 +205,4 @@ class WhiskerlessDrawerRemovedSensor(WhiskerlessEntity, BinarySensorEntity):
     @property
     @override
     def is_on(self) -> bool | None:
-        return self.coordinator.data.drawer_removed
+        return self._with_restore(self.coordinator.data.drawer_removed)

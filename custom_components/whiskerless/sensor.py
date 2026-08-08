@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import override
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -117,8 +119,10 @@ class WhiskerlessDataSensorEntityDescription(SensorEntityDescription):
 
 
 # These facts exist ONLY in the activity stream: the local state document never
-# carries cat weight, and hopper dispenses are pure events. Values start unknown
-# after a restart and populate on the next visit / dispense.
+# carries cat weight, and hopper dispenses are pure events. They are also
+# event-driven, so without restoring the last value every entity here would sit
+# unknown from an HA restart until the next cat visit or dispense — potentially
+# hours.
 DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
     WhiskerlessDataSensorEntityDescription(
         key="pet_weight",
@@ -140,6 +144,7 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         key="last_hopper_dispensed",
         translation_key="last_hopper_dispensed",
         device_class=SensorDeviceClass.TIMESTAMP,
+        entity_registry_enabled_default=False,
         data_fn=lambda data: data.last_hopper_dispensed,
     ),
     # Seconds of settled weight (reg 0xBC). Reported even for visits too short
@@ -160,6 +165,7 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         key="hopper_fill",
         translation_key="hopper_fill",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
         data_fn=lambda data: data.hopper_fill_raw,
     ),
 )
@@ -201,7 +207,7 @@ class WhiskerlessSensor(WhiskerlessEntity, SensorEntity):
         return self.entity_description.value_fn(self._robot)
 
 
-class WhiskerlessDataSensor(WhiskerlessEntity, SensorEntity):
+class WhiskerlessDataSensor(WhiskerlessEntity, RestoreSensor):
     """A Whiskerless sensor fed from activity-derived coordinator data."""
 
     entity_description: WhiskerlessDataSensorEntityDescription
@@ -214,8 +220,29 @@ class WhiskerlessDataSensor(WhiskerlessEntity, SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{coordinator.serial}_{description.key}"
+        self._restored: StateType | datetime = None
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # The NATIVE value, not the rendered state: reading last.state would
+        # pick up the user's display unit (kg, minutes) and hand it back as if
+        # it were pounds or seconds, re-converting on every restart.
+        last = await self.async_get_last_sensor_data()
+        if last is None:
+            return
+        value = last.native_value
+        if isinstance(value, Decimal):
+            value = float(value)
+        elif isinstance(value, date) and not isinstance(value, datetime):
+            # No sensor here is a plain date; a cache holding one is not ours.
+            return
+        self._restored = value
 
     @property
     @override
     def native_value(self) -> StateType | datetime:
-        return self.entity_description.data_fn(self.coordinator.data)
+        # The robot only speaks these on an event, so hold the restored value
+        # until it does rather than reading unknown for hours after a restart.
+        current = self.entity_description.data_fn(self.coordinator.data)
+        return self._restored if current is None else current
