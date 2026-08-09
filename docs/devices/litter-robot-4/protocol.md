@@ -66,7 +66,7 @@ The robot's network brain exposes exactly two things:
 | Opcode | Name | Effect | Safety |
 |---|---|---|---|
 | `0xA0` | requestState | builds the full state document → `state` | safe (read-only) |
-| `0xA1` | schedule / RSSI report | sleep-wake schedule + `wifiRssi` → `activity` | safe |
+| `0xA1` | RSSI report | `wifiRssi` only → `activity` — no schedule, despite the name | safe (read-only) |
 | `0xA3` | reset / MB-OTA | reboots the robot or no-ops — **not** a clean cycle (live-proven) | **never send** |
 | `0xA4` | globe-motor OTA | stages a motor-controller firmware flash | **never send** |
 | `0xA7` | wifi-event report | wifi event → `activity` (send value `0`) | safe (value 0) |
@@ -75,11 +75,17 @@ The robot's network brain exposes exactly two things:
 | `0xAD` | hardware reset | pulses the controller's reset line | **never send** |
 | `0xAE` | version report | board ids + firmware → `activity` | safe (read-only) |
 
-> **Everything else is a generic register write.** There is **no firmware
-> whitelist** — a type-2 write to any other opcode writes that PIC register
-> directly. That's why whiskerless funnels every send through a
-> [safety guard](commands.md#safety): the brick/reset-class opcodes above are
-> refused unconditionally, and untraced writes require an explicit override.
+> **Everything else is a generic register write**, and the firmware handles those
+> per register rather than blindly: writes to `0x1A`, `0x1B` and `0x1C` are
+> acknowledged and discarded, with the register echoed back unchanged. What a
+> write to a register with *no* handler does has never been tested.
+>
+> whiskerless still funnels every send through a
+> [safety guard](commands.md#safety), because `0x02A30000` is live-proven to
+> reboot the robot and the macro range it belongs to is described — by a brief
+> that has since been wrong about `0xA1`, `0x1A`-`0x1C` and `robotStatus` — as
+> holding flash and reset operations. Untraced writes need an explicit override
+> because they are untested, not because their effect is known.
 
 ## The activity / read-echo form
 

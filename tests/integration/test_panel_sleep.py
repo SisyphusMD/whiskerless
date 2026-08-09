@@ -16,6 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from . import robot_online, setup_integration
+from .const import ACTIVITY_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -71,3 +72,48 @@ async def test_the_schedule_is_written_to_every_weekday_register(
     ]
     assert all(c.endswith(f"{1290:04X}") for c in writes if c[:6] != "0x02A0")
     assert not any(c.startswith("0x021B") for c in sent), "0x1B is read-only"
+
+
+async def test_a_write_transaction_is_not_interrupted_by_its_own_echoes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A schedule write must reach the robot as paced writes and nothing else.
+
+    Every accepted register write echoes as an activity message, and an activity
+    message normally schedules a requestState. Left ungated that refresh fires
+    into the gap between two paced writes, recreating the back-to-back traffic
+    that was seen dropping one write of seven.
+    """
+    doc = json.loads(state_payload)
+    doc["panelSleepTime"] = 1290
+    for day in ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"):
+        doc[f"sleepTime{day}"] = 1290
+    robot = await setup_integration(hass, mock_config_entry, json.dumps(doc))
+
+    import custom_components.whiskerless.coordinator as coord
+
+    sent: list[str] = []
+    original = coord.build_command_payload
+
+    def spy(serial: str, code: str) -> str:
+        sent.append(code)
+        # The robot echoes every accepted write back on the activity topic.
+        if code.startswith("0x02") and not code.startswith("0x02A0"):
+            robot.push(json.dumps({"type": "action", "data": [code[4:]]}), ACTIVITY_TOPIC)
+        return original(serial, code)
+
+    coord.build_command_payload = spy
+    try:
+        with robot_online(robot):
+            await hass.services.async_call(
+                "time",
+                "set_value",
+                {"entity_id": "time.litter_robot_4_panel_sleep_time", "time": "21:30:00"},
+                blocking=True,
+            )
+    finally:
+        coord.build_command_payload = original
+
+    # Seven schedule writes then exactly one requestState — no echo-triggered extras.
+    assert [c for c in sent if c.startswith("0x02A0")] == ["0x02A00000"]
+    assert len([c for c in sent if not c.startswith("0x02A0")]) == 7

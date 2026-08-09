@@ -36,6 +36,11 @@ StatePredicate = Callable[[LitterRobot4State], bool]
 
 _RECONNECT_MAX_BACKOFF = 60.0
 _ACTIVITY_REFRESH_THROTTLE = 2.0
+# Gap between the publishes of one logical write. Setting a schedule means seven
+# register writes, and two issued back to back were observed landing as one — the
+# robot took the first and dropped the second. The retry loop catches that; the
+# gap is what stops it happening.
+_WRITE_GAP = 0.2
 
 
 class LitterRobot4Client:
@@ -59,6 +64,7 @@ class LitterRobot4Client:
         self._first_error: BaseException | None = None
         self._available = False
         self._last_activity_refresh = 0.0
+        self._io_lock = asyncio.Lock()
         self._bg_tasks: set[asyncio.Task[None]] = set()
 
     # --- lifecycle -----------------------------------------------------------
@@ -160,25 +166,40 @@ class LitterRobot4Client:
                     log.exception("Litter-Robot %s update callback failed", self.serial)
         elif isinstance(message, ActivityMessage):
             # Telemetry between full states — prompt a throttled full refresh so
-            # HA reflects the event promptly without spamming requestState.
+            # consumers reflect the event promptly without spamming requestState.
+            # Suppressed mid-write: every accepted register write echoes as an
+            # activity message, so refreshing here would fire a requestState into
+            # the gap between two paced writes. That transaction reads state itself.
             loop = asyncio.get_running_loop()
             now = loop.time()
-            if now - self._last_activity_refresh >= _ACTIVITY_REFRESH_THROTTLE and self._link is not None:
+            if (
+                not self._io_lock.locked()
+                and now - self._last_activity_refresh >= _ACTIVITY_REFRESH_THROTTLE
+                and self._link is not None
+            ):
                 self._last_activity_refresh = now
                 task = loop.create_task(self._safe_request_state())
                 self._bg_tasks.add(task)
                 task.add_done_callback(self._bg_tasks.discard)
 
     async def _safe_request_state(self) -> None:
-        link = self._link
-        if link is None:
-            return
-        with contextlib.suppress(aiomqtt.MqttError, OSError):
-            await link.request_state()
+        # Under the lock, not merely skipped when it looked free at schedule time:
+        # this runs as a task, so a write can take the lock in between and the
+        # request would land in one of its pacing gaps.
+        async with self._io_lock:
+            link = self._link
+            if link is None:
+                return
+            with contextlib.suppress(aiomqtt.MqttError, OSError):
+                await link.request_state()
 
     # --- reads ---------------------------------------------------------------
     async def async_get_robot(self, *, timeout: float = 10.0) -> LitterRobot4State:
         """Prompt a fresh state and return it (heartbeat / after-write fetch)."""
+        async with self._io_lock:
+            return await self._get_robot_locked(timeout=timeout)
+
+    async def _get_robot_locked(self, *, timeout: float) -> LitterRobot4State:
         link = self._link
         if link is None:
             raise WhiskerlessConnectionError(f"not connected to {self.host}")
@@ -206,16 +227,36 @@ class LitterRobot4Client:
         retries: int = 3,
         timeout: float = 8.0,
     ) -> None:
+        batch = [command] if isinstance(command, Command) else list(command)
+        label = batch[0].label if len(batch) == 1 else f"{batch[0].label} ×{len(batch)}"
+        # Held for the whole transaction so no read — an activity-echo refresh, a
+        # heartbeat, or a caller's own async_get_robot — can publish into one of
+        # the pacing gaps between two writes.
+        async with self._io_lock:
+            await self._write_batch(batch, label, verify, retries=retries, timeout=timeout)
+
+    async def _write_batch(
+        self,
+        batch: list[Command],
+        label: str,
+        verify: StatePredicate,
+        *,
+        retries: int,
+        timeout: float,
+    ) -> None:
         link = self._link
         if link is None:
             raise WhiskerlessConnectionError(f"not connected to {self.host}")
-        batch = [command] if isinstance(command, Command) else list(command)
-        label = batch[0].label if len(batch) == 1 else f"{batch[0].label} ×{len(batch)}"
         for attempt in range(max(1, retries)):
-            for item in batch:
+            for index, item in enumerate(batch):
+                if index:
+                    await asyncio.sleep(_WRITE_GAP)
                 await link.publish(item)
+            if len(batch) > 1:
+                # Let the last write land before the read-back overtakes it.
+                await asyncio.sleep(_WRITE_GAP)
             try:
-                state = await self.async_get_robot(timeout=timeout)
+                state = await self._get_robot_locked(timeout=timeout)
             except WhiskerlessConnectionError:
                 continue
             if verify(state):

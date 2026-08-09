@@ -74,6 +74,12 @@ type WhiskerlessConfigEntry = ConfigEntry[WhiskerlessCoordinator]
 
 _STATE_TIMEOUT = 10.0
 _VERIFY_TIMEOUT = 8.0
+# Gap between the publishes of one logical write. Sending a schedule means seven
+# register writes, and two issued back to back were observed landing as one — the
+# robot took the first and dropped the second. The retry loop catches that; the
+# gap is what stops it happening, and it also keeps the read-back request from
+# overtaking the last write and reading pre-write state.
+_WRITE_GAP = 0.2
 _ACTIVITY_THROTTLE = 2.0
 # Two dispense reports closer together than this are the same event redelivered;
 # real dispenses are a cycle or more apart.
@@ -422,6 +428,13 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
     @callback
     def _schedule_activity_refresh(self) -> None:
         """Prompt a throttled full-state refresh after a telemetry event."""
+        if self._io_lock.locked():
+            # A write is mid-transaction. Every accepted register write echoes as
+            # an activity message, so refreshing here would fire a requestState
+            # into the gap between two paced writes — reintroducing the
+            # back-to-back traffic the pacing exists to avoid. That transaction
+            # requests its own state anyway.
+            return
         now = self.hass.loop.time()
         if now - self._last_activity_refresh < _ACTIVITY_THROTTLE:
             return
@@ -432,7 +445,11 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
 
     async def _safe_request_state(self) -> None:
         with contextlib.suppress(WhiskerlessError, HomeAssistantError):
-            await self._publish(commands.request_state())
+            # Under the lock, not merely skipped when it looked free at schedule
+            # time: this runs as a task, so a write can take the lock in between
+            # and the publish would land in one of its pacing gaps.
+            async with self._io_lock:
+                await self._publish(commands.request_state())
 
     @override
     async def _async_update_data(self) -> WhiskerlessData:
@@ -481,9 +498,10 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         async with self._io_lock:
             for _ in range(retries):
                 self._state_event.clear()
-                for item in batch:
+                for index, item in enumerate((*batch, commands.request_state())):
+                    if index:
+                        await asyncio.sleep(_WRITE_GAP)
                     await self._publish(item)
-                await self._publish(commands.request_state())
                 with contextlib.suppress(TimeoutError):
                     async with asyncio.timeout(_VERIFY_TIMEOUT):
                         while True:

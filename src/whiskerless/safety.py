@@ -1,12 +1,23 @@
 """The central safety guard for every Litter-Robot command.
 
-The reverse-engineering proved that a handful of opcodes are brick- or
-reset-class, and that the firmware applies **no whitelist** to the generic
-register write — any unrecognised opcode writes an arbitrary PIC register. So
-this module is the one chokepoint every send path funnels through: the CLI, the
+This module is the one chokepoint every send path funnels through: the CLI, the
 Home Assistant integration, and any future caller classify a command here and
 :func:`assert_sendable` refuses the dangerous ones *before* the bytes can leave
 the process.
+
+What justifies that, precisely, is one live observation: `0x02A30000` — once
+shipped as "cleanCycle" — **reboots the robot**. The macro range it sits in is
+described by a static firmware brief as holding flash, OTA and reset operations,
+and that brief has since been wrong about several other things, so the range is
+treated as untrusted rather than as documented.
+
+What is NOT claimed: that an unrecognised write reaches a PIC register directly.
+That was asserted from the same brief and the robot contradicts it — writes to
+`0x1A`, `0x1B` and `0x1C` are acknowledged and discarded, with the register
+echoed unchanged, which is per-register handling, not a blind write path. What a
+write to a register with *no* handler does is simply untested, and unknown
+commands stay DANGEROUS because the cost of being wrong is asymmetric, not
+because the mechanism is known.
 
 The command grammar guarded here is the LR4 ESP wire format: a 10-character
 string ``0xTTRRVVVV`` where the second hex digit ``T`` is the type (1=read,
@@ -107,7 +118,8 @@ def classify(ctype: CommandType, register: int, value: int) -> Hazard:
         return Hazard.SAFE if value == 0 else Hazard.DANGEROUS
     if register in SAFE_SETTINGS_REGISTERS:
         return Hazard.SAFE
-    # No firmware whitelist exists for the generic write — default to dangerous.
+    # Untested, so refused by default: what the firmware does with a register it
+    # has no handler for has never been observed either way.
     return Hazard.DANGEROUS
 
 

@@ -47,8 +47,9 @@ whiskerless classifies every command before it can reach the wire
 - **Motor (opt-in required):** none currently. No opcode is yet proven to drive the
   globe; the gate stays in the guard for a future, confirmed cleanCycle trigger.
 - **Dangerous (override required):** any untraced opcode, control-band register,
-  or calibration register. The generic write has no firmware whitelist, so anything
-  unrecognised defaults to "refuse unless you really mean it".
+  or calibration register. Anything unrecognised defaults to "refuse unless you
+  really mean it" because its effect is untested — not because a write is known to
+  reach the register directly. See [protocol.md](protocol.md).
 - **Safe:** reads, the report macros (value 0), and the settings above.
 
 ## What's deliberately *not* here
