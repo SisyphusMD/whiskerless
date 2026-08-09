@@ -28,6 +28,16 @@ from homeassistant.util import dt as dt_util
 from whiskerless import WhiskerlessError
 from whiskerless.devices.litter_robot_4 import LitterRobot4State, commands
 from whiskerless.devices.litter_robot_4 import const as lr4
+from whiskerless.devices.litter_robot_4.calibration import (
+    HOPPER_CORROBORATION,
+    HOPPER_PLAUSIBLE,
+    LITTER_CORROBORATION_MM,
+    LITTER_MAX_SPAN_MM,
+    LITTER_PLAUSIBLE_MM,
+    Learned,
+    hopper_percent,
+    litter_is_sampleable,
+)
 from whiskerless.devices.litter_robot_4.commands import Command
 from whiskerless.devices.litter_robot_4.const import command_topic, subscribe_topic
 from whiskerless.devices.litter_robot_4.events import (
@@ -49,6 +59,8 @@ from whiskerless.safety import assert_sendable
 from .const import (
     CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
+    CONF_LEARNED_HOPPER,
+    CONF_LEARNED_LITTER,
     CONF_LITTER_EMPTY_MM,
     CONF_LITTER_FULL_MM,
     CONF_SERIAL,
@@ -63,6 +75,12 @@ type WhiskerlessConfigEntry = ConfigEntry[WhiskerlessCoordinator]
 _STATE_TIMEOUT = 10.0
 _VERIFY_TIMEOUT = 8.0
 _ACTIVITY_THROTTLE = 2.0
+# Two dispense reports closer together than this are the same event redelivered;
+# real dispenses are a cycle or more apart.
+_DISPENSE_DEDUPE = 60.0
+# State documents arrive on a multi-minute cadence, so anything closer than this
+# is a redelivery rather than an independent observation.
+_STATE_DEDUPE = 30.0
 
 @dataclass
 class WhiskerlessData:
@@ -82,8 +100,14 @@ class WhiskerlessData:
     # heard but cannot name: only the former may fall back to a restored value.
     hopper_link_reported: bool = False
     # Per-robot litter calibration, so the percentage sensor can use it.
+    # The pair actually used for the percentage: the user's measurements when
+    # they exist, otherwise the learned extremes once they span enough to trust.
     litter_full_mm: int | None = None
     litter_empty_mm: int | None = None
+    # What the user measured, for the diagnostic sensor. Deliberately not the
+    # learned value: "at the line" is a claim only a person can make.
+    litter_reference_mm: int | None = None
+    hopper_fill_percent: int | None = None
     last_hopper_dispensed: datetime | None = None
     hopper_fill_raw: int | None = None
     drawer_removed: bool | None = None
@@ -117,8 +141,12 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._hopper_connected: bool | None = None
         self._hopper_link_reported = False
         self._hopper_seen = bool(config_entry.options.get(CONF_HOPPER_SEEN))
+        self._learned_litter = Learned.from_dict(config_entry.options.get(CONF_LEARNED_LITTER))
+        self._learned_hopper = Learned.from_dict(config_entry.options.get(CONF_LEARNED_HOPPER))
         self._last_hopper_dispensed: datetime | None = None
         self._hopper_fill_raw: int | None = None
+        self._last_hopper_sample_at = 0.0
+        self._last_litter_sample_at = 0.0
         self._drawer_removed: bool | None = None
         # Enabling an entity reloads the entry, which builds a fresh coordinator
         # and would otherwise discard the very readings that proved the hopper
@@ -133,6 +161,75 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             self._last_hopper_dispensed = dt_util.parse_datetime(dispensed) if dispensed else None
 
 
+
+    @callback
+    def _learn_hopper(self, raw: int) -> None:
+        """Fold one FRESH dispense gauge reading into the hopper scale.
+
+        Deliberately driven by the dispense event rather than by state
+        documents: the last reading is retained between dispenses, so sampling
+        it on every heartbeat would let a single bad value corroborate itself
+        within seconds and become an anchor.
+        """
+        # The activity subscription is QoS 1, so one dispense can be delivered
+        # more than once, and counting a redelivery as a separate dispense would
+        # let a single low reading confirm an empty floor on its own. Redelivery
+        # is a TIME property: separate dispenses are cycles apart, redeliveries
+        # arrive within seconds. Deduplicating by value instead would discard the
+        # repeated floor readings that are the entire evidence for "empty".
+        now = self.hass.loop.time()
+        if now - self._last_hopper_sample_at < _DISPENSE_DEDUPE:
+            return
+        self._last_hopper_sample_at = now
+        if self._learned_hopper.observe(
+            raw,
+            bounds=HOPPER_PLAUSIBLE,
+            corroboration=HOPPER_CORROBORATION,
+            count_hits=True,
+        ):
+            self._persist_learned()
+
+    @callback
+    def _persist_learned(self) -> None:
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            options={
+                **self.config_entry.options,
+                CONF_LEARNED_LITTER: self._learned_litter.as_dict(),
+                CONF_LEARNED_HOPPER: self._learned_hopper.as_dict(),
+            },
+        )
+
+    @callback
+    def _learn(self, robot: LitterRobot4State) -> None:
+        """Fold this report into the learned scales, persisting real movement.
+
+        Guarded three ways: only a settled robot is sampled, values outside the
+        physically plausible band are discarded, and a new extreme has to be
+        corroborated by a second reading before it becomes an anchor. See
+        calibration.py.
+        """
+        # Same redelivery hazard as the hopper: a QoS 1 duplicate arriving
+        # seconds later would corroborate the candidate it just created, which
+        # is one reading masquerading as two.
+        now = self.hass.loop.time()
+        if now - self._last_litter_sample_at < _STATE_DEDUPE:
+            return
+        self._last_litter_sample_at = now
+
+        moved = False
+        if litter_is_sampleable(robot):
+            assert robot.litter_level_mm is not None
+            moved |= self._learned_litter.observe(
+                robot.litter_level_mm,
+                bounds=LITTER_PLAUSIBLE_MM,
+                corroboration=LITTER_CORROBORATION_MM,
+                max_span=LITTER_MAX_SPAN_MM,
+            )
+        if moved:
+            # Only when something actually changed. A new extreme is rare, so
+            # this is not the per-state-document write it might look like.
+            self._persist_learned()
 
     @callback
     def _record_hopper_sighting(self) -> None:
@@ -208,6 +305,20 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
 
     def _build_data(self, robot: LitterRobot4State) -> WhiskerlessData:
         """Combine the state snapshot with the activity-derived facts."""
+        # The learned minimum is the fullest reading SEEN, a decent estimate of
+        # a full fill because that is what people fill to, so it stands in for
+        # the manual reference and anchors 90%. The learned maximum is NOT
+        # evidence the globe was ever emptied, so it is never used as the zero
+        # end: that would report "empty" at whatever level this robot happens to
+        # sit lowest, which for most robots is an ordinary day.
+        effective_full: int | None
+        effective_empty: int | None
+        if self.litter_full_mm is not None:
+            effective_full = self.litter_full_mm
+            effective_empty = self.litter_empty_mm
+        else:
+            effective_full = self._learned_litter.low
+            effective_empty = None
         return WhiskerlessData(
             robot=robot,
             cat_weight_lb=self._cat_weight_lb,
@@ -215,8 +326,14 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             last_visit_duration_s=self._last_visit_duration_s,
             hopper_connected=self._hopper_connected,
             hopper_link_reported=self._hopper_link_reported,
-            litter_full_mm=self.litter_full_mm,
-            litter_empty_mm=self.litter_empty_mm,
+            litter_full_mm=effective_full,
+            litter_empty_mm=effective_empty,
+            litter_reference_mm=self.litter_full_mm,
+            hopper_fill_percent=(
+                None
+                if self._hopper_fill_raw is None
+                else hopper_percent(self._hopper_fill_raw, self._learned_hopper)
+            ),
             last_hopper_dispensed=self._last_hopper_dispensed,
             hopper_fill_raw=self._hopper_fill_raw,
             drawer_removed=self._drawer_removed,
@@ -243,6 +360,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 self._hopper_connected = True  # it just dispensed
                 if event.phase == lr4.HOPPER_DISPENSE_FILL_PHASE:
                     self._hopper_fill_raw = event.value
+                    self._learn_hopper(event.value)
                 changed = True
             elif isinstance(event, HopperLinkChanged):
                 # Always republish: the first reading may be an unnamed fault,
@@ -291,6 +409,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             parsed = parse_message(message.topic, message.payload)
             if isinstance(parsed, StateMessage):
                 self._robot = parsed.state
+                self._learn(parsed.state)
                 self._state_event.set()
                 self.async_set_updated_data(self._build_data(parsed.state))
             elif isinstance(parsed, ActivityMessage):

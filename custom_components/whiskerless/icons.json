@@ -30,6 +30,9 @@
       },
       "litter_reference": {
         "default": "mdi:ruler"
+      },
+      "hopper_level": {
+        "default": "mdi:silo"
       }
     },
     "binary_sensor": {

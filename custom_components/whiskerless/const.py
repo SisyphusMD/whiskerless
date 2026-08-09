@@ -21,6 +21,11 @@ CONF_SERIAL = "serial"
 CONF_HOPPER_SEEN = "hopper_seen"
 CONF_HOPPER_LAST = "hopper_last"
 
+# Extremes learned from what the robot reports, so a user who never calibrates
+# still gets a scale. Explicit calibration overrides these.
+CONF_LEARNED_LITTER = "learned_litter"
+CONF_LEARNED_HOPPER = "learned_hopper"
+
 CONF_LITTER_FULL_MM = "litter_full_mm"
 CONF_LITTER_EMPTY_MM = "litter_empty_mm"
 

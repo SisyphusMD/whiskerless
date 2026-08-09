@@ -85,7 +85,10 @@ async def test_calibration_takes_effect_immediately(
     assert after is not None
     # 455 mm was just declared "at the line", which the cloud pins to 90%.
     assert after.state == "90"
-    assert after.state != before.state
+    # Auto-calibration will have reached the same anchor from the same reading,
+    # so the press is proven by the reference being RECORDED, not by the
+    # percentage moving. Manual and learned agreeing is the expected case.
+    assert mock_config_entry.options[CONF_LITTER_FULL_MM] == 455
 
 
 async def test_a_suppressed_reading_is_not_papered_over_by_the_last_one(

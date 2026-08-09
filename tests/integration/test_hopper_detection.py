@@ -148,3 +148,26 @@ async def test_the_disable_new_entities_preference_wins(
         _disabled_by(registry, "binary_sensor", "hopper_connected")
         is er.RegistryEntryDisabler.INTEGRATION
     )
+
+
+async def test_a_retained_reading_cannot_corroborate_itself(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """The last gauge value is kept between dispenses, so learning must be driven
+    by the dispense event. Sampling it on every heartbeat would let one bad
+    reading confirm itself within seconds and become a permanent anchor."""
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    with robot_online(robot):
+        robot.push(DISPENSE, ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+        # Several ordinary state refreshes, each carrying the retained value.
+        for _ in range(4):
+            robot.push(state_payload)
+            await hass.async_block_till_done()
+
+    learned = mock_config_entry.options.get("learned_hopper") or {}
+    assert learned.get("low") is None, "one sample must not become an anchor"
+    assert learned.get("low_candidate") == 0x03D

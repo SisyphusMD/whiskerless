@@ -93,6 +93,7 @@ HOPPER_ENTITIES: tuple[tuple[str, str], ...] = (
     (Platform.BINARY_SENSOR, "hopper_connected"),
     (Platform.BINARY_SENSOR, "hopper_empty"),
     (Platform.SENSOR, "hopper_fill"),
+    (Platform.SENSOR, "hopper_level"),
     (Platform.SENSOR, "last_hopper_dispensed"),
 )
 

@@ -105,7 +105,20 @@ curve: the cloud measures against a reference calibrated per robot
 measured references differ by ~10 mm between robots — enough to move the answer
 by 15 points.
 
-So the percentage starts as an approximation. To make it yours:
+**It calibrates itself over time.** The integration watches what your robot
+reports and learns the *fullest* reading it has seen, then treats that as "about
+a full fill" — the same 90% anchor the button below sets, just reached without
+you. It deliberately does not guess the empty end: a robot in ordinary use never
+bares its globe, so the emptiest reading seen is not 0% and pretending otherwise
+would report "empty" on a normal day.
+
+It only samples a settled robot (no cat on the scale, not mid-cycle, status
+ready), discards readings no litter surface could produce, and needs a second
+reading to confirm a new extreme. The hopper is learned the same way, except its
+floor must be hit across several separate dispenses before it counts as empty,
+which is why **Hopper level (%)** stays unknown for a while.
+
+If you want it right immediately rather than eventually, measure it yourself:
 
 1. Fill the globe to the line.
 2. Press **Calibrate litter: filled to the line** (a config button on the device

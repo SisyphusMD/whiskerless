@@ -68,6 +68,9 @@
       },
       "litter_reference": {
         "name": "Litter calibration reference"
+      },
+      "hopper_level": {
+        "name": "Hopper level"
       }
     },
     "binary_sensor": {

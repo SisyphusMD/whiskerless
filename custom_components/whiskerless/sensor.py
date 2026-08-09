@@ -192,7 +192,22 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        data_fn=lambda data: data.litter_full_mm,
+        data_fn=lambda data: data.litter_reference_mm,
+        restores=False,
+    ),
+    # The percentage the raw gauge means on THIS robot, once its floor and
+    # ceiling have been learned. Unknown until the scale is wide enough to trust.
+    WhiskerlessDataSensorEntityDescription(
+        key="hopper_level",
+        translation_key="hopper_level",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+        data_fn=lambda data: data.hopper_fill_percent,
+        # Never restored. This is unknown both when there is no reading and when
+        # the learned scale is not yet trusted, and resurrecting an old
+        # percentage in the second case would show a number derived from a scale
+        # we have just decided is wrong. The raw gauge beside it does restore.
         restores=False,
     ),
     WhiskerlessDataSensorEntityDescription(
