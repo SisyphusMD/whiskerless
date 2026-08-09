@@ -43,7 +43,10 @@ class Opcode(IntEnum):
     """The 9 ESP macro opcodes. Everything else is a generic register write."""
 
     REQUEST_STATE = 0xA0       # full named state doc → /state (READ-only)   PROVEN
-    REPORT_SCHEDULE = 0xA1     # sleep/wake schedule + wifiRssi → /activity   PROVEN
+    # Named for the schedule it was believed to return; a live send answers with
+    # {"type": "activity", "wifiRssi": …} and nothing else. Kept under the old name
+    # because it is public API.
+    REPORT_SCHEDULE = 0xA1     # wifiRssi only → /activity                    PROVEN
     RESET_MB_OTA = 0xA3        # reset / main-board-OTA orchestrator — live: reboots or no-ops   NEVER
     GLOBE_MOTOR_OTA = 0xA4     # globe-motor OTA stager — BRICK RISK          NEVER
     REPORT_WIFI_EVENT = 0xA7   # wifi-event report → /activity (value 0 only) PROVEN
@@ -155,6 +158,10 @@ class Register(IntEnum):
 
 # HOPPER_LINK (0x57) value meaning "hopper disconnected" (int16 -15, live-PROVEN
 # on detach/reattach and bonnet lift/reseat).
+#
+# Other negatives are NOT disconnections and must stay unnamed: -30 (0xFFE2) recurs
+# on an idle robot with the hopper attached and dispensing normally, so treating any
+# negative as a fault would report a working hopper as gone.
 HOPPER_LINK_DISCONNECTED = 0xFFF1
 
 # DRAWER_BAY (0x56) removal code — consistent across both narrated pulls.

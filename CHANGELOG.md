@@ -43,6 +43,10 @@ of the below lives in `docs/devices/litter-robot-4/`.
   anything; they now write the real per-weekday schedule.
 - **Panel sleep mode says what is actually wrong** instead of timing out. The
   robot derives it from the weekday sleep schedule, which is the switch to use.
+- **Pet weight can no longer report a cat 100× too heavy.** It fell back to a
+  state-document field in unknown units that no captured robot actually sends.
+- **Panel brightness is verified rather than assumed.** The library reported every
+  write as successful without checking; it now reads the value back like the rest.
 - `pic_firmware`, previously always null, composed from the local `mb*` fields.
 - Entities a previous version created but this one no longer produces are removed
   from the registry instead of lingering forever as unavailable.
@@ -56,6 +60,8 @@ of the below lives in `docs/devices/litter-robot-4/`.
   rank. The stock 40/50 is deliberately brighter at night.
 - `isPanelSleepMode` and the panel sleep/wake times are documented as read-only:
   the firmware computes all three from the weekday schedule registers.
+- The register map now says what PROVEN has to mean, and demotes the rows that
+  never earned it. `0x02A10000` returns Wi-Fi RSSI only, not the schedule.
 - Releases are never published before the library version they pin exists on
   PyPI, and CI now exercises the Python 3.11 floor it advertises.
 

@@ -45,10 +45,12 @@ def request_state() -> Command:
 
 
 def report_schedule() -> Command:
+    """Ask for `0xA1`. Answers with `wifiRssi` alone, despite the name."""
     return _cmd(encode_write(const.Opcode.REPORT_SCHEDULE, 0), "reportSchedule")
 
 
 def report_wifi_event() -> Command:
+    """Ask for `0xA7`. Answers with an empty `data` array on an idle robot."""
     return _cmd(encode_write(const.Opcode.REPORT_WIFI_EVENT, 0), "reportWifiEvent")
 
 

@@ -9,6 +9,14 @@ is **PROVEN** (live-tested), **HIGH** (firmware-decisive), or **MED/LOW**
 (inference). Only the **W** rows are exposed for writing; everything else is
 read/telemetry.
 
+**What PROVEN has to mean here.** For a writable register: a write was observed to
+change the value *and* the new value observed coming back. For a read register: the
+value was observed moving in step with a physical event. `0x1A` passed every weaker
+test — it was readable, it decoded, its name matched the setting, and a write even
+appeared to succeed — and it is still not writable. A tag inherited from the static
+firmware brief is an inference, not a test, and has already been wrong twice
+(`robotStatus` `13`; the panel sleep bank).
+
 ## Settings (read + write)
 
 | Reg | Field | Meaning | Conf |
@@ -21,7 +29,7 @@ read/telemetry.
 | `0x1A` | isPanelSleepMode | 0/1 — **read-only**, follows `0x1D`, see below | PROVEN |
 | `0x1B` / `0x1C` | panelSleepTime / panelWakeTime | minutes since midnight (16-bit); **read-only**, mirrors today's weekday pair | PROVEN |
 | `0x1D` | weekdaySleepModeEnabled | 0/1 | PROVEN |
-| `0x1E–0x2B` | weekday sleep/wake ×14 | minutes since midnight; day order [inferred](compatibility.md#weekday-schedule) | PROVEN value / inferred mapping |
+| `0x1E–0x2B` | weekday sleep/wake ×14 | minutes since midnight, `0x1E + 2i` / `0x1F + 2i` Sunday-first | PROVEN, mapping included |
 
 ### The panel sleep bank is not a plain settings bank
 
@@ -44,9 +52,15 @@ the firmware, not stored** — writing them is accepted and discarded:
   `0x1A`/`0x1D` all echoed unchanged.
 
 So the writable surface is `0x1D` (on/off) and `0x1E–0x2B` (the schedule). Setting a
-unified sleep or wake time means writing all seven of that side's registers. This also
-confirms the day order the map had only inferred: `0x1E + 2i` / `0x1F + 2i`,
-Sunday-first.
+unified sleep or wake time means writing all seven of that side's registers.
+
+The day order is no longer inferred. Writing a **distinct** value to each of the seven
+sleep registers in one pass and reading the document back identified every one:
+`0x1E + 2i` / `0x1F + 2i`, Sunday-first, exactly as assumed. That pass also showed why
+each register must be verified individually — one of the seven (`0x26`) silently did
+not take, while the other six did, and an identical retry landed it. Verifying only
+`0x1B` would have reported success: it mirrors *today*, and today's register was one
+of the six that worked.
 
 Only 1.1.75 has been tested, but this is a data model rather than a behaviour, so a
 1.4.x difference would be surprising. The `PROVEN` these rows once carried appears to
@@ -57,9 +71,9 @@ was.
 
 | Reg | Field | Meaning | Conf |
 |---|---|---|---|
-| `0x07` | unitPowerType | AC / USB / battery | HIGH |
-| `0x31` | unitPowerStatus | power state | HIGH |
-| `0x32` | sleepStatus | sleep state | HIGH |
+| `0x07` | unitPowerType | named AC / USB / battery, but no integer is pinned — a mains-powered robot reports `0` with `isUSBPowerOn` = 1 | LOW |
+| `0x31` | unitPowerStatus | power state; a running robot reports `1`, no other value seen | LOW |
+| `0x32` | sleepStatus | `1` while inside the panel sleep window, `0` outside — tracks the clock, not just the enable bit | PROVEN |
 | `0x34` | robotStatus | see enum below | PROVEN |
 | `0x35` | globeMotorFaultStatus | 0 = none, 1..9 fault | HIGH |
 | `0x37` | catDetect | cat presence | HIGH |
@@ -73,8 +87,8 @@ was.
 | `0x44` / `0x4B` | isDFIFull / isDFIPartialFull | drawer full / partial | HIGH |
 | `0x47` | litterLevel | litter distance in mm | PROVEN |
 | `0x4D` | globeMotorRetractFaultStatus | fault enum | HIGH |
-| `0x4E` | robotCycleStatus | 1 = idle, 2 = dump | HIGH |
-| `0x4F` | robotCycleState | 1 = idle, 2→3→4 progression | HIGH |
+| `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
+| `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum | PROVEN |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
 | `0x09` | catWeight | raw / 100 = lb (telemetry) | HIGH |
 

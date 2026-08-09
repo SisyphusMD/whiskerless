@@ -11,8 +11,8 @@ for the register meanings.
 | Action | Code | Result |
 |---|---|---|
 | Request full state | `0x02A00000` | publishes the state document |
-| Schedule + RSSI | `0x02A10000` | `wifiRssi` + sleep/wake schedule |
-| Wi-Fi event | `0x02A70000` | last wifi event (send value `0`) |
+| Wi-Fi RSSI | `0x02A10000` | `{"type": "activity", "wifiRssi": -66}` — **RSSI only**, no schedule |
+| Wi-Fi event | `0x02A70000` | an empty `data` array on an idle robot (send value `0`) |
 | ToF / sensors | `0x02A90000` | distance + crosstalk readings |
 | Versions | `0x02AE0000` | ESP / PIC / laser-board firmware |
 | Read a register | `0x01RR0000` | echoes `0xRRVVVV` |

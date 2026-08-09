@@ -62,3 +62,13 @@ def test_a_schedule_write_targets_every_weekday_not_the_mirror() -> None:
     wakes = commands.set_panel_wake_times(420)
     assert [c.register for c in wakes] == list(range(0x1F, 0x2C, 2))
     assert all(c.value == 420 for c in wakes)
+
+
+def test_panel_brightness_clamps_into_the_packed_value() -> None:
+    """Callers verify against `value`, so the clamp has to be visible there.
+
+    Comparing a read-back with the caller's out-of-range number would call a
+    clamped-but-successfully-applied write a failure.
+    """
+    assert commands.set_panel_brightness(300, -5).value == (255 << 8) | 0
+    assert commands.set_panel_brightness(90, 100).value == (90 << 8) | 100

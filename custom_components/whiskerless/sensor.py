@@ -152,9 +152,11 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.WEIGHT,
         native_unit_of_measurement=UnitOfMass.POUNDS,
         state_class=SensorStateClass.MEASUREMENT,
-        data_fn=lambda data: data.cat_weight_lb
-        if data.cat_weight_lb is not None
-        else data.robot.cat_weight,
+        # Activity only. The state document's `catWeight` carries the cloud's field
+        # NAME with the firmware's raw value, and no captured robot has ever emitted
+        # it, so whether it needs the activity register's ÷100 is untested — falling
+        # back to it would risk reporting a 12 lb cat as 1200 lb.
+        data_fn=lambda data: data.cat_weight_lb,
     ),
     WhiskerlessDataSensorEntityDescription(
         key="last_cat_visit",

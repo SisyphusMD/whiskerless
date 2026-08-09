@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -15,6 +16,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from . import setup_integration
+from .const import ACTIVITY_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -102,8 +104,10 @@ async def test_a_live_value_beats_the_restored_one(
 ) -> None:
     """Restoring is a fallback, never a value that outranks the robot.
 
-    Pet weight is the case with both sources: some firmware carries catWeight in
-    the state document, and the fixture does.
+    Weight is carried only by the activity stream (register `0x09`), so the live
+    value has to arrive as an event. No captured robot has ever put `catWeight` in
+    its state document, and the raw register is hundredths of a pound, so a state
+    document is not a source this sensor may fall back on.
     """
     mock_restore_cache_with_extra_data(
         hass,
@@ -115,7 +119,11 @@ async def test_a_live_value_beats_the_restored_one(
         ),
     )
 
-    await setup_integration(hass, mock_config_entry, state_payload)
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    assert hass.states.get("sensor.litter_robot_4_pet_weight").state == "4.18"
+
+    robot.push(json.dumps({"type": "action", "data": ["0x0903AC"]}), ACTIVITY_TOPIC)  # 940 = 9.4 lb
+    await hass.async_block_till_done()
 
     state = hass.states.get("sensor.litter_robot_4_pet_weight")
     assert state is not None

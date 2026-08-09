@@ -508,9 +508,14 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         )
 
     async def async_set_panel_brightness(self, high: int, low: int) -> None:
+        command = commands.set_panel_brightness(high, low)
+        # Against the value actually encoded: the builder clamps, and comparing with
+        # the caller's numbers would call a clamped-but-applied write a failure.
+        sent_high, sent_low = divmod(command.value or 0, 0x100)
         await self._write_and_verify(
-            commands.set_panel_brightness(high, low),
-            lambda s: s.display_intensity_high == high and s.display_intensity_low == low,
+            command,
+            lambda s: s.display_intensity_high == sent_high
+            and s.display_intensity_low == sent_low,
         )
 
     async def async_set_clean_cycle_wait(self, minutes: int) -> None:

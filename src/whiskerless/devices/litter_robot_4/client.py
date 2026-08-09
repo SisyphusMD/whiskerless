@@ -261,11 +261,15 @@ class LitterRobot4Client:
         )
 
     async def async_set_panel_brightness(self, percent: int) -> None:
-        # One HA slider drives both the High and Low panel levels together.
+        # One slider drives both ambient levels together. 0x0E does read back — as
+        # the two named fields below — so this is verified like any other setting.
+        command = commands.set_panel_brightness(percent, percent)
+        # Against the value actually encoded: the builder clamps, and comparing with
+        # the caller's number would call a clamped-but-applied write a failure.
+        high, low = divmod(command.value or 0, 0x100)
         await self._write(
-            commands.set_panel_brightness(percent, percent),
-            lambda s: True,  # 0x0E is not echoed as a single named field; trust the write
-            retries=1,
+            command,
+            lambda s: s.display_intensity_high == high and s.display_intensity_low == low,
         )
 
     async def async_set_panel_sleep_time(self, minutes_since_midnight: int) -> None:
