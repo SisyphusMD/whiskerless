@@ -7,10 +7,11 @@
 # Forgejo (binary) and GitHub (.pkg) publishers can target the same release in
 # any order.
 set -euo pipefail
-# Every curl is time-bounded: publishing v0.2.0-rc.1 hung indefinitely on an
-# unreachable target, stranding the release targets sequenced after it. Reads
-# retry; creates and uploads do not, because a timed-out mutation may already
-# have been applied and repeating it would duplicate rather than recover.
+# Every curl is time-bounded: an unreachable host would otherwise hang here with
+# no deadline at all, stranding the release targets sequenced after this one.
+# Reads retry; creates and uploads do not, because a timed-out mutation may
+# already have been applied and repeating it would duplicate rather than
+# recover. The tag-wait loop is its own retry, so its request does not nest one.
 
 host="$1"; token="$2"; tag="$3"; notes_file="$4"; shift 4
 api="https://$host/api/v1/repos/SisyphusMD/whiskerless"

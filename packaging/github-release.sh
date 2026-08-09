@@ -7,10 +7,11 @@
 # the automatic GITHUB_TOKEN) call this with the SAME CHANGELOG notes, so whoever
 # creates the release first sets identical notes and the other just appends.
 set -euo pipefail
-# Every curl is time-bounded: publishing v0.2.0-rc.1 hung indefinitely on an
-# unreachable target, stranding the release targets sequenced after it. Reads
-# retry; creates and uploads do not, because a timed-out mutation may already
-# have been applied and repeating it would duplicate rather than recover.
+# Every curl is time-bounded: an unreachable host would otherwise hang here with
+# no deadline at all, stranding the release targets sequenced after this one.
+# Reads retry; creates and uploads do not, because a timed-out mutation may
+# already have been applied and repeating it would duplicate rather than
+# recover. The tag-wait loop is its own retry, so its request does not nest one.
 
 token="$1"; tag="$2"; notes_file="$3"; shift 3
 repo="SisyphusMD/whiskerless"

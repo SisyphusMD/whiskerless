@@ -56,12 +56,12 @@ jobs:
           set -uo pipefail
           chmod +x packaging/forgejo-release.sh packaging/github-release.sh
           BIN=dist/whiskerless-linux-x86_64
-          # Every target is attempted even when an earlier one fails. These ran
-          # fail-fast and sequentially before, so one unreachable host silently
-          # cost the targets after it their release — which is how v0.2.0-rc.1
-          # shipped to PyPI and public Forgejo with no GitHub Linux binary and
-          # no NAS release at all. Failures are collected and re-raised at the
-          # end, so the job still goes red.
+          # Every target is attempted even when an earlier one fails. Run
+          # fail-fast and sequentially, one unreachable host costs every target
+          # after it its release, and the tag-wait poll in each helper means a
+          # dead host burns ten minutes before the next one is even tried.
+          # Failures are collected and re-raised at the end, so the job still
+          # goes red.
           failed=""
           packaging/forgejo-release.sh forgejo.bryantserver.com \
             "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN" \
