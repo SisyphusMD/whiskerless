@@ -242,6 +242,10 @@ class LitterRobot4Client:
         await self._write(commands.set_keypad_lockout(enabled), lambda s: s.keypad_lockout == enabled)
 
     async def async_set_panel_sleep_mode(self, enabled: bool) -> None:
+        if enabled and not (await self.async_get_robot()).accepts_panel_sleep_enable:
+            raise WhiskerlessError(
+                "panel sleep mode needs the weekday sleep schedule enabled first"
+            )
         await self._write(commands.set_panel_sleep_mode(enabled), lambda s: s.panel_sleep_mode == enabled)
 
     async def async_set_weekday_sleep_enabled(self, enabled: bool) -> None:

@@ -19,21 +19,21 @@ for the register meanings.
 
 ## Settings (safe, reversible)
 
-All validated by a live read-modify-restore sweep; encodings are PROVEN.
-whiskerless writes, reads back, and retries (the time-of-day registers commit with
-a slight delay).
+Encodings are PROVEN by a live read-modify-restore sweep. whiskerless writes, reads
+back, and retries — but *accepting* a write is the robot's call, and the panel sleep
+bank turns some of these down (see [registers.md](registers.md#the-panel-sleep-bank-is-not-a-plain-settings-bank)).
 
-| Setting | Reg | Code | Encoding |
-|---|---|---|---|
-| Night-light mode | `0x18` | `0x0218000M` | 0 = off, 1 = on, 2 = auto |
-| Night-light brightness | `0x19` | `0x021900VV` | 0–100 % (direct) |
-| Clean-cycle wait time | `0x16` | `0x021600VV` | minutes |
-| Keypad / control lockout | `0x17` | `0x0217000B` | 0 / 1 |
-| Panel brightness | `0x0E` | `0x020EHHLL` | hi byte = High level, lo byte = Low level |
-| Panel sleep mode | `0x1A` | `0x021A000B` | 0 / 1 |
-| Panel sleep / wake time | `0x1B` / `0x1C` | `0x021BVVVV` | minutes since midnight (16-bit) |
-| Weekday sleep enabled | `0x1D` | `0x021D000B` | 0 / 1 |
-| Weekday sleep/wake ×14 | `0x1E–0x2B` | `0x021E..2B VVVV` | minutes since midnight — see [compatibility.md](compatibility.md#weekday-schedule) |
+| Setting | Reg | Code | Encoding | Accepted? |
+|---|---|---|---|---|
+| Night-light mode | `0x18` | `0x0218000M` | 0 = off, 1 = on, 2 = auto | yes |
+| Night-light brightness | `0x19` | `0x021900VV` | 0–100 % (direct) | yes |
+| Clean-cycle wait time | `0x16` | `0x021600VV` | minutes | yes |
+| Keypad / control lockout | `0x17` | `0x0217000B` | 0 / 1 | yes |
+| Panel brightness | `0x0E` | `0x020EHHLL` | hi byte = High level, lo byte = Low level | yes |
+| Panel sleep mode | `0x1A` | `0x021A000B` | 0 / 1 | only while `0x1D` = 1 |
+| Panel sleep / wake time | `0x1B` / `0x1C` | `0x021BVVVV` | minutes since midnight (16-bit) | refused on ESP 1.1.75 |
+| Weekday sleep enabled | `0x1D` | `0x021D000B` | 0 / 1 | yes |
+| Weekday sleep/wake ×14 | `0x1E–0x2B` | `0x021E..2B VVVV` | minutes since midnight — see [compatibility.md](compatibility.md#weekday-schedule) | untested |
 
 ## Safety
 

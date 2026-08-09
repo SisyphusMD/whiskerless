@@ -92,6 +92,17 @@ async def _cmd_read(args: argparse.Namespace) -> int:
 async def _cmd_set(args: argparse.Namespace) -> int:
     command = _build_setting(args.setting, args.value)
     async with _link(args) as link:
+        if command.register == const.Register.IS_PANEL_SLEEP_MODE and command.value:
+            enabled = await link.read_register(
+                const.Register.WEEKDAY_SLEEP_MODE_ENABLED, timeout=args.timeout
+            )
+            if enabled == 0:
+                print(
+                    "panel-sleep-mode needs weekday-sleep-enabled on first "
+                    "(the robot silently refuses 0x1A otherwise)",
+                    file=sys.stderr,
+                )
+                return 1
         ok = await link.apply_setting(command, retries=args.retries, timeout=args.timeout)
     if ok:
         print(f"{args.setting} = {args.value} (verified)")

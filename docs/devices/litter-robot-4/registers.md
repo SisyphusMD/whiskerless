@@ -18,10 +18,36 @@ read/telemetry.
 | `0x17` | isKeypadLockout | control lock 0/1 | PROVEN |
 | `0x18` | nightLightMode | 0 = off, 1 = on, 2 = auto | PROVEN |
 | `0x19` | nightLightBrightness | 0–100 % | PROVEN |
-| `0x1A` | isPanelSleepMode | 0/1 | PROVEN |
-| `0x1B` / `0x1C` | panelSleepTime / panelWakeTime | minutes since midnight (16-bit) | PROVEN |
+| `0x1A` | isPanelSleepMode | 0/1 — writable only while `0x1D` = 1, see below | PROVEN |
+| `0x1B` / `0x1C` | panelSleepTime / panelWakeTime | minutes since midnight (16-bit); **read-only on ESP 1.1.75**, see below | read PROVEN / write firmware-dependent |
 | `0x1D` | weekdaySleepModeEnabled | 0/1 | PROVEN |
 | `0x1E–0x2B` | weekday sleep/wake ×14 | minutes since midnight; day order [inferred](compatibility.md#weekday-schedule) | PROVEN value / inferred mapping |
+
+### The panel sleep bank is not a plain settings bank
+
+A refused write is not silent: the robot answers every `0x02RRVVVV` with an activity
+report `0xRRVVVV` carrying the register's value *after* the write. A write that took
+echoes the new value (`0x02190063` → `0x190063`); a write that was refused echoes the
+old one. That echo is the cheapest way to tell "rejected" from "slow to commit".
+
+Captured on ESP 1.1.75 (`0x19` and `0x1D` accepted writes throughout, so the transport
+and the settings path were both healthy):
+
+- **`0x1A` is conditional.** With `0x1D` = 0, `0x021A0001` is refused three times over
+  and echoes `0x1A0000`. With `0x1D` = 1 the identical write commits at once. The
+  weekday sleep schedule is the gate on panel sleep mode.
+- **`0x1B` / `0x1C` are refused outright.** Six attempts across three combinations of
+  `0x1A`/`0x1D` all echoed the unchanged value, and the registers had not moved
+  minutes later, so this is refusal rather than the documented commit latency.
+
+`panelSleepTime` / `panelWakeTime` equal all seven `sleepTime<Day>` / `wakeTime<Day>`
+fields on a robot with a uniform schedule, which fits them being a read-only summary
+of the per-weekday registers rather than a writable setting of their own. That is
+unconfirmed: it predicts `0x1E–0x2B` are the writable path, and nothing has written
+them yet.
+
+Untested on 1.4.x. The library still offers both writes, because a robot that accepts
+them should keep them.
 
 ## Status & sensors (read only)
 

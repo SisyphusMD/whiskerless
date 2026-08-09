@@ -163,6 +163,9 @@
     },
     "litter_reading_unavailable": {
       "message": "No usable litter reading right now \u2014 the robot is mid-cycle. Try again once it is idle."
+    },
+    "weekday_sleep_required": {
+      "message": "The robot only accepts panel sleep mode while the weekday sleep schedule is enabled. Turn on the weekday sleep schedule first."
     }
   }
 }

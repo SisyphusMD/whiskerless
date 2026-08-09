@@ -522,6 +522,12 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         )
 
     async def async_set_panel_sleep_mode(self, enabled: bool) -> None:
+        # Without this the user waits out three verify timeouts for a "did not
+        # commit" that names the wrong setting.
+        if enabled and not self.data.robot.accepts_panel_sleep_enable:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="weekday_sleep_required"
+            )
         await self._write_and_verify(
             commands.set_panel_sleep_mode(enabled), lambda s: s.panel_sleep_mode == enabled
         )

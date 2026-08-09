@@ -272,3 +272,22 @@ def test_uncalibrated_percent_cannot_exceed_full() -> None:
     # happily extrapolated past 100.
     assert litter_level_percent_from_mm(428) == 100
     assert litter_level_percent_from_mm(300) == 100
+
+
+def test_panel_sleep_enable_is_gated_on_the_weekday_schedule() -> None:
+    """0x1A is refused while weekdaySleepModeEnabled is 0.
+
+    The robot acknowledges the write and echoes the register still at 0, so the
+    only other way to learn this is a verify timeout blaming the wrong setting.
+    """
+    off = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 0})
+    assert not off.accepts_panel_sleep_enable
+
+    on = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 1})
+    assert on.accepts_panel_sleep_enable
+
+
+def test_an_unread_weekday_schedule_never_blocks() -> None:
+    # Refusing on a field we have not read would break the robots that do accept
+    # the write, so unknown has to mean permitted.
+    assert LitterRobot4State.from_state_doc({}).accepts_panel_sleep_enable

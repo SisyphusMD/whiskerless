@@ -90,6 +90,17 @@ class LitterRobot4State:
 
     raw: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def accepts_panel_sleep_enable(self) -> bool:
+        """Whether the robot will take an ``isPanelSleepMode`` enable right now.
+
+        The firmware gates `0x1A` on the weekday schedule: with
+        `weekdaySleepModeEnabled` at 0 it acknowledges the write and echoes the
+        register still at 0, so a caller can only discover the refusal by timing
+        out. Unknown counts as permitted — never block on a state we never read.
+        """
+        return self.weekday_sleep_enabled is not False
+
     @classmethod
     def from_state_doc(cls, raw: dict[str, Any]) -> LitterRobot4State:
         """Decode a raw ``…/state`` document into a normalized snapshot."""
