@@ -43,6 +43,9 @@ of the below lives in `docs/devices/litter-robot-4/`.
   anything; they now write the real per-weekday schedule.
 - **Panel sleep mode says what is actually wrong** instead of timing out. The
   robot derives it from the weekday sleep schedule, which is the switch to use.
+- **The hopper stops dropping to unknown.** A link code we cannot name is no
+  longer treated as a disconnect — one such code repeats on a healthy, dispensing
+  hopper. Only a proven disconnect changes the state.
 - **A multi-register write no longer loses one of its parts.** Two commands sent
   back to back were seen landing as one; they are now paced and each is verified.
 - **Pet weight can no longer report a cat 100× too heavy.** It fell back to a

@@ -171,3 +171,31 @@ async def test_a_retained_reading_cannot_corroborate_itself(
     learned = mock_config_entry.options.get("learned_hopper") or {}
     assert learned.get("low") is None, "one sample must not become an anchor"
     assert learned.get("low_candidate") == 0x03D
+
+
+async def test_an_unnamed_link_code_does_not_erase_a_known_connection(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """`0x57FFE2` (-30) is not a disconnect.
+
+    It was captured repeating once a minute while the hopper was attached,
+    dispensing and reporting a healthy gauge, then cleared on its own. Only
+    `-15` is a proven disconnect; anything else unnamed leaves the last known
+    state alone rather than describing a working hopper as unknown.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    with robot_online(robot):
+        robot.push(json.dumps({"type": "action", "data": ["0x570001"]}), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+    assert hass.states.get("binary_sensor.litter_robot_4_hopper").state == "on"
+
+    with robot_online(robot):
+        robot.push(json.dumps({"type": "action", "data": ["0x57FFE2"]}), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+    assert hass.states.get("binary_sensor.litter_robot_4_hopper").state == "on"
+
+    # -15 is proven, so it must still be believed.
+    with robot_online(robot):
+        robot.push(json.dumps({"type": "action", "data": ["0x57FFF1"]}), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+    assert hass.states.get("binary_sensor.litter_robot_4_hopper").state == "off"

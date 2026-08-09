@@ -369,11 +369,17 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                     self._learn_hopper(event.value)
                 changed = True
             elif isinstance(event, HopperLinkChanged):
-                # Always republish: the first reading may be an unnamed fault,
-                # which is None and must surface as unknown rather than leaving
-                # the entity on whatever it restored.
                 first_report = not self._hopper_link_reported
                 self._hopper_link_reported = True
+                # An unnamed code is not evidence of a disconnect, so it must not
+                # overwrite a link state the robot has already told us. `-30` was
+                # captured repeating once a minute while the hopper was attached,
+                # dispensing, and reporting a healthy gauge, then cleared itself —
+                # reporting that as unknown described a working hopper as a mystery.
+                # With nothing known yet, unknown is still the honest answer, so a
+                # first report is published whatever it says.
+                if event.connected is None and not first_report:
+                    continue
                 if first_report or event.connected != self._hopper_connected:
                     self._hopper_connected = event.connected
                     changed = True
