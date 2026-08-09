@@ -15,6 +15,7 @@ import logging
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict
+from datetime import datetime
 from typing import cast
 
 from .ble.transport import DiscoveredRobot
@@ -154,9 +155,12 @@ def _print_message(message: StateMessage | ActivityMessage) -> None:
         parts = []
         for reading in message.readings:
             name = _REGISTER_NAMES.get(reading.register, "?")
-            parts.append(f"0x{reading.register:02X}({name})={reading.value}")
+            # Raw code first: tying a physical action to its exact bytes is the
+            # whole point of a capture session, and the decoded form loses it.
+            parts.append(f"{reading.hex} {name}={reading.value}")
         if parts:
-            print("activity: " + "  ".join(parts), flush=True)
+            stamp = datetime.now().astimezone().strftime("%H:%M:%S")
+            print(f"{stamp} activity: " + "  ".join(parts), flush=True)
 
 
 def _print_state(message: StateMessage) -> None:

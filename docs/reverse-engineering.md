@@ -117,12 +117,19 @@ bootloader.
 The missing dispatch has to be **captured or dumped**, not downloaded. In rough
 order of effort:
 
-1. **Capture the cloud's bytes (zero hardware, zero risk).** Subscribe to *your own*
-   broker's `prod/LR4/<serial>/command` topic while the robot is still cloud-paired
-   (or a second robot is) and press the action in the Whisker app. The cloud
-   publishes the literal `{"serial","data":["0x02RRVVVV"]}` — that hands you the
-   register+value at PROVEN confidence. This is the contributor path; see
+1. **Capture the robot's own reports (zero hardware, zero risk).** Watch the local
+   `activity` topic on a whiskerless-provisioned robot and press one physical panel
+   button at a time, noting the wall-clock time so each event can be tied to the
+   action. Register `0x01` (panel button events) was found exactly this way. Pair it
+   with *Download diagnostics* from Home Assistant's `litterrobot` integration on a
+   robot still on the cloud, which supplies Whisker's field names and enum vocabulary.
+   This is the contributor path; see
    [compatibility.md](devices/litter-robot-4/compatibility.md#open-items).
+   Sniffing the cloud's own command bytes is not available *at this tier*: a
+   cloud-paired robot talks to Whisker's AWS broker using a factory device key that
+   provisioning never touches. It becomes available once the ESP flash read below
+   yields that identity, at which point a client can subscribe as the robot — which
+   is one of the strongest reasons to want the dump.
 2. **Decompile the Whisker app (Blutter).** It confirms the full command **verb**
    set (which actions exist — e.g. `emptyCycle`, drawer reset) even though the
    verb→byte mapping is server-side, so it bounds what we're still looking for.
@@ -133,8 +140,9 @@ order of effort:
    documented programming header is the alternative (chip = PIC18F67K40; header pins
    MCLR/VPP · ICSPCLK · ICSPDAT · GND, power from the 15 V adapter).
 
-Any one captured `0x02RRVVVV` closes one of these out. Share it via the "Protocol
-finding" issue template and it ships.
+A captured activity record tying a physical action to its `0xRRVVVV` chips away at
+these; a genuine write code closes one out. Share either via the "Protocol finding"
+issue template and it ships.
 
 ## Build on it
 

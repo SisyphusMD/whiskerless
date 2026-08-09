@@ -59,12 +59,33 @@ of write the safety guard refuses. The full hunt — including why no complete f
 dump exists publicly and what it would take to get one — is in the
 [reverse-engineering writeup](../../reverse-engineering.md#the-action-commands-why-theyre-still-missing).
 
-### The zero-risk way to crack them
+### The low-risk ways to chip at them
 
-Subscribe to **your own broker's** `prod/LR4/<serial>/command` topic, then press
-the button in the **Whisker app** (with the robot still on the cloud, or a second
-robot). The cloud publishes the literal `{"serial","data":["0x02RRVVVV"]}` — that
-hands you the register+value at PROVEN confidence with no motor or brick risk.
+**Sniffing the cloud's own command does not work.** An earlier version of this page
+suggested subscribing to your broker's `prod/LR4/<serial>/command` topic and pressing
+the button in the Whisker app. That cannot work: a cloud-connected robot talks to
+*Whisker's* AWS broker, not yours, so nothing appears locally. Intercepting it would
+mean authenticating as the robot against Whisker's broker, which needs the factory
+device key. Provisioning never touches that key, so it is out of reach without first
+reading it off the ESP flash (see the
+[reverse-engineering writeup](../../reverse-engineering.md)). Treat it as closed for
+anyone not already doing hardware work.
 
-Captured one? Please share it via the **"Protocol finding"** issue template — it's
+What does work. Neither writes an unknown register, so neither carries brick risk;
+note that pressing Cycle or Empty does move the globe, exactly as it would if you
+pressed it on any other day.
+
+**Watch the local activity stream while you press panel buttons.** A robot already on
+whiskerless reports register writes as it goes. Run `whiskerless monitor`, press one
+button, and note the wall-clock time so the event can be tied to the action. This is
+how register `0x01` (panel button events) was found, and it is the most productive
+avenue we have: it turns a physical action into a labeled wire sample.
+
+**Pull the cloud's diagnostics for a robot still on the cloud.** Home Assistant's
+`litterrobot` integration exposes the full cloud data model via *Download diagnostics*.
+That gives you Whisker's field names, enum vocabulary and per-robot values, which is
+how `optimalLitterLevel` and the cycle-phase names were pinned. It gives you semantics,
+not the raw register write, so pair it with a local capture of the same action.
+
+Captured something? Please share it via the **"Protocol finding"** issue template — it's
 how we'll close these out. See [CONTRIBUTING.md](../../../CONTRIBUTING.md).

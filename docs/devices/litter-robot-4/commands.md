@@ -63,7 +63,8 @@ shipped as the clean cycle, `0x02A30000`, was proven on a live robot to **reset*
 unit, not run a cycle — so it's now refused, not exposed.
 
 So they're left out — on purpose — rather than shipped unsafe. There's a clean,
-**zero-risk** way to crack them (capture what the Whisker app actually sends) and a
+**zero-risk** way to chip at them (watch the robot's own activity reports while you
+press a physical panel button) and a
 [contribution path](compatibility.md#open-items) to do it; see the
 [reverse-engineering writeup](../../reverse-engineering.md#the-action-commands-why-theyre-still-missing)
 for the full hunt. Help welcome.

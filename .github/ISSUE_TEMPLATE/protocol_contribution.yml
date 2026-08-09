@@ -10,10 +10,18 @@ body:
         register+value to safe, proven confidence (see
         [compatibility.md](../../docs/devices/litter-robot-4/compatibility.md)).
 
-        The zero-risk way to crack one: subscribe to your own broker's
-        `prod/LR4/<serial>/command` topic, press the button in the **Whisker app**,
-        and capture the literal `{"serial","data":["0x02RRVVVV"]}` it publishes.
-        That gives the register+value with no motor or brick risk. Share it here!
+        The low-risk way to chip at one: watch the local `activity` topic on a
+        whiskerless-provisioned robot, press one **physical panel button**, and note
+        the time so the event can be tied to the action. The robot reports what it did
+        as `0xRRVVVV`. Register `0x01` was found exactly this way. Share it here!
+
+        Note what this proves: the robot REPORTING a code is not the same as that
+        code TRIGGERING the action when written back. Captures like this are strong
+        candidates; promoting one to a shipped command still needs a deliberate,
+        reviewed write test.
+
+        (Sniffing the cloud's own command bytes does not work — a cloud-paired robot
+        talks to Whisker's AWS broker, not yours.)
   - type: dropdown
     id: action
     attributes:
@@ -37,9 +45,11 @@ body:
   - type: textarea
     id: payload
     attributes:
-      label: The captured command payload(s)
-      description: The exact `0x...` codes the app published, and how you captured them.
-      placeholder: '{"serial":"LR4Cxxxxxx","data":["0x02300001"]}'
+      label: The captured code(s)
+      description: >-
+        The exact `0x...` codes, and how you captured them. Local activity events are
+        the usual source; cloud diagnostics values are welcome too, labelled as such.
+      placeholder: '{"type":"action","data":["0x010401"]}'
     validations:
       required: true
   - type: textarea

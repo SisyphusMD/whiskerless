@@ -97,15 +97,29 @@ commands is physically absent from the public image, and the candidates are
 unproven and contradictory. We won't ship guesses that could trigger a dangerous
 control-band write.
 
-There's a **zero-risk way to solve them** that needs no firmware work and no soldering:
+**A note on what does not work.** This page used to say you could subscribe to your
+own broker's command topic and press the button in the Whisker app. You cannot: a
+cloud-paired robot talks to *Whisker's* AWS broker, so nothing reaches yours, and
+intercepting it means breaking a mutual-TLS session pinned to Amazon's root with a
+factory device key that provisioning never touches.
+
+There is still a **zero-risk contributor path**, and it needs no firmware work and no
+soldering:
 
 1. Re-provision a robot onto your own broker (you've done this already to use whiskerless).
-2. Subscribe to its command topic, e.g.
-   `mosquitto_sub -h <broker-ip> -p 8883 --cafile ca.crt -t 'prod/LR4/LR4Cxxxxxx/command' -v`
-3. In the **official Whisker app**, press **Power off / Power on / Empty / panel
-   Reset**, one at a time.
-4. The cloud publishes the literal `{"serial":...,"data":["0x02RRVVVV"]}` for each
-   button. **That payload is the answer.**
+2. Watch its ACTIVITY topic, e.g.
+   `mosquitto_sub -h <broker-ip> -p 8883 --cafile ca.crt -t 'prod/LR4/LR4Cxxxxxx/#' -v`
+   (do not use the robot's serial as your client id — it collides and disconnects the robot)
+3. Press one **physical panel button**, and note the wall-clock time.
+4. The robot reports what it did as `0xRRVVVV` activity events. Tie the event to the
+   action by its timestamp. This is exactly how register `0x01` (panel button events)
+   was found.
+
+For the semantics behind a value, a robot still on the cloud will give you Whisker's
+own field names and enums through Home Assistant's `litterrobot` integration:
+*Download diagnostics*. That is how `optimalLitterLevel` and the cycle-phase names were
+pinned. It gives you meaning rather than the raw register, so pair it with a local
+capture of the same action.
 
 Open a **Protocol finding** issue with what you captured (action, payload,
 firmware version). That single capture closes a gap for everyone. See

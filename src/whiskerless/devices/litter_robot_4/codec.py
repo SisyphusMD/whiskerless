@@ -18,6 +18,7 @@ read echoes use a shorter ``0xRRVVVV`` form (register + 16-bit value, no type).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import dataclass
 
@@ -54,10 +55,16 @@ class ActivityReading:
 
     register: int
     value: int
+    # Exactly what the robot sent. Reconstructing it from register+value drops
+    # leading bytes on the wider elements decode_activity_code() accepts, which
+    # matters because a capture's whole value is the literal code. Excluded from
+    # equality: two readings meaning the same thing must still compare equal
+    # regardless of how the wire happened to spell them.
+    source: str = dataclasses.field(default="", compare=False)
 
     @property
     def hex(self) -> str:
-        return f"0x{self.register:02X}{self.value:04X}"
+        return self.source or f"0x{self.register:02X}{self.value:04X}"
 
 
 def decode_activity_code(code: str) -> ActivityReading:
@@ -73,7 +80,9 @@ def decode_activity_code(code: str) -> ActivityReading:
         packed = int(raw, 16)
     except ValueError as exc:
         raise ProtocolError(f"non-hex activity code {code!r}") from exc
-    return ActivityReading(register=(packed >> 16) & 0xFF, value=packed & 0xFFFF)
+    return ActivityReading(
+        register=(packed >> 16) & 0xFF, value=packed & 0xFFFF, source=code.strip()
+    )
 
 
 def _check_byte(value: int, name: str) -> None:
