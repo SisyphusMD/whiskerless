@@ -18,8 +18,8 @@ read/telemetry.
 | `0x17` | isKeypadLockout | control lock 0/1 | PROVEN |
 | `0x18` | nightLightMode | 0 = off, 1 = on, 2 = auto | PROVEN |
 | `0x19` | nightLightBrightness | 0–100 % | PROVEN |
-| `0x1A` | isPanelSleepMode | 0/1 — writable only while `0x1D` = 1, see below | PROVEN |
-| `0x1B` / `0x1C` | panelSleepTime / panelWakeTime | minutes since midnight (16-bit); **read-only on ESP 1.1.75**, see below | read PROVEN / write firmware-dependent |
+| `0x1A` | isPanelSleepMode | 0/1 — **read-only**, follows `0x1D`, see below | PROVEN |
+| `0x1B` / `0x1C` | panelSleepTime / panelWakeTime | minutes since midnight (16-bit); **read-only**, mirrors today's weekday pair | PROVEN |
 | `0x1D` | weekdaySleepModeEnabled | 0/1 | PROVEN |
 | `0x1E–0x2B` | weekday sleep/wake ×14 | minutes since midnight; day order [inferred](compatibility.md#weekday-schedule) | PROVEN value / inferred mapping |
 
@@ -31,23 +31,27 @@ echoes the new value (`0x02190063` → `0x190063`); a write that was refused ech
 old one. That echo is the cheapest way to tell "rejected" from "slow to commit".
 
 Captured on ESP 1.1.75 (`0x19` and `0x1D` accepted writes throughout, so the transport
-and the settings path were both healthy):
+and the settings path were both healthy). **Three of these registers are computed by
+the firmware, not stored** — writing them is accepted and discarded:
 
-- **`0x1A` is conditional.** With `0x1D` = 0, `0x021A0001` is refused three times over
-  and echoes `0x1A0000`. With `0x1D` = 1 the identical write commits at once. The
-  weekday sleep schedule is the gate on panel sleep mode.
-- **`0x1B` / `0x1C` are refused outright.** Six attempts across three combinations of
-  `0x1A`/`0x1D` all echoed the unchanged value, and the registers had not moved
-  minutes later, so this is refusal rather than the documented commit latency.
+- **`0x1A` tracks `0x1D`.** Toggling `weekdaySleepModeEnabled` alone, with no `0x1A`
+  write at all, moved `isPanelSleepMode` with it in both directions. A direct write is
+  refused and echoes the register unchanged; an earlier apparent success was only the
+  verify predicate matching a value `0x1D` had already changed.
+- **`0x1B` / `0x1C` mirror *today's* weekday pair.** Writing `0x1F` (Sunday wake) to
+  905 on a Sunday moved `wakeTimeSunday` to 905 *and* `panelWakeTime` with it, while
+  `wakeTimeMonday` stayed at 920. Six direct writes across three combinations of
+  `0x1A`/`0x1D` all echoed unchanged.
 
-`panelSleepTime` / `panelWakeTime` equal all seven `sleepTime<Day>` / `wakeTime<Day>`
-fields on a robot with a uniform schedule, which fits them being a read-only summary
-of the per-weekday registers rather than a writable setting of their own. That is
-unconfirmed: it predicts `0x1E–0x2B` are the writable path, and nothing has written
-them yet.
+So the writable surface is `0x1D` (on/off) and `0x1E–0x2B` (the schedule). Setting a
+unified sleep or wake time means writing all seven of that side's registers. This also
+confirms the day order the map had only inferred: `0x1E + 2i` / `0x1F + 2i`,
+Sunday-first.
 
-Untested on 1.4.x. The library still offers both writes, because a robot that accepts
-them should keep them.
+Only 1.1.75 has been tested, but this is a data model rather than a behaviour, so a
+1.4.x difference would be surprising. The `PROVEN` these rows once carried appears to
+have been inherited from the static firmware brief, the same way `robotStatus` `13`
+was.
 
 ## Status & sensors (read only)
 

@@ -30,5 +30,19 @@
   "wifiRssi": -54,
   "espFirmware": "1.1.75",
   "picFirmwareVersion": "10500.3072.2.89",
-  "laserBoardVersion": "5.0.2.1"
+  "laserBoardVersion": "5.0.2.1",
+  "sleepTimeSunday": 1320,
+  "wakeTimeSunday": 360,
+  "sleepTimeMonday": 1320,
+  "wakeTimeMonday": 360,
+  "sleepTimeTuesday": 1320,
+  "wakeTimeTuesday": 360,
+  "sleepTimeWednesday": 1320,
+  "wakeTimeWednesday": 360,
+  "sleepTimeThursday": 1320,
+  "wakeTimeThursday": 360,
+  "sleepTimeFriday": 1320,
+  "wakeTimeFriday": 360,
+  "sleepTimeSaturday": 1320,
+  "wakeTimeSaturday": 360
 }

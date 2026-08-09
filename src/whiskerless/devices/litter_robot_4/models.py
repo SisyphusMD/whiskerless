@@ -10,6 +10,7 @@ degrades to ``None`` rather than raising on a partial or surprising payload.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -47,9 +48,14 @@ class LitterRobot4State:
     clean_cycle_wait_minutes: int | None = None
     keypad_lockout: bool | None = None
     panel_sleep_mode: bool | None = None
+    # `0x1B` / `0x1C`. Read-only: the firmware derives them from whichever
+    # per-weekday pair below is in force today, so a schedule change has to be
+    # written — and verified — against every day.
     panel_sleep_time: int | None = None        # minutes since midnight
     panel_wake_time: int | None = None
     weekday_sleep_enabled: bool | None = None
+    weekday_sleep_times: dict[str, int] = field(default_factory=dict)
+    weekday_wake_times: dict[str, int] = field(default_factory=dict)
 
     # Power / hardware
     unit_power_status: Any = None
@@ -89,17 +95,6 @@ class LitterRobot4State:
     hopper_status: Any = None
 
     raw: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def accepts_panel_sleep_enable(self) -> bool:
-        """Whether the robot will take an ``isPanelSleepMode`` enable right now.
-
-        The firmware gates `0x1A` on the weekday schedule: with
-        `weekdaySleepModeEnabled` at 0 it acknowledges the write and echoes the
-        register still at 0, so a caller can only discover the refusal by timing
-        out. Unknown counts as permitted — never block on a state we never read.
-        """
-        return self.weekday_sleep_enabled is not False
 
     @classmethod
     def from_state_doc(cls, raw: dict[str, Any]) -> LitterRobot4State:
@@ -154,6 +149,8 @@ class LitterRobot4State:
             panel_sleep_time=_int(g("panelSleepTime")),
             panel_wake_time=_int(g("panelWakeTime")),
             weekday_sleep_enabled=_bool(g("weekdaySleepModeEnabled")),
+            weekday_sleep_times=_weekday_times(raw, "sleepTime"),
+            weekday_wake_times=_weekday_times(raw, "wakeTime"),
             unit_power_status=g("unitPowerStatus"),
             unit_power_type=g("unitPowerType"),
             is_usb_power_on=_bool(g("isUSBPowerOn")),
@@ -214,6 +211,29 @@ def litter_level_percent_from_mm(
 
 
 # --- defensive scalar decoders -----------------------------------------------
+def every_weekday_is(times: Mapping[str, int], minutes: int) -> bool:
+    """True only when all seven days report ``minutes``.
+
+    Verifying a schedule write against `0x1B` / `0x1C` is not enough — they mirror
+    today alone, so they confirm nothing about the other six registers. A day the
+    robot never reported cannot be confirmed either, so an incomplete document is
+    a failed verification rather than a pass.
+    """
+    return len(times) == len(const.WEEKDAYS) and all(
+        times.get(day) == minutes for day in const.WEEKDAYS
+    )
+
+
+def _weekday_times(raw: dict[str, Any], prefix: str) -> dict[str, int]:
+    """`sleepTimeMonday` … → ``{"monday": 440, …}``, skipping anything unreadable."""
+    found = {}
+    for day in const.WEEKDAYS:
+        minutes = _int(raw.get(f"{prefix}{day.capitalize()}"))
+        if minutes is not None:
+            found[day] = minutes
+    return found
+
+
 def _int(value: Any) -> int | None:
     if value is None or isinstance(value, bool):
         return None

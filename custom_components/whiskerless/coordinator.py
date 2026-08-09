@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import override
@@ -26,7 +26,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from whiskerless import WhiskerlessError
-from whiskerless.devices.litter_robot_4 import LitterRobot4State, commands
+from whiskerless.devices.litter_robot_4 import LitterRobot4State, commands, every_weekday_is
 from whiskerless.devices.litter_robot_4 import const as lr4
 from whiskerless.devices.litter_robot_4.calibration import (
     HOPPER_CORROBORATION,
@@ -471,15 +471,18 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
 
     async def _write_and_verify(
         self,
-        command: Command,
+        command: Command | Sequence[Command],
         verify: Callable[[LitterRobot4State], bool],
         *,
         retries: int = 3,
     ) -> None:
+        batch = [command] if isinstance(command, Command) else list(command)
+        label = batch[0].label if len(batch) == 1 else f"{batch[0].label} ×{len(batch)}"
         async with self._io_lock:
             for _ in range(retries):
                 self._state_event.clear()
-                await self._publish(command)
+                for item in batch:
+                    await self._publish(item)
                 await self._publish(commands.request_state())
                 with contextlib.suppress(TimeoutError):
                     async with asyncio.timeout(_VERIFY_TIMEOUT):
@@ -489,7 +492,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                             if self._robot is not None and verify(self._robot):
                                 self.async_set_updated_data(self._build_data(self._robot))
                                 return
-        raise WhiskerlessError(f"{command.label} did not commit")
+        raise WhiskerlessError(f"{label} did not commit")
 
     # --- public commands the entities call -----------------------------------
     async def async_set_night_light_mode(self, mode: int) -> None:
@@ -522,15 +525,20 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         )
 
     async def async_set_panel_sleep_mode(self, enabled: bool) -> None:
-        # Without this the user waits out three verify timeouts for a "did not
-        # commit" that names the wrong setting.
-        if enabled and not self.data.robot.accepts_panel_sleep_enable:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="weekday_sleep_required"
+        try:
+            # 0x1A is derived from the weekday schedule, not a setting of its own, so
+            # this is attempted once rather than retried: repeating a write the
+            # firmware structurally ignores just makes the user wait three timeouts
+            # for the same answer.
+            await self._write_and_verify(
+                commands.set_panel_sleep_mode(enabled),
+                lambda s: s.panel_sleep_mode == enabled,
+                retries=1,
             )
-        await self._write_and_verify(
-            commands.set_panel_sleep_mode(enabled), lambda s: s.panel_sleep_mode == enabled
-        )
+        except WhiskerlessError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="panel_sleep_not_writable"
+            ) from err
 
     async def async_set_weekday_sleep_enabled(self, enabled: bool) -> None:
         await self._write_and_verify(
@@ -539,11 +547,16 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         )
 
     async def async_set_panel_sleep_time(self, minutes: int) -> None:
+        # Every day is checked rather than 0x1B: that mirrors today only, so it would
+        # pass while another day's write was dropped, and pass instantly whenever
+        # today already held the requested time.
         await self._write_and_verify(
-            commands.set_panel_sleep_time(minutes), lambda s: s.panel_sleep_time == minutes
+            commands.set_panel_sleep_times(minutes),
+            lambda s: every_weekday_is(s.weekday_sleep_times, minutes),
         )
 
     async def async_set_panel_wake_time(self, minutes: int) -> None:
         await self._write_and_verify(
-            commands.set_panel_wake_time(minutes), lambda s: s.panel_wake_time == minutes
+            commands.set_panel_wake_times(minutes),
+            lambda s: every_weekday_is(s.weekday_wake_times, minutes),
         )

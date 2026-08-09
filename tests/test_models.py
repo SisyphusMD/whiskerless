@@ -6,6 +6,7 @@ import pytest
 
 from whiskerless.devices.litter_robot_4.models import (
     LitterRobot4State,
+    every_weekday_is,
     litter_level_percent_from_mm,
 )
 
@@ -274,20 +275,23 @@ def test_uncalibrated_percent_cannot_exceed_full() -> None:
     assert litter_level_percent_from_mm(300) == 100
 
 
-def test_panel_sleep_enable_is_gated_on_the_weekday_schedule() -> None:
-    """0x1A is refused while weekdaySleepModeEnabled is 0.
+def test_a_schedule_is_only_verified_when_every_day_agrees() -> None:
+    """0x1B mirrors today alone, so it cannot stand in for the other six days.
 
-    The robot acknowledges the write and echoes the register still at 0, so the
-    only other way to learn this is a verify timeout blaming the wrong setting.
+    A dropped write to one weekday register would otherwise pass verification and
+    leave the robot on a schedule the user never asked for.
     """
-    off = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 0})
-    assert not off.accepts_panel_sleep_enable
+    days = ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
+    assert every_weekday_is(dict.fromkeys(days, 440), 440)
+    assert not every_weekday_is({**dict.fromkeys(days, 440), "friday": 920}, 440)
+    # Six of seven present: the missing day was never confirmed, so neither is this.
+    assert not every_weekday_is(dict.fromkeys(days[:6], 440), 440)
+    assert not every_weekday_is({}, 440)
 
-    on = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 1})
-    assert on.accepts_panel_sleep_enable
 
-
-def test_an_unread_weekday_schedule_never_blocks() -> None:
-    # Refusing on a field we have not read would break the robots that do accept
-    # the write, so unknown has to mean permitted.
-    assert LitterRobot4State.from_state_doc({}).accepts_panel_sleep_enable
+def test_the_per_day_schedule_decodes_from_the_state_document() -> None:
+    state = LitterRobot4State.from_state_doc(
+        {"sleepTimeSunday": 440, "wakeTimeSunday": 920, "sleepTimeMonday": 450}
+    )
+    assert state.weekday_sleep_times == {"sunday": 440, "monday": 450}
+    assert state.weekday_wake_times == {"sunday": 920}

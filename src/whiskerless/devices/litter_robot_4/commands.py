@@ -184,6 +184,25 @@ def set_weekday_wake_time(weekday: str, minutes_since_midnight: int) -> Command:
     )
 
 
+def set_panel_sleep_times(minutes_since_midnight: int) -> tuple[Command, ...]:
+    """Sleep time for every weekday — the only way to move the unified schedule.
+
+    `0x1B` looks like the setting for this but is a read-only view of whichever
+    weekday pair is in force today, so writing it is refused; the per-weekday
+    registers are the actual storage.
+    """
+    return tuple(
+        set_weekday_sleep_time(day, minutes_since_midnight) for day in const.WEEKDAYS
+    )
+
+
+def set_panel_wake_times(minutes_since_midnight: int) -> tuple[Command, ...]:
+    """Wake time for every weekday. `0x1C` is read-only, as `0x1B` is."""
+    return tuple(
+        set_weekday_wake_time(day, minutes_since_midnight) for day in const.WEEKDAYS
+    )
+
+
 def _weekday_regs(weekday: str) -> tuple[int, int]:
     key = weekday.strip().lower()
     if key not in const.WEEKDAY_SCHEDULE_REGS:

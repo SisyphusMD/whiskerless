@@ -30,10 +30,10 @@ bank turns some of these down (see [registers.md](registers.md#the-panel-sleep-b
 | Clean-cycle wait time | `0x16` | `0x021600VV` | minutes | yes |
 | Keypad / control lockout | `0x17` | `0x0217000B` | 0 / 1 | yes |
 | Panel brightness | `0x0E` | `0x020EHHLL` | hi byte = High level, lo byte = Low level | yes |
-| Panel sleep mode | `0x1A` | `0x021A000B` | 0 / 1 | only while `0x1D` = 1 |
-| Panel sleep / wake time | `0x1B` / `0x1C` | `0x021BVVVV` | minutes since midnight (16-bit) | refused on ESP 1.1.75 |
+| Panel sleep mode | `0x1A` | `0x021A000B` | 0 / 1 | no — read-only, follows `0x1D` |
+| Panel sleep / wake time | `0x1B` / `0x1C` | `0x021BVVVV` | minutes since midnight (16-bit) | no — read-only view of today's weekday pair |
 | Weekday sleep enabled | `0x1D` | `0x021D000B` | 0 / 1 | yes |
-| Weekday sleep/wake ×14 | `0x1E–0x2B` | `0x021E..2B VVVV` | minutes since midnight — see [compatibility.md](compatibility.md#weekday-schedule) | untested |
+| Weekday sleep/wake ×14 | `0x1E–0x2B` | `0x021E..2B VVVV` | minutes since midnight, Sunday-first — see [compatibility.md](compatibility.md#weekday-schedule) | yes |
 
 ## Safety
 

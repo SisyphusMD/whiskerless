@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 import aiomqtt
@@ -26,7 +26,7 @@ from ...mqtt import MqttSettings
 from . import commands
 from .commands import Command
 from .link import LitterRobot4Link
-from .models import LitterRobot4State
+from .models import LitterRobot4State, every_weekday_is
 from .protocol import ActivityMessage, StateMessage
 
 log = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ class LitterRobot4Client:
     # --- writes (publish → prompt → verify, with retry) ----------------------
     async def _write(
         self,
-        command: Command,
+        command: Command | Sequence[Command],
         verify: StatePredicate,
         *,
         retries: int = 3,
@@ -209,16 +209,19 @@ class LitterRobot4Client:
         link = self._link
         if link is None:
             raise WhiskerlessConnectionError(f"not connected to {self.host}")
+        batch = [command] if isinstance(command, Command) else list(command)
+        label = batch[0].label if len(batch) == 1 else f"{batch[0].label} ×{len(batch)}"
         for attempt in range(max(1, retries)):
-            await link.publish(command)
+            for item in batch:
+                await link.publish(item)
             try:
                 state = await self.async_get_robot(timeout=timeout)
             except WhiskerlessConnectionError:
                 continue
             if verify(state):
                 return
-            log.debug("%s not yet committed (attempt %d)", command.label, attempt + 1)
-        raise WhiskerlessError(f"{command.label} did not commit after {retries} attempts")
+            log.debug("%s not yet committed (attempt %d)", label, attempt + 1)
+        raise WhiskerlessError(f"{label} did not commit after {retries} attempts")
 
     async def async_set_night_light_mode(self, mode: int) -> None:
         from .const import NIGHT_LIGHT_MODE
@@ -242,11 +245,14 @@ class LitterRobot4Client:
         await self._write(commands.set_keypad_lockout(enabled), lambda s: s.keypad_lockout == enabled)
 
     async def async_set_panel_sleep_mode(self, enabled: bool) -> None:
-        if enabled and not (await self.async_get_robot()).accepts_panel_sleep_enable:
-            raise WhiskerlessError(
-                "panel sleep mode needs the weekday sleep schedule enabled first"
-            )
-        await self._write(commands.set_panel_sleep_mode(enabled), lambda s: s.panel_sleep_mode == enabled)
+        # 0x1A is derived from the weekday schedule rather than a setting of its own,
+        # so a robot that disagrees with the requested value will never come round —
+        # one attempt, then report it.
+        await self._write(
+            commands.set_panel_sleep_mode(enabled),
+            lambda s: s.panel_sleep_mode == enabled,
+            retries=1,
+        )
 
     async def async_set_weekday_sleep_enabled(self, enabled: bool) -> None:
         await self._write(
@@ -263,15 +269,18 @@ class LitterRobot4Client:
         )
 
     async def async_set_panel_sleep_time(self, minutes_since_midnight: int) -> None:
+        # Every day is checked rather than 0x1B: that mirrors today only, so it would
+        # pass while another day's write was dropped, and pass instantly whenever
+        # today already held the requested time.
         await self._write(
-            commands.set_panel_sleep_time(minutes_since_midnight),
-            lambda s: s.panel_sleep_time == minutes_since_midnight,
+            commands.set_panel_sleep_times(minutes_since_midnight),
+            lambda s: every_weekday_is(s.weekday_sleep_times, minutes_since_midnight),
         )
 
     async def async_set_panel_wake_time(self, minutes_since_midnight: int) -> None:
         await self._write(
-            commands.set_panel_wake_time(minutes_since_midnight),
-            lambda s: s.panel_wake_time == minutes_since_midnight,
+            commands.set_panel_wake_times(minutes_since_midnight),
+            lambda s: every_weekday_is(s.weekday_wake_times, minutes_since_midnight),
         )
 
     async def async_refresh(self) -> None:

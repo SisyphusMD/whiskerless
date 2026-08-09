@@ -22,7 +22,7 @@ from .events import (
     events_from_readings,
 )
 from .link import LitterRobot4Link
-from .models import LitterRobot4State, litter_level_percent_from_mm
+from .models import LitterRobot4State, every_weekday_is, litter_level_percent_from_mm
 from .protocol import (
     ActivityMessage,
     StateMessage,
@@ -52,6 +52,7 @@ __all__ = [
     "encode_read",
     "encode_write",
     "events_from_readings",
+    "every_weekday_is",
     "litter_level_percent_from_mm",
     "parse_message",
 ]

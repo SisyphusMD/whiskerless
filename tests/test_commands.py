@@ -47,3 +47,18 @@ def test_read_register() -> None:
     assert cmd.code == "0x01470000"
     assert cmd.hazard is Hazard.SAFE
     assert cmd.register == 0x47
+
+
+def test_a_schedule_write_targets_every_weekday_not_the_mirror() -> None:
+    """0x1B/0x1C are a read-only view of today's pair, so writing them does nothing.
+
+    The schedule is stored per weekday, Sunday-first, sleep-then-wake.
+    """
+    sleeps = commands.set_panel_sleep_times(1290)
+    assert [c.register for c in sleeps] == list(range(0x1E, 0x2C, 2))
+    assert all(c.value == 1290 for c in sleeps)
+    assert not any(c.register == const.Register.PANEL_SLEEP_TIME for c in sleeps)
+
+    wakes = commands.set_panel_wake_times(420)
+    assert [c.register for c in wakes] == list(range(0x1F, 0x2C, 2))
+    assert all(c.value == 420 for c in wakes)

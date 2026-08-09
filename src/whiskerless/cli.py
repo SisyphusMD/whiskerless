@@ -90,24 +90,19 @@ async def _cmd_read(args: argparse.Namespace) -> int:
 
 
 async def _cmd_set(args: argparse.Namespace) -> int:
-    command = _build_setting(args.setting, args.value)
+    batch = _build_setting(args.setting, args.value)
+    failed: Command | None = None
     async with _link(args) as link:
-        if command.register == const.Register.IS_PANEL_SLEEP_MODE and command.value:
-            enabled = await link.read_register(
-                const.Register.WEEKDAY_SLEEP_MODE_ENABLED, timeout=args.timeout
-            )
-            if enabled == 0:
-                print(
-                    "panel-sleep-mode needs weekday-sleep-enabled on first "
-                    "(the robot silently refuses 0x1A otherwise)",
-                    file=sys.stderr,
-                )
-                return 1
-        ok = await link.apply_setting(command, retries=args.retries, timeout=args.timeout)
-    if ok:
+        for command in batch:
+            if not await link.apply_setting(command, retries=args.retries, timeout=args.timeout):
+                failed = command
+                break
+    if failed is None:
         print(f"{args.setting} = {args.value} (verified)")
         return 0
     print(f"{args.setting}: write not confirmed after {args.retries} tries", file=sys.stderr)
+    if failed.register in _DERIVED_REGISTERS:
+        print(_DERIVED_REGISTERS[failed.register], file=sys.stderr)
     return 1
 
 
@@ -183,28 +178,37 @@ def _print_state(message: StateMessage) -> None:
 
 
 # --- value parsing -----------------------------------------------------------
-def _build_setting(name: str, raw: str) -> Command:
+# The firmware computes this one rather than storing it, so a write is accepted and
+# discarded; the only useful thing to say is where the real setting lives.
+_DERIVED_REGISTERS: dict[int, str] = {
+    const.Register.IS_PANEL_SLEEP_MODE: (
+        "hint: 0x1A follows the weekday sleep schedule — set weekday-sleep-enabled instead"
+    ),
+}
+
+
+def _build_setting(name: str, raw: str) -> tuple[Command, ...]:
     match name:
         case "night-light-mode":
             modes = {"off": 0, "on": 1, "auto": 2}
-            return commands.set_night_light_mode(modes.get(raw.lower(), _parse_int(raw)))
+            return (commands.set_night_light_mode(modes.get(raw.lower(), _parse_int(raw))),)
         case "night-light-brightness":
-            return commands.set_night_light_brightness(_parse_int(raw))
+            return (commands.set_night_light_brightness(_parse_int(raw)),)
         case "clean-cycle-wait":
-            return commands.set_clean_cycle_wait_minutes(_parse_int(raw))
+            return (commands.set_clean_cycle_wait_minutes(_parse_int(raw)),)
         case "keypad-lockout":
-            return commands.set_keypad_lockout(_parse_bool(raw))
+            return (commands.set_keypad_lockout(_parse_bool(raw)),)
         case "panel-sleep-mode":
-            return commands.set_panel_sleep_mode(_parse_bool(raw))
+            return (commands.set_panel_sleep_mode(_parse_bool(raw)),)
         case "weekday-sleep-enabled":
-            return commands.set_weekday_sleep_enabled(_parse_bool(raw))
+            return (commands.set_weekday_sleep_enabled(_parse_bool(raw)),)
         case "panel-sleep-time":
-            return commands.set_panel_sleep_time(_parse_time(raw))
+            return commands.set_panel_sleep_times(_parse_time(raw))
         case "panel-wake-time":
-            return commands.set_panel_wake_time(_parse_time(raw))
+            return commands.set_panel_wake_times(_parse_time(raw))
         case "panel-brightness":
             high, _, low = raw.partition(":")
-            return commands.set_panel_brightness(_parse_int(high), _parse_int(low or high))
+            return (commands.set_panel_brightness(_parse_int(high), _parse_int(low or high)),)
         case _:
             raise SystemExit(f"unknown setting {name!r}")
 
