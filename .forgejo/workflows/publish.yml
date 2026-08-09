@@ -53,14 +53,29 @@ jobs:
         run: bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
       - name: Create the three releases with the Linux binary
         run: |
+          set -uo pipefail
           chmod +x packaging/forgejo-release.sh packaging/github-release.sh
           BIN=dist/whiskerless-linux-x86_64
+          # Every target is attempted even when an earlier one fails. These ran
+          # fail-fast and sequentially before, so one unreachable host silently
+          # cost the targets after it their release — which is how v0.2.0-rc.1
+          # shipped to PyPI and public Forgejo with no GitHub Linux binary and
+          # no NAS release at all. Failures are collected and re-raised at the
+          # end, so the job still goes red.
+          failed=""
           packaging/forgejo-release.sh forgejo.bryantserver.com \
-            "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN"
+            "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN" \
+            || failed="$failed forgejo.bryantserver.com"
           packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
-            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN"
+            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN" \
+            || failed="$failed forgejo.nas.bryantserver.com"
           packaging/github-release.sh \
-            "${{ secrets.GH_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN"
+            "${{ secrets.GH_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "$BIN" \
+            || failed="$failed github.com"
+          if [ -n "$failed" ]; then
+            echo "::error::release publishing failed for:$failed"
+            exit 1
+          fi
 
   nas-pkg:
     name: Bridge the macOS .pkg → NAS

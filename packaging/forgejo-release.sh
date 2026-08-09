@@ -7,6 +7,10 @@
 # Forgejo (binary) and GitHub (.pkg) publishers can target the same release in
 # any order.
 set -euo pipefail
+# Every curl is time-bounded: publishing v0.2.0-rc.1 hung indefinitely on an
+# unreachable target, stranding the release targets sequenced after it. Reads
+# retry; creates and uploads do not, because a timed-out mutation may already
+# have been applied and repeating it would duplicate rather than recover.
 
 host="$1"; token="$2"; tag="$3"; notes_file="$4"; shift 4
 api="https://$host/api/v1/repos/SisyphusMD/whiskerless"
@@ -14,13 +18,13 @@ auth=(-H "Authorization: token $token")
 
 echo "waiting for tag $tag on $host…"
 for _ in $(seq 1 60); do
-  curl -skf "${auth[@]}" "$api/tags/$tag" >/dev/null && break
+  curl --max-time 20 -skf "${auth[@]}" "$api/tags/$tag" >/dev/null && break
   sleep 10
 done
 
-id=$(curl -skf "${auth[@]}" "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
+id=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -skf "${auth[@]}" "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
 if [ -z "$id" ]; then
-  id=$(curl -sSk "${auth[@]}" -H "Content-Type: application/json" \
+  id=$(curl --max-time 300 -sSk "${auth[@]}" -H "Content-Type: application/json" \
     -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b,prerelease:($t|test("-rc\\."))}')" \
     "$api/releases" | jq -r .id)
 fi
@@ -28,9 +32,9 @@ echo "release id on $host: $id"
 
 for f in "$@"; do
   name=$(basename "$f")
-  old=$(curl -skf "${auth[@]}" "$api/releases/$id/assets" 2>/dev/null \
+  old=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -skf "${auth[@]}" "$api/releases/$id/assets" 2>/dev/null \
     | jq -r ".[] | select(.name==\"$name\") | .id" || true)
-  [ -n "$old" ] && curl -sk "${auth[@]}" -X DELETE "$api/releases/$id/assets/$old" >/dev/null || true
-  curl -sSk "${auth[@]}" -X POST "$api/releases/$id/assets?name=$name" -F "attachment=@$f" >/dev/null
+  [ -n "$old" ] && curl --max-time 300 -sk "${auth[@]}" -X DELETE "$api/releases/$id/assets/$old" >/dev/null || true
+  curl --max-time 300 -sSk "${auth[@]}" -X POST "$api/releases/$id/assets?name=$name" -F "attachment=@$f" >/dev/null
   echo "  uploaded $name → $host"
 done
