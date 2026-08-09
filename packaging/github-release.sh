@@ -22,7 +22,7 @@ done
 id=$(curl -sf "${auth[@]}" "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
 if [ -z "$id" ]; then
   id=$(curl -sSf "${auth[@]}" -X POST "$api/releases" \
-    -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b}')" | jq -r .id)
+    -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b,prerelease:($t|test("-rc\\."))}')" | jq -r .id)
 fi
 echo "GitHub release id: $id"
 

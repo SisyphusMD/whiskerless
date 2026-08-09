@@ -21,7 +21,7 @@ done
 id=$(curl -skf "${auth[@]}" "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
 if [ -z "$id" ]; then
   id=$(curl -sSk "${auth[@]}" -H "Content-Type: application/json" \
-    -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b}')" \
+    -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b,prerelease:($t|test("-rc\\."))}')" \
     "$api/releases" | jq -r .id)
 fi
 echo "release id on $host: $id"

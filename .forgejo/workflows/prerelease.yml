@@ -1,92 +1,62 @@
-name: Release
+name: Prerelease
 
-# Cut a stable release from main: pick the bump in the Forgejo UI. This advances the CHANGELOG,
-# bumps every version string, runs the test gate, then commits + tags. The tag triggers publish.yml
-# (PyPI + Linux binary + the forgejo/nas/github releases) and, on the GitHub mirror, the macOS .pkg
-# job. For a build to put on hardware first, use prerelease.yml instead.
+# On-demand release candidate, dispatched from any branch. Stamps an `-rc.N` version onto a TAG
+# only — the branch and CHANGELOG are never touched — so main never carries an rc marker. The tag
+# triggers publish.yml + release-macos.yml, which build the real wheel/.pkg/binary and publish them
+# as a *prerelease*: never "latest", and only offered by HACS to users who opted into beta for this
+# repository. Use it to put a build on real hardware before cutting the stable release.
 #
-# Split in two: `gate` decides what the release IS and proves the tree is green while holding no
+# Split in two: `gate` decides what the rc IS and proves the tree is green while holding no
 # credential; `tag` is the only job handed the write token, and it re-derives the same stamp from a
 # fresh checkout and refuses to push unless the bytes hash to what the gate qualified.
 on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Version bump"
+        description: "Version this rc is a candidate for"
         required: true
         type: choice
         options: [patch, minor, major]
 
 concurrency:
-  # Shared with prerelease.yml: stable and rc tag creation must not interleave, or both derive
-  # from the same base and an rc can land after the stable it was a candidate for.
+  # Stable and rc tag creation share one producer slot so they cannot interleave.
   group: release-cut
   cancel-in-progress: false
 
 jobs:
   gate:
-    name: Qualify release intent (secret-free)
+    name: Qualify prerelease intent (secret-free)
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
       tag: ${{ steps.ver.outputs.tag }}
-      date: ${{ steps.ver.outputs.date }}
       intent_sha256: ${{ steps.intent.outputs.sha256 }}
     steps:
-      - name: Refuse non-main dispatches
-        run: |
-          if [ "${{ github.ref_name }}" != "main" ]; then
-            echo "::error::Release must be dispatched from main; got '${{ github.ref_name }}'"
-            exit 1
-          fi
-
       - name: Checkout (full history + tags)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Compute next version
+      - name: Compute the next -rc version
         id: ver
         env:
           BUMP: ${{ inputs.bump }}
         run: |
           set -euo pipefail
-          # next-version.sh ignores -rc tags when picking the base, so an outstanding release
-          # candidate cannot drag the next stable version along with it.
           while IFS='=' read -r key value; do declare "$key=$value"; done \
-            < <(bash packaging/next-version.sh "$BUMP")
+            < <(bash packaging/next-version.sh "$BUMP" --rc)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          # Decided ONCE here: the tag job reproduces the gate's patch byte for
-          # byte, so a second `date -u` across UTC midnight would abort a
-          # perfectly good release on a hash mismatch.
-          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-          echo "Releasing ${version} (bump=${BUMP}, previous=${previous:-none})"
+          echo "Prerelease ${version} (candidate for ${version%-rc.*}, from ${GITHUB_REF_NAME})"
 
-      - name: Sanity guards
+      - name: Refuse if the tag already exists
         env:
-          VERSION: ${{ steps.ver.outputs.version }}
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
-          grep -qE '^## \[Unreleased\]' CHANGELOG.md || { echo "::error::Missing '## [Unreleased]'"; exit 1; }
-          ! grep -qE "^## \[${VERSION}\]" CHANGELOG.md || { echo "::error::CHANGELOG already has [${VERSION}]"; exit 1; }
-          ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || { echo "::error::Tag ${TAG} exists"; exit 1; }
-
-      - name: Promote [Unreleased] in CHANGELOG
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-          DATE: ${{ steps.ver.outputs.date }}
-        run: |
-          set -euo pipefail
-          awk -v ver="$VERSION" -v date="$DATE" '
-            /^## \[Unreleased\]/ {
-              print "## [Unreleased]"; print ""; print "## [" ver "] - " date; next
-            }
-            { print }
-          ' CHANGELOG.md > CHANGELOG.md.new
-          mv CHANGELOG.md.new CHANGELOG.md
+          ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
+            || { echo "::error::Tag ${TAG} exists"; exit 1; }
 
       - name: Stamp the version
         env:
@@ -96,13 +66,13 @@ jobs:
           python3 packaging/stamp-version.py "$VERSION"
           python3 packaging/stamp-version.py "$VERSION" --check
 
-      - name: Snapshot the exact intended release diff
+      - name: Snapshot the exact intended prerelease diff
         id: intent
         run: |
           set -euo pipefail
-          # The release edit is exactly these four files and nothing else. Hashing the patch here,
+          # The rc stamp is exactly these three files and nothing else. Hashing the patch here,
           # before any third-party tool is installed, is what the tag job reproduces byte-for-byte.
-          printf '%s\n' CHANGELOG.md custom_components/whiskerless/manifest.json pyproject.toml \
+          printf '%s\n' custom_components/whiskerless/manifest.json pyproject.toml \
             src/whiskerless/__init__.py | sort > "$RUNNER_TEMP/expected-release-paths"
           git diff --name-only | sort > "$RUNNER_TEMP/actual-release-paths"
           diff -u "$RUNNER_TEMP/expected-release-paths" "$RUNNER_TEMP/actual-release-paths"
@@ -115,7 +85,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
-      - name: Test gate (library)
+      - name: Test gate
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
@@ -127,20 +97,41 @@ jobs:
           pytest -q
           python -c "import whiskerless, sys; sys.exit(0 if whiskerless.__version__ == '${VERSION}' else 1)"
 
-      - name: Prove the test toolchain changed no release byte
+      - name: Prove the test toolchain changed no prerelease byte
         run: |
           set -euo pipefail
           git diff --binary | cmp - "$RUNNER_TEMP/intended-release.patch"
           test -z "$(git diff --cached --name-only)"
           test -z "$(git ls-files --others --exclude-standard)"
 
+  floor-gate:
+    name: Qualify the library floor (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      # ci.yml only runs on main pushes and pull requests, but a prerelease can
+      # be dispatched from any branch — so this is the only thing standing
+      # between a 3.12-only API on a feature branch and a PyPI upload.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install and test
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,ble]"
+          ruff check src custom_components tests
+          mypy
+          pytest -q
+
   integration-gate:
     name: Qualify the integration (Python 3.13)
     runs-on: ubuntu-latest
     steps:
-      # Plain `mypy` and `pytest` cover the LIBRARY only — conftest auto-skips tests/integration
-      # when Home Assistant is absent — so without this job an integration regression could reach
-      # HACS with a green release.
+      # Plain `mypy` and `pytest` cover the LIBRARY only — conftest auto-skips
+      # tests/integration when Home Assistant is absent — so without this an
+      # integration regression could reach a HACS beta tester with a green rc.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -159,8 +150,8 @@ jobs:
         run: pytest tests/integration
 
   tag:
-    name: Authorize and push the release
-    needs: [gate, integration-gate]
+    name: Authorize and push prerelease tag
+    needs: [gate, floor-gate, integration-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Fresh checkout with no persisted credential
@@ -169,32 +160,24 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Reproduce the qualified release intent
+      - name: Reproduce the qualified prerelease intent
         env:
           BUMP: ${{ inputs.bump }}
           QUALIFIED_VERSION: ${{ needs.gate.outputs.version }}
           QUALIFIED_TAG: ${{ needs.gate.outputs.tag }}
-          QUALIFIED_DATE: ${{ needs.gate.outputs.date }}
           QUALIFIED_INTENT_SHA256: ${{ needs.gate.outputs.intent_sha256 }}
         run: |
           set -euo pipefail
           # Same derivation as the gate, on a tree no gate step ever touched. Nothing here trusts
           # the gate beyond the version and the hash it has to match.
           while IFS='=' read -r key value; do declare "$key=$value"; done \
-            < <(bash packaging/next-version.sh "$BUMP")
+            < <(bash packaging/next-version.sh "$BUMP" --rc)
           [ "$version" = "$QUALIFIED_VERSION" ] && [ "$tag" = "$QUALIFIED_TAG" ] \
-            || { echo "::error::qualified release intent changed between runners"; exit 1; }
+            || { echo "::error::qualified prerelease intent changed between runners"; exit 1; }
           ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null
-          awk -v ver="$version" -v date="$QUALIFIED_DATE" '
-            /^## \[Unreleased\]/ {
-              print "## [Unreleased]"; print ""; print "## [" ver "] - " date; next
-            }
-            { print }
-          ' CHANGELOG.md > CHANGELOG.md.new
-          mv CHANGELOG.md.new CHANGELOG.md
           python3 packaging/stamp-version.py "$version"
           python3 packaging/stamp-version.py "$version" --check
-          printf '%s\n' CHANGELOG.md custom_components/whiskerless/manifest.json pyproject.toml \
+          printf '%s\n' custom_components/whiskerless/manifest.json pyproject.toml \
             src/whiskerless/__init__.py | sort > "$RUNNER_TEMP/expected-release-paths"
           git diff --name-only | sort > "$RUNNER_TEMP/actual-release-paths"
           diff -u "$RUNNER_TEMP/expected-release-paths" "$RUNNER_TEMP/actual-release-paths"
@@ -202,30 +185,31 @@ jobs:
           test -z "$(git ls-files --others --exclude-standard)"
           ACTUAL_INTENT_SHA256=$(git diff --binary | sha256sum | awk '{print $1}')
           [ "$ACTUAL_INTENT_SHA256" = "$QUALIFIED_INTENT_SHA256" ] \
-            || { echo "::error::release bytes differ from the qualified intent"; exit 1; }
+            || { echo "::error::prerelease bytes differ from the qualified intent"; exit 1; }
 
-      - name: Commit and tag the reproduced release
+      - name: Commit and tag the reproduced prerelease
         env:
           VERSION: ${{ needs.gate.outputs.version }}
           TAG: ${{ needs.gate.outputs.tag }}
         run: |
           set -euo pipefail
+          # The version stamp rides on the TAGGED commit only; the branch is never pushed, so main
+          # never carries an -rc marker. publish.yml and release-macos.yml check out the tag, so the
+          # built artifacts still report the rc version.
           git config user.name "forgejo-actions[bot]"
           git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
-          git add CHANGELOG.md pyproject.toml src/whiskerless/__init__.py \
+          git add pyproject.toml src/whiskerless/__init__.py \
             custom_components/whiskerless/manifest.json
-          git commit -m "release: ${VERSION}"
+          git commit -m "prerelease: ${VERSION}"
           python3 packaging/stamp-version.py "$VERSION" --check
-          git tag -a -m "release: ${VERSION}" "$TAG"
+          git tag -a -m "prerelease: ${VERSION}" "$TAG"
 
-      - name: Push the release commit and tag
+      - name: Push the prerelease tag
         env:
           TAG: ${{ needs.gate.outputs.tag }}
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
         run: |
           set -euo pipefail
-          REMOTE="https://x-access-token:${TOKEN}@forgejo.bryantserver.com/SisyphusMD/whiskerless.git"
-          # Branch first: a tag that exists without the commit on main is the harder state to
-          # recover from, because publish.yml starts building the moment the tag lands.
-          git push "$REMOTE" "HEAD:${{ github.ref_name }}"
-          git push "$REMOTE" "refs/tags/${TAG}"
+          # Only the tag is pushed. The rc commit is reachable from it and from nothing else.
+          git push "https://x-access-token:${TOKEN}@forgejo.bryantserver.com/SisyphusMD/whiskerless.git" \
+            "refs/tags/${TAG}"
