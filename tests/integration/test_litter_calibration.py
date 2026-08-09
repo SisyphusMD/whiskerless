@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from . import robot_answers, setup_integration
+from . import robot_online, setup_integration
 from .const import STATE_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
@@ -36,9 +36,9 @@ async def test_pressing_calibrate_stores_the_current_distance(
     state_payload: str,
 ) -> None:
     """The fixture reports 455 mm, which becomes this robot's reference."""
-    answer = await setup_integration(hass, mock_config_entry, state_payload)
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
 
-    with robot_answers(state_payload, answer):
+    with robot_online(robot):
         await _press(hass, CALIBRATE)
 
     assert mock_config_entry.options[CONF_LITTER_FULL_MM] == 455
@@ -53,10 +53,11 @@ async def test_calibration_is_refused_without_a_usable_reading(
 
     Capturing then would bake a garbage reference into the config entry.
     """
-    answer = await setup_integration(hass, mock_config_entry, state_payload)
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
     mid_cycle = json.dumps({**json.loads(state_payload), "robotStatus": 10, "litterLevel": 575})
 
-    with robot_answers(mid_cycle, answer), pytest.raises(HomeAssistantError):
+    robot.payload = mid_cycle
+    with robot_online(robot), pytest.raises(HomeAssistantError):
         await _press(hass, CALIBRATE)
 
     assert CONF_LITTER_FULL_MM not in mock_config_entry.options
@@ -72,11 +73,11 @@ async def test_calibration_takes_effect_immediately(
     # the derived path is the one under test.
     raw = {k: v for k, v in json.loads(state_payload).items() if k != "litterLevelPercentage"}
     derived = json.dumps(raw)
-    answer = await setup_integration(hass, mock_config_entry, derived)
+    robot = await setup_integration(hass, mock_config_entry, derived)
     before = hass.states.get("sensor.litter_robot_4_litter_level")
     assert before is not None
 
-    with robot_answers(derived, answer):
+    with robot_online(robot):
         await _press(hass, CALIBRATE)
     await hass.async_block_till_done()
 
@@ -93,12 +94,12 @@ async def test_a_suppressed_reading_is_not_papered_over_by_the_last_one(
     state_payload: str,
 ) -> None:
     """Mid-cycle the percentage must go unknown, not show a stale value."""
-    answer = await setup_integration(hass, mock_config_entry, state_payload)
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
     assert hass.states.get("sensor.litter_robot_4_litter_level").state == "62"
 
     mid_cycle = {**json.loads(state_payload), "robotStatus": 10, "litterLevel": 575}
     mid_cycle.pop("litterLevelPercentage", None)
-    answer(_message(json.dumps(mid_cycle)))
+    robot.push(json.dumps(mid_cycle))
     await hass.async_block_till_done()
 
     state = hass.states.get("sensor.litter_robot_4_litter_level")

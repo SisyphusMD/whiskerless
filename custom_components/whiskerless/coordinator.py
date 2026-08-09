@@ -47,6 +47,8 @@ from whiskerless.devices.litter_robot_4.protocol import (
 from whiskerless.safety import assert_sendable
 
 from .const import (
+    CONF_HOPPER_LAST,
+    CONF_HOPPER_SEEN,
     CONF_LITTER_EMPTY_MM,
     CONF_LITTER_FULL_MM,
     CONF_SERIAL,
@@ -114,11 +116,47 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._last_visit_duration_s: int | None = None
         self._hopper_connected: bool | None = None
         self._hopper_link_reported = False
+        self._hopper_seen = bool(config_entry.options.get(CONF_HOPPER_SEEN))
         self._last_hopper_dispensed: datetime | None = None
         self._hopper_fill_raw: int | None = None
         self._drawer_removed: bool | None = None
+        # Enabling an entity reloads the entry, which builds a fresh coordinator
+        # and would otherwise discard the very readings that proved the hopper
+        # exists. They are persisted with the flag, so the newly enabled
+        # entities have a value the moment they appear.
+        last = config_entry.options.get(CONF_HOPPER_LAST) or {}
+        if last:
+            self._hopper_connected = last.get("connected")
+            self._hopper_link_reported = last.get("connected") is not None
+            self._hopper_fill_raw = last.get("fill")
+            dispensed = last.get("dispensed")
+            self._last_hopper_dispensed = dt_util.parse_datetime(dispensed) if dispensed else None
 
 
+
+    @callback
+    def _record_hopper_sighting(self) -> None:
+        """Persist that this robot has a hopper, with the readings that proved it.
+
+        Deliberately only writes state here. Enabling the entities happens in
+        async_setup_entry, after the platforms have registered them, so this can
+        never race platform setup; the reload below is what gets us there.
+        """
+        self._hopper_seen = True
+        dispensed = self._last_hopper_dispensed
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            options={
+                **self.config_entry.options,
+                CONF_HOPPER_SEEN: True,
+                CONF_HOPPER_LAST: {
+                    "connected": self._hopper_connected,
+                    "fill": self._hopper_fill_raw,
+                    "dispensed": dispensed.isoformat() if dispensed else None,
+                },
+            },
+        )
+        self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
     @property
     def litter_full_mm(self) -> int | None:
@@ -188,7 +226,12 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
     def _handle_activity_events(self, message: ActivityMessage) -> bool:
         """Fold an activity message's semantic events into the derived facts."""
         changed = False
+        hopper_reported = False
         for event in events_from_readings(message.readings):
+            if isinstance(event, HopperDispensed) or (
+                isinstance(event, HopperLinkChanged) and event.connected
+            ):
+                hopper_reported = True
             if isinstance(event, CatWeightMeasured):
                 self._cat_weight_lb = event.weight_lb
                 self._last_cat_visit = dt_util.utcnow()
@@ -220,6 +263,8 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 if event.removed != self._drawer_removed:
                     self._drawer_removed = event.removed
                     changed = True
+        if hopper_reported and not self._hopper_seen:
+            self._record_hopper_sighting()
         return changed
 
 

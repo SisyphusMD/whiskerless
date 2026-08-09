@@ -10,7 +10,7 @@ from homeassistant.loader import async_get_integration
 
 from . import binary_sensor, button, number, select, sensor, switch
 from . import time as time_platform
-from .const import DOMAIN
+from .const import CONF_HOPPER_LAST, CONF_HOPPER_SEEN, DOMAIN
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 
 # Option key recording which version last swept the entity registry.
@@ -87,6 +87,64 @@ async def _remove_retired_entities(hass: HomeAssistant, entry: WhiskerlessConfig
         )
 
 
+# The optional LitterHopper is invisible in the state document, so these ship
+# disabled and switch on once the hardware reports.
+HOPPER_ENTITIES: tuple[tuple[str, str], ...] = (
+    (Platform.BINARY_SENSOR, "hopper_connected"),
+    (Platform.BINARY_SENSOR, "hopper_empty"),
+    (Platform.SENSOR, "hopper_fill"),
+    (Platform.SENSOR, "last_hopper_dispensed"),
+)
+
+
+def _enable_hopper_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
+    """Turn on the hopper entities once this robot is known to have one.
+
+    Called twice per setup. Before the platforms are forwarded it catches
+    entries an earlier setup created, so they are built enabled in this same
+    pass; after, it catches entries the platforms only just created. Returns
+    whether anything was flipped after the fact, which means Home Assistant has
+    a reload queued and this setup is not the settled one.
+
+    Changing disabled_by makes Home Assistant queue a reload of its own, so the
+    first detection costs one extra reload beyond the one the coordinator asks
+    for. That is accepted: it happens once in a robot's life, the detection is
+    persisted so a failed reload simply retries, and the alternative is deciding
+    enablement at entity-registration time, which cannot reach entries that
+    already exist.
+
+    Only promotes INTEGRATION-disabled entities. A user who deliberately turned
+    one off keeps that choice, and the entry-wide "disable new entities"
+    preference is honoured rather than overridden.
+    """
+    if not entry.options.get(CONF_HOPPER_SEEN) or entry.pref_disable_new_entities:
+        return False
+    flipped = False
+    registry = er.async_get(hass)
+    for domain, key in HOPPER_ENTITIES:
+        entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{entry.runtime_data.serial}_{key}")
+        if entity_id is None:
+            continue
+        existing = registry.async_get(entity_id)
+        if existing is not None and existing.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
+            registry.async_update_entity(entity_id, disabled_by=None)
+            flipped = True
+    return flipped
+
+
+def _drop_hopper_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
+    """Discard the one-shot readings that bridged the enabling reload.
+
+    They exist only so the entities have a value the instant they appear. Kept
+    beyond that they would be re-applied on every startup and clobber the newer
+    values the entities restore for themselves.
+    """
+    if CONF_HOPPER_LAST not in entry.options:
+        return
+    options = {k: v for k, v in entry.options.items() if k != CONF_HOPPER_LAST}
+    hass.config_entries.async_update_entry(entry, options=options)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Set up Whiskerless from a config entry."""
     coordinator = WhiskerlessCoordinator(hass, entry)
@@ -94,7 +152,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
 
     entry.runtime_data = coordinator
     await _remove_retired_entities(hass, entry)
+    # Before forwarding, so entries an earlier setup created are built enabled
+    # in this same pass rather than only after another reload.
+    _enable_hopper_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Again, for entries the platforms just created. If that flipped anything a
+    # reload is queued, so the bootstrap readings have to survive to seed it.
+    if not _enable_hopper_entities(hass, entry):
+        _drop_hopper_bootstrap(hass, entry)
     return True
 
 

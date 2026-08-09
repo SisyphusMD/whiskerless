@@ -16,6 +16,11 @@ CONF_SERIAL = "serial"
 # on the config entry options. CONF_LITTER_FULL_MM alone anchors the percentage
 # the way the cloud does; adding CONF_LITTER_EMPTY_MM upgrades it to a true
 # two-point scale with no assumed slope.
+# Set once the hopper has reported. Durable, so the entities it enables stay
+# enabled and the readings that proved it survive the reload enabling triggers.
+CONF_HOPPER_SEEN = "hopper_seen"
+CONF_HOPPER_LAST = "hopper_last"
+
 CONF_LITTER_FULL_MM = "litter_full_mm"
 CONF_LITTER_EMPTY_MM = "litter_empty_mm"
 

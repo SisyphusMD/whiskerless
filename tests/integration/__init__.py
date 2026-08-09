@@ -7,7 +7,9 @@ standalone library tests still run.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import contextlib
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from unittest.mock import patch
 
 from homeassistant.components import mqtt
@@ -18,34 +20,33 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from .const import STATE_TOPIC
 
 
-def robot_answers(payload: str, callback: Callable[[ReceiveMessage], None]):
-    """Patch publish so the robot answers any request with ``payload``.
+@dataclass
+class Robot:
+    """A stand-in robot that answers whatever the integration asks it.
 
-    setup_integration only holds this for the duration of setup. Anything that
-    asks the robot afterwards — a calibration press, a settings write — needs it
-    active too, or it waits out the state timeout.
+    Tracks the LIVE subscription rather than a captured snapshot: reloading a
+    config entry builds a fresh coordinator that subscribes again, and a reply
+    delivered to the previous coordinator's callback reaches nobody.
     """
 
-    async def _pub_spy(*_args: object, **_kwargs: object) -> None:
-        callback(ReceiveMessage(STATE_TOPIC, payload, 1, False, STATE_TOPIC, 0.0))
+    payload: str
+    _callback: Callable[[ReceiveMessage], None] | None = field(default=None, repr=False)
 
-    return patch("custom_components.whiskerless.coordinator.mqtt.async_publish", _pub_spy)
+    def push(self, payload: str, topic: str = STATE_TOPIC) -> None:
+        """Deliver a message as though the robot had published it."""
+        assert self._callback is not None, "the integration has not subscribed yet"
+        self._callback(ReceiveMessage(topic, payload, 1, False, topic, 0.0))
 
 
-async def setup_integration(
-    hass: HomeAssistant, entry: MockConfigEntry, payload: str
-) -> Callable[[ReceiveMessage], None]:
-    """Set the entry up, simulating the robot answering ``requestState``.
+@contextlib.contextmanager
+def robot_online(robot: Robot) -> Iterator[Robot]:
+    """Answer every request the integration publishes, for as long as it is held.
 
-    The coordinator's first refresh clears its state event, publishes
-    ``requestState``, then waits for a pushed state. Firing the reply blindly
-    races that sequence (and is wiped by the clear), which flaked on slow CI
-    runners. Instead, capture the subscription callback and mock ``async_publish``
-    to deliver the state document straight back — exactly as the robot answers a
-    request — so the wait resolves deterministically every time.
+    The coordinator's refresh clears its state event, publishes ``requestState``,
+    then waits for a pushed state. Firing a reply blindly races that sequence and
+    is wiped by the clear, which flaked on slow runners. Replying from the publish
+    spy instead resolves the wait deterministically, exactly as the robot does.
     """
-    entry.add_to_hass(hass)
-    captured_cb: Callable[[ReceiveMessage], None] | None = None
     real_subscribe = mqtt.async_subscribe
 
     async def _sub_spy(
@@ -54,21 +55,31 @@ async def setup_integration(
         msg_callback: Callable[[ReceiveMessage], None],
         **kwargs: object,
     ) -> Callable[[], None]:
-        nonlocal captured_cb
         unsub = await real_subscribe(hass_, topic, msg_callback, **kwargs)
-        captured_cb = msg_callback
+        robot._callback = msg_callback
         return unsub
 
     async def _pub_spy(*_args: object, **_kwargs: object) -> None:
-        # The robot answers a command/request publish with a fresh state document.
-        if captured_cb is not None:
-            captured_cb(ReceiveMessage(STATE_TOPIC, payload, 1, False, STATE_TOPIC, 0.0))
+        if robot._callback is not None:
+            robot.push(robot.payload)
 
     with (
         patch("custom_components.whiskerless.coordinator.mqtt.async_subscribe", _sub_spy),
         patch("custom_components.whiskerless.coordinator.mqtt.async_publish", _pub_spy),
     ):
+        yield robot
+
+
+async def setup_integration(hass: HomeAssistant, entry: MockConfigEntry, payload: str) -> Robot:
+    """Set the entry up with a robot answering, and return it still armed.
+
+    The returned Robot is NOT live once this call ends. Anything that makes the
+    integration talk to the robot afterwards, including a reload triggered by
+    enabling an entity, must run inside ``robot_online(robot)``.
+    """
+    entry.add_to_hass(hass)
+    robot = Robot(payload=payload)
+    with robot_online(robot):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
-    assert captured_cb is not None
-    return captured_cb
+    return robot

@@ -124,13 +124,15 @@ then, and capturing that would bake in a meaningless reference.
 
 The hopper is invisible in the local state document — every hopper fact comes
 from the activity stream — so these four entities ship **disabled** rather than
-reading unknown forever on the robots that don't have one. If yours does, enable
-them once in the device page:
+reading unknown forever on the robots that don't have one:
 
 - **Hopper** (connected), **Hopper out of litter**, **Hopper fill (raw)**,
   **Last hopper dispense**
 
-They populate on the next visit or dispense.
+**You don't need to do anything.** The first time your hopper reports, on a
+dispense or a link message, they enable themselves and come up carrying that
+reading. Detection is remembered, so they stay enabled. If you turn one off by
+hand it stays off.
 
 Settings writes are verified by reading them back, and the schedule times retry
 automatically (the robot commits those with a little latency).
