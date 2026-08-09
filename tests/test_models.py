@@ -265,3 +265,10 @@ def test_a_nonsense_empty_reference_falls_back_to_one_point() -> None:
 
 def test_uncalibrated_behaviour_is_unchanged() -> None:
     assert litter_level_percent_from_mm(460) == litter_level_percent_from_mm(460, full_mm=None)
+
+
+def test_uncalibrated_percent_cannot_exceed_full() -> None:
+    # A well-filled globe reads a short distance, which the uncalibrated curve
+    # happily extrapolated past 100.
+    assert litter_level_percent_from_mm(428) == 100
+    assert litter_level_percent_from_mm(300) == 100

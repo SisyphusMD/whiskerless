@@ -105,3 +105,24 @@ async def test_a_suppressed_reading_is_not_papered_over_by_the_last_one(
     state = hass.states.get("sensor.litter_robot_4_litter_level")
     assert state is not None
     assert state.state == "unknown"
+
+
+async def test_the_reference_sensor_shows_the_press_landed(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """A button's only state is when it was last pressed, so success is
+    otherwise indistinguishable from nothing happening."""
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    before = hass.states.get("sensor.litter_robot_4_litter_calibration_reference")
+    assert before is not None
+    assert before.state == "unknown"
+
+    with robot_online(robot):
+        await _press(hass, CALIBRATE)
+    await hass.async_block_till_done()
+
+    after = hass.states.get("sensor.litter_robot_4_litter_calibration_reference")
+    assert after is not None
+    assert after.state == "455"

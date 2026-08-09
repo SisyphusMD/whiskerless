@@ -183,6 +183,18 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
     # maintain target, declining monotonically as the hopper drains. Unitless
     # raw until the empty/refill anchors calibrate a scale; updates only when
     # a dispense runs.
+    # The calibration buttons are otherwise silent on success: a button's only
+    # state is when it was last pressed. Surfacing the stored reference makes the
+    # press visibly do something, and shows whether this robot is calibrated at all.
+    WhiskerlessDataSensorEntityDescription(
+        key="litter_reference",
+        translation_key="litter_reference",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.MILLIMETERS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        data_fn=lambda data: data.litter_full_mm,
+        restores=False,
+    ),
     WhiskerlessDataSensorEntityDescription(
         key="hopper_fill",
         translation_key="hopper_fill",

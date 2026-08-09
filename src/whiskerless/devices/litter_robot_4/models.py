@@ -199,7 +199,7 @@ def litter_level_percent_from_mm(
             return max(min(round((empty_mm - mm) / span * 100), 100), 0)
         # 90% at the line, on the cloud's slope of ~0.6 mm per percent.
         return max(min(round(90 - (mm - full_mm) / 0.6), 100), 0)
-    return max(round((100 - (mm - 440) / 0.6) / 10) * 10, 0)
+    return min(max(round((100 - (mm - 440) / 0.6) / 10) * 10, 0), 100)
 
 
 # --- defensive scalar decoders -----------------------------------------------

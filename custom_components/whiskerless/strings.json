@@ -65,6 +65,9 @@
       },
       "hopper_fill": {
         "name": "Hopper fill (raw)"
+      },
+      "litter_reference": {
+        "name": "Litter calibration reference"
       }
     },
     "binary_sensor": {

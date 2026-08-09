@@ -27,6 +27,9 @@
       },
       "hopper_fill": {
         "default": "mdi:gauge"
+      },
+      "litter_reference": {
+        "default": "mdi:ruler"
       }
     },
     "binary_sensor": {
