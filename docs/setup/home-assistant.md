@@ -26,6 +26,16 @@ beyond clicking *Add* on each robot as it's discovered.
 2. Add `https://github.com/SisyphusMD/whiskerless` with category **Integration**.
 3. Install **Whiskerless**, then **restart Home Assistant**.
 
+### Release candidates
+
+Before a release ships, a candidate goes out as a GitHub *prerelease* so it can be
+run on real hardware first. It never becomes "latest", so you only get one on
+purpose: in HACS open Whiskerless → **⋮** → **Redownload** → enable **Show beta
+versions**, and pick the `-rc.N` build. Turn the toggle back off to return to
+stable releases. That only hides prereleases from the picker, so to actually go
+back, **Redownload** again, choose the newest stable version, and restart Home
+Assistant.
+
 ## Add a robot (it discovers itself)
 
 There's nothing to type. When a re-provisioned robot publishes to your broker,
