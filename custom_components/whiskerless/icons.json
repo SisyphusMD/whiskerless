@@ -93,6 +93,12 @@
     "button": {
       "refresh": {
         "default": "mdi:refresh"
+      },
+      "calibrate_litter_full": {
+        "default": "mdi:cup"
+      },
+      "calibrate_litter_empty": {
+        "default": "mdi:cup-outline"
       }
     }
   }

@@ -31,6 +31,11 @@ class LitterRobot4State:
     waste_drawer_level: int | None = None     # % full (DFILevelPercent)
     litter_level: int | None = None           # % (litterLevelPercentage or derived)
     litter_level_mm: int | None = None        # raw mm (litterLevel)
+    # True when the firmware reported a usable percentage itself, rather than
+    # this decoder deriving one from the distance. Consumers with a per-robot
+    # calibration should prefer their own derivation over a derived value, but
+    # never over the device's own answer.
+    litter_level_reported: bool = False
     # lb. Passed through as-is: the cloud `catWeight` field is already in pounds,
     # but the raw activity register (0x09) is int16/100. If a live `/state` proves
     # the local value is the raw register, divide by 100 here.
@@ -101,6 +106,7 @@ class LitterRobot4State:
             is_cleaning = robot_status in const.CLEANING_STATUSES
 
         litter_pct = _int(g("litterLevelPercentage"))
+        litter_level_reported = litter_pct is not None
         litter_mm = _int(g("litterLevel"))
         if is_cleaning or robot_status in const.LITTER_UNRELIABLE_STATUSES:
             # The ToF sensors read the rotating globe, not the litter bed, while
@@ -127,6 +133,7 @@ class LitterRobot4State:
             waste_drawer_level=_int(g("DFILevelPercent")),
             litter_level=litter_pct,
             litter_level_mm=litter_mm,
+            litter_level_reported=litter_level_reported,
             cat_weight=_float(g("catWeight")),
             night_light_mode=_enum(g("nightLightMode"), const.NIGHT_LIGHT_MODE),
             night_light_brightness=_int(g("nightLightBrightness")),
@@ -167,12 +174,31 @@ class LitterRobot4State:
         )
 
 
-def litter_level_percent_from_mm(mm: int) -> int:
-    """Approximate the cloud litter-level % from the raw mm distance.
+def litter_level_percent_from_mm(
+    mm: int, *, full_mm: int | None = None, empty_mm: int | None = None
+) -> int:
+    """Convert the raw ToF distance to a litter percentage.
 
-    Mirrors the cloud-side derivation (MED confidence): full ≈ 440 mm, ~0.6 mm
-    per percent, rounded to the nearest 10 and clamped at 0.
+    ``litterLevel`` is a distance, so it RISES as litter drops.
+
+    There is no universal curve. The cloud computes its percentage against a
+    per-robot calibrated reference (``optimalLitterLevel``) that is not present
+    in the local state document, and measured references differ by ~10 mm across
+    robots — enough to move the answer by 15 points. So:
+
+    * ``full_mm`` given — the reading when filled to the line. Mapped to 90%,
+      matching how the cloud pins "at optimal", which leaves headroom for an
+      overfill to read above it.
+    * ``empty_mm`` also given — a true two-point scale, no assumed slope.
+    * neither — the inherited approximation, which is the best guess available
+      and is why calibrating is worth the one button press.
     """
+    if full_mm is not None:
+        if empty_mm is not None and empty_mm > full_mm:
+            span = empty_mm - full_mm
+            return max(min(round((empty_mm - mm) / span * 100), 100), 0)
+        # 90% at the line, on the cloud's slope of ~0.6 mm per percent.
+        return max(min(round(90 - (mm - full_mm) / 0.6), 100), 0)
     return max(round((100 - (mm - 440) / 0.6) / 10) * 10, 0)
 
 

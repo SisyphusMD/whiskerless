@@ -87,6 +87,29 @@ work the same way; each becomes its own device.
 - **Control lock**, **Panel sleep mode**, **Weekday sleep schedule** (switches)
 - **Panel sleep time** / **Panel wake time** (time entities)
 
+**Calibrating the litter percentage**
+
+`litterLevel` is a *distance*, and there is no universal distance-to-percent
+curve: the cloud measures against a reference calibrated per robot
+(`optimalLitterLevel`) that simply is not in the local state document, and
+measured references differ by ~10 mm between robots — enough to move the answer
+by 15 points.
+
+So the percentage starts as an approximation. To make it yours:
+
+1. Fill the globe to the line.
+2. Press **Calibrate litter: filled to the line** (a config button on the device
+   page) while the robot is idle.
+
+That reading becomes 90%, matching how the cloud pins "at optimal" and leaving
+headroom above for an overfill. If you ever have the globe empty, enable and
+press **Calibrate litter: empty** too — a second point replaces the assumed
+slope with a true two-point scale. It is genuinely optional; nobody should empty
+a litter box for a dashboard number.
+
+Calibration is refused mid-cycle: the sensors are pointed at the rotating globe
+then, and capturing that would bake in a meaningless reference.
+
 **LitterHopper (optional hardware)**
 
 The hopper is invisible in the local state document — every hopper fact comes

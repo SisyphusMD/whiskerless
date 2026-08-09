@@ -136,6 +136,12 @@
     "button": {
       "refresh": {
         "name": "Refresh"
+      },
+      "calibrate_litter_full": {
+        "name": "Calibrate litter: filled to the line"
+      },
+      "calibrate_litter_empty": {
+        "name": "Calibrate litter: empty"
       }
     }
   },
@@ -148,6 +154,9 @@
     },
     "command_failed": {
       "message": "Failed to send the command to the Litter-Robot: {error}."
+    },
+    "litter_reading_unavailable": {
+      "message": "No usable litter reading right now \u2014 the robot is mid-cycle. Try again once it is idle."
     }
   }
 }

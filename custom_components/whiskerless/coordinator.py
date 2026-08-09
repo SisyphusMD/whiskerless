@@ -46,7 +46,15 @@ from whiskerless.devices.litter_robot_4.protocol import (
 )
 from whiskerless.safety import assert_sendable
 
-from .const import CONF_SERIAL, DEFAULT_NAME, DOMAIN, HEARTBEAT_INTERVAL, LOGGER
+from .const import (
+    CONF_LITTER_EMPTY_MM,
+    CONF_LITTER_FULL_MM,
+    CONF_SERIAL,
+    DEFAULT_NAME,
+    DOMAIN,
+    HEARTBEAT_INTERVAL,
+    LOGGER,
+)
 
 type WhiskerlessConfigEntry = ConfigEntry[WhiskerlessCoordinator]
 
@@ -71,6 +79,9 @@ class WhiskerlessData:
     # Distinguishes "never heard from the link register" from a reading we
     # heard but cannot name: only the former may fall back to a restored value.
     hopper_link_reported: bool = False
+    # Per-robot litter calibration, so the percentage sensor can use it.
+    litter_full_mm: int | None = None
+    litter_empty_mm: int | None = None
     last_hopper_dispensed: datetime | None = None
     hopper_fill_raw: int | None = None
     drawer_removed: bool | None = None
@@ -109,6 +120,54 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
 
 
 
+    @property
+    def litter_full_mm(self) -> int | None:
+        """The calibrated reading when the globe is filled to the line."""
+        value = self.config_entry.options.get(CONF_LITTER_FULL_MM)
+        return int(value) if value is not None else None
+
+    @property
+    def litter_empty_mm(self) -> int | None:
+        """The calibrated reading with the globe empty, if it was ever taken."""
+        value = self.config_entry.options.get(CONF_LITTER_EMPTY_MM)
+        return int(value) if value is not None else None
+
+    async def async_calibrate_litter(self, *, empty: bool) -> None:
+        """Store the current distance as the full or empty reference.
+
+        Uses litter_level_mm rather than the percentage, because the percentage
+        is the thing being calibrated. Refuses while the reading is suppressed
+        (mid-cycle, or the filter wizard) — the ToF is looking at the globe, not
+        the litter, and capturing that would bake in a garbage reference.
+        """
+        # The user has just filled or emptied the globe, so the cached snapshot
+        # is exactly the wrong thing to measure. async_refresh() would not do:
+        # with a heartbeat already in flight it queues and returns immediately,
+        # leaving self.data on the pre-fill reading. Run the request-and-wait
+        # transaction directly so the value stored is one the robot sent after
+        # the button was pressed.
+        try:
+            data = await self._async_update_data()
+        except UpdateFailed as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="litter_reading_unavailable"
+            ) from err
+        self.async_set_updated_data(data)
+        robot = data.robot
+        if robot.litter_level_mm is None:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="litter_reading_unavailable"
+            )
+        key = CONF_LITTER_EMPTY_MM if empty else CONF_LITTER_FULL_MM
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            options={**self.config_entry.options, key: robot.litter_level_mm},
+        )
+        # Republish: the calibration is copied into the data payload, so
+        # listeners would otherwise re-read the old values and the press would
+        # appear to do nothing until the next heartbeat.
+        self.async_set_updated_data(self._build_data(robot))
+
     def _build_data(self, robot: LitterRobot4State) -> WhiskerlessData:
         """Combine the state snapshot with the activity-derived facts."""
         return WhiskerlessData(
@@ -118,6 +177,8 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             last_visit_duration_s=self._last_visit_duration_s,
             hopper_connected=self._hopper_connected,
             hopper_link_reported=self._hopper_link_reported,
+            litter_full_mm=self.litter_full_mm,
+            litter_empty_mm=self.litter_empty_mm,
             last_hopper_dispensed=self._last_hopper_dispensed,
             hopper_fill_raw=self._hopper_fill_raw,
             drawer_removed=self._drawer_removed,

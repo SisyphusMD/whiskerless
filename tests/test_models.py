@@ -227,3 +227,41 @@ def test_display_intensity_decoded() -> None:
     )
     assert state.display_intensity_high == 40
     assert state.display_intensity_low == 50
+
+
+# --- litter calibration -------------------------------------------------------
+
+
+def test_calibration_pins_the_line_to_ninety_percent() -> None:
+    # The cloud reports 0.9 for a robot sitting at its own optimalLitterLevel,
+    # leaving headroom above so an overfill can still read higher.
+    assert litter_level_percent_from_mm(453, full_mm=453) == 90
+
+
+def test_calibration_is_per_robot() -> None:
+    # Measured references differ across robots by ~10 mm; uncalibrated, that
+    # same spread silently moves the answer.
+    assert litter_level_percent_from_mm(459, full_mm=459) == 90
+    assert litter_level_percent_from_mm(459, full_mm=450) == 75
+
+
+def test_two_point_calibration_needs_no_assumed_slope() -> None:
+    assert litter_level_percent_from_mm(520, full_mm=453, empty_mm=520) == 0
+    assert litter_level_percent_from_mm(453, full_mm=453, empty_mm=520) == 100
+    assert litter_level_percent_from_mm(486, full_mm=453, empty_mm=520) == 51
+
+
+def test_calibrated_percent_is_clamped() -> None:
+    assert litter_level_percent_from_mm(300, full_mm=453) == 100
+    assert litter_level_percent_from_mm(900, full_mm=453) == 0
+    assert litter_level_percent_from_mm(900, full_mm=453, empty_mm=520) == 0
+
+
+def test_a_nonsense_empty_reference_falls_back_to_one_point() -> None:
+    # Empty is a LONGER distance than full; a swapped pair would otherwise
+    # produce a negative span and nonsense output.
+    assert litter_level_percent_from_mm(453, full_mm=453, empty_mm=400) == 90
+
+
+def test_uncalibrated_behaviour_is_unchanged() -> None:
+    assert litter_level_percent_from_mm(460) == litter_level_percent_from_mm(460, full_mm=None)

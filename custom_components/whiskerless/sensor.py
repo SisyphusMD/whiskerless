@@ -28,6 +28,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
+from whiskerless.devices.litter_robot_4.models import litter_level_percent_from_mm
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator, WhiskerlessData
 from .entity import WhiskerlessEntity
@@ -68,13 +69,7 @@ SENSORS: tuple[WhiskerlessSensorEntityDescription, ...] = (
         options=STATUS_OPTIONS,
         value_fn=_status,
     ),
-    WhiskerlessSensorEntityDescription(
-        key="litter_level",
-        translation_key="litter_level",
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda robot: robot.litter_level,
-    ),
+
     WhiskerlessSensorEntityDescription(
         key="waste_drawer_level",
         translation_key="waste_drawer_level",
@@ -117,6 +112,10 @@ class WhiskerlessDataSensorEntityDescription(SensorEntityDescription):
     """Describes a sensor fed from activity-derived data (not the state doc)."""
 
     data_fn: Callable[[WhiskerlessData], StateType | datetime]
+    # Event-sourced sensors restore, because the robot may not speak for hours.
+    # State-sourced ones must not: their None is an active suppression, and
+    # showing the last value would contradict it.
+    restores: bool = True
 
 
 # These facts exist ONLY in the activity stream: the local state document never
@@ -124,7 +123,29 @@ class WhiskerlessDataSensorEntityDescription(SensorEntityDescription):
 # event-driven, so without restoring the last value every entity here would sit
 # unknown from an HA restart until the next cat visit or dispense — potentially
 # hours.
+def _litter_percent(data: WhiskerlessData) -> StateType:
+    """Litter %, against this robot's calibration when it has one.
+
+    A percentage the firmware reports itself always wins: it is the device's own
+    answer, and calibration exists only to replace our approximation of it.
+    """
+    robot = data.robot
+    if robot.litter_level_reported or robot.litter_level_mm is None:
+        return robot.litter_level
+    return litter_level_percent_from_mm(
+        robot.litter_level_mm, full_mm=data.litter_full_mm, empty_mm=data.litter_empty_mm
+    )
+
+
 DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
+    WhiskerlessDataSensorEntityDescription(
+        key="litter_level",
+        translation_key="litter_level",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        data_fn=_litter_percent,
+        restores=False,
+    ),
     WhiskerlessDataSensorEntityDescription(
         key="pet_weight",
         translation_key="pet_weight",
@@ -246,4 +267,6 @@ class WhiskerlessDataSensor(WhiskerlessEntity, RestoreSensor):
         # The robot only speaks these on an event, so hold the restored value
         # until it does rather than reading unknown for hours after a restart.
         current = self.entity_description.data_fn(self.coordinator.data)
-        return self._restored if current is None else current
+        if current is None and self.entity_description.restores:
+            return self._restored
+        return current

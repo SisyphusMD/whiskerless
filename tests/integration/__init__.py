@@ -18,7 +18,23 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from .const import STATE_TOPIC
 
 
-async def setup_integration(hass: HomeAssistant, entry: MockConfigEntry, payload: str) -> None:
+def robot_answers(payload: str, callback: Callable[[ReceiveMessage], None]):
+    """Patch publish so the robot answers any request with ``payload``.
+
+    setup_integration only holds this for the duration of setup. Anything that
+    asks the robot afterwards — a calibration press, a settings write — needs it
+    active too, or it waits out the state timeout.
+    """
+
+    async def _pub_spy(*_args: object, **_kwargs: object) -> None:
+        callback(ReceiveMessage(STATE_TOPIC, payload, 1, False, STATE_TOPIC, 0.0))
+
+    return patch("custom_components.whiskerless.coordinator.mqtt.async_publish", _pub_spy)
+
+
+async def setup_integration(
+    hass: HomeAssistant, entry: MockConfigEntry, payload: str
+) -> Callable[[ReceiveMessage], None]:
     """Set the entry up, simulating the robot answering ``requestState``.
 
     The coordinator's first refresh clears its state event, publishes
@@ -54,3 +70,5 @@ async def setup_integration(hass: HomeAssistant, entry: MockConfigEntry, payload
     ):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
+    assert captured_cb is not None
+    return captured_cb

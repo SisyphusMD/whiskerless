@@ -38,6 +38,25 @@ BUTTONS: tuple[WhiskerlessButtonEntityDescription, ...] = (
         entity_registry_enabled_default=False,
         press_fn=lambda coordinator: coordinator.async_request_refresh(),
     ),
+    # Litter percentage has no universal curve — the cloud measures against a
+    # per-robot reference that is absent from the local state document. One
+    # press with the globe filled to the line anchors it.
+    WhiskerlessButtonEntityDescription(
+        key="calibrate_litter_full",
+        translation_key="calibrate_litter_full",
+        entity_category=EntityCategory.CONFIG,
+        press_fn=lambda coordinator: coordinator.async_calibrate_litter(empty=False),
+    ),
+    # Optional second point. Emptying the globe is a chore nobody should have to
+    # do for a dashboard number, so this upgrades the scale when it happens to
+    # be convenient rather than being required.
+    WhiskerlessButtonEntityDescription(
+        key="calibrate_litter_empty",
+        translation_key="calibrate_litter_empty",
+        entity_category=EntityCategory.CONFIG,
+        entity_registry_enabled_default=False,
+        press_fn=lambda coordinator: coordinator.async_calibrate_litter(empty=True),
+    ),
 )
 
 
