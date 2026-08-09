@@ -42,6 +42,13 @@
       "matchDepNames": ["python"],
       "matchCurrentValue": "3.13",
       "enabled": false
+    },
+    {
+      "description": "3.11 is the floor pyproject advertises (requires-python), and these jobs exist purely to prove the library still runs there. Bumping them would delete the test rather than update it, which is exactly how 3.12-only syntax reached the library unnoticed before. Raise this only together with requires-python.",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["python"],
+      "matchCurrentValue": "3.11",
+      "enabled": false
     }
   ]
 }
