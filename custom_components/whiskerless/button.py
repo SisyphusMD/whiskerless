@@ -1,8 +1,11 @@
 """Button platform for Whiskerless.
 
-Clean cycle and reset work by synthesising a panel button press (register `0x01`),
-live-proven on ESP 1.1.75. Empty cycle and power stay absent — they are not panel
-buttons and their triggers are still unknown.
+Clean cycle and reset work by synthesising a panel button press (register
+`0x01`), live-proven on ESP 1.1.75. Empty and power are panel buttons too and
+their codes are captured, but writing them is untested and both are costly to
+get wrong: an empty cycle dumps every gram of litter into the drawer, and power
+can take the robot off the network. The filter-change park is unreachable —
+its chord is a long press, which the firmware declines on the write path.
 """
 
 from __future__ import annotations

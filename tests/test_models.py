@@ -371,3 +371,28 @@ def test_a_cloud_style_weekday_flag_still_decodes() -> None:
     for raw in (False, "false"):
         state = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": raw})
         assert state.weekday_sleep_enabled is False
+
+def test_filter_wizard_status_decodes_and_suppresses_litter() -> None:
+    """robotStatus 14 = the filter-change wizard (owner-narrated chord, 1.4.4).
+
+    Held for the wizard's whole life: park rotation, the indefinite wait, and
+    the Reset-triggered return. It is not a clean cycle, and the globe parks
+    inverted, so litter readings must be suppressed.
+    """
+    state = LitterRobot4State.from_state_doc({"robotStatus": 14, "litterLevel": 575})
+    assert state.robot_status == "changing_filter"
+    assert state.is_cleaning is False
+    assert state.litter_level is None
+    assert state.litter_level_mm is None
+
+
+def test_filter_wizard_cycle_phases_decode() -> None:
+    # Live ladder from the narrated chord: 14 rotating to the park, 15 parked
+    # waiting; the return leg reuses the normal 4/5 rails.
+    park = LitterRobot4State.from_state_doc({"robotCycleStatus": 14})
+    wait = LitterRobot4State.from_state_doc({"robotCycleStatus": 15})
+    assert park.robot_cycle_status == "filter_park"
+    assert wait.robot_cycle_status == "filter_wait"
+    # Neither phase may imply an active clean cycle.
+    assert park.is_cleaning is False
+    assert wait.is_cleaning is False

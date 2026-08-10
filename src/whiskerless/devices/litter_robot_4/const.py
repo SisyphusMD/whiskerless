@@ -107,9 +107,16 @@ class Register(IntEnum):
     USB_FAULT_STATUS = 0x39
     IS_BONNET_REMOVED = 0x3A
     IS_NIGHT_LIGHT_LED_ON = 0x3B
+    # Status annunciator (activity only): fires alongside state transitions,
+    # naming the event. See STATUS_ANNUNCIATIONS for the live-labeled values.
+    STATUS_ANNUNCIATOR = 0x0B
     ODOMETER_POWER_CYCLES = 0x3D
     ODOMETER_CLEAN_CYCLES = 0x3E
     ODOMETER_EMPTY_CYCLES = 0x3F
+    # Counts filter-change WIZARD ENTRIES, stamped at wizard start (live: 2→3
+    # the moment the panel combo registered). NOT a cycles-since-filter
+    # countdown — the app's "replace filter" nag must be computed cloud-side,
+    # so a local robot never nags and this only moves when the wizard runs.
     ODOMETER_FILTER_CYCLES = 0x40
     IS_DFI_RESET_PENDING = 0x41      # read-only — NOT writable (0x02410001 is a no-op)
     DFI_NUMBER_OF_CYCLES = 0x42      # cycles since the firmware last DETECTED a
@@ -180,10 +187,25 @@ CAT_WEIGHT_DIVISOR = 50
 
 
 # PANEL_BUTTON (0x01) values, as emitted by the robot on a physical press and
-# accepted back as a synthesised one. The trailing 01 is the press; 0x010000 is
-# what the register reads between presses.
+# accepted back as a synthesised one. Structure (proven by an owner-narrated
+# combo capture on 1.4.4): hi byte = button BITMASK, lo byte = press TYPE.
+# Buttons OR together for combos — the filter-change chord emitted 0x0A02 =
+# (Cycle 0x02 | Empty 0x08) with press type 02.
+#
+#   button bits: 0x02 Cycle · 0x04 Reset · 0x08 Empty (combo-proven)
+#   press types: 0x01 short press · 0x02 long press (3 s hold)
+#
+# 0x010000 is what the register reads between presses.
+#
+# Only press type 01 can be synthesised. Writing type 02 produces no event at
+# all, while an unknown type (00) is normalised to 01 and performed — so the
+# firmware recognises the long press and declines it rather than defaulting.
+# Every hold-only chord, the filter wizard included, is therefore out of reach
+# from MQTT; see ROBOT_STATUS 14 / ROBOT_CYCLE_STATUS 14-15 for what the
+# physical chord does.
 PANEL_BUTTON_CYCLE = 0x0201
 PANEL_BUTTON_RESET = 0x0401
+
 
 # HOPPER_LINK (0x57) value meaning "hopper disconnected" (int16 -15, live-PROVEN
 # on detach/reattach and bonnet lift/reseat).
@@ -192,6 +214,21 @@ PANEL_BUTTON_RESET = 0x0401
 # on an idle robot with the hopper attached and dispensing normally, so treating any
 # negative as a fault would report a working hopper as gone.
 HOPPER_LINK_DISCONNECTED = 0xFFF1
+
+# STATUS_ANNUNCIATOR (0x0B) values, every one labeled against a live observed
+# event (the "random housekeeping" values were never random — 102 is dusk/dawn
+# and light switches, 105 is Reset presses). Documentation-grade: nothing
+# consumes these yet, but they turn a formerly-opaque chatter register into
+# named events for future decoding work.
+STATUS_ANNUNCIATIONS: dict[int, str] = {
+    7: "bonnet_removed",
+    9: "cat_detected",
+    12: "filter_wizard_waiting",
+    20: "cycle_running",
+    22: "ready",
+    102: "night_light_changed",   # fires with IS_NIGHT_LIGHT_LED_ON transitions
+    105: "reset_tare",            # fires on a Reset press (physical or written)
+}
 
 # LITTER_HOPPER_DISPENSED (0x0C) phase whose value is the hopper's own fill
 # gauge (see events.HopperDispensed).
@@ -302,6 +339,14 @@ ROBOT_CYCLE_STATUS: dict[int, str] = {
     3: "home",    # legacy label; on ESP >= 1.4 this phase is CYCLE_DFI
     4: "level",   # CYCLE_LEVEL (hopper dispenses here)
     5: "home",    # CYCLE_HOME
+    # Filter-change wizard phases (owner-narrated chord, 1.4.4): 14 while
+    # rotating to the dump-position park, 15 while parked waiting for the
+    # human — indefinitely; bonnet removal during the wait triggers nothing.
+    # The Reset-triggered return leg reuses the normal 4→5 (level/home) rails
+    # with robotStatus still 14 throughout. Deliberately NOT in
+    # ACTIVE_CYCLE_STATUSES: the wizard is never a clean cycle.
+    14: "filter_park",
+    15: "filter_wait",
 }
 # ESP 1.4.4 also emits transient 12 (0x0C) / 15 (0x0F) states mid-cycle.
 ROBOT_CYCLE_STATE: dict[int, str] = {

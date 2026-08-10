@@ -91,9 +91,12 @@ PANEL_BUTTON_NEVER: frozenset[int] = frozenset(
 #: interlock that stops the globe when something is inside it. An automation
 #: firing Reset blind could restart a cycle over a cat.
 PANEL_BUTTON_MOTOR: frozenset[int] = frozenset({0x0201, 0x0401})  # cycle, reset
-#: Every other button bit is UNTESTED and stays dangerous. One of them may be
-#: power, which could take the robot off the network with no way back short of
-#: someone walking over and pressing it.
+#: Every other button value stays dangerous. Empty (0x0801) and Power (0x0101)
+#: have been captured from physical presses but never written, and an empty
+#: cycle dumps every gram of litter into the drawer while Power can take the
+#: robot off the network with no way back short of someone walking over to it.
+#: Long presses cannot be synthesised at all: the firmware performs press type
+#: 01 and silently declines 02, so the hold-only chords never reach here.
 
 #: Report macros that are safe to send with a zero value (PROVEN live). A
 #: non-zero value on these indexes a firmware jump table, so it is treated as
