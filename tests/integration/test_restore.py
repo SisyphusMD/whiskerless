@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 
 import pytest
 from custom_components.whiskerless.const import CONF_HOPPER_SEEN
@@ -143,3 +144,59 @@ async def test_a_live_value_beats_the_restored_one(
     state = hass.states.get("sensor.litter_robot_4_pet_weight")
     assert state is not None
     assert state.state == "18.8"  # 940 / CAT_WEIGHT_DIVISOR
+
+
+async def test_a_decimal_in_the_cache_is_restored_as_a_number(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """No sensor here stores a Decimal, but Home Assistant can hand one back.
+
+    It reconstructs whatever type was serialised, and a cache written by an
+    older build or another integration can hold one. Left as a Decimal it would
+    reach the state machine as `Decimal('17')` instead of a number.
+    """
+    mock_restore_cache_with_extra_data(
+        hass,
+        (
+            (
+                State("sensor.litter_robot_4_last_visit_duration", "17"),
+                SensorExtraStoredData(Decimal("17"), UnitOfTime.SECONDS).as_dict(),
+            ),
+        ),
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    state = hass.states.get("sensor.litter_robot_4_last_visit_duration")
+    assert state is not None
+    assert float(state.state) == 17.0
+
+
+async def test_a_plain_date_in_the_cache_is_refused(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """A cache holding a bare date is not one of ours, so it is not adopted.
+
+    Every restoring sensor here is a number or a full timestamp. Taking the date
+    anyway would publish a value with no time component as though the robot had
+    reported it.
+    """
+    mock_restore_cache_with_extra_data(
+        hass,
+        (
+            (
+                State("sensor.litter_robot_4_last_visit_duration", "2026-08-08"),
+                SensorExtraStoredData(date(2026, 8, 8), UnitOfTime.SECONDS).as_dict(),
+            ),
+        ),
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    state = hass.states.get("sensor.litter_robot_4_last_visit_duration")
+    assert state is not None
+    assert state.state == "unknown"

@@ -176,6 +176,17 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             self._hopper_fill_raw = last.get("fill")
             dispensed = last.get("dispensed")
             self._last_hopper_dispensed = dt_util.parse_datetime(dispensed) if dispensed else None
+            # …including the deduplication window, which is otherwise the one piece
+            # of that dispense the reload drops. This coordinator is built seconds
+            # after the dispense that proved the hopper, so a QoS-1 redelivery of
+            # that same dispense would land on a fresh window, count as a second
+            # sample, and corroborate an empty floor from a single physical
+            # dispense — which is the thing corroboration exists to prevent.
+            # Wall clock, because loop.time() means nothing across a reload.
+            if self._last_hopper_dispensed is not None:
+                age = (dt_util.utcnow() - self._last_hopper_dispensed).total_seconds()
+                if 0 <= age < _DISPENSE_DEDUPE:
+                    self._last_hopper_sample_at = hass.loop.time() - age
 
 
 

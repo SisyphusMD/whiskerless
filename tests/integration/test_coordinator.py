@@ -25,6 +25,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from whiskerless import WhiskerlessError
 
 from . import Robot, capture_writes, robot_online, setup_integration
+from .const import ACTIVITY_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -148,6 +149,13 @@ async def test_an_undecodable_message_does_not_kill_the_subscription(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     robot.push("not json at all")
+    await hass.async_block_till_done()
+
+    # And a well-formed message carrying a malformed element, which gets past the
+    # parser's front door. The decoder rejects the element rather than raising, so
+    # this never reaches the catch-all — worth pinning, because a decoder that
+    # started raising here would take the subscription with it.
+    robot.push(json.dumps({"type": "action", "data": ["010201"]}), ACTIVITY_TOPIC)
     await hass.async_block_till_done()
 
     doc = json.loads(state_payload)

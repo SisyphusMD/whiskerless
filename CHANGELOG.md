@@ -78,6 +78,13 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   `sensor.<robot>_waste_drawer_last_moved`. Nine different codes turned up across
   removals and insertions alike, and a direct read answers the same value either
   way, so the robot reports that the drawer moved and nothing more.
+- **One dispense can no longer prove an empty hopper on its own.** The floor is
+  meant to need corroboration across separate dispenses, but detecting a hopper
+  for the first time reloads the entry, and the fresh coordinator started with an
+  open deduplication window — so a redelivery of that same first dispense, which
+  is exactly when one is most likely to still be in flight, counted as a second
+  one. Only ever affected the first dispense of a robot's life, and only robots
+  that have a hopper at all.
 - **The hopper stops dropping to unknown.** A link code we cannot name is no
   longer treated as a disconnect — one such code repeats on a healthy, dispensing
   hopper. Only a proven disconnect changes the state.

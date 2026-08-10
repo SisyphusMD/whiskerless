@@ -81,6 +81,33 @@ async def test_the_drawer_bay_records_that_it_moved(
     assert hass.states.get(DRAWER_MOVED).state not in ("unknown", "unavailable")
 
 
+async def test_the_first_dispense_cannot_corroborate_itself_across_the_reload(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The sharpest version of the redelivery problem, and the one that shipped.
+
+    The very first dispense of a robot's life also detects the hopper, which
+    enables its entities and reloads the entry. A fresh coordinator starts with an
+    open deduplication window, so a redelivery arriving in that gap — seconds
+    after the original, exactly when one is most likely to still be in flight —
+    used to count as a second dispense and anchor the empty floor on its own.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    dispense = _activity("0x0C0105", "0x0C103D", "0x0C2076")
+
+    with robot_online(robot):
+        robot.push(dispense, ACTIVITY_TOPIC)
+        # Detection queues its own reload; blocking here runs it, which is the
+        # gap a redelivery lands in. Reloading again by hand would not be that
+        # sequence — the second pass drops the bootstrap that carries the window.
+        await hass.async_block_till_done()
+        robot.push(dispense, ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+
+    learned = mock_config_entry.options.get("learned_hopper") or {}
+    assert learned.get("low") is None, "one physical dispense must not anchor the floor"
+
+
 async def test_a_fault_the_robot_has_not_reported_is_not_reported_as_healthy(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:

@@ -129,9 +129,6 @@ class _RestoringBinarySensor(WhiskerlessEntity, BinarySensorEntity, RestoreEntit
         if last is not None and last.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             self._restored = last.state == STATE_ON
 
-    def _with_restore(self, current: bool | None) -> bool | None:
-        return self._restored if current is None else current
-
 
 class WhiskerlessHopperConnectedSensor(_RestoringBinarySensor):
     """LitterHopper link state, derived from the activity stream (reg 0x57).
