@@ -138,6 +138,59 @@ async def test_panel_brightness_refuses_until_both_levels_are_known(
         )
 
 
+async def test_the_wake_time_is_written_to_every_weekday_register(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The mirror of the sleep time, and just as easy to get half right.
+
+    0x1C mirrors today the way 0x1B does, so a wake time has to land on the seven
+    odd registers 0x1F..0x2B — checking today alone would pass while another
+    day's write was dropped.
+    """
+    doc = json.loads(state_payload)
+    for day in ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"):
+        doc[f"wakeTime{day}"] = 420  # 07:00
+    robot = await setup_integration(hass, mock_config_entry, json.dumps(doc))
+
+    with robot_online(robot), capture_writes(robot) as sent:
+        await hass.services.async_call(
+            "time",
+            "set_value",
+            {"entity_id": "time.litter_robot_4_panel_wake_time", "time": "07:00:00"},
+            blocking=True,
+        )
+
+    writes = [c for c in sent if c.startswith("0x02") and not c.startswith("0x02A0")]
+    assert [c[:6] for c in writes] == [f"0x02{reg:02X}" for reg in range(0x1F, 0x2C, 2)]
+    assert all(c.endswith(f"{420:04X}") for c in writes)
+    assert not any(c.startswith("0x021C") for c in sent), "0x1C is read-only"
+
+
+async def test_arming_the_weekday_schedule_sets_every_day(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """It is a per-day bitmask, not a switch.
+
+    Writing 1 armed Sunday alone, which looked like it worked if you happened to
+    test on a Sunday and did nothing for the rest of the week.
+    """
+    doc = json.loads(state_payload)
+    doc["weekdaySleepModeEnabled"] = 0x7F  # what the robot reports once all seven are armed
+    robot = await setup_integration(hass, mock_config_entry, json.dumps(doc))
+
+    with robot_online(robot), capture_writes(robot) as sent:
+        await hass.services.async_call(
+            "switch",
+            "turn_on",
+            {"entity_id": "switch.litter_robot_4_weekday_sleep_schedule"},
+            blocking=True,
+        )
+
+    writes = [c for c in sent if c.startswith("0x02") and not c.startswith("0x02A0")]
+    assert writes, "arming the schedule wrote nothing at all"
+    assert all(c.endswith("7F") for c in writes), "every day must be in the mask"
+
+
 async def test_a_schedule_time_the_robot_has_not_reported_reads_unknown(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:

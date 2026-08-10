@@ -92,12 +92,13 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   from the registry instead of lingering forever as unavailable.
 - The example dashboard card no longer lists `select.<robot>_clean_cycle_wait_time`,
   an entity that stopped existing when that control became a number.
-- **The write paths are tested.** Integration coverage went from 93% to 96% —
-  under the 95% the quality scale asks for, while claiming to meet it. Reads were
-  well covered and writes barely were, which is backwards: a decode bug shows a
-  wrong number, a write bug changes the robot. Adds per-platform write tests, a
-  snapshot of the whole entity surface, and the coordinator's retry, timeout and
-  broker-not-ready paths. CI now gates both numbers instead of reporting them.
+- **The write paths are tested.** Integration coverage went from 93% to 99% —
+  it had been under the 95% the quality scale asks for while claiming to meet it.
+  Reads were well covered and writes barely were, which is backwards: a decode
+  bug shows a wrong number, a write bug changes the robot. Adds per-platform
+  write tests, every panel press, the activity-stream entities, a snapshot of the
+  whole entity surface, and the coordinator's retry, timeout, unload and
+  broker-not-ready paths. CI now gates the numbers instead of reporting them.
 - **The Refresh button ships enabled.** It is a read-only state request, and it is
   what the troubleshooting docs tell you to press when a robot has gone quiet —
   being sent to enable an entity first was friction at the worst moment. Existing

@@ -22,6 +22,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from whiskerless import WhiskerlessError
+
 from . import Robot, capture_writes, robot_online, setup_integration
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
@@ -34,10 +36,16 @@ WRITE_20 = "0x02160014"
 
 @pytest.fixture(autouse=True)
 def _impatient() -> None:
-    """Collapse the commit and state waits so failure paths run at test speed."""
+    """Collapse every wait so failure paths run at test speed.
+
+    All four, not just the ones a given test looks like it needs: a press that is
+    never acknowledged waits out _PRESS_TIMEOUT in full, and leaving it at five
+    seconds puts that on the wall clock of every run.
+    """
     with (
         patch.object(coord, "_VERIFY_TIMEOUT", 0.05),
         patch.object(coord, "_STATE_TIMEOUT", 0.05),
+        patch.object(coord, "_PRESS_TIMEOUT", 0.05),
         patch.object(coord, "_WRITE_GAP", 0),
     ):
         yield
@@ -171,6 +179,130 @@ async def test_unloading_takes_the_entities_with_it(
     state = hass.states.get(WAIT_TIME)
     assert state.state == STATE_UNAVAILABLE
     assert state.attributes["restored"] is True
+
+
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [("async_panel_reset", "0x02010401"), ("async_power_toggle", "0x02010101")],
+)
+async def test_a_press_with_no_lasting_trace_is_confirmed_by_its_echo(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+    method: str,
+    expected: str,
+) -> None:
+    """Reset from idle and Power leave nothing in the state document to check.
+
+    Reset only acknowledges an alarm, and a robot powered off has left the
+    network, so the echo is the only acknowledgement either one can produce.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    with robot_online(robot), capture_writes(robot, echo=True) as sent:
+        await getattr(coordinator, method)()
+
+    assert sent.count(expected) == 1
+
+
+async def test_the_empty_cycle_is_confirmed_by_its_own_odometer(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """There is no "emptying" status, so the count of empty cycles is the evidence."""
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    ran = json.loads(state_payload)
+    ran["odometerEmptyCycles"] = 13
+    original = coord.build_command_payload
+
+    def spy(serial: str, code: str) -> str:
+        if code == "0x02010801":
+            robot.payload = json.dumps(ran)
+        return original(serial, code)
+
+    coord.build_command_payload = spy
+    try:
+        with robot_online(robot), capture_writes(robot, echo=True):
+            await coordinator.async_empty_cycle()
+    finally:
+        coord.build_command_payload = original
+
+    assert coordinator.data.robot.odometer_empty_cycles == 13
+
+
+async def test_a_press_whose_echo_is_lost_falls_back_to_asking_the_robot(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A lost echo does not mean a lost press, and the press must not be repeated.
+
+    So when there is something in the state document that proves the robot acted,
+    it is asked rather than assumed — the alternative is a second empty cycle.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    ran = json.loads(state_payload)
+    ran["odometerEmptyCycles"] = 13
+    original = coord.build_command_payload
+    presses = 0
+
+    def spy(serial: str, code: str) -> str:  # deliberately never echoes
+        nonlocal presses
+        if code == "0x02010801":
+            presses += 1
+            robot.payload = json.dumps(ran)
+        return original(serial, code)
+
+    coord.build_command_payload = spy
+    try:
+        with robot_online(robot):
+            await coordinator.async_empty_cycle()
+    finally:
+        coord.build_command_payload = original
+
+    assert presses == 1, "the fallback must ask, never press again"
+    assert coordinator.data.robot.odometer_empty_cycles == 13
+
+
+async def test_a_press_with_nothing_to_check_and_no_echo_reports_failure(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Power leaves no trace to fall back on, so a lost echo is all there is.
+
+    Reporting success would be a lie about a robot that may still be on, and
+    pressing again could toggle it back — so it says it could not confirm.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    with (
+        robot_online(robot),
+        capture_writes(robot) as sent,  # no echo
+        pytest.raises(WhiskerlessError),
+    ):
+        await coordinator.async_power_toggle()
+
+    assert sent.count("0x02010101") == 1, "an unconfirmed press must never be repeated"
+
+
+async def test_calibration_refuses_when_the_robot_will_not_answer(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Calibrating on a stale reading would bake a wrong reference in permanently."""
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    # Outside robot_online, so the fresh reading the button insists on never lands.
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            "button",
+            "press",
+            {"entity_id": "button.litter_robot_4_calibrate_litter_filled_to_the_line"},
+            blocking=True,
+        )
+
+    assert err.value.translation_key == "litter_reading_unavailable"
 
 
 def test_robot_helper_refuses_to_push_before_subscription() -> None:
