@@ -152,10 +152,10 @@ automatically (the robot commits those with a little latency).
 
 ## What's *not* exposed
 
-There are **no action buttons** (clean cycle, empty cycle, power, resets). Their
-exact commands couldn't be verified safely from the firmware — the byte once mapped
-to "clean cycle" was proven on a live robot to reset the unit, not run a cycle — so
-they're intentionally left out rather than shipped as risky guesses. See
+**Start clean cycle** and **Reset** are available as buttons. There is still no
+**empty cycle** or **power** button — their codes are unverified. Both are panel
+buttons, so the same register that gave us the other two is the likely route; the
+remaining button bits simply have not been captured yet. See
 [../devices/litter-robot-4/compatibility.md](../devices/litter-robot-4/compatibility.md).
 
 ## Troubleshooting

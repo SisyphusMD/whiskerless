@@ -41,9 +41,12 @@ whiskerless problems.
 If a cat is on the globe (or weight is detected), the robot **pauses** instead of
 cycling — you'll see the **Status** sensor report a paused/cat-detected state and
 the **Cat detected** binary sensor turn on. It clears itself once the cat leaves
-and the wait time elapses. This interlock is enforced by the robot's own motor
-controller and **cannot be overridden by a command** — which is exactly why a
-clean cycle can never run with a cat inside.
+and the wait time elapses.
+
+A **Reset** — from the panel or the Reset button in Home Assistant — releases that
+pause, exactly as pressing the button on the robot does. The cat sensor keeps
+working either way, so a cat still inside re-triggers it and the robot pauses again.
+Nothing bypasses the sensor itself; a reset just clears the current hold.
 
 ### Bonnet removed
 
@@ -74,9 +77,10 @@ subsequent reports.
 
 Normal use can't. whiskerless classifies every command and **unconditionally
 refuses** the brick/reset-class opcodes (reset / main-board OTA, globe-motor OTA,
-flash erase, hardware reset) — there's no flag that lets them through. No motor
-command ships at all: the discrete actions (clean cycle, power, empty, resets)
-are deliberately omitted until their opcodes are proven safe — see
+flash erase, hardware reset) — there's no flag that lets them through. The clean
+cycle and reset do ship, as synthesised panel button presses; both can turn the
+globe, so the library refuses them unless the caller explicitly opts in. Power and
+the empty cycle are still absent — see
 [What's *not* here](../README.md#whats-not-here). Settings writes are all
 reversible and verified by read-back. See
 [devices/litter-robot-4/commands.md](devices/litter-robot-4/commands.md) for the

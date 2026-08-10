@@ -106,10 +106,25 @@ async def _cmd_set(args: argparse.Namespace) -> int:
     return 1
 
 
+async def _cmd_clean_cycle(args: argparse.Namespace) -> int:
+    if not args.yes and not _confirm("Run a clean cycle? The globe will turn. Type 'yes': "):
+        print("aborted", file=sys.stderr)
+        return 1
+    async with _link(args) as link:
+        # allow_motor is the point of the confirmation above; the robot's own
+        # pinch, cat-detect and bonnet interlocks still apply regardless.
+        await link.publish(commands.clean_cycle(), allow_motor=True)
+    print("clean cycle requested")
+    return 0
+
+
 async def _cmd_send(args: argparse.Namespace) -> int:
     code = args.code if args.code.lower().startswith("0x") else f"0x{args.code}"
     hazard = classify_code(code)
-    command = Command(code=code, hazard=hazard, label="raw")
+    command = Command(
+        code=code, hazard=hazard, label="raw",
+        at_most_once=commands.is_edge_triggered(code),
+    )
     print(f"{code}: {hazard.value}", flush=True)
     async with _link(args) as link:
         await link.publish(command, allow_motor=args.allow_motor, allow_dangerous=args.allow_dangerous)
@@ -298,6 +313,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument("--allow-motor", action="store_true")
     p_send.add_argument("--allow-dangerous", action="store_true")
     p_send.set_defaults(func=_cmd_send)
+
+    p_cycle = sub.add_parser("clean-cycle", help="run a clean cycle (turns the globe)")
+    add_conn(p_cycle)
+    p_cycle.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p_cycle.set_defaults(func=_cmd_clean_cycle)
 
     p_prov = sub.add_parser("provision", help="re-provision a robot onto your broker over BLE")
     p_prov.add_argument("--serial", help="robot serial (prompted if omitted)")

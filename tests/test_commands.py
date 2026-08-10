@@ -72,3 +72,14 @@ def test_panel_brightness_clamps_into_the_packed_value() -> None:
     """
     assert commands.set_panel_brightness(300, -5).value == (255 << 8) | 0
     assert commands.set_panel_brightness(90, 100).value == (90 << 8) | 100
+
+
+def test_button_presses_ask_for_at_most_once_delivery() -> None:
+    """A doubled press runs a second cycle; a missed one is just pressed again.
+
+    Settings writes stay at-least-once because rewriting the same value is free.
+    """
+    assert commands.clean_cycle().at_most_once
+    assert commands.panel_reset().at_most_once
+    assert not commands.set_night_light_brightness(50).at_most_once
+    assert not commands.request_state().at_most_once

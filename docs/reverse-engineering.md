@@ -60,26 +60,48 @@ The ESP↔motor-controller link and the safety interlocks (pinch, cat-detect,
 bonnet) live in the **PIC controller**, which is why those interlocks can't be
 overridden from a command, and why the firmware is left untouched.
 
-## The action commands: why they're still missing
+## The action commands: how three of five were found
 
-whiskerless exposes everything on the **safe surface** — reads, the report macros,
-and the settings registers — all proven by live read-modify-restore. What it does
-**not** expose is any command that drives the globe or changes power state:
-`cleanCycle`, `powerOn`/`powerOff`, `emptyCycle`, and the panel/drawer resets. Here
-is the honest state of that hunt.
+For most of this project's life nothing could make the robot *act* — every command
+was a setting. The hunt assumed the triggers were **macro opcodes** in the `0xA0`
+range, because that is where the firmware brief put them, and `cleanCycle` was
+mapped to `0xA3`.
 
-### `0xA3` is a reset, not a clean cycle (live-proven)
+They were never opcodes. `0x01` is the **panel button register**, it accepts writes,
+and writing the code the robot emits for a button synthesises that press. The clean
+cycle is `0x02010201`; reset is `0x02010401`. Both live-proven on 2026-08-09.
+
+The data had been sitting in every capture for months — the robot publishes
+`0x010201` each time someone presses Cycle. It was read as telemetry rather than as
+a writable register, and the search stayed in a range that never contained the
+answer. Two corrections unlocked it: learning that every write is echoed back with
+the register's post-write value (which turns a blind write into a measurable
+experiment), and discarding the claim that an unrecognised write reaches an
+arbitrary PIC register (which had made the cheap test look reckless).
+
+**Still missing: `powerOn`/`powerOff` and `emptyCycle`.** Neither is a panel button,
+so `0x01` does not reach them. The waste-drawer reset is not separate — a Reset press
+performs it when the full flag is set.
+
+### `0xA3` is not the clean cycle (and what it *is* was never established)
 
 Early on, `0x02A30000` was taken to be the clean-cycle trigger — it's the byte the
-cloud's `cleanCycle` verb appears to map to, and pressing it *looked* like it
-started a cycle. It does not. Captured live on a robot running **ESP fw 1.1.75**:
-sending `0x02A30000` **rebooted the unit** — `odometerPowerCycles` incremented while
-`odometerCleanCycles` stayed flat. The "clean cycle" people saw was the robot's
-**automatic first-cycle-after-power-on**, not a commanded one. So `0xA3` is the
-**reset / main-board-OTA orchestrator** (it reboots, or no-ops), and it's now
-classified never-send. The real cleanCycle trigger is unknown, and the
-clean-cycle button / CLI command / library builder were removed rather than left
-shipping a reset disguised as a cycle.
+cloud's `cleanCycle` verb appears to map to, and sending it *looked* like it started
+a cycle. It isn't the cycle: the real trigger is `0x02010201`, a synthesized Cycle
+button press, live-proven twice (see below).
+
+What `0xA3` actually does is **unresolved**. One send on ESP 1.1.75 was followed by
+`odometerPowerCycles` incrementing while `odometerCleanCycles` stayed flat, which
+reads as a reboot, and the apparent "clean cycle" was then the robot's automatic
+first-cycle-after-power-on. That is a real observation, but it is **one trial with no
+replication**, and this unit has since produced spontaneous reboots, a wifi drop and
+a latched sensor on its own. A coincident reboot cannot be excluded.
+
+It stays **never-send** anyway, and the reason is cost, not proof: there is nothing
+to gain from sending it now that the cycle and reset are both reachable through
+`0x01`, and if the reboot reading is right the downside is real. Refusing an opcode
+we have no use for costs nothing; being wrong about one that may orchestrate a
+main-board OTA does not. Nobody should re-test this to settle it.
 
 ### The triggers live in firmware no public image contains
 

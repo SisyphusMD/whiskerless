@@ -5,13 +5,10 @@ safety :class:`~whiskerless.safety.Hazard`, and — for settings writes — the
 register/value to read back afterward (the firmware commits some writes with
 variable latency, so callers verify and retry; see ``protocol.write_setting``).
 
-No globe-driving actions are exposed. cleanCycle, powerOn/powerOff, emptyCycle, and
-shortResetPress are deliberately absent: the firmware's inbound-action dispatch lives
-in a bootloader partition missing from every public image, so their register+value
-could not be pinned to actionable confidence. The byte once shipped here as
-"cleanCycle" (``0x02A30000``) was proven on a live robot to RESET the unit, not run a
-cycle (see ``docs/reverse-engineering.md``). They are tracked as open items in the
-docs, not shipped as guesses.
+Clean cycle and panel reset ARE exposed, as synthesised panel button presses on
+register ``0x01`` — live-proven, three trials. Both are MOTOR-classified and refused
+without ``allow_motor``. powerOn/powerOff and emptyCycle stay absent: they are not
+panel buttons and their triggers remain unknown.
 """
 
 from __future__ import annotations
@@ -32,10 +29,37 @@ class Command:
     label: str
     register: int | None = None  # settings-write target, for read-back verify
     value: int | None = None     # 16-bit value written, expected on read-back
+    #: Publish at QoS 0 instead of 1. Settings writes are idempotent, so
+    #: at-least-once delivery is free; a panel button press is edge-triggered and
+    #: carries no request id, so a redelivery after a lost PUBACK would run a
+    #: second cycle. A press that goes missing is recoverable; a doubled one is not.
+    at_most_once: bool = False
 
 
-def _cmd(code: str, label: str, *, register: int | None = None, value: int | None = None) -> Command:
-    return Command(code=code, hazard=classify_code(code), label=label, register=register, value=value)
+def is_edge_triggered(code: str) -> bool:
+    """True for a panel-button write, which must never be delivered twice."""
+    from ...safety import CommandType, parse_code
+
+    ctype, register, _ = parse_code(code)
+    return ctype is CommandType.WRITE and register == const.Register.PANEL_BUTTON
+
+
+def _cmd(
+    code: str,
+    label: str,
+    *,
+    register: int | None = None,
+    value: int | None = None,
+    at_most_once: bool = False,
+) -> Command:
+    return Command(
+        code=code,
+        hazard=classify_code(code),
+        label=label,
+        register=register,
+        value=value,
+        at_most_once=at_most_once,
+    )
 
 
 # --- report / read macros (SAFE) ---------------------------------------------
@@ -121,6 +145,38 @@ def set_panel_brightness(high: int, low: int) -> Command:
         "setPanelBrightness",
         register=const.Register.PANEL_BRIGHTNESS,
         value=packed,
+    )
+
+
+def clean_cycle() -> Command:
+    """Run a clean cycle, by synthesising a press of the panel Cycle button.
+
+    Classified MOTOR: this turns the globe, so it needs ``allow_motor``. The
+    firmware's own pinch, cat-detect and bonnet interlocks still apply — they
+    live in the PIC and no command overrides them.
+    """
+    return _cmd(
+        encode_write(const.Register.PANEL_BUTTON, const.PANEL_BUTTON_CYCLE),
+        "cleanCycle",
+        at_most_once=True,
+        register=const.Register.PANEL_BUTTON,
+        value=const.PANEL_BUTTON_CYCLE,
+    )
+
+
+def panel_reset() -> Command:
+    """Press the panel Reset button: acknowledge a full alarm, clear a fault.
+
+    Classified MOTOR despite sounding harmless: from idle it only acknowledges an
+    alarm, but during a cycle it releases a cat-interrupt pause — the interlock
+    that holds the globe still while something is inside it.
+    """
+    return _cmd(
+        encode_write(const.Register.PANEL_BUTTON, const.PANEL_BUTTON_RESET),
+        "panelReset",
+        at_most_once=True,
+        register=const.Register.PANEL_BUTTON,
+        value=const.PANEL_BUTTON_RESET,
     )
 
 

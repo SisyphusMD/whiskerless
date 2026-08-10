@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from whiskerless import safety
+from whiskerless.devices.litter_robot_4 import commands
 from whiskerless.exceptions import (
     DangerousCommandError,
     MotorCommandError,
@@ -66,3 +67,39 @@ def test_safe_always_allowed() -> None:
 def test_parse_rejects_malformed(code: str) -> None:
     with pytest.raises(ProtocolError):
         classify_code(code)
+
+
+class TestPanelButton:
+    """`0x01` is classified by VALUE — the same register does two different jobs."""
+
+    def test_the_clean_cycle_needs_the_motor_gate(self) -> None:
+        code = commands.clean_cycle().code
+        assert classify_code(code) is Hazard.MOTOR
+        with pytest.raises(MotorCommandError):
+            assert_sendable(code)
+        assert_sendable(code, allow_motor=True)
+
+    def test_reset_is_motor_gated_too(self) -> None:
+        """It looks harmless and is not.
+
+        From idle Reset only acknowledges an alarm, but during a cycle it releases
+        a cat-detect pause — the interlock holding the globe still while something
+        is inside. An automation firing it blind could restart a cycle over a cat.
+        """
+        code = commands.panel_reset().code
+        assert classify_code(code) is Hazard.MOTOR
+        with pytest.raises(MotorCommandError):
+            assert_sendable(code)
+        assert_sendable(code, allow_motor=True)
+
+    @pytest.mark.parametrize("value", [0x0101, 0x0801, 0x1001, 0x0000])
+    def test_every_other_button_stays_refused(self, value: int) -> None:
+        """Only the two proven values are allowed through.
+
+        The remaining bits are untested and one of them may be power, which could
+        take the robot off the network with no remote way back.
+        """
+        code = f"0x0201{value:04X}"
+        assert classify_code(code) is Hazard.DANGEROUS
+        with pytest.raises(DangerousCommandError):
+            assert_sendable(code)

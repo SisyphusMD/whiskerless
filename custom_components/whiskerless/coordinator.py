@@ -87,6 +87,10 @@ _DISPENSE_DEDUPE = 60.0
 # State documents arrive on a multi-minute cadence, so anything closer than this
 # is a redelivery rather than an independent observation.
 _STATE_DEDUPE = 30.0
+# How long to wait for the robot to echo a panel-button press. The echo is the
+# robot's own acknowledgement that it acted, which QoS 1 cannot give — that only
+# proves the broker accepted the message.
+_PRESS_TIMEOUT = 5.0
 
 @dataclass
 class WhiskerlessData:
@@ -154,6 +158,8 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._last_hopper_sample_at = 0.0
         self._last_litter_sample_at = 0.0
         self._drawer_removed: bool | None = None
+        self._press_echo = asyncio.Event()
+        self._awaited_press: int | None = None
         # Enabling an entity reloads the entry, which builds a fresh coordinator
         # and would otherwise discard the very readings that proved the hopper
         # exists. They are persisted with the flag, so the newly enabled
@@ -350,6 +356,12 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         """Fold an activity message's semantic events into the derived facts."""
         changed = False
         hopper_reported = False
+        # A press we are waiting on, echoed back: the robot confirming it acted.
+        if self._awaited_press is not None and any(
+            r.register == lr4.Register.PANEL_BUTTON and r.value == self._awaited_press
+            for r in message.readings
+        ):
+            self._press_echo.set()
         for event in events_from_readings(message.readings):
             if isinstance(event, HopperDispensed) or (
                 isinstance(event, HopperLinkChanged) and event.connected
@@ -483,13 +495,16 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         await super().async_shutdown()
 
     # --- publishing (every send is guarded) ----------------------------------
-    async def _publish(self, command: Command) -> None:
-        assert_sendable(command.code)
+    async def _publish(self, command: Command, *, allow_motor: bool = False) -> None:
+        # allow_motor is opt-in per call rather than a coordinator-wide setting: a
+        # person pressing "Start clean cycle" is a deliberate act, and everything
+        # else stays refused by default.
+        assert_sendable(command.code, allow_motor=allow_motor)
         await mqtt.async_publish(
             self.hass,
             command_topic(self.serial),
             build_command_payload(self.serial, command.code),
-            qos=1,
+            qos=0 if command.at_most_once else 1,
         )
 
     async def _write_and_verify(
@@ -552,6 +567,70 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         await self._write_and_verify(
             commands.set_keypad_lockout(enabled), lambda s: s.keypad_lockout == enabled
         )
+
+    async def _press_and_confirm(
+        self, command: Command, *, confirms: Callable[[LitterRobot4State], bool] | None = None
+    ) -> None:
+        """Send a panel-button press exactly once and confirm the robot acted.
+
+        Deliberately NOT retried. Publishing is at-most-once, and a missing echo
+        does not mean the press was missed — the press can land and its echo be
+        lost, so resending could press twice. A doubled cycle is worse than a
+        press the user simply repeats, and there is no request id to make the
+        action idempotent.
+
+        Confirmation is the robot echoing the button register. If that never
+        arrives and the action has an observable effect, ``confirms`` checks a
+        FRESHLY fetched state, so a lost echo alone does not report failure. It
+        must be fresh: the cached snapshot may already satisfy the predicate for
+        unrelated reasons, which would turn "no evidence" into a false success.
+        """
+        async with self._io_lock:
+            self._press_echo.clear()
+            self._awaited_press = command.value
+            try:
+                await self._publish(command, allow_motor=True)
+                with contextlib.suppress(TimeoutError):
+                    async with asyncio.timeout(_PRESS_TIMEOUT):
+                        await self._press_echo.wait()
+                    # The press is confirmed from here. The refresh is a courtesy,
+                    # so its failure must not report a landed press as failed —
+                    # that would invite the user to press an edge-triggered
+                    # action a second time.
+                    with contextlib.suppress(WhiskerlessError, HomeAssistantError):
+                        await asyncio.sleep(_WRITE_GAP)
+                        await self._publish(commands.request_state())
+                    return
+            finally:
+                self._awaited_press = None
+
+            # No echo. Ask the robot directly rather than assume either way.
+            if confirms is not None:
+                self._state_event.clear()
+                await self._publish(commands.request_state())
+                fresh = False
+                with contextlib.suppress(TimeoutError):
+                    async with asyncio.timeout(_VERIFY_TIMEOUT):
+                        await self._state_event.wait()
+                        fresh = True
+                if fresh and self._robot is not None and confirms(self._robot):
+                    return
+        raise WhiskerlessError(
+            f"{command.label} was not acknowledged — check the robot before repeating it"
+        )
+
+    async def async_clean_cycle(self) -> None:
+        """Run a clean cycle. The robot reports its own progress from there."""
+        await self._press_and_confirm(commands.clean_cycle(), confirms=lambda s: s.is_cleaning)
+
+    async def async_panel_reset(self) -> None:
+        """Press Reset: acknowledge a full alarm, or release a stalled cycle.
+
+        No state fallback: from idle a reset leaves no lasting mark in the state
+        document, so there is nothing to check that would not also be true had
+        the press never happened.
+        """
+        await self._press_and_confirm(commands.panel_reset())
 
     async def async_set_panel_sleep_mode(self, enabled: bool) -> None:
         try:

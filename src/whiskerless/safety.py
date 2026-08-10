@@ -5,11 +5,16 @@ Home Assistant integration, and any future caller classify a command here and
 :func:`assert_sendable` refuses the dangerous ones *before* the bytes can leave
 the process.
 
-What justifies that, precisely, is one live observation: `0x02A30000` — once
-shipped as "cleanCycle" — **reboots the robot**. The macro range it sits in is
-described by a static firmware brief as holding flash, OTA and reset operations,
-and that brief has since been wrong about several other things, so the range is
-treated as untrusted rather than as documented.
+The never-send set is a **cost decision, not a proof**. One send of `0x02A30000` was
+followed by `odometerPowerCycles` incrementing, which reads as a reboot — but that is
+a single trial with no replication, on a unit that has since rebooted, dropped wifi
+and latched a sensor unprompted. The macro range it sits in is described by a static
+firmware brief as holding flash, OTA and reset operations, and that brief has since
+been wrong about `0xA1`, `0x1A`-`0x1C` and `robotStatus`.
+
+So the range is refused because there is nothing to gain by sending it — the cycle
+and reset are both reachable through `0x01` — and a plausible main-board OTA on the
+other side. Cheap insurance beats a confident story.
 
 What is NOT claimed: that an unrecognised write reaches a PIC register directly.
 That was asserted from the same brief and the robot contradicts it — writes to
@@ -33,18 +38,33 @@ from .exceptions import DangerousCommandError, MotorCommandError, NeverSendError
 # --- the evidence-backed safety classes --------------------------------------
 
 #: Brick- or reset-class opcodes. Refused unconditionally — no override exists.
-#: 0xAC erases/writes main-board flash; 0xA4 stages a globe-motor-controller OTA
-#: (a near-miss in testing — it bailed only because a magic register check
-#: failed); 0xAD pulses the PIC reset line; 0xA3 is the reset / main-board-OTA
-#: orchestrator — a live robot proved 0x02A30000 reboots it (it was long mislabeled
-#: "cleanCycle"). All four can reset or brick the robot.
+#: A static firmware brief describes 0xAC as main-board flash, 0xA4 as a
+#: globe-motor-controller OTA, and 0xAD as the PIC reset line; 0xA3 was long
+#: mislabeled "cleanCycle" and one send was followed by a reboot, never replicated.
+#: See the module docstring: this set is refused on cost, not on proof.
 NEVER_SEND_OPCODES: frozenset[int] = frozenset({0xA3, 0xA4, 0xAC, 0xAD})
 
-#: Opcodes that drive the globe motor (clean / empty cycle). Intentionally empty:
-#: the real cleanCycle trigger lives in firmware we could not recover (see docs),
-#: and 0xA3 — the byte once assumed here — turned out to reset the robot (now in
-#: NEVER_SEND_OPCODES). The gate stays wired so a confirmed motor opcode slots in.
+#: Opcodes that drive the globe motor, by register. Still empty: the clean cycle
+#: turned out not to be an opcode at all but a value written to the panel button
+#: register, so it is gated by PANEL_BUTTON_MOTOR below instead.
 MOTOR_OPCODES: frozenset[int] = frozenset()
+
+#: `0x01` carries panel button presses and accepts writes — writing the code the
+#: robot emits for a button synthesises that press. Live-proven on ESP 1.1.75,
+#: three trials, each echoing the register back with the documented signature.
+#:
+#: Classification is by VALUE, not register: the same register runs the globe or
+#: acknowledges an alarm depending on which button is named.
+PANEL_BUTTON_REGISTER: int = 0x01
+#: Both proven buttons can turn the globe, so both are gated behind
+#: ``allow_motor``. Reset looks harmless — from idle it only acknowledges an
+#: alarm — but it also RELEASES a cycle paused on cat-detect, which is the
+#: interlock that stops the globe when something is inside it. An automation
+#: firing Reset blind could restart a cycle over a cat.
+PANEL_BUTTON_MOTOR: frozenset[int] = frozenset({0x0201, 0x0401})  # cycle, reset
+#: Every other button bit is UNTESTED and stays dangerous. One of them may be
+#: power, which could take the robot off the network with no way back short of
+#: someone walking over and pressing it.
 
 #: Report macros that are safe to send with a zero value (PROVEN live). A
 #: non-zero value on these indexes a firmware jump table, so it is treated as
@@ -114,6 +134,11 @@ def classify(ctype: CommandType, register: int, value: int) -> Hazard:
         return Hazard.NEVER
     if register in MOTOR_OPCODES:
         return Hazard.MOTOR
+    if register == PANEL_BUTTON_REGISTER:
+        # By value: the same register runs the globe or acknowledges an alarm.
+        if value in PANEL_BUTTON_MOTOR:
+            return Hazard.MOTOR
+        return Hazard.DANGEROUS
     if register in SAFE_REPORT_MACROS:
         return Hazard.SAFE if value == 0 else Hazard.DANGEROUS
     if register in SAFE_SETTINGS_REGISTERS:

@@ -73,6 +73,9 @@ class Register(IntEnum):
     """PIC register file. READ side is well-decoded; only the writable settings
     bank below is exposed for writes."""
 
+    # Panel buttons. Read as telemetry for months before anyone tried writing it;
+    # writing the code the robot emits for a button synthesises that press.
+    PANEL_BUTTON = 0x01
     IS_DEBUG_MODE_ACTIVE = 0x05      # 64800-tick countdown when armed (not a bool)
     RTC_CHIP_ID = 0x06
     UNIT_POWER_TYPE = 0x07
@@ -155,6 +158,12 @@ class Register(IntEnum):
     # value (592 observed) on the same register — see events.py's cap.
     CAT_VISIT_DURATION = 0xBC
 
+
+# PANEL_BUTTON (0x01) values, as emitted by the robot on a physical press and
+# accepted back as a synthesised one. The trailing 01 is the press; 0x010000 is
+# what the register reads between presses.
+PANEL_BUTTON_CYCLE = 0x0201
+PANEL_BUTTON_RESET = 0x0401
 
 # HOPPER_LINK (0x57) value meaning "hopper disconnected" (int16 -15, live-PROVEN
 # on detach/reattach and bonnet lift/reseat).

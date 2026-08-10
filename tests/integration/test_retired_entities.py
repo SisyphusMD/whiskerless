@@ -23,9 +23,9 @@ async def test_retired_entity_is_removed_on_upgrade(
     mock_config_entry.add_to_hass(hass)
     registry = er.async_get(hass)
     retired = registry.async_get_or_create(
-        "button",
+        "select",
         "whiskerless",
-        f"{MOCK_SERIAL}_start_clean_cycle",
+        f"{MOCK_SERIAL}_clean_cycle_wait",
         config_entry=mock_config_entry,
     )
     assert registry.async_get(retired.entity_id) is not None
@@ -119,7 +119,7 @@ async def test_skipping_versions_still_sweeps(
     )
     registry = er.async_get(hass)
     retired = registry.async_get_or_create(
-        "button", "whiskerless", f"{MOCK_SERIAL}_start_clean_cycle", config_entry=mock_config_entry
+        "select", "whiskerless", f"{MOCK_SERIAL}_clean_cycle_wait", config_entry=mock_config_entry
     )
 
     await setup_integration(hass, mock_config_entry, state_payload)

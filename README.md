@@ -143,9 +143,9 @@ or, in the worst case, brick a control board. So it guards every send:
 - **Four opcodes are refused unconditionally** (`0xA3`, `0xA4`, `0xAC`, `0xAD` —
   reset / main-board-OTA orchestrator, globe-motor OTA, flash erase, hardware reset).
   No flag lets them through.
-- **No motor command is exposed.** No opcode is yet proven to drive the globe — the
-  byte once shipped as "clean cycle" turned out to *reset* the robot — so the motor
-  gate sits empty until a real trigger is confirmed.
+- **Motor commands need an explicit opt-in.** The clean cycle and panel reset are
+  synthesised panel button presses; both can turn the globe, so the library refuses
+  them unless the caller asks for it.
 - **Untraced / control-band / calibration writes** are refused unless you
   override them on purpose.
 
@@ -154,16 +154,13 @@ the integration funnel through it — see [`docs/devices/litter-robot-4/`](docs/
 
 ## What's *not* here
 
-The clean cycle, power on/off, the empty cycle, and the panel/drawer resets are
-**deliberately omitted**. Reverse-engineering could not pin their exact
-register+value to safe, actionable confidence — the firmware that dispatches those
-inbound actions lives in a bootloader region absent from every public image, and the
-byte once shipped as "clean cycle" was proven on a live robot to reset the unit, not
-cycle it. Shipping the candidates as guesses would risk dangerous control-band
-writes. They're tracked as open items with a clear path to close them — see the
-[reverse-engineering writeup](docs/reverse-engineering.md#the-action-commands-why-theyre-still-missing),
-[`docs/devices/litter-robot-4/compatibility.md`](docs/devices/litter-robot-4/compatibility.md),
-and the issue templates. Contributions welcome.
+**Power on/off and the empty cycle.** Their codes are unverified, so nothing ships
+for them. Both are reachable from the panel, which makes the button register that
+recovered the clean cycle and reset the obvious next place to look — the remaining
+button bits are untested, and watching that register while pressing the physical
+button costs nothing. See the
+[reverse-engineering writeup](docs/reverse-engineering.md#the-action-commands-how-three-of-five-were-found).
+Contributions welcome.
 
 ## Repository layout
 

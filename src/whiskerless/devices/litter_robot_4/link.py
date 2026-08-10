@@ -75,7 +75,9 @@ class LitterRobot4Link:
         """Send a command after the safety guard approves it."""
         assert_sendable(command.code, allow_motor=allow_motor, allow_dangerous=allow_dangerous)
         payload = build_command_payload(self.serial, command.code)
-        await self._client.publish(command_topic(self.serial), payload, qos=1)
+        # Edge-triggered commands ask for at-most-once; see Command.at_most_once.
+        qos = 0 if command.at_most_once else 1
+        await self._client.publish(command_topic(self.serial), payload, qos=qos)
 
     async def request_state(self) -> None:
         """Ask the robot to publish its full state document."""

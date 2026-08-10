@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from . import setup_integration
+from . import robot_online, setup_integration
+from .const import ACTIVITY_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -39,10 +43,75 @@ async def test_entity_states(
     assert state.state == expected
 
 
-async def test_clean_cycle_button_absent(
+async def test_the_clean_cycle_button_sends_a_panel_press(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
-    # The cleanCycle trigger was never recovered (the old 0xA3 guess resets the
-    # robot), so no clean-cycle button is exposed.
-    await setup_integration(hass, mock_config_entry, state_payload)
-    assert hass.states.get("button.litter_robot_4_start_clean_cycle") is None
+    """The cycle is a synthesised Cycle-button press, not a macro opcode.
+
+    It is MOTOR-classified in the library and refused without ``allow_motor``, so
+    this also proves the coordinator opts in — a person pressing the button is a
+    deliberate act, while everything else stays gated.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    import custom_components.whiskerless.coordinator as coord
+
+    sent: list[str] = []
+    original = coord.build_command_payload
+
+    def spy(serial: str, code: str) -> str:
+        sent.append(code)
+        # The real robot echoes the button register when a press lands; that echo
+        # is what the coordinator waits on before it will call the press done.
+        if code == "0x02010201":
+            robot.push(json.dumps({"type": "action", "data": ["0x010201"]}), ACTIVITY_TOPIC)
+        return original(serial, code)
+
+    coord.build_command_payload = spy
+    try:
+        with robot_online(robot):
+            await hass.services.async_call(
+                "button",
+                "press",
+                {"entity_id": "button.litter_robot_4_start_clean_cycle"},
+                blocking=True,
+            )
+    finally:
+        coord.build_command_payload = original
+
+    assert "0x02010201" in sent
+
+
+async def test_an_unacknowledged_press_is_never_resent(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A press goes out exactly once, even when nothing acknowledges it.
+
+    A lost echo does not prove the press was lost — it can land and the echo go
+    missing — so resending could press twice. The user repeats it themselves,
+    which is what they would do with a button that appeared not to respond.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    import custom_components.whiskerless.coordinator as coord
+
+    sent: list[str] = []
+    original = coord.build_command_payload
+
+    def spy(serial: str, code: str) -> str:  # deliberately never echoes
+        sent.append(code)
+        return original(serial, code)
+
+    coord.build_command_payload = spy
+    try:
+        with robot_online(robot), pytest.raises(HomeAssistantError):
+            await hass.services.async_call(
+                "button",
+                "press",
+                {"entity_id": "button.litter_robot_4_start_clean_cycle"},
+                blocking=True,
+            )
+    finally:
+        coord.build_command_payload = original
+
+    assert sent.count("0x02010201") == 1, "a press must never be sent twice"

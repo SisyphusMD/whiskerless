@@ -148,6 +148,12 @@
       },
       "calibrate_litter_empty": {
         "name": "Calibrate litter: empty"
+      },
+      "panel_reset": {
+        "name": "Reset"
+      },
+      "start_clean_cycle": {
+        "name": "Start clean cycle"
       }
     }
   },

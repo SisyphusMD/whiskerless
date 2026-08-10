@@ -13,6 +13,11 @@ of the below lives in `docs/devices/litter-robot-4/`.
 
 ### Added
 
+- **The clean cycle is back, and reset with it.** Both work by synthesising a
+  panel button press — the code the robot already emits when you press it —
+  live-proven over three trials. This reverses the 0.1.2 removal, which pulled a
+  clean-cycle button built on a byte that never was the cycle. Both are gated:
+  they turn the globe, so the library refuses them unless the caller opts in.
 - **Pet weight actually works.** It is reported only in the activity stream,
   which was previously used as a poll trigger and thrown away.
 - **New entities:** last cat visit, last visit duration, waste drawer removed,
