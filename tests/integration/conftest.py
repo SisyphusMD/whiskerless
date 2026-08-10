@@ -9,8 +9,21 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from custom_components.whiskerless.const import DOMAIN
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotExtension
+from syrupy.assertion import SnapshotAssertion
 
 from .const import MOCK_CONFIG, MOCK_NAME, MOCK_SERIAL
+
+
+@pytest.fixture
+def snapshot(snapshot: SnapshotAssertion) -> SnapshotAssertion:
+    """Serialize registry entries without their volatile fields.
+
+    A raw DeviceEntry/RegistryEntry repr carries the config entry's ULID, the
+    generated row id and created/modified timestamps, all of which differ every
+    run — snapshotting those makes the assertion fail on its own second run.
+    """
+    return snapshot.use_extension(HomeAssistantSnapshotExtension)
 
 
 @pytest.fixture(autouse=True)

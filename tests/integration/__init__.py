@@ -8,6 +8,7 @@ standalone library tests still run.
 from __future__ import annotations
 
 import contextlib
+import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from unittest.mock import patch
@@ -17,7 +18,7 @@ from homeassistant.components.mqtt.models import ReceiveMessage
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from .const import STATE_TOPIC
+from .const import ACTIVITY_TOPIC, STATE_TOPIC
 
 
 @dataclass
@@ -68,6 +69,38 @@ def robot_online(robot: Robot) -> Iterator[Robot]:
         patch("custom_components.whiskerless.coordinator.mqtt.async_publish", _pub_spy),
     ):
         yield robot
+
+
+@contextlib.contextmanager
+def capture_writes(robot: Robot, *, echo: bool = False) -> Iterator[list[str]]:
+    """Record every wire code the integration publishes, newest last.
+
+    ``echo`` also replays each accepted register write back on the activity topic.
+    That is what the robot does, and what a synthesised button press waits on
+    before it will call itself done — a press never reads back in the state
+    document the way a settings write does.
+    """
+    import custom_components.whiskerless.coordinator as coord
+
+    sent: list[str] = []
+    original = coord.build_command_payload
+
+    def spy(serial: str, code: str) -> str:
+        sent.append(code)
+        if echo and code.startswith("0x02") and not code.startswith("0x02A0"):
+            # 0x02RRVVVV on the way out echoes back as 0xRRVVVV. The prefix is not
+            # decoration: decode_activity_code rejects an element without it, so
+            # dropping it produces an echo the integration discards as malformed —
+            # which looks exactly like a gate working.
+            activity = f"0x{code[4:]}"
+            robot.push(json.dumps({"type": "action", "data": [activity]}), ACTIVITY_TOPIC)
+        return original(serial, code)
+
+    coord.build_command_payload = spy
+    try:
+        yield sent
+    finally:
+        coord.build_command_payload = original
 
 
 async def setup_integration(hass: HomeAssistant, entry: MockConfigEntry, payload: str) -> Robot:

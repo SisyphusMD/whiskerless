@@ -110,4 +110,7 @@ source = ["custom_components/whiskerless"]
 branch = true
 
 [tool.coverage.report]
+# Without this, --cov-fail-under compares the total rounded to whole percent, so
+# 94.6% passes a 95% floor.
+precision = 2
 exclude_also = ["if TYPE_CHECKING:", "@overload", "raise NotImplementedError"]

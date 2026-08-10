@@ -20,6 +20,28 @@ The `whiskerless` library targets Python 3.11+. The Home Assistant integration
 runs on whatever Python your HA install uses (3.13+) and uses newer syntax
 (PEP 695 type aliases/generics) accordingly.
 
+### Integration tests
+
+`pytest` above runs the library tests only — the root conftest skips
+`tests/integration` when Home Assistant is not importable. Home Assistant needs
+its own Python, so give it a second environment rather than fighting the first:
+
+```bash
+uv venv --python 3.13 .venv-ha          # uv fetches 3.13 if you haven't got one
+VIRTUAL_ENV=.venv-ha uv pip install -e '.[dev,test-ha]'
+
+.venv-ha/bin/python -m pytest tests/integration --cov --cov-report=term-missing
+.venv-ha/bin/python -m mypy --strict --python-version 3.13 --namespace-packages \
+  --explicit-package-bases custom_components/whiskerless
+```
+
+CI gates two coverage numbers, so check them before opening a PR: the package
+above 95%, and `config_flow.py` at exactly 100%.
+
+Entity changes will fail the snapshot test, which is the point — regenerate with
+`--snapshot-update` and **read the diff**. An entity that changed name, device
+class or unit without you meaning it takes the user's dashboards with it.
+
 ## Repository layout
 
 ```

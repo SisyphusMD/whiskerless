@@ -59,9 +59,9 @@ jobs:
           mypy --strict --python-version 3.13 --namespace-packages
           --explicit-package-bases custom_components/whiskerless
       - name: Pytest (integration)
-        run: pytest tests/integration --cov --cov-report=term-missing
+        # The quality scale asks for two different numbers, so they are two gates:
+        # the package above 95% (test-coverage) and the config flow at exactly 100%
+        # (config-flow-test-coverage), which averaging into one threshold would hide.
+        run: pytest tests/integration --cov --cov-report=term-missing --cov-fail-under=95
       - name: Coverage gate (config flow)
-        # The quality scale requires the config flow at 100%; the package-wide
-        # number is only reported for now, since gating it would fail the build
-        # on a figure nobody has measured yet.
         run: coverage report --include='custom_components/whiskerless/config_flow.py' --fail-under=100

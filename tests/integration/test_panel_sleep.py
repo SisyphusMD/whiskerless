@@ -15,8 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from . import robot_online, setup_integration
-from .const import ACTIVITY_TOPIC
+from . import capture_writes, robot_online, setup_integration
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -90,29 +89,13 @@ async def test_a_write_transaction_is_not_interrupted_by_its_own_echoes(
         doc[f"sleepTime{day}"] = 1290
     robot = await setup_integration(hass, mock_config_entry, json.dumps(doc))
 
-    import custom_components.whiskerless.coordinator as coord
-
-    sent: list[str] = []
-    original = coord.build_command_payload
-
-    def spy(serial: str, code: str) -> str:
-        sent.append(code)
-        # The robot echoes every accepted write back on the activity topic.
-        if code.startswith("0x02") and not code.startswith("0x02A0"):
-            robot.push(json.dumps({"type": "action", "data": [code[4:]]}), ACTIVITY_TOPIC)
-        return original(serial, code)
-
-    coord.build_command_payload = spy
-    try:
-        with robot_online(robot):
-            await hass.services.async_call(
-                "time",
-                "set_value",
-                {"entity_id": "time.litter_robot_4_panel_sleep_time", "time": "21:30:00"},
-                blocking=True,
-            )
-    finally:
-        coord.build_command_payload = original
+    with robot_online(robot), capture_writes(robot, echo=True) as sent:
+        await hass.services.async_call(
+            "time",
+            "set_value",
+            {"entity_id": "time.litter_robot_4_panel_sleep_time", "time": "21:30:00"},
+            blocking=True,
+        )
 
     # Seven schedule writes then exactly one requestState — no echo-triggered extras.
     assert [c for c in sent if c.startswith("0x02A0")] == ["0x02A00000"]
