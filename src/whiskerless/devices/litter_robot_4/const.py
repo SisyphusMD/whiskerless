@@ -277,8 +277,10 @@ WEEKDAY_SCHEDULE_REGS: dict[str, tuple[int, int]] = {
 ROBOT_STATUS: dict[int, str] = {
     4: "ready",               # live-captured, 1.1.75 + 1.4.4
     5: "bonnet_removed",      # live-captured, 1.4.4
-    6: "cat_sensor_timing",   # post-visit countdown, early tick (1.4.4)
-    7: "cat_sensor_timing",   # countdown / weight-hold, red panel light (1.4.4)
+    6: "cat_sensor_timing",   # post-visit countdown, early tick (1.4.4 + 1.1.75)
+    # Follows the scale, not the globe: 1.1.75 held 7 for 2h15m with the ToF
+    # reading an undisturbed litter bed the whole time.
+    7: "cat_sensor_timing",   # countdown / weight-hold, red panel light (1.4.4 + 1.1.75)
     10: "clean_cycle",        # live-captured, 1.1.75 + 1.4.4
     # Power-up, captured end to end on 1.1.75 across a panel Power off/on:
     # robotStatus walks 1 -> 3 -> 2 -> 13, odometerPowerCycles ticking in the same
@@ -297,7 +299,7 @@ ROBOT_STATUS: dict[int, str] = {
     # CLEANING_STATUSES because the globe sits inverted and still for minutes —
     # not cycling, but certainly not measuring litter either.
     14: "changing_filter",    # live-captured, 1.4.4
-    25: "cat_detected",       # weight on the scale / cat inside (1.4.4)
+    25: "cat_detected",       # weight on the scale / cat inside (1.4.4 + 1.1.75)
 }
 ROBOT_STATUS_STRINGS: dict[str, str] = {
     "robot_idle": "ready",

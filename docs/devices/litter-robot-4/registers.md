@@ -110,9 +110,10 @@ named but their exact integers aren't all pinned yet.
 
 - **robotStatus (`0x34`):** `4` = ready, `10` = **clean cycle in progress**, `5` =
   bonnet removed, `6`/`7` = post-visit countdown, `25` = cat detected / weight on
-  the scale. `4` and `10` are live-captured on both ESP 1.1.75 and 1.4.4; the rest
-  on 1.4.4 only. There is no firmware split — the two builds agree on every value
-  either has been seen to emit.
+  the scale. `4`, `10`, `7` and `25` are live-captured on both ESP 1.1.75 and 1.4.4
+  (`6` too, but on 1.1.75 only via `0x340006` on the activity stream — no state
+  document has caught it); `5` on 1.4.4 only. There is no firmware split — the two
+  builds agree on every value either has been seen to emit.
   Also live-captured since: `1`/`2`/`3` during power-up (which of the three means
   what is unresolved, so they share one slug), **`13` = the automatic cycle a robot
   runs on boot**, and **`14` = the filter-change wizard**. Both 13 and 14 suppress

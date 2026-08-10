@@ -40,26 +40,56 @@ Two properties of the robot's output will corrupt a capture if you don't expect 
 
 | Question | What would answer it |
 |---|---|
+| Does `catDetect` `2` ever coincide with a cat? | A visit narrated against the clock — `3` has meant a body in the globe 17 times out of 17 |
 | What do `0x3C` / `0x66` measure? | They repeat per cycle — correlate the values against a cycle interrupted mid-way |
 | What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`? | Perturb something physical and watch which one moves |
-| Why do `0x34` / `0x4F` carry values outside their enums? | More cycle boundaries; check whether `0x1065` always pairs with a phase change |
+| What does the `0x3402C0` tick count? | It runs ≈2-minutely only between a visit and the cycle — change the clean-delay setting and see whether the count follows |
+| Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | More automatic cycles; check whether `0x1064`/`0x1065`/`0xE065` vary with anything visible |
 | Is the `catWeight` divisor 50 or 100? | A second weighed animal — one visit reported 914 raw |
 | Does anything above `0x7F` exist on 1.1.75? | An accumulating null result across many captures |
 
 ## Sessions
 
-### 2026-08-10, 4h31m — two clean cycles, three cat visits
+### 2026-08-10, 8h25m — three clean cycles, two cat visits
 
-ESP 1.1.75, LitterHopper attached. 595 records: 178 state, 229 activity, 188 command.
-One continuous capture, no pod restarts.
+ESP 1.1.75 (`espFirmware`, all 264 state documents), LitterHopper attached. 849 records:
+264 state, 306 activity, 279 command. One continuous capture, no pod restarts.
+
+This supersedes a first reading of the same pod's opening 4h31m, which counted three cat
+visits. The third was not one — see `catDetect` below.
 
 **Registers seen:** `0x01` `0x09` `0x0B` `0x33` `0x34` `0x37` `0x3B` `0x3C` `0x3E` `0x42`
 `0x43` `0x44` `0x47` `0x48` `0x49` `0x4A` `0x4E` `0x4F` `0x57` `0x58` `0x59` `0x5A`
 `0x5E` `0x64` `0x66`.
 
-**Nothing above `0x7F`,** across three complete cat visits — the exact scenario that
+**Nothing above `0x7F`,** across two complete cat visits — the exact scenario that
 should emit `0xBC` (visit duration) and `0xB9` (visit close). Neither has ever appeared
 on this robot.
+
+**`catDetect` `3` means a body in the globe; `2` does not.** All 17 `litterLevel`
+collapses below 300 mm carried `3`; none carried `2`. What separates them is a run of `2`
+that held for 2h15m41s (18:24:47→20:42:39) with `litterLevel` steady at 432–434 mm — the
+same figures the idle hours on either side report, so the ToF was looking at an
+undisturbed litter bed the whole time. `2` also appears as a 6–9 s blip mid-cycle
+(16:37:15, 20:50:12), where a rotating globe is a likelier cause than a cat.
+
+`models.py` decodes the field with `_bool()`, so any non-zero is `cat_detected=True`. On
+this capture that reported a cat for 2h15m with an empty globe, and
+`litter_is_sampleable()` — which wants `cat_detected is False` and `robot_status ==
+"ready"` — discarded the whole window of otherwise ideal settled samples. Not yet a
+reason to change the decode: `2` may mean a cat on the entry step, where the load cells
+feel it and the ToF cannot see it.
+
+**`robotStatus` `25` and `7` are live on 1.1.75, and they follow the scale rather than
+the globe.** Both appear in the state documents (`7` ×64, `25` ×13) and `0x340006` puts
+`6` on the activity stream, though no state document caught it. `registers.md` tags
+`5`/`6`/`7`/`25` as 1.4.4-only; for `6`/`7`/`25` that is now wrong.
+
+The same `4 → 25 → 7` path ran for a real visit (16:26, `catDetect` `3`) and for the
+2h15m run with no body in the globe (18:24, `catDetect` `2`) — consistent with the
+enum's own "weight on the scale" note. Delay from `catDetect` reaching `0` to the cycle
+starting was 8m17s after the visit and 7m04s after the long run; a third visit (16:42,
+10 s) cleared straight back to `4` and never cycled at all.
 
 **`0x3C` and `0x66` are cycle-local and not cumulative.** Both fire only during a clean
 cycle. Values rise through a cycle and then restart near the same figures on the next,
@@ -72,37 +102,56 @@ phases one-for-one, so even "one per phase" is more than the data supports:
 |---|---|---|
 | cycle 1 | 568, 773, 773, 1081, 1288, 1288 | 8478, 12360, 16642, 20611 |
 | cycle 2 | 536, 567, 773, 773, 1081, 1288 | 8478, 12366, 12366, 16638, 20613, 20613 |
+| cycle 3 | 542, 568, 773, 773, 1081, 1288, 1288 | 8475, 12368, 16635, 20604 |
 
 `773`, `1081`, `1288` and `8478` repeat exactly; the rest land within a few counts.
 (Consecutive identical entries are redelivery — the same payload timestamp arrives twice
-throughout this capture — so count distinct values, not messages.) The ~16:1 ratio
-between the two registers holds at two points (773→12366, 1288→20613, both ≈16.00) and
-not at the others, so treat it as unexplained rather than as a scale factor. `0x5E`
-(1745, five times, always identical) and `0x64` (1819, 1834, 1841) are also cycle-only.
+throughout this capture — so count distinct values, not messages.) `0x5E` (1745, five
+times, always identical) and `0x64` (1819, 1834, 1841) are also cycle-only.
 
-**`0x37` bit 0 tracks cat presence.** Now seen across three visits plus one mid-cycle
-detection, toggling many times:
+The ~16:1 ratio between the two registers is still untested, and the obvious test does
+not work: pairing each `0x66` with the nearest preceding `0x3C` yields ratios from 14.9
+to 21.8, but activity events backlog by up to ~16 s under load, so arrival order does not
+establish which two readings belong together. Pair by the payload's own `timestamp`
+within a single phase before reading anything into the spread.
+
+**`0x37` bit 0 mirrors `catDetect` going non-zero** — 29 emissions, every one of them
+followed within a minute by a state document that agrees:
 
 | `0x37` | next `catDetect` |
 |---|---|
-| `0x11` / `0x21` (bit 0 set) | 3 or 2 — cat present |
-| `0x10` / `0x20` (bit 0 clear) | 2 or 0 — cat off the globe |
+| `0x11` / `0x21` (bit 0 set) | non-zero |
+| `0x10` / `0x20` (bit 0 clear) | falling to 0 |
 
-Only `0x10`, `0x11`, `0x20`, `0x21` were seen, so the high nibble is a second field of
-its own. `registers.md` rates `0x37` LOW and records the values it had seen as not
-cat-related; these low ones plainly are. It also gives `catDetect` as 0/1/2 in the state
-document — this capture repeatedly shows 3.
+That is a weaker claim than "tracks the cat", and deliberately so: bit 0 was set for the
+2h15m run where `catDetect` read `2` with an empty globe, so it follows the same sensor
+`catDetect` does rather than an animal. The `0x10` / `0x20` field varies independently —
+`0x20` shows up at visit edges and `0x10` during the fine-grained toggling — and is
+unexplained. A fifth value, `0x371021`, appeared once (18:54:42, mid-run).
+
+`registers.md` rates `0x37` LOW and records the values it had seen as not cat-related;
+these low ones plainly are. It also gives `catDetect` as 0/1/2 in the state document —
+this capture repeatedly shows 3.
 
 **`0x48` → `DFILevelPercent` at ≈0.70, on two independent cycles.** Cycle 1: `0x48` = 28,
 percent went to 20 (0.70 × 28 = 19.6). Cycle 2: `0x48` = 32, percent went to 22
 (0.70 × 32 = 22.4). This reproduces on 1.1.75 the ratio `registers.md` derived from a
 38-cycle capture on 1.4.4. The companion lasers read 42/41 (`0x49`) and 28/32 (`0x4A`).
 
-**`0x34` and `0x4F` carry values far outside their enums.** `0x3402C0` (704),
-`0x341064` (4196) and `0x341065` (4197) fired just before a cycle began; `0x4F1065`
-(4197) fired as one ended. The *same* value `0x1065` appears on both registers, so these
-are not `robotStatus` / `robotCycleState` readings in the documented sense. Harmless
-today — `events_from_readings()` ignores both registers and status comes only from the
+**`0x34` and `0x4F` carry values far outside their enums, in two distinct shapes.**
+
+`0x3402C0` (704) is a **≈2-minute tick that runs only between a visit ending and the
+clean cycle starting** — 16:32:30 / 16:34:30 / 16:36:31 before one cycle, and 20:43:18 /
+20:45:18 / 20:47:19 / 20:49:19 before another. It never fires at any other time, on
+either occasion. Whatever it counts, it is not a status.
+
+A second shape fires 1–2 s ahead of a cycle and **only ahead of an automatic one**:
+`0x341064` / `0x341065` before cycle 2 and `0x34E065` before cycle 3. Cycle 1 was
+triggered by a written `0x02010201` and has no such marker. `0x4F1065` fired as cycle 2
+ended, putting the *same* `0x1065` on two different registers.
+
+So neither register is reporting `robotStatus` / `robotCycleState` in these emissions.
+Harmless today — `events_from_readings()` ignores both and status comes only from the
 state document — but a warning for anyone tempted to drive status from the activity
 stream, which is pushed and would otherwise be an attractive shortcut.
 
@@ -120,9 +169,9 @@ Elapsed is measured from the first state transition, which landed 8s after the p
 | 2:06 | | | 3 → 12 |
 | 2:13 | 10 → 4 | 5 → 1 | 12 → 1 |
 
-So 2m13s transition-to-idle, 2m21s from the press itself. The second cycle ran 3m49s
-between the same state transitions. `odometerCleanCycles` increments on the activity
-stream (`0x3E`) at the *start* of a cycle, not the end.
+So 2m13s transition-to-idle, 2m21s from the press itself. Measured between the same two
+transitions, the second cycle ran 3m49s and the third 2m39s. `odometerCleanCycles`
+increments on the activity stream (`0x3E`) at the *start* of a cycle, not the end.
 
 **One cat-weight event: `0x09` = 914 raw.** That is 18.28 lb at the current ÷50 divisor,
 or 9.14 lb at the ÷100 it replaced. An earlier visit the same morning reported ≈8.19 lb
@@ -131,11 +180,15 @@ share this robot and only that one has been on a scale, so a second, heavier ani
 the straightforward reading and nothing here argues against ÷50. It does not confirm it
 either: weighing the other two is what would, since ÷100 would put all three under 5 lb.
 
-**`0x57` on a robot with a working hopper:** −30 (three times), and positives 9, 20, 21,
-90, 99. The hopper was attached and dispensing throughout, so −30 does not mean
-disconnected — but that is all it establishes. The code still treats every unnamed
-negative as `connected=None` (an unknown fault, not a benign one), and nothing here
-justifies relaxing that.
+**`0x57` −30 fires exactly once per clean cycle** — 14:30:17, 16:39:53, 20:51:33, three
+of three cycles, and never once outside one. The positives (9, 14, 19, 20, 21, 90, 99)
+all land around visits and cycle edges. The hopper was attached and dispensing
+throughout, so −30 is not a disconnect; a routine per-cycle emission now fits the timing
+better than the waste-drawer service that `HopperLinkChanged` cites.
+
+This is not what makes `hopper_connected` read unknown: the coordinator already declines
+to let an unnamed code overwrite an established link state, so −30 passes through
+harmlessly except on a first report. Leave the tri-state alone.
 
 `litterLevel` swings hard during a visit (432 → 110 → 430). It is a time-of-flight
 distance in mm from the top of the globe down, so a cat in the way is measured to instead
