@@ -59,10 +59,18 @@ send 0x02010201 (idle)   -> 0x010201, 0x0B 20, robotStatus 10, odometer +1, phas
 send 0x02010401 (paused) -> 0x010401, 0x0B 20, cycleState 4→3           (resumed a cycle stalled 9.5 min)
 ```
 
+**A written press is distinguishable from a physical one.** A write emits
+`0x010000` immediately alongside the press report; a physical press emits the press
+report alone. Confirmed independently on 1.1.75 and 1.4.4 across eight events, no
+exceptions. (A plain *read* of `0x01` also emits `0x010000` by itself, so the
+signature is the pair, not the bare value.) That makes it possible to tell an
+automation-driven cycle from someone pressing the button.
+
 This is what the five "missing actions" were blocked on. It was never a macro opcode:
 the robot had been publishing the answer every time a button was pressed. Waste-drawer
 reset follows from the Reset press (that is what performs it when the full flag is
-set); power and empty cycle are not panel buttons and remain unknown.
+set). Power and Empty are panel buttons too, but their codes have not been
+captured yet.
 
 ## Safety
 

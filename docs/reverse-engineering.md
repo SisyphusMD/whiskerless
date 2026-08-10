@@ -79,9 +79,11 @@ the register's post-write value (which turns a blind write into a measurable
 experiment), and discarding the claim that an unrecognised write reaches an
 arbitrary PIC register (which had made the cheap test look reckless).
 
-**Still missing: `powerOn`/`powerOff` and `emptyCycle`.** Neither is a panel button,
-so `0x01` does not reach them. The waste-drawer reset is not separate — a Reset press
-performs it when the full flag is set.
+**Still missing: `powerOn`/`powerOff` and `emptyCycle`.** Both ARE panel buttons, so
+`0x01` is the obvious route; their codes simply have not been captured. Watching that
+register while pressing the physical button costs nothing and is the whole job. The
+waste-drawer reset is not separate — a Reset press performs it when the full flag is
+set.
 
 ### `0xA3` is not the clean cycle (and what it *is* was never established)
 

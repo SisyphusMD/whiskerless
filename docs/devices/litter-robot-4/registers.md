@@ -71,13 +71,13 @@ was.
 
 | Reg | Field | Meaning | Conf |
 |---|---|---|---|
-| `0x07` | unitPowerType | named AC / USB / battery, but no integer is pinned — a mains-powered robot reports `0` with `isUSBPowerOn` = 1 | LOW |
-| `0x31` | unitPowerStatus | power state; a running robot reports `1`, no other value seen | LOW |
+| `0x07` | unitPowerType | **`0` = mains, `1` = battery** — proven by pulling AC and restoring it | PROVEN |
+| `0x31` | unitPowerStatus | `1` on a running robot; unchanged across a mains→battery→mains transition | LOW |
+| `0x38` | isUSBPowerOn | **mains present, not USB** — went 1→0 with AC out and back, with the hopper untouched throughout. The LR4 has no user USB power; the field is misnamed | PROVEN |
 | `0x32` | sleepStatus | `1` while inside the panel sleep window, `0` outside — tracks the clock, not just the enable bit | PROVEN |
 | `0x34` | robotStatus | see enum below | PROVEN |
 | `0x35` | globeMotorFaultStatus | 0 = none, 1..9 fault | HIGH |
-| `0x37` | catDetect | cat presence | HIGH |
-| `0x38` | isUSBPowerOn | USB power flag | HIGH |
+| `0x37` | catDetect | **not a boolean** — the state doc shows 0/1/2 while activity carries 16, 17, 32, 33, 256, 512, 1024, and 512/1024 fire on bonnet open/close, nothing cat-related | LOW |
 | `0x39` | USBFaultStatus | 0/1/2 | HIGH |
 | `0x3A` | isBonnetRemoved | bonnet interlock | HIGH |
 | `0x3B` | isNightLightLEDOn | LED state | HIGH |
@@ -130,3 +130,50 @@ with raw integer **values**. whiskerless maps each named field back to its
 register and decodes it; if your robot turns out to emit a string where this table
 expects an int (or vice-versa), the decoder handles both. If you spot a mismatch,
 please [report it](compatibility.md#open-items).
+
+
+## The register file is `0x00`–`0x7F`
+
+A full sweep — a type-1 read of all 256 addresses, paced 3 s apart — answered on
+**123 of the 128 addresses at or below `0x7F` and on none at all above it**. So the
+readable file is 7-bit. `0xBC` (cat visit duration) and the `0xA0`–`0xAE` macros never
+answer a read: they are a separate namespace, not entries in this file.
+
+The only gap inside the low range is `0x6A`–`0x6E`, five contiguous addresses.
+
+**Pacing is not optional, and a silent register proves nothing on its own.** The same
+sweep at 1 s spacing answered about a tenth as often, and a burst answered 30 and then
+stopped; hand-paced reads at ~3 s answered 5 of 5. Registers we had already *written*
+to went silent under tight pacing. Any claim that an address is unimplemented needs a
+properly paced sweep, ideally twice.
+
+### Identified by matching the sweep against the state document
+
+| Reg | Value read | Field |
+|---|---|---|
+| `0x79` | 41027 | `mbRevisionId` |
+| `0x7A` | 29856 | `mbDeviceId` |
+| `0x7F` | 10500 | `mbHardware` |
+
+`0x73`–`0x7F` looks like a board identity block; `0x7E` read 5, which matches three
+different state fields, so it stays unassigned rather than guessed.
+
+### Answering but unidentified
+
+`0x0B` (22/102 — the marker byte seen constantly in activity), `0x10`–`0x15`,
+`0x2C`, `0x2F`, `0x30`, `0x33`, `0x48`–`0x4A` (the three drawer lasers), `0x50`–`0x55`,
+`0x5E`, `0x64`, `0x73`–`0x77`, `0x7B`.
+
+`0x10`–`0x12` **changed value between passes**, so they are live counters rather than
+configuration. `0x50` read 129 during a power-source switch and 146 later, and it is
+the only register that appeared in the mains→battery transition burst — a battery
+reading is the obvious guess and is not yet evidence.
+
+A further 33 answer but read zero, which says nothing about their meaning.
+
+### What the sweep cannot tell you
+
+Values only. Nothing is labelled, so meaning comes from cross-matching the named
+state document, perturbing something physical and re-reading, or recognising the
+shape of a value (`0x0E` reads 23140 = `0x5A64` = the 90/100 brightness pair). A
+register reading zero on an idle robot is simply uninformative.

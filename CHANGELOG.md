@@ -15,9 +15,10 @@ of the below lives in `docs/devices/litter-robot-4/`.
 
 - **The clean cycle is back, and reset with it.** Both work by synthesising a
   panel button press — the code the robot already emits when you press it —
-  live-proven over three trials. This reverses the 0.1.2 removal, which pulled a
-  clean-cycle button built on a byte that never was the cycle. Both are gated:
-  they turn the globe, so the library refuses them unless the caller opts in.
+  proven on ESP 1.1.75 and independently confirmed on 1.4.4. This reverses the
+  0.1.2 removal, which pulled a clean-cycle button built on a byte that never was
+  the cycle. Both are gated: they turn the globe, so the library refuses them
+  unless the caller opts in.
 - **Pet weight actually works.** It is reported only in the activity stream,
   which was previously used as a poll trigger and thrown away.
 - **New entities:** last cat visit, last visit duration, waste drawer removed,
@@ -48,6 +49,9 @@ of the below lives in `docs/devices/litter-robot-4/`.
   anything; they now write the real per-weekday schedule.
 - **Panel sleep mode says what is actually wrong** instead of timing out. The
   robot derives it from the weekday sleep schedule, which is the switch to use.
+- **The waste-drawer-removed sensor works on more robots.** Pulls have reported
+  both 10 and 11; matching only 10 left one robot's sensor permanently off. Why
+  the two differ is not yet known.
 - **The hopper stops dropping to unknown.** A link code we cannot name is no
   longer treated as a disconnect — one such code repeats on a healthy, dispensing
   hopper. Only a proven disconnect changes the state.
@@ -70,8 +74,11 @@ of the below lives in `docs/devices/litter-robot-4/`.
   rank. The stock 40/50 is deliberately brighter at night.
 - `isPanelSleepMode` and the panel sleep/wake times are documented as read-only:
   the firmware computes all three from the weekday schedule registers.
-- The register map now says what PROVEN has to mean, and demotes the rows that
-  never earned it. `0x02A10000` returns Wi-Fi RSSI only, not the schedule.
+- The register map now says what PROVEN has to mean, demotes the rows that never
+  earned it, and documents the readable file as `0x00`-`0x7F` with 123 of those 128
+  addresses mapped. `unitPowerType` is pinned (0 = mains, 1 = battery) and
+  `isUSBPowerOn` turns out to mean mains present, not USB. `0x02A10000` returns
+  Wi-Fi RSSI only, not the schedule.
 - Releases are never published before the library version they pin exists on
   PyPI, and CI now exercises the Python 3.11 floor it advertises.
 

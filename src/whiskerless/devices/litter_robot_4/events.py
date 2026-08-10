@@ -27,7 +27,7 @@ from typing import TypeAlias
 
 from .codec import ActivityReading
 from .const import (
-    DRAWER_BAY_REMOVED,
+    DRAWER_BAY_REMOVED_CODES,
     HOPPER_LINK_DISCONNECTED,
     Register,
 )
@@ -112,7 +112,7 @@ class DrawerBayChanged:
 
     Removal consistently emits 10 (2/2 narrated pulls); re-insert codes VARY
     (14 and 28 observed), and low codes (12) fire occasionally with the drawer
-    seated. So the decode is: 10 = removed, anything else = seated — which is
+    seated. So the decode is: see DRAWER_BAY_REMOVED_CODES; anything else = seated — which is
     also self-healing if an unknown code appears. ``raw`` carries the wire value.
     """
 
@@ -171,7 +171,7 @@ def events_from_readings(readings: list[ActivityReading]) -> list[LitterRobotEve
         elif reading.register == Register.DRAWER_BAY:
             events.append(
                 DrawerBayChanged(
-                    removed=reading.value == DRAWER_BAY_REMOVED, raw=reading.value
+                    removed=reading.value in DRAWER_BAY_REMOVED_CODES, raw=reading.value
                 )
             )
     return events

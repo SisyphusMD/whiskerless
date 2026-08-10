@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from whiskerless.devices.litter_robot_4.codec import decode_activity_code
+from whiskerless.devices.litter_robot_4.codec import ActivityReading, decode_activity_code
 from whiskerless.devices.litter_robot_4.events import (
     CatVisitEnded,
     CatWeightMeasured,
@@ -99,3 +99,20 @@ def test_drawer_bay_unknown_code_reads_as_seated() -> None:
 def test_unknown_registers_ignored() -> None:
     # A slice of real telemetry that must never produce events or raise.
     assert _events("0x3C0236", "0x6620F1", "0x6F0013", "0x0B0016", "0x341064") == []
+
+
+def test_the_drawer_removal_code_is_not_one_value() -> None:
+    """Pulls have reported both 10 and 11.
+
+    Matching only 10 left a real robot's drawer sensor permanently off. Why the
+    two values differ is unknown — not assumed to be per-unit. Values seen with
+    the drawer seated (14 and 28 on re-insert, 78 read at rest) stay seated.
+    """
+    for removed_code in (0x0A, 0x0B):
+        (event,) = events_from_readings([ActivityReading(register=0x56, value=removed_code)])
+        assert isinstance(event, DrawerBayChanged)
+        assert event.removed, f"0x{removed_code:02X} has been observed on a pull"
+    for seated in (14, 28, 78):
+        (event,) = events_from_readings([ActivityReading(register=0x56, value=seated)])
+        assert isinstance(event, DrawerBayChanged)
+        assert not event.removed

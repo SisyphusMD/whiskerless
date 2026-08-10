@@ -7,8 +7,8 @@ variable latency, so callers verify and retry; see ``protocol.write_setting``).
 
 Clean cycle and panel reset ARE exposed, as synthesised panel button presses on
 register ``0x01`` — live-proven, three trials. Both are MOTOR-classified and refused
-without ``allow_motor``. powerOn/powerOff and emptyCycle stay absent: they are not
-panel buttons and their triggers remain unknown.
+without ``allow_motor``. powerOn/powerOff and emptyCycle stay absent: they are panel
+buttons too, but their codes have not been captured yet.
 """
 
 from __future__ import annotations

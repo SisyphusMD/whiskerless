@@ -41,23 +41,26 @@ correct the mapping.
 
 ## Open items
 
-Five discrete actions are **not yet exposed** because we couldn't pin their exact
-register+value safely:
-
 | Action | Status |
 |---|---|
-| `cleanCycle` | unproven — the `0xA3` it was mapped to is a **reset** (live-proven), real trigger unknown |
-| `powerOn` / `powerOff` | unproven — three contradictory candidate registers |
-| `emptyCycle` | unproven — no cloud command string exists to cross-check |
-| `shortResetPress` (panel reset) | unproven — candidate register looks like a display command |
-| reset waste drawer | likely none — the pending-flag register is read-only |
+| `cleanCycle` | **solved** — `0x02010201`, a synthesised panel Cycle press |
+| `shortResetPress` (panel reset) | **solved** — `0x02010401` |
+| reset waste drawer | **solved** — it is what a Reset press does when the full flag is set; not a separate command. The old "the pending-flag register is read-only, so this is impossible" note was solving the wrong problem: you write the button, not `0x41` |
+| `powerOn` / `powerOff` | unproven — but Power is a panel button, so `0x01` is the place to look |
+| `emptyCycle` | unproven — likewise a panel button |
 
-The dispatch for these lives in the main board's **bootloader region**, which is
-**absent from every public OTA image** (the OTA blobs are app-region only), so static
-analysis can't recover them, and blind-probing the control band is exactly the kind
-of write the safety guard refuses. The full hunt — including why no complete firmware
-dump exists publicly and what it would take to get one — is in the
-[reverse-engineering writeup](../../reverse-engineering.md#the-action-commands-why-theyre-still-missing).
+Static analysis never recovered these because it was looking in the wrong place: the
+dispatch it wanted lives in a bootloader region absent from every public OTA image,
+but the answer was never in the firmware at all. `0x01` is the panel button register
+and it accepts writes, so the robot had been publishing each answer every time
+somebody pressed a button.
+
+**That makes the remaining two cheap to find, with no risk.** Capture `0x01` while
+pressing Power or Empty on the panel; the code it emits is the code to write back.
+The one caution is that nobody should *guess* the remaining button bits remotely —
+one of them is presumably Power, and a robot that powers itself off may not be
+reachable to power back on. The full story is in the
+[reverse-engineering writeup](../../reverse-engineering.md#the-action-commands-how-three-of-five-were-found).
 
 ### The low-risk ways to chip at them
 

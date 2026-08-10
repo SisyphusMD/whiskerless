@@ -48,9 +48,9 @@ both the CLI and the integration funnel through it.
 - `0xA3`, `0xA4`, `0xAC`, `0xAD` (reset / main-board-OTA orchestrator, globe-motor
   OTA, flash erase, hardware reset) are **refused unconditionally** — there is no
   override flag. Do not add one.
-- No motor command is exposed: no opcode is yet proven to drive the globe (the old
-  `0xA3` guess turned out to reset the robot). The `MOTOR` / `allow_motor` gate stays
-  wired for a future, confirmed cleanCycle trigger.
+- Motor commands exist and are gated: the clean cycle (`0x02010201`) and panel reset
+  (`0x02010401`) are synthesised panel button presses, refused unless the caller passes
+  `allow_motor`. Reset is gated too — it releases the cat-detect pause.
 - Untraced / control-band / calibration writes are refused unless explicitly
   allowed.
 
@@ -90,12 +90,14 @@ callables, `strings.json` translations, `quality_scale.yaml`).
 
 ## ⭐ The big contribution ask: crack the unsolved actions
 
-**Power on/off, the empty cycle, and the panel/drawer resets are not yet
-supported.** Reverse-engineering couldn't pin their exact `register+value` to
-safe, actionable confidence — the firmware partition that handles those inbound
-commands is physically absent from the public image, and the candidates are
-unproven and contradictory. We won't ship guesses that could trigger a dangerous
-control-band write.
+**Power on/off and the empty cycle are not yet supported.** The clean cycle, panel
+reset and waste-drawer reset are solved — all three are panel button presses written
+to register `0x01`.
+
+The remaining two are almost certainly the same shape, and finding them is
+**zero-risk**: capture `0x01` while pressing Power or Empty on the panel and send us
+the code. Please don't guess the remaining button bits by writing them — one is
+presumably Power, and a robot that powers off may not be reachable to power back on.
 
 **A note on what does not work.** This page used to say you could subscribe to your
 own broker's command topic and press the button in the Whisker app. You cannot: a
