@@ -54,7 +54,13 @@ class LitterRobot4State:
     # written — and verified — against every day.
     panel_sleep_time: int | None = None        # minutes since midnight
     panel_wake_time: int | None = None
+    # True when the schedule is armed on ANY day: 0x1D is a per-day bitmask.
     weekday_sleep_enabled: bool | None = None
+    # The raw 0x1D mask, or None when the field was absent or unreadable. Kept
+    # distinct from an all-clear mask of 0: "no days" and "never saw the register"
+    # look identical in weekday_sleep_days but must not verify the same way.
+    weekday_sleep_mask: int | None = None
+    weekday_sleep_days: frozenset[str] = frozenset()
     weekday_sleep_times: dict[str, int] = field(default_factory=dict)
     weekday_wake_times: dict[str, int] = field(default_factory=dict)
 
@@ -149,7 +155,9 @@ class LitterRobot4State:
             panel_sleep_mode=_bool(g("isPanelSleepMode")),
             panel_sleep_time=_int(g("panelSleepTime")),
             panel_wake_time=_int(g("panelWakeTime")),
-            weekday_sleep_enabled=_bool(g("weekdaySleepModeEnabled")),
+            weekday_sleep_enabled=_weekday_mask_any(g("weekdaySleepModeEnabled")),
+            weekday_sleep_mask=_int(g("weekdaySleepModeEnabled")),
+            weekday_sleep_days=_weekday_mask_days(g("weekdaySleepModeEnabled")),
             weekday_sleep_times=_weekday_times(raw, "sleepTime"),
             weekday_wake_times=_weekday_times(raw, "wakeTime"),
             unit_power_status=g("unitPowerStatus"),
@@ -223,6 +231,40 @@ def every_weekday_is(times: Mapping[str, int], minutes: int) -> bool:
     return len(times) == len(const.WEEKDAYS) and all(
         times.get(day) == minutes for day in const.WEEKDAYS
     )
+
+
+def weekday_sleep_days_match(state: LitterRobot4State, enabled: bool) -> bool:
+    """Whether 0x1D holds exactly the mask a caller asked for.
+
+    Verifying `weekday_sleep_enabled` is not enough: it means "any bit set", so a
+    register still holding a stale single day would confirm an all-days write that
+    never landed. A state document that never carried the register verifies
+    nothing — unread is not the same as clear.
+    """
+    if state.weekday_sleep_mask is None:
+        return False
+    want = const.WEEKDAY_SLEEP_ALL_DAYS if enabled else 0
+    return state.weekday_sleep_mask == want
+
+
+def _weekday_mask_any(value: Any) -> bool | None:
+    """Whether the sleep schedule is armed on at least one day.
+
+    Falls back to the boolean decoder: a cloud-connected robot reports this field
+    as a bool or a "true"/"false" string, which the numeric path rejects.
+    """
+    mask = _int(value)
+    if mask is not None:
+        return mask != 0
+    return _bool(value)
+
+
+def _weekday_mask_days(value: Any) -> frozenset[str]:
+    """The days the sleep schedule is armed on, from the 0x1D bitmask."""
+    mask = _int(value)
+    if not mask:
+        return frozenset()
+    return frozenset(day for i, day in enumerate(const.WEEKDAYS) if mask & (1 << i))
 
 
 def _weekday_times(raw: dict[str, Any], prefix: str) -> dict[str, int]:

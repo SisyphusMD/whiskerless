@@ -43,6 +43,9 @@ of the below lives in `docs/devices/litter-robot-4/`.
   unmapped their ToF readings were published as real litter levels.
 - **The empty-litter calibration button is available without hunting for it.** It
   shipped disabled, including for anyone who already had it registered.
+- **The weekday sleep schedule now arms every day.** That setting is a per-day
+  bitmask, not a switch, and turning it on wrote the value for Sunday alone — so
+  it appeared to work if you tested on a Sunday and did nothing all week.
 - **The cycle phase ladder** now runs `2 → 3 → 4 → 5 → 1`, so robots no longer
   publish `unknown_4` mid-cycle.
 - **Litter readings are suppressed while the globe is not level** — mid-cycle the

@@ -83,3 +83,9 @@ def test_button_presses_ask_for_at_most_once_delivery() -> None:
     assert commands.panel_reset().at_most_once
     assert not commands.set_night_light_brightness(50).at_most_once
     assert not commands.request_state().at_most_once
+
+
+def test_enabling_the_sleep_schedule_arms_every_day() -> None:
+    """Writing 1 would arm Sunday only — 0x1D is a per-day bitmask."""
+    assert commands.set_weekday_sleep_enabled(True).value == const.WEEKDAY_SLEEP_ALL_DAYS
+    assert commands.set_weekday_sleep_enabled(False).value == 0

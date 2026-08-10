@@ -317,3 +317,57 @@ def test_the_globe_moves_in_more_states_than_the_clean_cycle() -> None:
         assert state.litter_level_mm is None, f"robotStatus {status} must suppress litter"
     ready = LitterRobot4State.from_state_doc({"robotStatus": 4, "litterLevel": 450})
     assert ready.litter_level_mm == 450
+
+
+def test_the_weekday_sleep_field_is_a_day_bitmask() -> None:
+    """0x1D names WHICH days, not whether.
+
+    The panel's own 8-hour sleep writes 0x7F — all seven bits — which is how the
+    shape surfaced. Decoding it as a boolean loses the days, and writing 1 for
+    "on" arms Sunday alone: a switch that appears to work when tested on a Sunday
+    and silently does nothing the rest of the week.
+    """
+    weekend = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 0x41})
+    assert weekend.weekday_sleep_enabled
+    assert weekend.weekday_sleep_days == frozenset({"sunday", "saturday"})
+
+    off = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 0})
+    assert off.weekday_sleep_enabled is False
+    assert off.weekday_sleep_days == frozenset()
+
+
+def test_a_stale_single_day_does_not_confirm_an_all_days_write() -> None:
+    """Verifying "any bit set" would accept a mask the write never produced.
+
+    A register left at 0x01 by the old implementation already reads as enabled,
+    so a dropped all-days write would report success with six days unarmed.
+    """
+    from whiskerless.devices.litter_robot_4.models import weekday_sleep_days_match
+
+    stale = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 0x01})
+    assert stale.weekday_sleep_enabled          # the weak predicate is satisfied
+    assert not weekday_sleep_days_match(stale, True)
+
+    landed = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 0x7F})
+    assert weekday_sleep_days_match(landed, True)
+    off = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 0})
+    assert weekday_sleep_days_match(off, False)
+
+    # A document that never carried the register verifies nothing in either
+    # direction: unread is not the same as clear.
+    unseen = LitterRobot4State.from_state_doc({})
+    assert not weekday_sleep_days_match(unseen, True)
+    assert not weekday_sleep_days_match(unseen, False)
+
+
+def test_a_cloud_style_weekday_flag_still_decodes() -> None:
+    """Cloud-connected robots report this field as a bool or a "true"/"false" string.
+
+    The numeric mask path rejects both, so reading it only as an int would report
+    the schedule as unknown on exactly the robots that phrase it that way.
+    """
+    for raw in (True, "true"):
+        assert LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": raw}).weekday_sleep_enabled
+    for raw in (False, "false"):
+        state = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": raw})
+        assert state.weekday_sleep_enabled is False

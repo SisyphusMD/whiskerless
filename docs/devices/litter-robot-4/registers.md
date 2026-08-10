@@ -28,7 +28,7 @@ firmware brief is an inference, not a test, and has already been wrong twice
 | `0x19` | nightLightBrightness | 0–100 % | PROVEN |
 | `0x1A` | isPanelSleepMode | 0/1 — **read-only**, follows `0x1D`, see below | PROVEN |
 | `0x1B` / `0x1C` | panelSleepTime / panelWakeTime | minutes since midnight (16-bit); **read-only**, mirrors today's weekday pair | PROVEN |
-| `0x1D` | weekdaySleepModeEnabled | 0/1 | PROVEN |
+| `0x1D` | weekdaySleepModeEnabled | **per-day bitmask**, bit *i* = `WEEKDAYS[i]` Sunday-first; `0x7F` = every day | PROVEN |
 | `0x1E–0x2B` | weekday sleep/wake ×14 | minutes since midnight, `0x1E + 2i` / `0x1F + 2i` Sunday-first | PROVEN, mapping included |
 
 ### The panel sleep bank is not a plain settings bank
@@ -51,7 +51,12 @@ the firmware, not stored** — writing them is accepted and discarded:
   `wakeTimeMonday` stayed at 920. Six direct writes across three combinations of
   `0x1A`/`0x1D` all echoed unchanged.
 
-So the writable surface is `0x1D` (on/off) and `0x1E–0x2B` (the schedule). Setting a
+`0x1D` is a **bitmask, not a flag** — bit *i* arms the schedule for the same day as
+the `0x1E + 2i` pair. The panel's own 8-hour sleep writes `0x7F`, which is how the
+shape surfaced; writing `1` arms Sunday only, and looks like it worked if you happen
+to test on a Sunday.
+
+So the writable surface is `0x1D` (which days) and `0x1E–0x2B` (the schedule). Setting a
 unified sleep or wake time means writing all seven of that side's registers.
 
 The day order is no longer inferred. Writing a **distinct** value to each of the seven

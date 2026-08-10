@@ -96,7 +96,7 @@ class Register(IntEnum):
     IS_PANEL_SLEEP_MODE = 0x1A       # 0/1
     PANEL_SLEEP_TIME = 0x1B          # minutes-since-midnight (16-bit)
     PANEL_WAKE_TIME = 0x1C           # minutes-since-midnight (16-bit)
-    WEEKDAY_SLEEP_MODE_ENABLED = 0x1D  # 0/1
+    WEEKDAY_SLEEP_MODE_ENABLED = 0x1D  # per-day bitmask, see WEEKDAY_SLEEP_ALL_DAYS
     # 0x1E–0x2B: per-weekday sleep/wake, see WEEKDAY_SCHEDULE_REGS
     UNIT_POWER_STATUS = 0x31
     SLEEP_STATUS = 0x32
@@ -154,6 +154,15 @@ class Register(IntEnum):
     # 8 s and below often none. A Reset button press emits an unrelated large
     # value (592 observed) on the same register — see events.py's cap.
     CAT_VISIT_DURATION = 0xBC
+
+
+# WEEKDAY_SLEEP_MODE_ENABLED (0x1D) is a per-day BITMASK, not a boolean: bit i
+# enables the schedule for WEEKDAYS[i], Sunday-first, matching the 0x1E+2i layout.
+# A panel long-press of Cycle (the 8-hour sleep) sets it to 0x7F — every day —
+# which is what revealed the shape. Writing 1 enables Sunday alone, so a naive
+# "on" looks like it works if you happen to test on a Sunday and does nothing
+# for the rest of the week.
+WEEKDAY_SLEEP_ALL_DAYS = 0x7F
 
 
 # CAT_WEIGHT (0x09) raw-to-pounds divisor.

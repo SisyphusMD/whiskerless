@@ -26,7 +26,7 @@ from ...mqtt import MqttSettings
 from . import commands
 from .commands import Command
 from .link import LitterRobot4Link
-from .models import LitterRobot4State, every_weekday_is
+from .models import LitterRobot4State, every_weekday_is, weekday_sleep_days_match
 from .protocol import ActivityMessage, StateMessage
 
 log = logging.getLogger(__name__)
@@ -298,7 +298,7 @@ class LitterRobot4Client:
     async def async_set_weekday_sleep_enabled(self, enabled: bool) -> None:
         await self._write(
             commands.set_weekday_sleep_enabled(enabled),
-            lambda s: s.weekday_sleep_enabled == enabled,
+            lambda s: weekday_sleep_days_match(s, enabled),
         )
 
     async def async_set_panel_brightness(self, percent: int) -> None:

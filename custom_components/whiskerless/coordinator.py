@@ -26,7 +26,12 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from whiskerless import WhiskerlessError
-from whiskerless.devices.litter_robot_4 import LitterRobot4State, commands, every_weekday_is
+from whiskerless.devices.litter_robot_4 import (
+    LitterRobot4State,
+    commands,
+    every_weekday_is,
+    weekday_sleep_days_match,
+)
 from whiskerless.devices.litter_robot_4 import const as lr4
 from whiskerless.devices.litter_robot_4.calibration import (
     HOPPER_CORROBORATION,
@@ -656,7 +661,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
     async def async_set_weekday_sleep_enabled(self, enabled: bool) -> None:
         await self._write_and_verify(
             commands.set_weekday_sleep_enabled(enabled),
-            lambda s: s.weekday_sleep_enabled == enabled,
+            lambda s: weekday_sleep_days_match(s, enabled),
         )
 
     async def async_set_panel_sleep_time(self, minutes: int) -> None:

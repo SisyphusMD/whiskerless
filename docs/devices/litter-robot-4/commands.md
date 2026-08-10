@@ -32,7 +32,7 @@ bank turns some of these down (see [registers.md](registers.md#the-panel-sleep-b
 | Panel brightness | `0x0E` | `0x020EHHLL` | hi byte = High level, lo byte = Low level | yes |
 | Panel sleep mode | `0x1A` | `0x021A000B` | 0 / 1 | no — read-only, follows `0x1D` |
 | Panel sleep / wake time | `0x1B` / `0x1C` | `0x021BVVVV` | minutes since midnight (16-bit) | no — read-only view of today's weekday pair |
-| Weekday sleep enabled | `0x1D` | `0x021D000B` | 0 / 1 | yes |
+| Weekday sleep schedule | `0x1D` | `0x021DMMMM` | **per-day bitmask**, Sunday = bit 0. `0x7F` all days, `0x00` none — writing `1` arms Sunday alone | yes |
 | Weekday sleep/wake ×14 | `0x1E–0x2B` | `0x021E..2B VVVV` | minutes since midnight, Sunday-first — see [compatibility.md](compatibility.md#weekday-schedule) | yes |
 
 ## Actions (`0x01`, the panel button register)
@@ -74,6 +74,23 @@ night light (`0x0402`), cycle delay (`0x0802`), panel lockout (`0x0602`), Aux1
 >
 > Do not probe unknown bits by writing them. Press the physical button and read the
 > code off the wire — that is free, and it is how Empty was recovered.
+
+### Long presses cannot be written
+
+**Only press type `01` is accepted as a write.** The robot happily *emits* `0x0202`
+when someone holds Cycle, but writing that same value does nothing: the register
+echoes `0x010000` — its resting value — and no state changes, where a short-press
+write echoes the value back and acts within a second. Tested on ESP 1.1.75 against
+the 8-hour sleep toggle, chosen because a physical hold had just been captured
+twice, so a success was unmistakable.
+
+That puts the entire long-press half of Whisker's table out of reach by this route:
+sleep mode, auto night light, cycle delay, panel lockout, filter change, factory
+reset. Whatever gates a long press is not expressed in this value.
+
+It also means the destructive combos are unreachable by a write, since every one of
+them is a long press. The never-send list is a second lock on a door that appears to
+be shut already — kept because "appears" is doing real work in that sentence.
 
 Each write is acknowledged the same way a settings write is, by echoing the register:
 

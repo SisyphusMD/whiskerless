@@ -211,7 +211,11 @@ def set_panel_wake_time(minutes_since_midnight: int) -> Command:
 
 
 def set_weekday_sleep_enabled(enabled: bool) -> Command:
-    value = 1 if enabled else 0
+    """Enable the sleep schedule on every day, or none.
+
+    0x1D is a per-day bitmask; writing 1 would arm Sunday only.
+    """
+    value = const.WEEKDAY_SLEEP_ALL_DAYS if enabled else 0
     return _cmd(
         encode_write(const.Register.WEEKDAY_SLEEP_MODE_ENABLED, value),
         "setWeekdaySleepEnabled",
