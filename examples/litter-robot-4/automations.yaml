@@ -34,16 +34,23 @@
         message: "Globe motor fault detected — check the robot."
 
 # --- Log the cat's weight on each visit ------------------------------------
-# Captures pet_weight whenever a cat is detected, so you can chart it over time.
-- alias: "Litter-Robot - log pet weight per visit"
-  description: "Record the measured weight each time a cat is detected."
+# Triggered by the reading, not by the cat: the weight lands near the END of a
+# visit, and a visit under ~9 s produces none at all, leaving the sensor holding
+# the previous one. Triggering on cat-detected would log the last cat's weight.
+#
+# This logs weight *changes*, so two visits at the same rounded weight log once.
+# For a trend that is what you want; there is no per-measurement event to bind to.
+- alias: "Litter-Robot - log pet weight changes"
+  description: "Record the weight whenever it changes."
   triggers:
     - trigger: state
-      entity_id: binary_sensor.litter_robot_4_cat_detected
-      to: "on"
+      entity_id: sensor.litter_robot_4_pet_weight
+      not_from: ["unknown", "unavailable"]
+      not_to: ["unknown", "unavailable"]
   conditions:
+    # A reload restores the sensor to its old reading, which is not a new weighing.
     - condition: template
-      value_template: "{{ states('sensor.litter_robot_4_pet_weight') not in ['unknown', 'unavailable', 'none'] }}"
+      value_template: "{{ trigger.from_state is not none }}"
   actions:
     - action: logbook.log
       data:

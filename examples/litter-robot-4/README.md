@@ -21,7 +21,7 @@ entities:
   - entity: binary_sensor.litter_robot_4_cat_detected
   - entity: binary_sensor.litter_robot_4_waste_drawer_full
   - entity: select.litter_robot_4_night_light
-  - entity: select.litter_robot_4_clean_cycle_wait_time
+  - entity: number.litter_robot_4_clean_cycle_wait_time
   - entity: switch.litter_robot_4_control_lock
   - entity: number.litter_robot_4_night_light_brightness
 ```

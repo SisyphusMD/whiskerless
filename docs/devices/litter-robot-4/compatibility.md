@@ -3,10 +3,13 @@
 ## Firmware versions
 
 The protocol was reverse-engineered from the public **ESP 1.1.65** firmware image
-and validated live against a robot running **ESP 1.1.75**. The wire format, the
-settings registers, and the state/activity surfaces are stable across both. A few
-opcodes, however, **shift meaning between firmware versions** — so re-confirm any
-non-settings opcode on *your* exact build.
+and validated live against a robot running **ESP 1.1.75**, then independently
+confirmed on **ESP 1.4.4** by a two-week field capture (which is also where the
+LitterHopper surface came from). The wire format, the settings registers, and the
+state/activity surfaces are stable across all three, and the two live builds agree
+on every enum value captured on both. A few opcodes, however, **shift meaning
+between firmware versions** — so re-confirm any non-settings opcode on *your*
+exact build.
 
 | Opcode | On 1.1.65 (static RE) | On 1.1.75 (live) |
 |---|---|---|

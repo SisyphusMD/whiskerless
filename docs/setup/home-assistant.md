@@ -5,6 +5,19 @@ update the instant the robot reports, with no cloud and no polling lag. It rides
 on Home Assistant's own **MQTT integration**, so there's nothing to configure
 beyond clicking *Add* on each robot as it's discovered.
 
+## Supported devices
+
+The **Whisker Litter-Robot 4**, and only that model. The protocol was recovered
+from ESP firmware **1.1.65**, validated live on **1.1.75**, and independently
+confirmed on **1.4.4** by a two-week field capture; the settings, state and
+activity surfaces are identical across all three. The optional **LitterHopper**
+attachment is supported and detected automatically — the hopper work came from
+that 1.4.4 install.
+
+Litter-Robot 3 and earlier speak a different protocol entirely and are not
+supported. Firmware caveats and the per-opcode differences are in
+[../devices/litter-robot-4/compatibility.md](../devices/litter-robot-4/compatibility.md).
+
 ## Prerequisites
 
 1. The **MQTT integration** set up in Home Assistant and connected to your
@@ -69,6 +82,30 @@ Naming at add time avoids the whole question.
 Just provision each robot — they each appear to **Add** on their own. **No
 re-setup, no broker details, no serial to type.** One, two, or four robots all
 work the same way; each becomes its own device.
+
+## Data updates
+
+Whiskerless is **push**. It subscribes to the robot's own MQTT topics through
+Home Assistant's MQTT integration and updates entities the moment a message
+arrives — there is no polling interval to tune and no cloud round-trip.
+
+The robot reports on its own events (a cat visit, a cycle, a settings change),
+so a robot nobody has used may stay quiet for a long time. Three things cover
+that:
+
+- Whiskerless asks for a **full state document** the moment a robot is added.
+- A **long heartbeat** re-asks periodically. It is not a polling loop for fresh
+  values — it exists only to notice a robot that has stopped answering, which
+  marks its entities unavailable.
+- The **Refresh** button (a diagnostic entity on the device page) requests a
+  state document on demand. Home Assistant's own
+  `homeassistant.update_entity` action does the same thing if you'd rather call
+  it from an automation.
+
+Writes are not trusted blind. Settings registers commit with variable latency, so
+every write is followed by a read-back and retried if the robot has not taken it
+yet — that is why a slider occasionally snaps back to its old value for a moment
+before settling.
 
 ## Entities you get
 
@@ -150,6 +187,30 @@ hand it stays off.
 Settings writes are verified by reading them back, and the schedule times retry
 automatically (the robot commits those with a little latency).
 
+## What people use it for
+
+- **Never discover a full drawer the hard way** — alert on *Waste drawer full*,
+  or on *Waste drawer level* crossing a threshold, days before it matters.
+- **Track a cat's weight without a scale.** Any visit long enough to settle the
+  scale (roughly nine seconds) reports a weight, which over time is a real weight
+  trend — often the earliest signal of several feline illnesses. Shorter
+  hop-throughs report their duration but no weight, so *Pet weight* holds its
+  previous reading; trigger on it changing rather than on a cat arriving.
+- **Notice a sick cat by their bathroom habits** — *Last cat visit* and *Last
+  visit duration* make "hasn't gone in 18 hours" or "six visits in an hour" into
+  automatable facts.
+- **Catch faults while they're cheap** — *Globe motor fault* and *Bonnet
+  removed* alert you instead of the robot quietly sitting paused.
+- **Fit the box to the household** — schedule the night light and the panel
+  sleep window, drop the panel brightness at night, or lock the keypad so a
+  toddler or a curious cat can't start a cycle.
+- **Keep working when the internet doesn't.** Everything above runs on your LAN,
+  so an ISP outage or a Whisker service incident changes nothing.
+
+Ready-to-copy automations and dashboard cards are in
+[`examples/litter-robot-4/`](../../examples/litter-robot-4/) — drawer-full
+alerts, fault alerts, weight logging, and night-light scheduling.
+
 ## What's *not* exposed
 
 **Start clean cycle** and **Reset** are available as buttons. **Empty cycle** and
@@ -164,6 +225,28 @@ press, and the robot performs short presses over MQTT while declining long ones.
 the panel for that one. See
 [../devices/litter-robot-4/compatibility.md](../devices/litter-robot-4/compatibility.md).
 
+## Removing the integration
+
+Removing the integration is ordinary — it only undoes the Home Assistant half.
+Provisioning changed the robot itself (its trusted CA and its broker), and that
+stays until you change it back:
+
+1. **Settings → Devices & Services → Whiskerless**, then the **⋮** on the robot's
+   entry → **Delete**. That removes the device and all of its entities. Repeat
+   per robot if you added several.
+2. To remove the code as well, uninstall **Whiskerless** in **HACS** and restart
+   Home Assistant.
+
+Two things worth knowing:
+
+- **The robot keeps publishing.** Deleting the entry only stops Home Assistant
+  listening; the robot is still provisioned onto your broker and still sends
+  state and activity messages. It will be offered as a *discovered* device again
+  the next time it reports — choose **Ignore** if you want it to stay quiet.
+- **Removal does not put the robot back on Whisker's cloud.** That is a separate,
+  deliberate step: re-provision it to the Whisker app →
+  [../recovery.md](../recovery.md).
+
 ## Troubleshooting
 
 - **The robot never appears to add:** confirm Home Assistant's **MQTT
@@ -172,6 +255,6 @@ the panel for that one. See
   or its messages under `prod/LR4/<serial>/#`). The robot must publish at least
   once to be discovered — use it once if needed.
 - **Entities show *unavailable* after adding:** the robot is event-driven and may
-  not have published recently. Enable and press the **Refresh** button (a
+  not have published recently. Press the **Refresh** button (a
   diagnostic entity), or wait for the next report. The integration also re-asks
   for a full state every few minutes as a safety net.

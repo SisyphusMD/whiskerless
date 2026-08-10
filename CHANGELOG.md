@@ -6,10 +6,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Most of this release came from a field install by
-[@CryingPecan](https://github.com/CryingPecan), who ran a Litter-Robot 4 with a
-LitterHopper on ESP 1.4.4 for two weeks of MQTT capture. Protocol detail for all
-of the below lives in `docs/devices/litter-robot-4/`.
+Thanks to [@CryingPecan](https://github.com/CryingPecan), whose LitterHopper robot
+on ESP 1.4.4 is behind much of what's below.
+
+Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
 
 ### Added
 
@@ -36,6 +36,12 @@ of the below lives in `docs/devices/litter-robot-4/`.
   to a true two-point scale.
 - **Activity-derived entities survive a restart** instead of reading unknown
   until the next cat visit or dispense.
+- **The documentation gained the sections the quality scale asks for** and the
+  self-assessment was claiming without them: supported devices, how data is
+  updated, what people use it for, and how to remove the integration. hassfest
+  skips `quality_scale.yaml` for custom integrations, so CI now measures
+  integration coverage itself and gates the config flow at the 100% the scale
+  requires.
 
 ### Fixed
 
@@ -84,6 +90,12 @@ of the below lives in `docs/devices/litter-robot-4/`.
 - `pic_firmware`, previously always null, composed from the local `mb*` fields.
 - Entities a previous version created but this one no longer produces are removed
   from the registry instead of lingering forever as unavailable.
+- The example dashboard card no longer lists `select.<robot>_clean_cycle_wait_time`,
+  an entity that stopped existing when that control became a number.
+- **The Refresh button ships enabled.** It is a read-only state request, and it is
+  what the troubleshooting docs tell you to press when a robot has gone quiet —
+  being sent to enable an entity first was friction at the worst moment. Existing
+  installs get it turned on too, unless you disabled it by hand.
 
 ### Changed
 
