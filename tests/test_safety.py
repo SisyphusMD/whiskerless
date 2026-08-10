@@ -103,3 +103,29 @@ class TestPanelButton:
         assert classify_code(code) is Hazard.DANGEROUS
         with pytest.raises(DangerousCommandError):
             assert_sendable(code)
+
+
+class TestPanelButtonNeverSend:
+    """`0x01` can factory-reset the robot, which is why it is whitelisted by value.
+
+    Whisker documents the panel combos: Reset+Empty held is a factory reset, which
+    wipes the broker configuration whiskerless depends on and needs a BLE
+    re-provision to undo. It differs from the clean cycle by two bits.
+    """
+
+    @pytest.mark.parametrize(
+        ("code", "what"),
+        [
+            ("0x02010C02", "factory reset (Reset+Empty long)"),
+            ("0x02011002", "onboarding mode (Connect long)"),
+            ("0x02011402", "simulate plug pull (Reset+Connect long)"),
+        ],
+    )
+    def test_destructive_combos_cannot_be_sent_at_all(self, code: str, what: str) -> None:
+        assert classify_code(code) is Hazard.NEVER
+        with pytest.raises(NeverSendError):
+            assert_sendable(code, allow_motor=True, allow_dangerous=True)
+
+    def test_the_shipped_actions_are_still_reachable(self) -> None:
+        for code in ("0x02010201", "0x02010401"):
+            assert_sendable(code, allow_motor=True)

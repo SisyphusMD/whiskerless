@@ -46,10 +46,34 @@ robot emits for a button synthesises that press. Live-proven on ESP 1.1.75 on
 | Clean cycle | `0x02010201` | runs a full cycle — **drives the globe** |
 | Panel reset | `0x02010401` | acknowledges a full alarm; aborts/resumes a paused cycle |
 
-The encoding looks like *high byte = which button, low byte = pressed*: `0x0201`
-Cycle, `0x0401` Reset, and `0x010000` echoed back between presses. Bits for the
-remaining buttons are untested — one of them may be power, which is why nobody should
-probe them remotely.
+The value is **`<button bits> <press type>`**. Buttons OR together, so a combo is one
+write; press type is `01` short or `02` long. Bit order matches the physical panel,
+left to right:
+
+| bit | button |
+|---|---|
+| `0x01` | Power |
+| `0x02` | Cycle |
+| `0x04` | Reset |
+| `0x08` | Empty |
+| `0x10` | Connect |
+
+Whisker documents every panel function in [its own support
+article](https://www.litter-robot.com/support/article/litter-robot-4-control-panel-button-functions/),
+which independently confirms the OR-ing: Cycle+Empty held = filter change = `0x0A`.
+That article is the map of the remaining action surface — sleep mode (`0x0202`), auto
+night light (`0x0402`), cycle delay (`0x0802`), panel lockout (`0x0602`), Aux1
+(`0x0302`), USB power (`0x1802`).
+
+> **Some values in this register are destructive and are refused unconditionally.**
+> Reset+Empty held is a **factory reset** (`0x0C02`) — it wipes the broker
+> configuration whiskerless depends on and needs a BLE re-provision to undo. Connect
+> held is onboarding mode (`0x1002`), and Reset+Connect simulates a plug pull
+> (`0x1402`). This is why the guard whitelists `0x01` **by value** rather than
+> treating it as an open register: a factory reset is two bits from a clean cycle.
+>
+> Do not probe unknown bits by writing them. Press the physical button and read the
+> code off the wire — that is free, and it is how Empty was recovered.
 
 Each write is acknowledged the same way a settings write is, by echoing the register:
 

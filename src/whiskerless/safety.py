@@ -55,7 +55,36 @@ MOTOR_OPCODES: frozenset[int] = frozenset()
 #:
 #: Classification is by VALUE, not register: the same register runs the globe or
 #: acknowledges an alarm depending on which button is named.
+#: Panel button bits, from Whisker's own control-panel documentation. Bit order
+#: matches the physical left-to-right order of the buttons.
+PANEL_BUTTON_POWER = 0x01
+PANEL_BUTTON_CYCLE = 0x02
+PANEL_BUTTON_RESET = 0x04
+PANEL_BUTTON_EMPTY = 0x08
+PANEL_BUTTON_CONNECT = 0x10
+#: Low byte of the value: 0x01 short press, 0x02 long press. Buttons OR together,
+#: so a combo is one write — which is how the documented multi-button functions
+#: are expressed.
+PANEL_PRESS_SHORT = 0x01
+PANEL_PRESS_LONG = 0x02
+
 PANEL_BUTTON_REGISTER: int = 0x01
+
+#: Panel combos that destroy configuration or cut power. Refused unconditionally,
+#: exactly like the flash/OTA opcodes, because the cost of sending one by accident
+#: is a robot that needs BLE re-provisioning or a person to walk over to it.
+#:
+#: This is why `0x01` is whitelisted by VALUE rather than opened as a register:
+#: FACTORY RESET sits two bits away from the clean cycle we ship. A fuzzer, a typo,
+#: or a well-meaning "let's see what the other bits do" would wipe the broker
+#: config that makes whiskerless work at all.
+PANEL_BUTTON_NEVER: frozenset[int] = frozenset(
+    {
+        (PANEL_BUTTON_RESET | PANEL_BUTTON_EMPTY) << 8 | PANEL_PRESS_LONG,    # factory reset
+        (PANEL_BUTTON_CONNECT) << 8 | PANEL_PRESS_LONG,                       # onboarding mode
+        (PANEL_BUTTON_RESET | PANEL_BUTTON_CONNECT) << 8 | PANEL_PRESS_LONG,  # simulate plug pull
+    }
+)
 #: Both proven buttons can turn the globe, so both are gated behind
 #: ``allow_motor``. Reset looks harmless — from idle it only acknowledges an
 #: alarm — but it also RELEASES a cycle paused on cat-detect, which is the
@@ -135,7 +164,10 @@ def classify(ctype: CommandType, register: int, value: int) -> Hazard:
     if register in MOTOR_OPCODES:
         return Hazard.MOTOR
     if register == PANEL_BUTTON_REGISTER:
-        # By value: the same register runs the globe or acknowledges an alarm.
+        # By value: the same register runs the globe, acknowledges an alarm, or
+        # factory-resets the robot depending only on which bits are set.
+        if value in PANEL_BUTTON_NEVER:
+            return Hazard.NEVER
         if value in PANEL_BUTTON_MOTOR:
             return Hazard.MOTOR
         return Hazard.DANGEROUS
