@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from whiskerless.devices.litter_robot_4 import commands, const
-from whiskerless.safety import Hazard
+from whiskerless.safety import Hazard, classify_code
 
 
 def test_request_state() -> None:
@@ -102,3 +104,31 @@ def test_the_destructive_presses_encode_the_captured_codes() -> None:
     assert commands.power_toggle().code == "0x02010101"
     for command in (commands.empty_cycle(), commands.power_toggle()):
         assert command.at_most_once, "an edge-triggered press must never be retried"
+
+
+@pytest.mark.parametrize(
+    ("builder", "code"),
+    [
+        ("report_schedule", "0x02A10000"),
+        ("report_wifi_event", "0x02A70000"),
+        ("report_tof", "0x02A90000"),
+        ("report_version", "0x02AE0000"),
+    ],
+)
+def test_every_report_macro_encodes_its_opcode(builder: str, code: str) -> None:
+    """All four are SAFE only at value 0; the value is what makes them a jump."""
+    command = getattr(commands, builder)()
+    assert command.code == code
+    assert classify_code(command.code) is Hazard.SAFE
+
+
+def test_the_single_day_wake_register_is_addressable() -> None:
+    command = commands.set_panel_wake_time(420)
+    assert command.register == const.Register.PANEL_WAKE_TIME
+    assert command.value == 420
+
+
+def test_an_unknown_weekday_names_the_ones_that_exist() -> None:
+    """The day mapping is inferred, so a typo must not silently write Sunday."""
+    with pytest.raises(ValueError, match="unknown weekday"):
+        commands.set_weekday_sleep_time("funday", 1290)

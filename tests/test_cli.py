@@ -17,6 +17,12 @@ from unittest.mock import patch
 import pytest
 
 from whiskerless.cli import _build_setting, _parse_bool, _parse_time, _pick_robot, main
+from whiskerless.devices.litter_robot_4.models import LitterRobot4State
+from whiskerless.devices.litter_robot_4.protocol import (
+    ActivityMessage,
+    ActivityReading,
+    StateMessage,
+)
 from whiskerless.exceptions import WhiskerlessConnectionError
 from whiskerless.safety import Hazard, assert_sendable, classify_code
 
@@ -45,14 +51,15 @@ class FakeLink:
 
 
 @pytest.fixture(scope="module")
-def _spare_loop() -> Any:
-    """One loop for the whole module, reinstalled after each test.
+def _cli_loop() -> Any:
+    """One loop these tests own, so the interpreter's current one is never touched.
 
-    `main` runs asyncio.run, which closes the loop it created and leaves none
-    current. Harmless for the library env, but these tests are also collected by
-    a plain `pytest` in the Home Assistant env, and its fixtures expect a loop to
-    exist — without one they fail in setup from the second test on. Shared rather
-    than made per-test so this does not abandon an open loop on every test.
+    `main` runs asyncio.run, which installs a loop, closes it, and leaves none
+    current. That is fine for a real invocation and poison inside a test session:
+    these tests are also collected by a plain `pytest` in the Home Assistant env,
+    whose fixtures expect a working current loop, and every later module inherits
+    whatever this one leaves behind. Running the coroutine here instead means the
+    global loop is neither replaced nor closed, and nothing leaks.
     """
     loop = asyncio.new_event_loop()
     yield loop
@@ -60,11 +67,13 @@ def _spare_loop() -> Any:
 
 
 @pytest.fixture(autouse=True)
-def _no_broker(_spare_loop: Any) -> Any:
+def _no_broker(_cli_loop: Any) -> Any:
     FakeLink.published = []
-    with patch("whiskerless.cli.LitterRobot4Link", FakeLink):
+    with (
+        patch("whiskerless.cli.asyncio.run", _cli_loop.run_until_complete),
+        patch("whiskerless.cli.LitterRobot4Link", FakeLink),
+    ):
         yield
-    asyncio.set_event_loop(_spare_loop)
 
 
 def _run(*argv: str, answer: str | None = None) -> int:
@@ -224,3 +233,242 @@ def test_an_out_of_range_choice_is_asked_again() -> None:
     first, second = _advert("AA:BB:CC:DD:EE:01"), _advert("AA:BB:CC:DD:EE:02")
     with patch("builtins.input", side_effect=["9", "not a number", "1"]):
         assert _pick_robot([first, second], None) is second
+
+
+# --- the read/report commands ------------------------------------------------
+def _armed(*messages: Any, register: int | None = None, value: int | None = None) -> type:
+    """A link whose stream yields `messages` and whose reads answer `value`."""
+
+    class Armed(FakeLink):
+        async def request_state(self) -> None:
+            return None
+
+        async def read_register(self, reg: int, **_: object) -> int | None:
+            return value
+
+        async def messages(self) -> Any:
+            for message in messages:
+                yield message
+
+    return Armed
+
+
+def _silent() -> type:
+    """A robot that stays connected and simply never speaks."""
+
+    class Silent(FakeLink):
+        async def request_state(self) -> None:
+            return None
+
+        async def messages(self) -> Any:
+            await asyncio.Event().wait()
+            yield  # pragma: no cover - unreachable, keeps this a generator
+
+
+    return Silent
+
+
+def _state_message(**kw: Any) -> Any:
+    return StateMessage(state=LitterRobot4State(**kw), raw={})
+
+
+def test_state_prints_the_decoded_document(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("whiskerless.cli.LitterRobot4Link", _armed(_state_message(litter_level=62))):
+        assert _run("state", *BASE) == 0
+    out = capsys.readouterr().out
+    assert "state:" in out
+    assert "litter_level = 62" in out
+
+
+def test_state_reports_a_robot_that_never_answers(capsys: pytest.CaptureFixture[str]) -> None:
+    """The commonest real failure: the robot is event-driven and simply quiet."""
+    with patch("whiskerless.cli.LitterRobot4Link", _silent()):
+        assert _run("state", *BASE, "--timeout", "0.01") == 1
+    assert "no state document" in capsys.readouterr().err
+
+
+def test_read_prints_the_value_in_both_bases(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("whiskerless.cli.LitterRobot4Link", _armed(value=20)):
+        assert _run("read", "0x16", *BASE) == 0
+    assert "= 20 (0x0014)" in capsys.readouterr().out
+
+
+def test_read_reports_a_register_that_does_not_echo(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("whiskerless.cli.LitterRobot4Link", _armed(value=None)):
+        assert _run("read", "0x16", *BASE) == 1
+    assert "no echo" in capsys.readouterr().err
+
+
+def test_monitor_prints_activity_until_its_time_is_up(capsys: pytest.CaptureFixture[str]) -> None:
+    activity = ActivityMessage(readings=(ActivityReading(register=0x16, value=20, source="0x160014"),))
+    with patch("whiskerless.cli.LitterRobot4Link", _armed(activity)):
+        assert _run("monitor", *BASE, "--duration", "0.05") == 0
+    out = capsys.readouterr().out
+    assert "0x160014" in out, "the raw code is the point of a capture session"
+
+
+# --- set ---------------------------------------------------------------------
+def test_set_reports_a_verified_write(capsys: pytest.CaptureFixture[str]) -> None:
+    class Ok(FakeLink):
+        async def apply_setting(self, *_: object, **__: object) -> bool:
+            return True
+
+    with patch("whiskerless.cli.LitterRobot4Link", Ok):
+        assert _run("set", "clean-cycle-wait", "20", *BASE) == 0
+    assert "(verified)" in capsys.readouterr().out
+
+
+def test_set_reports_a_write_that_never_committed(capsys: pytest.CaptureFixture[str]) -> None:
+    class Never(FakeLink):
+        async def apply_setting(self, *_: object, **__: object) -> bool:
+            return False
+
+    with patch("whiskerless.cli.LitterRobot4Link", Never):
+        assert _run("set", "clean-cycle-wait", "20", *BASE) == 1
+    assert "not confirmed" in capsys.readouterr().err
+
+
+def test_a_derived_register_says_where_the_real_setting_lives(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """0x1A is computed from the weekday schedule, so it accepts and discards.
+
+    Without the hint the user retries the same doomed write, which is exactly
+    what happened before the register was understood.
+    """
+
+    class Never(FakeLink):
+        async def apply_setting(self, *_: object, **__: object) -> bool:
+            return False
+
+    with patch("whiskerless.cli.LitterRobot4Link", Never):
+        assert _run("set", "panel-sleep-mode", "on", *BASE) == 1
+    assert "weekday-sleep-enabled" in capsys.readouterr().err
+
+
+# --- provision, the irreversible one -----------------------------------------
+def _ble(robots: list[Any], *, result: Any = None, mac: str | None = "aa:bb") -> Any:
+    """Patch the whole ble facade the provision handler imports."""
+    outcome = result or SimpleNamespace(success=True, message="reprovisioned", steps=[])
+
+    async def _scan(**_: object) -> list[Any]:
+        return robots
+
+    async def _read_mac(_address: str) -> str | None:
+        return mac
+
+    async def _provision(*_a: object, on_step: Any = None, **_k: object) -> Any:
+        if on_step:
+            on_step("connected")
+        return outcome
+
+    return patch.multiple(
+        "whiskerless.ble",
+        scan=_scan,
+        read_device_mac=_read_mac,
+        provision_robot=_provision,
+    )
+
+
+def _prov_args(tmp_path: Any) -> list[str]:
+    ca = tmp_path / "ca.crt"
+    ca.write_text("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n")
+    return [
+        "provision", "--serial", "LR4C000001", "--host-ip", "192.168.1.10",
+        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret",
+    ]
+
+
+def test_provision_stops_when_nothing_is_advertising(
+    tmp_path: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The robot only advertises in pairing mode, so this is the usual first try."""
+    with _ble([]):
+        assert _run(*_prov_args(tmp_path), "--yes") == 1
+    assert "Connect button" in capsys.readouterr().err
+
+
+def test_provision_declined_at_the_prompt_changes_nothing(tmp_path: Any) -> None:
+    robot = SimpleNamespace(address="AA:01", rssi=-40, name="LR4")
+    with _ble([robot]):
+        assert _run(*_prov_args(tmp_path), answer="no") == 1
+
+
+def test_provision_confirmed_runs_and_reports(
+    tmp_path: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    robot = SimpleNamespace(address="AA:01", rssi=-40, name="LR4")
+    with _ble([robot]):
+        assert _run(*_prov_args(tmp_path), "--yes") == 0
+    out = capsys.readouterr().out
+    assert "RE-PROVISION" in out, "the confirmation must state what is about to happen"
+    assert "reprovisioned" in out
+
+
+def test_a_dry_run_is_a_success_even_though_it_provisioned_nothing(tmp_path: Any) -> None:
+    """Otherwise the rehearsal looks like a failure and people skip it."""
+    robot = SimpleNamespace(address="AA:01", rssi=-40, name="LR4")
+    failed = SimpleNamespace(success=False, message="dry-run: no bytes written", steps=[])
+    with _ble([robot], result=failed):
+        assert _run(*_prov_args(tmp_path), "--yes", "--dry-run") == 0
+
+
+def test_a_real_run_that_fails_is_reported_as_a_failure(tmp_path: Any) -> None:
+    robot = SimpleNamespace(address="AA:01", rssi=-40, name="LR4")
+    failed = SimpleNamespace(success=False, message="nope", steps=[])
+    with _ble([robot], result=failed):
+        assert _run(*_prov_args(tmp_path), "--yes") == 1
+
+
+def test_a_serial_from_another_model_never_reaches_the_radio(
+    tmp_path: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Validated before the slow scan, and reported rather than raised."""
+    args = _prov_args(tmp_path)
+    args[args.index("LR4C000001")] = "LR3C000001"
+    with _ble([]):
+        assert _run(*args, "--yes") == 1
+    assert "LR4" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("setting", "value", "register"),
+    [
+        ("keypad-lockout", "on", 0x17),
+        ("panel-sleep-mode", "on", 0x1A),
+        ("weekday-sleep-enabled", "on", 0x1D),
+        ("clean-cycle-wait", "20", 0x16),
+        ("night-light-brightness", "30", 0x19),
+    ],
+)
+def test_every_setting_name_builds_a_write_for_its_register(
+    setting: str, value: str, register: int
+) -> None:
+    """The choices list and this map are separate; a name in one and not the other
+    reaches _build_setting and exits with a bare SystemExit."""
+    (command,) = _build_setting(setting, value)
+    assert command.register == register
+
+
+def test_monitor_stops_cleanly_when_its_window_closes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The timeout is the exit path, not an error — a capture session just ends."""
+    with patch("whiskerless.cli.LitterRobot4Link", _silent()):
+        assert _run("monitor", *BASE, "--duration", "0.01") == 0
+    assert "monitoring" in capsys.readouterr().out
+
+
+def test_power_declined_at_the_prompt_sends_nothing() -> None:
+    """The only way to say no to the one action with no undo."""
+    assert _run("power", *BASE, answer="no") == 1
+    assert FakeLink.published == []
+
+
+def test_state_gives_up_when_the_stream_ends_without_a_document(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A broker that closes the subscription is not a state document."""
+    with patch("whiskerless.cli.LitterRobot4Link", _armed()):
+        assert _run("state", *BASE, "--timeout", "5") == 1
+    capsys.readouterr()

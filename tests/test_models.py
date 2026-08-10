@@ -396,3 +396,26 @@ def test_filter_wizard_cycle_phases_decode() -> None:
     # Neither phase may imply an active clean cycle.
     assert park.is_cleaning is False
     assert wait.is_cleaning is False
+
+
+def test_an_unparsable_number_is_none_rather_than_zero() -> None:
+    """A zero would be published as a real reading; unknown is the honest answer."""
+    state = LitterRobot4State.from_state_doc({"catWeight": "not a number", "litterLevel": None})
+    assert state.cat_weight is None
+
+
+@pytest.mark.parametrize("text", ["0", "false", "off", "no", "wake", "none"])
+def test_the_falsy_spellings_the_firmware_uses_all_decode(text: str) -> None:
+    """'wake' is the panel-sleep register's way of saying off, not a separate state."""
+    assert LitterRobot4State.from_state_doc({"isKeypadLockout": text}).keypad_lockout is False
+
+
+def test_a_bool_is_not_mistaken_for_an_enum_index() -> None:
+    """True would otherwise index the map as 1 and name a state the robot never sent."""
+    assert LitterRobot4State.from_state_doc({"nightLightMode": True}).night_light_mode is None
+
+
+def test_an_unmappable_string_is_returned_as_itself() -> None:
+    """A cloud spelling we have not seen is more useful raw than dropped."""
+    state = LitterRobot4State.from_state_doc({"robotStatus": "ROBOT_SOMETHING_NEW"})
+    assert state.robot_status_raw == "ROBOT_SOMETHING_NEW"

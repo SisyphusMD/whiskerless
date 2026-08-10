@@ -55,3 +55,8 @@ def test_build_command_payload() -> None:
         "serial": "S",
         "data": ["0x02A00000", "0x01470000"],
     }
+
+
+def test_a_topic_that_is_neither_state_nor_activity_is_ignored() -> None:
+    """The subscription is a wildcard, so it sees whatever else the robot adds."""
+    assert parse_message("prod/LR4/LR4C1/somethingelse", '{"type": "x"}') is None

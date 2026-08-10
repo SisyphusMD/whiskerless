@@ -177,3 +177,36 @@ async def test_subscription_can_be_declined_for_a_send_only_session() -> None:
     async with _link(client, subscribe=False):
         pass
     assert client.subscribed == []
+
+
+async def test_the_message_stream_yields_only_robot_events() -> None:
+    """The command topic carries our own echo; yielding it would double-count."""
+    client = FakeClient()
+    link = _link(client)
+    await client._pending.put(_Message(f"prod/LR4/{SERIAL}/command", '{"data": []}'))
+    await client._pending.put(_Message(ACTIVITY_TOPIC, activity_json(0x16, 20)))
+
+    stream = link.messages()
+    first = await anext(stream)
+    assert getattr(first, "readings", None), "the command echo should have been skipped"
+
+
+def test_the_raw_client_is_reachable_for_callers_that_need_it() -> None:
+    client = FakeClient()
+    assert _link(client).client is client
+
+
+async def test_a_read_ignores_echoes_for_other_registers() -> None:
+    """The activity stream carries everything; only the asked-for one answers."""
+    client = FakeClient()
+    link = _link(client)
+    await client._pending.put(_Message(ACTIVITY_TOPIC, activity_json(0x18, 2)))
+    await client._pending.put(_Message(ACTIVITY_TOPIC, activity_json(0x16, 20)))
+    assert await link.read_register(0x16, timeout=1) == 20
+
+
+async def test_a_read_that_only_ever_hears_other_registers_times_out() -> None:
+    client = FakeClient()
+    link = _link(client)
+    await client._pending.put(_Message(ACTIVITY_TOPIC, activity_json(0x18, 2)))
+    assert await link.read_register(0x16, timeout=0.05) is None

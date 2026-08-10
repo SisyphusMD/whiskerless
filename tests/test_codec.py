@@ -12,6 +12,7 @@ from whiskerless.devices.litter_robot_4.codec import (
     encode_read,
     encode_write,
 )
+from whiskerless.devices.litter_robot_4.const import activity_topic, state_topic
 from whiskerless.exceptions import ProtocolError
 
 
@@ -63,3 +64,14 @@ def test_decode_activity_code(code: str, register: int, value: int) -> None:
 def test_decode_activity_code_rejects_non_hex() -> None:
     with pytest.raises(ProtocolError):
         decode_activity_code("0xZZZZ")
+
+
+def test_the_publish_topics_are_derived_from_the_serial() -> None:
+    assert state_topic("LR4C1") == "prod/LR4/LR4C1/state"
+    assert activity_topic("LR4C1") == "prod/LR4/LR4C1/activity"
+
+
+def test_an_activity_code_without_the_0x_prefix_is_refused() -> None:
+    """A caller stripping the prefix would otherwise decode a different register."""
+    with pytest.raises(ProtocolError, match="must start with 0x"):
+        decode_activity_code("160014")

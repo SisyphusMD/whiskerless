@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from whiskerless.ble import messages as m
+from whiskerless.ble.protobuf import (
+    _read_varint,
+    _tag,
+    encode_varint,
+    field_string,
+    iter_fields,
+)
 
 
 def test_wifi_set_config_matches_app_frame() -> None:
@@ -50,3 +59,35 @@ def test_parse_device_id_roundtrip() -> None:
     inner = bytes([0x0A, len(mac)]) + mac  # field 1, LEN
     response = field_varint(1, 2) + field_message(11, inner)
     assert m.parse_device_id(response) == mac
+
+
+# --- the varint codec, which every frame above is built on -------------------
+@pytest.mark.parametrize(
+    ("value", "encoded"),
+    [(0, "00"), (1, "01"), (127, "7f"), (128, "8001"), (300, "ac02"), (16384, "808001")],
+)
+def test_varints_round_trip_at_the_group_boundaries(value: int, encoded: str) -> None:
+    """LEB128 rolls to another byte every seven bits; the edges are where it breaks."""
+    assert encode_varint(value).hex() == encoded
+    assert _read_varint(bytes.fromhex(encoded), 0) == (value, len(encoded) // 2)
+
+
+def test_an_empty_string_field_is_omitted_entirely() -> None:
+    """proto3 leaves defaults off the wire, and the captured frames rely on it."""
+    assert field_string(1, "") == b""
+    assert field_string(1, "x") != b""
+
+
+def test_fixed_width_fields_are_stepped_over_not_misread() -> None:
+    """Unknown fixed32/fixed64 must advance the cursor by their real width."""
+    payload = _tag(1, 5) + b"\x01\x02\x03\x04" + _tag(2, 0) + encode_varint(7)
+    assert (2, 0, 7) in list(iter_fields(payload))
+
+    payload = _tag(1, 1) + b"\x01\x02\x03\x04\x05\x06\x07\x08" + _tag(2, 0) + encode_varint(9)
+    assert (2, 0, 9) in list(iter_fields(payload))
+
+
+def test_an_unsupported_wire_type_stops_rather_than_misreading() -> None:
+    """Guessing past a field of unknown length would decode garbage as real values."""
+    payload = _tag(1, 0) + encode_varint(5) + _tag(2, 3) + b"\xff\xff"
+    assert list(iter_fields(payload)) == [(1, 0, 5)]

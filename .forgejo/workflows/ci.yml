@@ -36,13 +36,12 @@ jobs:
       - name: Mypy (library, strict)
         run: mypy
       - name: Pytest (library)
-        # Two floors, because one number would hide both. BLE provisioning is a
-        # bench procedure against real hardware and drags the total down without
-        # saying anything about the protocol code; safety.py is the chokepoint
-        # every send funnels through and is held at 100%.
+        # BLE is faked at the bleak boundary rather than skipped, so the whole
+        # library is held to one floor. safety.py is gated separately at 100%
+        # because it is the chokepoint every send funnels through.
         run: >-
           pytest -q --cov=whiskerless --cov-report=term-missing
-          --cov-config=pyproject.toml --cov-fail-under=70
+          --cov-config=pyproject.toml --cov-fail-under=98
       - name: Coverage gate (safety chokepoint)
         run: coverage report --include='*/safety.py' --fail-under=100
 

@@ -41,7 +41,7 @@ CI gates four coverage numbers, so check them before opening a PR:
 |---|---|---|
 | `custom_components/whiskerless` | 95% | the quality scale's `test-coverage` |
 | `custom_components/whiskerless/config_flow.py` | 100% | `config-flow-test-coverage` |
-| `src/whiskerless` | 70% | BLE provisioning is a bench procedure against real hardware, and it drags the total without saying anything about the protocol code |
+| `src/whiskerless` | 98% | BLE is faked at the `bleak` boundary rather than skipped |
 | `src/whiskerless/safety.py` | 100% | every send funnels through it |
 
 Entity changes will fail the snapshot test, which is the point — regenerate with

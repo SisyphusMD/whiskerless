@@ -5,7 +5,7 @@ from __future__ import annotations
 import ssl
 from pathlib import Path
 
-from whiskerless.mqtt import MqttSettings, build_tls_context
+from whiskerless.mqtt import MqttSettings, build_tls_context, create_client
 
 # Generated exactly as docs/setup/certificates.md instructs, i.e. with no
 # keyUsage extension — the shape that VERIFY_X509_STRICT rejects.
@@ -75,3 +75,13 @@ def test_hostname_check_is_opt_out_only() -> None:
     assert context.check_hostname is False
     # Opting out of hostname matching must not weaken chain verification.
     assert context.verify_mode is ssl.CERT_REQUIRED
+
+
+async def test_a_client_is_built_from_the_settings_without_connecting() -> None:
+    """Construction must not touch the network; a link builds one before connecting.
+
+    Async because aiomqtt binds to the running loop at construction, which is
+    itself the reason create_client is separate from connecting.
+    """
+    client = create_client(MqttSettings(host="192.0.2.10", port=8883, client_id="mine"))
+    assert client is not None

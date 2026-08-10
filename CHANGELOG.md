@@ -109,8 +109,10 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   write-verify-retry loop — was barely exercised. Adds the destructive-action
   confirmation prompts (including that `power` has no `--yes` to skip it), the
   raw `send` guard path, both transports' retry and give-up behaviour, and the
-  safety chokepoint's last two branches. Library coverage 55% → 74%, with
-  `safety.py` at 100% and both numbers now gated in CI.
+  safety chokepoint's last two branches, plus BLE provisioning driven end to end
+  against a faked radio — the one irreversible thing here, and previously the
+  least tested. Library coverage 55% → 99%, with `safety.py` at 100% and both
+  numbers now gated in CI.
 - **The write paths are tested.** Integration coverage went from 93% to 99% —
   it had been under the 95% the quality scale asks for while claiming to meet it.
   Reads were well covered and writes barely were, which is backwards: a decode
