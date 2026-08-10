@@ -43,11 +43,13 @@ correct the mapping.
 
 | Action | Status |
 |---|---|
-| `cleanCycle` | **solved** — `0x02010201`, a synthesised panel Cycle press |
-| `shortResetPress` (panel reset) | **solved** — `0x02010401` |
+| `cleanCycle` | **solved** — `0x02010201`, a synthesised panel Cycle press, three live trials |
+| `shortResetPress` (panel reset) | **solved** — `0x02010401`, three live trials |
 | reset waste drawer | **solved** — it is what a Reset press does when the full flag is set; not a separate command. The old "the pending-flag register is read-only, so this is impossible" note was solving the wrong problem: you write the button, not `0x41` |
-| `powerOn` / `powerOff` | unproven — but Power is a panel button, so `0x01` is the place to look |
-| `emptyCycle` | unproven — likewise a panel button |
+| `emptyCycle` | **captured, write untested** — a physical Empty press emits `0x010801`, so `0x02010801` is the code to write. Shipped as a disabled-by-default button; nobody has sent it yet |
+| `powerOn` / `powerOff` | **captured, write untested** — a Power press emits `0x010101` and TOGGLES. Shipped disabled and behind `allow_dangerous`: a robot powered off this way has left the network |
+| filter-change wizard | **unreachable** — the panel chord is a *long* press, and the write path declines press type `02` |
+| waste-drawer position | **unsolved** — `0x56` says the drawer moved, never which way; see the [register map](registers.md#the-drawer-bay-0x56-reports-movement-not-position--an-open-problem) |
 
 Static analysis never recovered these because it was looking in the wrong place: the
 dispatch it wanted lives in a bootloader region absent from every public OTA image,
@@ -55,12 +57,15 @@ but the answer was never in the firmware at all. `0x01` is the panel button regi
 and it accepts writes, so the robot had been publishing each answer every time
 somebody pressed a button.
 
-**That makes the remaining two cheap to find, with no risk.** Capture `0x01` while
-pressing Power or Empty on the panel; the code it emits is the code to write back.
-The one caution is that nobody should *guess* the remaining button bits remotely —
-one of them is presumably Power, and a robot that powers itself off may not be
-reachable to power back on. The full story is in the
-[reverse-engineering writeup](../../reverse-engineering.md#the-action-commands-how-three-of-five-were-found).
+Every short press was recovered the same way: capture `0x01` while pressing the
+button, and the code it emits is the code to write back. What is left is not a
+gap in that method but a limit of the write path — **the firmware performs short
+presses and declines long ones**, so the hold-only functions (the filter wizard,
+the panel's 8-hour sleep, the destructive combos) cannot be synthesised at all.
+Whisker's own cloud works the same way: its complete LR4 verb list contains no
+long-press command, and it reaches the hold-only *settings* by writing registers
+instead, exactly as whiskerless does. The full story is in the
+[reverse-engineering writeup](../../reverse-engineering.md#the-action-commands-how-the-panel-button-register-solved-all-of-them).
 
 ### The low-risk ways to chip at them
 

@@ -105,6 +105,12 @@
       },
       "calibrate_litter_empty": {
         "default": "mdi:cup-outline"
+      },
+      "start_empty_cycle": {
+        "default": "mdi:delete-empty"
+      },
+      "power_toggle": {
+        "default": "mdi:power-plug-off"
       }
     }
   }

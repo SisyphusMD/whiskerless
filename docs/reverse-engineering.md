@@ -8,7 +8,7 @@ build on it. None of this required opening a robot.
 The Litter-Robot 4 had essentially no public local-control prior art (most
 community work targets the older LR3). But **public firmware images** of the LR4's
 ESP32 app and its PIC main-board OTA exist, with debug strings intact. That was the
-way in — though, as the [last section](#the-action-commands-why-theyre-still-missing)
+way in — though, as the [last section](#the-action-commands-how-the-panel-button-register-solved-all-of-them)
 explains, those OTA images are app-region only and omit the bootloader where the
 inbound action dispatch lives.
 
@@ -60,7 +60,7 @@ The ESP↔motor-controller link and the safety interlocks (pinch, cat-detect,
 bonnet) live in the **PIC controller**, which is why those interlocks can't be
 overridden from a command, and why the firmware is left untouched.
 
-## The action commands: how three of five were found
+## The action commands: how the panel button register solved all of them
 
 For most of this project's life nothing could make the robot *act* — every command
 was a setting. The hunt assumed the triggers were **macro opcodes** in the `0xA0`
@@ -79,11 +79,19 @@ the register's post-write value (which turns a blind write into a measurable
 experiment), and discarding the claim that an unrecognised write reaches an
 arbitrary PIC register (which had made the cheap test look reckless).
 
-**Still missing: `powerOn`/`powerOff` and `emptyCycle`.** Both ARE panel buttons, so
-`0x01` is the obvious route; their codes simply have not been captured. Watching that
-register while pressing the physical button costs nothing and is the whole job. The
-waste-drawer reset is not separate — a Reset press performs it when the full flag is
-set.
+Empty (`0x0801`) and Power (`0x0101`) followed the same way, by watching the register
+during a physical press — free, and the whole job. Neither has been *written* yet, so
+both ship disabled by default; a captured emission is not a proven write, which is a
+distinction this project has had to relearn more than once. The waste-drawer reset is
+not separate: a Reset press performs it when the full flag is set.
+
+**What the register cannot do is hold a button.** Writing press type `02` produces no
+event at all, while an unknown type (`00`) is normalised to `01` and performed — so
+the long press is recognised and declined rather than unimplemented. That puts every
+hold-only panel function out of reach, the filter-change wizard included. Whisker's
+own cloud has the same limit: pylitterbot's fifteen LR4 verbs contain no hold, and
+the single button verb is named `shortResetPress`. The cloud reaches those functions
+by writing the underlying settings registers, exactly as whiskerless does.
 
 ### `0xA3` is not the clean cycle (and what it *is* was never established)
 

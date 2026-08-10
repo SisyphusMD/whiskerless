@@ -152,10 +152,16 @@ automatically (the robot commits those with a little latency).
 
 ## What's *not* exposed
 
-**Start clean cycle** and **Reset** are available as buttons. There is still no
-**empty cycle** or **power** button — their codes are unverified. Both are panel
-buttons, so the same register that gave us the other two is the likely route; the
-remaining button bits simply have not been captured yet. See
+**Start clean cycle** and **Reset** are available as buttons. **Empty cycle** and
+**Power** exist too but ship **disabled by default** — enable them in the entity
+settings if you want them. Both carry `(danger)` in their name: an empty cycle dumps
+the whole globe into the waste drawer, and Power *toggles*, so a robot switched off
+this way leaves the network and only a physical press brings it back. Home Assistant
+has no confirmation prompt for a button press, so treat them accordingly.
+
+**The filter-change wizard cannot be started remotely.** Its panel chord is a long
+press, and the robot performs short presses over MQTT while declining long ones. Use
+the panel for that one. See
 [../devices/litter-robot-4/compatibility.md](../devices/litter-robot-4/compatibility.md).
 
 ## Troubleshooting

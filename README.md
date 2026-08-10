@@ -8,8 +8,9 @@ third-party servers. Your robot talks to *your* broker, and that's it.
 
 > **Status: beta.** The local protocol was recovered by reverse-engineering and
 > validated against a real robot. Re-provisioning, telemetry, and settings are
-> proven on hardware. The discrete actions (clean cycle, power, empty, resets)
-> are intentionally left out — see [What's *not* here](#whats-not-here).
+> proven on hardware, and the panel actions (clean cycle, reset, empty, power) were
+> recovered in August 2026 — see [What's *not* here](#whats-not-here) for what is
+> still open.
 
 <!-- A screenshot/GIF of the Home Assistant device page goes here once captured. -->
 
@@ -143,23 +144,38 @@ or, in the worst case, brick a control board. So it guards every send:
 - **Four opcodes are refused unconditionally** (`0xA3`, `0xA4`, `0xAC`, `0xAD` —
   reset / main-board-OTA orchestrator, globe-motor OTA, flash erase, hardware reset).
   No flag lets them through.
-- **Motor commands need an explicit opt-in.** The clean cycle and panel reset are
-  synthesised panel button presses; both can turn the globe, so the library refuses
-  them unless the caller asks for it.
+- **The destructive panel combos are refused too** — factory reset, plug pull and
+  onboarding mode are all one write away from the clean cycle, so `0x01` is
+  whitelisted by *value*, not opened as a register.
+- **Power needs an explicit opt-in**, because a robot switched off has left the
+  network and nothing over MQTT can switch it back on.
 - **Untraced / control-band / calibration writes** are refused unless you
   override them on purpose.
+
+The routine presses — clean cycle, reset, empty — are ungated. Writing the panel
+button register reproduces the exact code the panel emits, so the robot cannot tell
+it from a finger, and the firmware's pinch, cat-detect and bonnet interlocks apply
+either way.
 
 The guard lives in [`safety.py`](src/whiskerless/safety.py) and *both* the CLI and
 the integration funnel through it — see [`docs/devices/litter-robot-4/`](docs/devices/litter-robot-4/).
 
 ## What's *not* here
 
-**Power on/off and the empty cycle.** Their codes are unverified, so nothing ships
-for them. Both are reachable from the panel, which makes the button register that
-recovered the clean cycle and reset the obvious next place to look — the remaining
-button bits are untested, and watching that register while pressing the physical
-button costs nothing. See the
-[reverse-engineering writeup](docs/reverse-engineering.md#the-action-commands-how-three-of-five-were-found).
+**The filter-change wizard**, and it is not coming. Its panel chord is a *long*
+press, and the firmware performs short presses over MQTT while silently declining
+long ones — so every hold-only function is out of reach by this route. Whisker's own
+cloud has no long-press command either; it reaches those settings by writing
+registers, which is what whiskerless already does for panel lockout, the night light,
+the cycle delay and the sleep schedule.
+
+**Empty and Power ship disabled by default.** Their codes are captured from physical
+presses but nobody has written one yet, and both are expensive to get wrong: an empty
+cycle costs a litter refill, and Power can leave the robot off the network. Enable
+them deliberately or use the CLI, which prompts.
+
+See the
+[reverse-engineering writeup](docs/reverse-engineering.md#the-action-commands-how-the-panel-button-register-solved-all-of-them).
 Contributions welcome.
 
 ## Repository layout

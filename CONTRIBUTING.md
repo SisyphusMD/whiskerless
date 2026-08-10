@@ -41,16 +41,22 @@ pipe (subscribe → push into the coordinator).
 
 ## The safety contract (please read)
 
-Some commands drive a motor, and a few can brick a control board. So **every
-outbound command is classified and gated by `src/whiskerless/safety.py`**, and
-both the CLI and the integration funnel through it.
+A few commands can brick a control board, and one can take the robot off the
+network. So **every outbound command is classified and gated by
+`src/whiskerless/safety.py`**, and both the CLI and the integration funnel through it.
 
 - `0xA3`, `0xA4`, `0xAC`, `0xAD` (reset / main-board-OTA orchestrator, globe-motor
   OTA, flash erase, hardware reset) are **refused unconditionally** — there is no
-  override flag. Do not add one.
-- Motor commands exist and are gated: the clean cycle (`0x02010201`) and panel reset
-  (`0x02010401`) are synthesised panel button presses, refused unless the caller passes
-  `allow_motor`. Reset is gated too — it releases the cat-detect pause.
+  override flag. Do not add one. The destructive panel combos (factory reset, plug
+  pull, onboarding) are refused on the same terms.
+- The routine panel presses — clean cycle (`0x02010201`), reset (`0x02010401`), empty
+  (`0x02010801`) — are **safe and ungated**. Writing `0x01` reproduces the exact code
+  the panel emits, so it is the same event as someone pressing the button, and the
+  firmware's interlocks sit downstream of it either way. There is deliberately no
+  `allow_motor` flag; if you are tempted to add one back, read the note in
+  `safety.py` first.
+- Power (`0x02010101`) needs `allow_dangerous`. It toggles, and a robot switched off
+  has left the network, so nothing over MQTT can bring it back.
 - Untraced / control-band / calibration writes are refused unless explicitly
   allowed.
 
@@ -88,16 +94,22 @@ callables, `strings.json` translations, `quality_scale.yaml`).
   `async_setup_entry`) that deletes the obsolete `unique_id`
   (`{serial}_{old_key}`). Until then there's nothing to migrate.
 
-## ⭐ The big contribution ask: crack the unsolved actions
+## ⭐ The big contribution ask: confirm the two untested writes
 
-**Power on/off and the empty cycle are not yet supported.** The clean cycle, panel
-reset and waste-drawer reset are solved — all three are panel button presses written
-to register `0x01`.
+Every panel action is now decoded — clean cycle, reset, waste-drawer reset, empty and
+power are all button presses written to register `0x01`. But **empty (`0x02010801`)
+and power (`0x02010101`) have only ever been *captured*, never *written*.** Both ship
+as disabled-by-default buttons for exactly that reason.
 
-The remaining two are almost certainly the same shape, and finding them is
-**zero-risk**: capture `0x01` while pressing Power or Empty on the panel and send us
-the code. Please don't guess the remaining button bits by writing them — one is
-presumably Power, and a robot that powers off may not be reachable to power back on.
+If you are willing to spend an empty cycle, enable the button, press it once, and
+tell us whether the robot behaved like a physical Empty press. That single trial is
+the whole ask. This project has twice mistaken a captured emission for a proven
+write, so the distinction is not pedantry.
+
+Please don't guess unlisted button bits by writing them: a factory reset is two bits
+from the clean cycle, and long presses are declined by the firmware anyway, so
+probing tells you nothing you could not get by pressing the physical button and
+reading the code off the wire.
 
 **A note on what does not work.** This page used to say you could subscribe to your
 own broker's command topic and press the button in the Whisker app. You cannot: a

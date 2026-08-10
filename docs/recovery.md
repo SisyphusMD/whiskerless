@@ -78,11 +78,12 @@ subsequent reports.
 Normal use can't. whiskerless classifies every command and **unconditionally
 refuses** the brick/reset-class opcodes (reset / main-board OTA, globe-motor OTA,
 flash erase, hardware reset) — there's no flag that lets them through. The clean
-cycle and reset do ship, as synthesised panel button presses; both can turn the
-globe, so the library refuses them unless the caller explicitly opts in. Power and
-the empty cycle are still absent — see
-[What's *not* here](../README.md#whats-not-here). Settings writes are all
-reversible and verified by read-back. See
+cycle, reset and empty cycle ship as synthesised panel button presses — writing that
+register reproduces the code the panel emits, so the robot cannot tell it from a
+finger, and its own interlocks apply either way. Power ships disabled and requires an
+explicit override, because a robot switched off has left the network. The destructive
+panel combos (factory reset, plug pull, onboarding) are refused unconditionally.
+Settings writes are all reversible and verified by read-back. See
 [devices/litter-robot-4/commands.md](devices/litter-robot-4/commands.md) for the
 full safe-list / never-send breakdown.
 

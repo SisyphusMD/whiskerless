@@ -41,10 +41,16 @@ bank turns some of these down (see [registers.md](registers.md#the-panel-sleep-b
 robot emits for a button synthesises that press. Live-proven on ESP 1.1.75 on
 2026-08-09, three trials, no misses.
 
-| Action | Code | Effect |
-|---|---|---|
-| Clean cycle | `0x02010201` | runs a full cycle — **drives the globe** |
-| Panel reset | `0x02010401` | acknowledges a full alarm; aborts/resumes a paused cycle |
+| Action | Code | Effect | Evidence |
+|---|---|---|---|
+| Clean cycle | `0x02010201` | runs a full cycle | written, 3 trials |
+| Panel reset | `0x02010401` | acknowledges a full alarm; aborts/resumes a paused cycle | written, 3 trials |
+| Empty cycle | `0x02010801` | dumps the whole globe into the drawer, then parks | emission captured, **write untested** |
+| Power | `0x02010101` | **toggles** the robot on or off | emission captured, **write untested** |
+
+The last two are shipped as disabled-by-default buttons. Their codes come from
+watching `0x01` during a physical press, which is solid, but nobody has yet written
+one — and this project's own history says a captured emission is not a proven write.
 
 The value is **`<button bits> <press type>`**. Buttons OR together, so a combo is one
 write; press type is `01` short or `02` long. Bit order matches the physical panel,
@@ -80,9 +86,24 @@ night light (`0x0402`), cycle delay (`0x0802`), panel lockout (`0x0602`), Aux1
 **Only press type `01` is accepted as a write.** The robot happily *emits* `0x0202`
 when someone holds Cycle, but writing that same value does nothing: the register
 echoes `0x010000` — its resting value — and no state changes, where a short-press
-write echoes the value back and acts within a second. Tested on ESP 1.1.75 against
-the 8-hour sleep toggle, chosen because a physical hold had just been captured
-twice, so a success was unmistakable.
+write echoes the value back and acts within a second.
+
+| written | robot answered | effect |
+|---|---|---|
+| `0x02010202` (Cycle long) | `0x010000` alone | none |
+| `0x02010402` (Reset long) | `0x010000` alone | none, `nightLightMode` unchanged |
+| `0x02010400` (Reset, type `00`) | `0x010000`, then `0x010401`, `0x350000`, `0x0B` 105 | a real Reset |
+
+That third row is the one that settles it. An **unknown** press type is normalised to
+a short press and performed, while `02` produces no event at all — so `02` is
+recognised and declined, not falling through a default.
+
+Independent corroboration from outside the robot: pylitterbot's complete
+`LitterRobot4Command` list is fifteen verbs, none of them a hold, and the single
+button verb is named `shortResetPress`. Whisker's own cloud cannot long-press either.
+It reaches the hold-only *settings* by writing registers, exactly as whiskerless
+does — lockout is `0x17`, night light `0x18`, clump time `0x16`, and the 8-hour sleep
+is `0x1D` plus the `0x1E`–`0x2B` schedule.
 
 That puts the entire long-press half of Whisker's table out of reach by this route:
 sleep mode, auto night light, cycle delay, panel lockout, filter change, factory
@@ -110,8 +131,7 @@ automation-driven cycle from someone pressing the button.
 This is what the five "missing actions" were blocked on. It was never a macro opcode:
 the robot had been publishing the answer every time a button was pressed. Waste-drawer
 reset follows from the Reset press (that is what performs it when the full flag is
-set). Power and Empty are panel buttons too, but their codes have not been
-captured yet.
+set), and Power and Empty have since been captured the same way.
 
 ## Safety
 
@@ -123,25 +143,40 @@ whiskerless classifies every command before it can reach the wire
   cost decision rather than a proof — see
   [reverse-engineering.md](../../reverse-engineering.md); there is nothing to gain by
   sending any of them, and a plausible flash or OTA on the other side.
-- **Motor (opt-in required):** the two proven panel buttons, `0x02010201` (clean
-  cycle) and `0x02010401` (reset). Reset is gated too: from idle it only
-  acknowledges an alarm, but mid-cycle it releases the cat-detect pause.
-- **Dangerous (override required):** any untraced opcode, control-band register,
-  or calibration register. Anything unrecognised defaults to "refuse unless you
-  really mean it" because its effect is untested — not because a write is known to
-  reach the register directly. See [protocol.md](protocol.md).
-- **Safe:** reads, the report macros (value 0), and the settings above.
+- **Dangerous (override required):** any untraced opcode, control-band register, or
+  calibration register — and `0x02010101`, the Power press. Anything unrecognised
+  defaults to "refuse unless you really mean it" because its effect is untested, not
+  because a write is known to reach the register directly. See
+  [protocol.md](protocol.md). Power is the one *known* command in this class: every
+  other action can be undone over the same MQTT connection that started it, while a
+  robot powered off has left the network entirely.
+- **Safe:** reads, the report macros (value 0), the settings above, and the routine
+  panel presses (`0x0201` cycle, `0x0401` reset, `0x0801` empty).
+
+There used to be a **Motor** class requiring `allow_motor`. It was retired: it was
+invented when the globe trigger was believed to be an unknown macro opcode, and a
+write to `0x01` turns out to reproduce exactly the code the panel emits, so it is the
+same event as a finger on the button — the firmware's pinch, cat-detect and bonnet
+interlocks sit downstream of it either way. It also protected nothing in practice,
+because every caller passed the flag unconditionally.
 
 ## What's still missing
 
-**Power on/off and the empty cycle.** Their codes are unverified. Both are reachable
-from the panel, so the `0x01` route is the obvious place to look next — the remaining
-button bits are untested, and the zero-risk way to find them is to watch `0x01` while
-pressing the physical button. The registers static analysis proposed are unproven and
-contradict each other (three were floated for "power" alone), so nothing ships for
-them yet.
+**The two captured writes need one live trial each.** `0x02010801` (empty) and
+`0x02010101` (power) are shipped disabled, and both remain inferences until somebody
+sends them. Each costs something to test — a litter refill, or a walk to the robot —
+which is why neither is a default.
+
+**The filter-change wizard is unreachable**, and this is a finding rather than a gap:
+its chord is a long press, the write path declines those, and unlike lockout or the
+night light it has no backing settings register to write instead.
 
 The **waste-drawer reset** is not a separate command: a Reset press performs it when
 the full flag is set, so it comes with `0x02010401`. That path is established but has
 not yet been exercised on a genuinely full drawer.
+
+**The empty cycle's `robotStatus` integer has never been captured.** The decoder knows
+the cloud string `robot_empty` but no local int, and `empty_cycle` is in the set that
+suppresses litter readings — so during an empty cycle a robot may publish ToF readings
+taken off a moving globe. One narrated empty cycle would close it.
 

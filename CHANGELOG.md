@@ -17,14 +17,17 @@ of the below lives in `docs/devices/litter-robot-4/`.
   panel button press — the code the robot already emits when you press it —
   proven on ESP 1.1.75 and independently confirmed on 1.4.4. This reverses the
   0.1.2 removal, which pulled a clean-cycle button built on a byte that never was
-  the cycle. Both are gated: they turn the globe, so the library refuses them
-  unless the caller opts in.
+  the cycle.
 - **Pet weight actually works,** and reports the whole cat. It is carried only in
   the activity stream, which was previously used as a poll trigger and thrown
   away — and the raw-to-pounds divisor was inherited, never checked. A weighed
   comparison showed it reporting half: a cat measuring ~8.1 lb came back as 4.08.
-- **New entities:** last cat visit, last visit duration, waste drawer removed,
+- **New entities:** last cat visit, last visit duration, waste drawer last moved,
   and panel brightness for bright and dark rooms.
+- **Empty cycle and Power buttons**, both disabled by default and named
+  `(danger)`: an empty cycle dumps the whole globe into the drawer, and Power
+  toggles the robot off the network. The CLI gains `empty-cycle` and `power`,
+  which prompt before sending.
 - **LitterHopper support:** connected, fill gauge, and an out-of-litter alert the
   firmware itself never raises. The four hopper entities turn themselves on the
   first time a hopper reports; one you disable by hand stays off.
@@ -36,6 +39,12 @@ of the below lives in `docs/devices/litter-robot-4/`.
 
 ### Fixed
 
+- **The filter-change wizard is decoded** — its status, both cycle phases, and
+  the fact that litter readings during it are meaningless. It cannot be started
+  remotely: the panel chord is a long press, and the robot performs short presses
+  over MQTT while declining long ones.
+- **Every `0x0B` annunciator value is named** (bonnet, cat, cycle, ready, night
+  light, reset), which closes the "random housekeeping chatter" question.
 - **`robotStatus` 10 is the clean cycle, on every firmware.** The old map called
   it a cat pause; a narrated live cycle disproved that. Also adds `5`, `6`/`7`,
   `25`, the power-up states `1`/`2`/`3`, the boot cycle `13`, and the filter
@@ -58,9 +67,11 @@ of the below lives in `docs/devices/litter-robot-4/`.
   anything; they now write the real per-weekday schedule.
 - **Panel sleep mode says what is actually wrong** instead of timing out. The
   robot derives it from the weekday sleep schedule, which is the switch to use.
-- **The waste-drawer-removed sensor works on more robots.** Pulls have reported
-  both 10 and 11; matching only 10 left one robot's sensor permanently off. Why
-  the two differ is not yet known.
+- **The waste-drawer sensor no longer guesses which way the drawer went.**
+  **Breaking:** `binary_sensor.<robot>_waste_drawer_removed` is replaced by
+  `sensor.<robot>_waste_drawer_last_moved`. Nine different codes turned up across
+  removals and insertions alike, and a direct read answers the same value either
+  way, so the robot reports that the drawer moved and nothing more.
 - **The hopper stops dropping to unknown.** A link code we cannot name is no
   longer treated as a disconnect — one such code repeats on a healthy, dispensing
   hopper. Only a proven disconnect changes the state.
@@ -76,6 +87,12 @@ of the below lives in `docs/devices/litter-robot-4/`.
 
 ### Changed
 
+- **The clean cycle, reset and empty presses no longer need a motor opt-in.**
+  **Breaking (library):** `Hazard.MOTOR`, `MotorCommandError` and the
+  `allow_motor` argument are gone. Writing the panel button register reproduces
+  the code the panel emits, so a written press is the same event as a physical
+  one and the robot's own interlocks apply either way. Power still requires
+  `allow_dangerous`.
 - **Clean cycle wait time is now a number (3–30 minutes), not a select.**
   **Breaking:** automations using `select.<robot>_clean_cycle_wait_time` must
   move to `number.<robot>_clean_cycle_wait_time`.

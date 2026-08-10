@@ -58,8 +58,13 @@ just subscribe and publish — the protocol is documented in
 
 ## Is it safe?
 
-Yes, by construction. The only commands that move the motor (a clean cycle) or
-could harm the robot are gated by a safety layer that **refuses brick/reset-class
-commands outright** — see [devices/litter-robot-4/commands.md](devices/litter-robot-4/commands.md).
-The robot's own hardware interlocks (pinch, cat-detect, bonnet) live in a
-separate controller and can't be overridden by any command.
+Yes, by construction. Every command is classified before it can reach the wire, and
+the brick/reset-class opcodes plus the destructive panel combos (factory reset, plug
+pull, onboarding) are **refused outright, with no override** — see
+[devices/litter-robot-4/commands.md](devices/litter-robot-4/commands.md).
+
+The actions that move the globe are not special-cased, because they are not special:
+whiskerless runs a clean cycle by writing the same code the panel emits when you press
+Cycle, so the robot receives an ordinary button press. The hardware interlocks (pinch,
+cat-detect, bonnet) live in a separate controller and can't be overridden by any
+command, whether it came from your finger or your automation.
