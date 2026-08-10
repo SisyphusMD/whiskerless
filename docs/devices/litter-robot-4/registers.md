@@ -94,6 +94,7 @@ was.
 | `0x4D` | globeMotorRetractFaultStatus | fault enum | HIGH |
 | `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
 | `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum | PROVEN |
+| `0x56` | drawer bay | the waste drawer **moved** — direction is not recoverable, see below | PROVEN (as an event) |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
 | `0x09` | catWeight | raw / **50** = lb (telemetry) — see the enum note | MED |
 
@@ -138,6 +139,33 @@ named but their exact integers aren't all pinned yet.
   One comparison against a home weigh-in, so treat it as the better estimate
   rather than settled — but a factor of 1.99 is not weighing error. A reported
   weight that looks like double the animal means this went the wrong way.
+
+## The drawer bay (`0x56`) reports movement, not position — an open problem
+
+This is the weakest decode in the map, and it is documented as unsolved rather than
+patched again. **What is solid:** `0x56` is silent unless the waste drawer moves, and
+the state document's DFI fields never flag a pulled drawer, so this register is the
+only drawer-service signal there is.
+
+**What is not:** which way it moved. Across three rounds of narrated pulls the values
+were 10, 11, 13, 14, 15, 16, 17 and 28, with removals and insertions sharing values;
+seating the drawer fully sometimes emitted nothing at all. A direct type-1 read
+answers ~78 whether the drawer is in **or** out, so position cannot be recovered that
+way either.
+
+Three successive attempts to name a removal code each held until the next capture
+contradicted them (`{10}`, then `{10, 11}`, then a per-unit theory that was wrong).
+whiskerless therefore exposes *when the drawer last moved* and claims nothing about
+where it is.
+
+**What would actually settle it.** Not more pulls — a *timestamped, narrated* sequence
+recorded against a running capture, where every transition is called out as it
+happens: out, in, out, half, in, and a full seat, with the wall-clock of each. Every
+prior attempt failed because the pulls were recounted afterwards and the codes could
+not be matched to specific movements. Two candidate models are worth testing against
+such a capture: that the value is a duration or a travel measurement rather than a
+state code, and that the low nibble carries the direction while the rest is noise.
+Until a capture can distinguish those, a boolean here is a guess.
 
 ## A note on the state document
 

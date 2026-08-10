@@ -19,6 +19,9 @@
       "last_cat_visit": {
         "default": "mdi:paw"
       },
+      "waste_drawer_last_moved": {
+        "default": "mdi:tray-arrow-down"
+      },
       "last_hopper_dispensed": {
         "default": "mdi:grain"
       },
@@ -50,9 +53,6 @@
       },
       "hopper_connected": {
         "default": "mdi:silo"
-      },
-      "waste_drawer_removed": {
-        "default": "mdi:tray-remove"
       },
       "hopper_empty": {
         "default": "mdi:silo-outline"

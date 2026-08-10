@@ -165,6 +165,16 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         data_fn=lambda data: data.last_cat_visit,
     ),
+    # Register 0x56 reports that the drawer moved but not which way, and a read
+    # answers the same value in or out — so "when it was last serviced" is the
+    # whole of what this signal supports. A removed/seated boolean was tried and
+    # was wrong on real pulls.
+    WhiskerlessDataSensorEntityDescription(
+        key="waste_drawer_last_moved",
+        translation_key="waste_drawer_last_moved",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        data_fn=lambda data: data.drawer_last_moved,
+    ),
     WhiskerlessDataSensorEntityDescription(
         key="last_hopper_dispensed",
         translation_key="last_hopper_dispensed",

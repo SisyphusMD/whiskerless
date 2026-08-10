@@ -145,7 +145,7 @@ class Register(IntEnum):
     TOF2 = 0x59
     TOF3 = 0x5A
     # Waste-drawer bay events (activity only). Near-silent except when the drawer
-    # moves. The removal code is PER-UNIT — see DRAWER_BAY_REMOVED_CODES.
+    # moves; the value does NOT say which way — see DrawerBayMoved.
     DRAWER_BAY = 0x56
     # Visit duration in seconds of settled weight on the scale (activity only;
     # fires once at visit end alongside the 0xB9 closure marker). Live-proven
@@ -192,18 +192,6 @@ PANEL_BUTTON_RESET = 0x0401
 # on an idle robot with the hopper attached and dispensing normally, so treating any
 # negative as a fault would report a working hopper as gone.
 HOPPER_LINK_DISCONNECTED = 0xFFF1
-
-# DRAWER_BAY (0x56) values observed when the drawer was pulled: 10 (twice, on
-# 1.4.4) and 11 (twice, on 1.1.75). Matching only 10 left the 1.1.75 robot's
-# sensor permanently off, so both are treated as a removal.
-#
-# WHY they differ is unknown and deliberately not guessed here. It could be the
-# firmware version, a state bit that happened to differ, or something the two
-# captures did not distinguish — two robots is not enough to tell those apart,
-# and "it varies by unit" is the kind of shrug that hid the panel-sleep bug for
-# months. Values seen with the drawer IN — 14 and 28 after re-insert, 78 read at
-# rest — decode as seated.
-DRAWER_BAY_REMOVED_CODES: frozenset[int] = frozenset({0x000A, 0x000B})
 
 # LITTER_HOPPER_DISPENSED (0x0C) phase whose value is the hopper's own fill
 # gauge (see events.HopperDispensed).

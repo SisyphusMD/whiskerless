@@ -6,7 +6,7 @@ from whiskerless.devices.litter_robot_4.codec import ActivityReading, decode_act
 from whiskerless.devices.litter_robot_4.events import (
     CatVisitEnded,
     CatWeightMeasured,
-    DrawerBayChanged,
+    DrawerBayMoved,
     HopperDispensed,
     HopperLinkChanged,
     events_from_readings,
@@ -93,19 +93,10 @@ def test_button_tare_duration_artifact_is_dropped() -> None:
     assert _events("0xBC0250") == []
 
 
-def test_drawer_bay_removed_and_inserted() -> None:
-    # Real captures: narrated pulls 2026-08-01 and 2026-08-06 both emitted 10
-    # on removal; the re-insert code VARIED (14, then 28), so any non-10 value
-    # reads as seated.
-    assert _events("0x56000A") == [DrawerBayChanged(removed=True, raw=0x000A)]
-    assert _events("0x56000E") == [DrawerBayChanged(removed=False, raw=0x000E)]
-    assert _events("0x56001C") == [DrawerBayChanged(removed=False, raw=0x001C)]
-
-
-def test_drawer_bay_unknown_code_reads_as_seated() -> None:
-    # 12 fires occasionally with the drawer seated (real capture 2026-08-03) —
-    # unknown codes must not latch "removed".
-    assert _events("0x56000C") == [DrawerBayChanged(removed=False, raw=0x000C)]
+def test_drawer_bay_reports_movement_with_the_raw_value() -> None:
+    # Any 0x56 reading is one drawer movement, whatever the code.
+    assert _events("0x56000A") == [DrawerBayMoved(raw=0x000A)]
+    assert _events("0x56001C") == [DrawerBayMoved(raw=0x001C)]
 
 
 def test_unknown_registers_ignored() -> None:
@@ -113,18 +104,15 @@ def test_unknown_registers_ignored() -> None:
     assert _events("0x3C0236", "0x6620F1", "0x6F0013", "0x0B0016", "0x341064") == []
 
 
-def test_the_drawer_removal_code_is_not_one_value() -> None:
-    """Pulls have reported both 10 and 11.
+def test_drawer_bay_never_claims_a_direction() -> None:
+    """Every value observed across three rounds of narrated pulls.
 
-    Matching only 10 left a real robot's drawer sensor permanently off. Why the
-    two values differ is unknown — not assumed to be per-unit. Values seen with
-    the drawer seated (14 and 28 on re-insert, 78 read at rest) stay seated.
+    10, 11, 13, 14, 15, 16 and 17 all appeared during a mix of removals and
+    insertions, and 78 is what a direct read answers with the drawer in OR out.
+    Three attempts to name a removal code were each contradicted by the next
+    capture, so the event reports movement only. Anything that reintroduces a
+    `removed` flag has to explain these values first.
     """
-    for removed_code in (0x0A, 0x0B):
-        (event,) = events_from_readings([ActivityReading(register=0x56, value=removed_code)])
-        assert isinstance(event, DrawerBayChanged)
-        assert event.removed, f"0x{removed_code:02X} has been observed on a pull"
-    for seated in (14, 28, 78):
-        (event,) = events_from_readings([ActivityReading(register=0x56, value=seated)])
-        assert isinstance(event, DrawerBayChanged)
-        assert not event.removed
+    for value in (10, 11, 13, 14, 15, 16, 17, 28, 78):
+        (event,) = events_from_readings([ActivityReading(register=0x56, value=value)])
+        assert event == DrawerBayMoved(raw=value)

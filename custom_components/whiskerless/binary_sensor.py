@@ -45,7 +45,6 @@ def _globe_fault(robot: LitterRobot4State) -> bool | None:
 STANDALONE_KEYS: tuple[str, ...] = (
     "hopper_connected",
     "hopper_empty",
-    "waste_drawer_removed",
 )
 
 BINARY_SENSORS: tuple[WhiskerlessBinarySensorEntityDescription, ...] = (
@@ -88,7 +87,6 @@ async def async_setup_entry(
     ]
     entities.append(WhiskerlessHopperConnectedSensor(coordinator))
     entities.append(WhiskerlessHopperEmptySensor(coordinator))
-    entities.append(WhiskerlessDrawerRemovedSensor(coordinator))
     async_add_entities(entities)
 
 
@@ -186,23 +184,3 @@ class WhiskerlessHopperEmptySensor(_RestoringBinarySensor):
             return self._restored
         return raw <= lr4.HOPPER_FILL_EMPTY_MAX
 
-
-class WhiskerlessDrawerRemovedSensor(_RestoringBinarySensor):
-    """Waste-drawer bay state, derived from the activity stream (reg 0x56).
-
-    The DFI fields in the state document never flag a pulled drawer; the bay
-    register is the only signal. Unknown until the drawer first moves — the
-    register is otherwise completely silent.
-    """
-
-    _attr_translation_key = "waste_drawer_removed"
-    _attr_device_class = BinarySensorDeviceClass.OPENING
-
-    def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.serial}_waste_drawer_removed"
-
-    @property
-    @override
-    def is_on(self) -> bool | None:
-        return self._with_restore(self.coordinator.data.drawer_removed)

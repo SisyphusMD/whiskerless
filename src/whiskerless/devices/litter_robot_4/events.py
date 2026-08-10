@@ -3,7 +3,7 @@
 Several LR4 facts never appear in the state document and exist ONLY as activity
 readings — live-proven on ESP 1.4.4 with a LitterHopper attached:
 
-* **cat weight** (register 0x09): fires once per cat visit, raw int16 / 100 lb.
+* **cat weight** (register 0x09): fires once per cat visit, raw int16 / 50 lb.
   The local state doc has no weight field, so this stream is the only source.
 * **hopper dispense** (register 0x0C): a burst of phase-tagged values at the
   tail of a clean cycle when the hopper tops up the globe.
@@ -13,8 +13,8 @@ readings — live-proven on ESP 1.4.4 with a LitterHopper attached:
 * **visit duration** (register 0xBC): seconds of settled weight, once per
   visit at its end. Also the gate for the weight event — visits under ~9 s
   often produce no 0x09 at all (0xBC then still fires, possibly with 0).
-* **drawer bay** (register 0x56): waste-drawer removal/re-insert, otherwise
-  silent. The state document's DFI fields never flag drawer removal.
+* **drawer bay** (register 0x56): the waste drawer moved, otherwise silent.
+  Which way it moved is not recoverable — see :class:`DrawerBayMoved`.
 
 Consumers feed :func:`events_from_readings` the readings of one
 :class:`~.protocol.ActivityMessage` and react to the typed events.
@@ -28,7 +28,6 @@ from typing import TypeAlias
 from .codec import ActivityReading
 from .const import (
     CAT_WEIGHT_DIVISOR,
-    DRAWER_BAY_REMOVED_CODES,
     HOPPER_LINK_DISCONNECTED,
     Register,
 )
@@ -36,7 +35,7 @@ from .const import (
 __all__ = [
     "CatVisitEnded",
     "CatWeightMeasured",
-    "DrawerBayChanged",
+    "DrawerBayMoved",
     "HopperDispensed",
     "HopperLinkChanged",
     "LitterRobotEvent",
@@ -108,16 +107,22 @@ class CatVisitEnded:
 
 
 @dataclass(frozen=True, slots=True)
-class DrawerBayChanged:
-    """The waste drawer was removed or re-inserted (register 0x56).
+class DrawerBayMoved:
+    """The waste drawer moved (register 0x56). Direction is NOT knowable.
 
-    Removal consistently emits 10 (2/2 narrated pulls); re-insert codes VARY
-    (14 and 28 observed), and low codes (12) fire occasionally with the drawer
-    seated. So the decode is: see DRAWER_BAY_REMOVED_CODES; anything else = seated — which is
-    also self-healing if an unknown code appears. ``raw`` carries the wire value.
+    Three rounds of narrated pulls failed to separate removal from insertion:
+    codes 10, 11, 13, 14, 15, 16, 17 and 28 all appeared, with removals and
+    insertions sharing values, and seating the drawer fully sometimes emitting
+    nothing at all. Three successive attempts to name a removal code each held
+    until the next capture contradicted them.
+
+    A direct read answers ~78 whether the drawer is in or out, so position is not
+    recoverable that way either — the register reports the *event*, not a state.
+    Hence this carries only ``raw`` and the fact that something happened. Note
+    that a type-1 read of 0x56 also produces a reading here; nothing in this
+    library issues one.
     """
 
-    removed: bool
     raw: int
 
 
@@ -128,7 +133,7 @@ LitterRobotEvent: TypeAlias = (
     | HopperDispensed
     | HopperLinkChanged
     | CatVisitEnded
-    | DrawerBayChanged
+    | DrawerBayMoved
 )
 
 
@@ -170,9 +175,5 @@ def events_from_readings(readings: list[ActivityReading]) -> list[LitterRobotEve
             if reading.value <= _VISIT_DURATION_MAX_S:
                 events.append(CatVisitEnded(duration_s=reading.value))
         elif reading.register == Register.DRAWER_BAY:
-            events.append(
-                DrawerBayChanged(
-                    removed=reading.value in DRAWER_BAY_REMOVED_CODES, raw=reading.value
-                )
-            )
+            events.append(DrawerBayMoved(raw=reading.value))
     return events

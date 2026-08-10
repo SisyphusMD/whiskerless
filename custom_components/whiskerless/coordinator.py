@@ -48,7 +48,7 @@ from whiskerless.devices.litter_robot_4.const import command_topic, subscribe_to
 from whiskerless.devices.litter_robot_4.events import (
     CatVisitEnded,
     CatWeightMeasured,
-    DrawerBayChanged,
+    DrawerBayMoved,
     HopperDispensed,
     HopperLinkChanged,
     events_from_readings,
@@ -125,7 +125,7 @@ class WhiskerlessData:
     hopper_fill_percent: int | None = None
     last_hopper_dispensed: datetime | None = None
     hopper_fill_raw: int | None = None
-    drawer_removed: bool | None = None
+    drawer_last_moved: datetime | None = None
 
 
 class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
@@ -162,7 +162,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._hopper_fill_raw: int | None = None
         self._last_hopper_sample_at = 0.0
         self._last_litter_sample_at = 0.0
-        self._drawer_removed: bool | None = None
+        self._drawer_last_moved: datetime | None = None
         self._press_echo = asyncio.Event()
         self._awaited_press: int | None = None
         # Enabling an entity reloads the entry, which builds a fresh coordinator
@@ -353,7 +353,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             ),
             last_hopper_dispensed=self._last_hopper_dispensed,
             hopper_fill_raw=self._hopper_fill_raw,
-            drawer_removed=self._drawer_removed,
+            drawer_last_moved=self._drawer_last_moved,
         )
 
     @callback
@@ -406,10 +406,9 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 self._last_visit_duration_s = event.duration_s
                 self._last_cat_visit = dt_util.utcnow()
                 changed = True
-            elif isinstance(event, DrawerBayChanged):
-                if event.removed != self._drawer_removed:
-                    self._drawer_removed = event.removed
-                    changed = True
+            elif isinstance(event, DrawerBayMoved):
+                self._drawer_last_moved = dt_util.utcnow()
+                changed = True
         if hopper_reported and not self._hopper_seen:
             self._record_hopper_sighting()
         return changed

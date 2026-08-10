@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from custom_components.whiskerless.const import CONF_HOPPER_SEEN
 from homeassistant.components.sensor import SensorExtraStoredData
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant, State
@@ -74,14 +75,18 @@ async def test_a_binary_sensor_survives_a_restart(
     mock_config_entry: MockConfigEntry,
     state_payload: str,
 ) -> None:
-    """The drawer bay register is silent until the drawer physically moves."""
-    mock_restore_cache(hass, (State("binary_sensor.litter_robot_4_waste_drawer_removed", "off"),))
+    """The hopper link is silent between reports, which can be hours."""
+    # The hopper entities are disabled until a hopper reports, so this robot is
+    # given the flag a real sighting would have persisted.
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
+    mock_restore_cache(hass, (State("binary_sensor.litter_robot_4_hopper", "on"),))
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
-    state = hass.states.get("binary_sensor.litter_robot_4_waste_drawer_removed")
+    state = hass.states.get("binary_sensor.litter_robot_4_hopper")
     assert state is not None
-    assert state.state == "off"
+    assert state.state == "on"
 
 
 async def test_a_fresh_install_has_nothing_to_restore(

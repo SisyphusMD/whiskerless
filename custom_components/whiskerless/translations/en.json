@@ -4,7 +4,7 @@
     "step": {
       "discovery_confirm": {
         "title": "Add Litter-Robot",
-        "description": "A Litter-Robot 4 (serial {serial}) was found on your MQTT broker. Give it a name \u2014 this becomes the device name and is used to generate its entity IDs.",
+        "description": "A Litter-Robot 4 (serial {serial}) was found on your MQTT broker. Give it a name — this becomes the device name and is used to generate its entity IDs.",
         "data": {
           "name": "Name"
         },
@@ -58,6 +58,9 @@
       "last_cat_visit": {
         "name": "Last cat visit"
       },
+      "waste_drawer_last_moved": {
+        "name": "Waste drawer last moved"
+      },
       "last_hopper_dispensed": {
         "name": "Last hopper dispense"
       },
@@ -89,9 +92,6 @@
       },
       "hopper_connected": {
         "name": "Hopper"
-      },
-      "waste_drawer_removed": {
-        "name": "Waste drawer removed"
       },
       "hopper_empty": {
         "name": "Hopper out of litter"
@@ -169,7 +169,7 @@
       "message": "Failed to send the command to the Litter-Robot: {error}."
     },
     "litter_reading_unavailable": {
-      "message": "No usable litter reading right now \u2014 the robot is mid-cycle. Try again once it is idle."
+      "message": "No usable litter reading right now — the robot is mid-cycle. Try again once it is idle."
     },
     "panel_sleep_not_writable": {
       "message": "This robot derives panel sleep mode from its weekday sleep schedule and ignores a direct write. Use the weekday sleep schedule switch instead."

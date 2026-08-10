@@ -15,7 +15,7 @@ from .commands import Command
 from .events import (
     CatVisitEnded,
     CatWeightMeasured,
-    DrawerBayChanged,
+    DrawerBayMoved,
     HopperDispensed,
     HopperLinkChanged,
     LitterRobotEvent,
@@ -41,7 +41,7 @@ __all__ = [
     "CatVisitEnded",
     "CatWeightMeasured",
     "Command",
-    "DrawerBayChanged",
+    "DrawerBayMoved",
     "HopperDispensed",
     "HopperLinkChanged",
     "LitterRobot4Client",
