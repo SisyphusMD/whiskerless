@@ -39,6 +39,7 @@ dev = [
 # Home Assistant integration tests (Python 3.13). Install in a separate env:
 #   pip install -e '.[test-ha]' && pytest tests/integration
 test-ha = [
+    "pytest-cov>=5.0",
     "pytest-homeassistant-custom-component",
     "syrupy>=4.0",
 ]
@@ -99,3 +100,14 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+# Coverage of the INTEGRATION only. The quality scale asks for two different
+# numbers — config_flow.py at 100% (config-flow-test-coverage) and the package
+# above 95% (test-coverage) — so CI reports the whole package and gates the
+# config flow separately rather than averaging the two into one threshold.
+[tool.coverage.run]
+source = ["custom_components/whiskerless"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "@overload", "raise NotImplementedError"]

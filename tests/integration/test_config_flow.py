@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from custom_components.whiskerless.const import CONF_SERIAL, DOMAIN
+from custom_components.whiskerless.const import CONF_SERIAL, DEFAULT_NAME, DOMAIN
 from homeassistant.config_entries import SOURCE_MQTT, SOURCE_USER
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
@@ -16,9 +16,9 @@ from .const import MOCK_SERIAL, STATE_TOPIC
 pytestmark = pytest.mark.usefixtures("mock_setup_entry")
 
 
-def _discovery() -> MqttServiceInfo:
+def _discovery(topic: str = STATE_TOPIC) -> MqttServiceInfo:
     return MqttServiceInfo(
-        topic=STATE_TOPIC,
+        topic=topic,
         payload="{}",
         qos=1,
         retain=False,
@@ -41,6 +41,30 @@ async def test_discovery_flow(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["result"].unique_id == MOCK_SERIAL
     assert result["data"] == {CONF_SERIAL: MOCK_SERIAL, CONF_NAME: "Upstairs litterbox"}
+
+
+@pytest.mark.parametrize("topic", ["prod/LR4//state", "prod/LR4", "prod"])
+async def test_discovery_without_a_serial_aborts(hass: HomeAssistant, topic: str) -> None:
+    """A discovery whose topic carries no serial is refused, not guessed at."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_MQTT}, data=_discovery(topic)
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "invalid_discovery_info"
+
+
+@pytest.mark.parametrize("name", ["", "   "])
+async def test_blank_name_falls_back_to_the_default(hass: HomeAssistant, name: str) -> None:
+    """A blank name would otherwise produce an unnamed device and bare entity IDs."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_MQTT}, data=_discovery()
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_NAME: name}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == DEFAULT_NAME
+    assert result["data"] == {CONF_SERIAL: MOCK_SERIAL, CONF_NAME: DEFAULT_NAME}
 
 
 async def test_discovery_already_configured(
