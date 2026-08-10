@@ -36,7 +36,15 @@ jobs:
       - name: Mypy (library, strict)
         run: mypy
       - name: Pytest (library)
-        run: pytest -q
+        # Two floors, because one number would hide both. BLE provisioning is a
+        # bench procedure against real hardware and drags the total down without
+        # saying anything about the protocol code; safety.py is the chokepoint
+        # every send funnels through and is held at 100%.
+        run: >-
+          pytest -q --cov=whiskerless --cov-report=term-missing
+          --cov-config=pyproject.toml --cov-fail-under=70
+      - name: Coverage gate (safety chokepoint)
+        run: coverage report --include='*/safety.py' --fail-under=100
 
   homeassistant:
     name: Type-check + test the integration

@@ -99,6 +99,18 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   from the registry instead of lingering forever as unavailable.
 - The example dashboard card no longer lists `select.<robot>_clean_cycle_wait_time`,
   an entity that stopped existing when that control became a number.
+- **`whiskerless set night-light-mode auto` works.** The name-to-number map was
+  passed as `dict.get`'s default argument, which Python evaluates eagerly, so
+  every spelling the map existed to accept — `off`, `on`, `auto` — raised before
+  the lookup could return. It crashed with a traceback rather than an error, and
+  it is the exact command in the README quickstart.
+- **The library has tests where it had none.** The CLI was at 0% despite shipping
+  on PyPI, and `link.apply_setting` — the command line's own copy of the
+  write-verify-retry loop — was barely exercised. Adds the destructive-action
+  confirmation prompts (including that `power` has no `--yes` to skip it), the
+  raw `send` guard path, both transports' retry and give-up behaviour, and the
+  safety chokepoint's last two branches. Library coverage 55% → 74%, with
+  `safety.py` at 100% and both numbers now gated in CI.
 - **The write paths are tested.** Integration coverage went from 93% to 99% —
   it had been under the 95% the quality scale asks for while claiming to meet it.
   Reads were well covered and writes barely were, which is backwards: a decode

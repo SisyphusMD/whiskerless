@@ -35,8 +35,14 @@ VIRTUAL_ENV=.venv-ha uv pip install -e '.[dev,test-ha]'
   --explicit-package-bases custom_components/whiskerless
 ```
 
-CI gates two coverage numbers, so check them before opening a PR: the package
-above 95%, and `config_flow.py` at exactly 100%.
+CI gates four coverage numbers, so check them before opening a PR:
+
+| Scope | Floor | Why |
+|---|---|---|
+| `custom_components/whiskerless` | 95% | the quality scale's `test-coverage` |
+| `custom_components/whiskerless/config_flow.py` | 100% | `config-flow-test-coverage` |
+| `src/whiskerless` | 70% | BLE provisioning is a bench procedure against real hardware, and it drags the total without saying anything about the protocol code |
+| `src/whiskerless/safety.py` | 100% | every send funnels through it |
 
 Entity changes will fail the snapshot test, which is the point — regenerate with
 `--snapshot-update` and **read the diff**. An entity that changed name, device

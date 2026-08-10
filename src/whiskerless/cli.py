@@ -234,7 +234,11 @@ def _build_setting(name: str, raw: str) -> tuple[Command, ...]:
     match name:
         case "night-light-mode":
             modes = {"off": 0, "on": 1, "auto": 2}
-            return (commands.set_night_light_mode(modes.get(raw.lower(), _parse_int(raw))),)
+            # Looked up before falling back, not as get()'s default: a default
+            # argument is evaluated eagerly, so _parse_int would raise on the
+            # very spellings this map exists to accept.
+            named = modes.get(raw.lower())
+            return (commands.set_night_light_mode(_parse_int(raw) if named is None else named),)
         case "night-light-brightness":
             return (commands.set_night_light_brightness(_parse_int(raw)),)
         case "clean-cycle-wait":

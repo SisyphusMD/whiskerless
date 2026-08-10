@@ -115,3 +115,26 @@ class TestPanelButtonNeverSend:
     def test_the_shipped_actions_are_still_reachable(self) -> None:
         for code in ("0x02010201", "0x02010401", "0x02010801"):
             assert_sendable(code)
+
+
+@pytest.mark.parametrize("code", ["0x02ZZ0000", "0x0218000G", "0xGG180001"])
+def test_a_non_hex_command_is_refused_before_it_is_classified(code: str) -> None:
+    """Shape is checked first, so a typo cannot fall through to a hazard verdict.
+
+    Every send is built by this library, so a malformed code means a caller
+    hand-wrote one — `whiskerless send` is exactly that path.
+    """
+    with pytest.raises(ProtocolError, match="non-hex"):
+        assert_sendable(code, allow_dangerous=True)
+
+
+def test_an_unrecognised_type_nibble_is_a_no_op_not_a_write() -> None:
+    """The firmware acts on type 1 and 2 and ignores the rest.
+
+    Classifying an unknown nibble as anything else would either refuse a command
+    that does nothing, or — far worse — reason about it as though the register
+    and value mattered.
+    """
+    # Type nibble 3 with an opcode that would be NEVER if it were a real write.
+    assert classify_code("0x03A30000") is Hazard.NOOP
+    assert_sendable("0x03A30000")
