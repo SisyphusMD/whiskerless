@@ -113,6 +113,13 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   against a faked radio — the one irreversible thing here, and previously the
   least tested. Library coverage 55% → 99%, with `safety.py` at 100% and both
   numbers now gated in CI.
+- **The invariants that only ran when someone remembered are now tests.** The
+  version stamper that keeps four release strings in agreement had none, and a
+  disagreement there breaks a HACS install with no other symptom. Joined by
+  checks that `strings.json` and the shipped English still match, that every
+  entity resolves to a translated name, that `quality_scale.yaml` still covers
+  the real rule list, and that the example automations reference entities that
+  exist — each of which caught a real defect by hand first.
 - **The write paths are tested.** Integration coverage went from 93% to 99% —
   it had been under the 95% the quality scale asks for while claiming to meet it.
   Reads were well covered and writes barely were, which is backwards: a decode

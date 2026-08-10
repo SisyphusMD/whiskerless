@@ -35,6 +35,9 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
+    # Only the repo-invariant tests need it: quality_scale.yaml and the shipped
+    # example automations are checked for drift, and neither is Python.
+    "pyyaml>=6.0",
     "ruff>=0.6",
 ]
 # Home Assistant integration tests (Python 3.13). Install in a separate env:
