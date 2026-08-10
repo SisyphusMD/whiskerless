@@ -89,3 +89,16 @@ def test_enabling_the_sleep_schedule_arms_every_day() -> None:
     """Writing 1 would arm Sunday only — 0x1D is a per-day bitmask."""
     assert commands.set_weekday_sleep_enabled(True).value == const.WEEKDAY_SLEEP_ALL_DAYS
     assert commands.set_weekday_sleep_enabled(False).value == 0
+
+
+def test_the_destructive_presses_encode_the_captured_codes() -> None:
+    """Both are captured from physical presses and never written.
+
+    Wrong bits here are expensive in a way the other commands are not: 0x0C02 is
+    a factory reset and 0x1402 simulates a plug pull, and both are one or two
+    bits from these.
+    """
+    assert commands.empty_cycle().code == "0x02010801"
+    assert commands.power_toggle().code == "0x02010101"
+    for command in (commands.empty_cycle(), commands.power_toggle()):
+        assert command.at_most_once, "an edge-triggered press must never be retried"

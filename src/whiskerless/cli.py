@@ -111,10 +111,38 @@ async def _cmd_clean_cycle(args: argparse.Namespace) -> int:
         print("aborted", file=sys.stderr)
         return 1
     async with _link(args) as link:
-        # allow_motor is the point of the confirmation above; the robot's own
-        # pinch, cat-detect and bonnet interlocks still apply regardless.
-        await link.publish(commands.clean_cycle(), allow_motor=True)
+        await link.publish(commands.clean_cycle())
     print("clean cycle requested")
+    return 0
+
+
+async def _cmd_empty_cycle(args: argparse.Namespace) -> int:
+    if not args.yes and not _confirm(
+        "Run an empty cycle? EVERY gram of litter goes into the waste drawer, "
+        "and the globe parks until you press Cycle or Reset. Type 'yes': "
+    ):
+        print("aborted", file=sys.stderr)
+        return 1
+    async with _link(args) as link:
+        await link.publish(commands.empty_cycle())
+    print("empty cycle requested")
+    return 0
+
+
+async def _cmd_power(args: argparse.Namespace) -> int:
+    # Unlike every other action here, this one can end with the robot off the
+    # network — so the prompt is not skippable by --yes and the guard still has
+    # to be opted past explicitly.
+    if not _confirm(
+        "Press Power? This TOGGLES the robot. If it turns OFF it leaves the "
+        "network, and only someone standing at the machine can turn it back on. "
+        "Type 'yes': "
+    ):
+        print("aborted", file=sys.stderr)
+        return 1
+    async with _link(args) as link:
+        await link.publish(commands.power_toggle(), allow_dangerous=True)
+    print("power press sent (the robot may now be off)")
     return 0
 
 
@@ -127,7 +155,7 @@ async def _cmd_send(args: argparse.Namespace) -> int:
     )
     print(f"{code}: {hazard.value}", flush=True)
     async with _link(args) as link:
-        await link.publish(command, allow_motor=args.allow_motor, allow_dangerous=args.allow_dangerous)
+        await link.publish(command, allow_dangerous=args.allow_dangerous)
     print("sent")
     return 0
 
@@ -310,7 +338,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_send = sub.add_parser("send", help="send a raw 0xTTRRVVVV code (guarded by safety)")
     add_conn(p_send)
     p_send.add_argument("code", help="e.g. 0x02A00000")
-    p_send.add_argument("--allow-motor", action="store_true")
     p_send.add_argument("--allow-dangerous", action="store_true")
     p_send.set_defaults(func=_cmd_send)
 
@@ -318,6 +345,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_conn(p_cycle)
     p_cycle.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_cycle.set_defaults(func=_cmd_clean_cycle)
+
+    p_empty = sub.add_parser("empty-cycle", help="empty the globe into the waste drawer")
+    add_conn(p_empty)
+    p_empty.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p_empty.set_defaults(func=_cmd_empty_cycle)
+
+    p_power = sub.add_parser("power", help="toggle robot power (it may not come back)")
+    add_conn(p_power)
+    p_power.set_defaults(func=_cmd_power)
 
     p_prov = sub.add_parser("provision", help="re-provision a robot onto your broker over BLE")
     p_prov.add_argument("--serial", help="robot serial (prompted if omitted)")

@@ -10,6 +10,7 @@ from custom_components.whiskerless.const import CONF_HOPPER_SEEN
 from homeassistant.components.sensor import SensorExtraStoredData
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant, State
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     mock_restore_cache,
@@ -17,7 +18,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from . import setup_integration
-from .const import ACTIVITY_TOPIC
+from .const import ACTIVITY_TOPIC, MOCK_SERIAL
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -76,10 +77,19 @@ async def test_a_binary_sensor_survives_a_restart(
     state_payload: str,
 ) -> None:
     """The hopper link is silent between reports, which can be hours."""
-    # The hopper entities are disabled until a hopper reports, so this robot is
-    # given the flag a real sighting would have persisted.
+    # Hopper entities ship disabled and are promoted by a reload once hardware
+    # reports, so the registry entry is seeded enabled here — otherwise the
+    # entity is not added during this setup and there is nothing to restore.
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
+    er.async_get(hass).async_get_or_create(
+        "binary_sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_hopper_connected",
+        config_entry=mock_config_entry,
+        suggested_object_id="litter_robot_4_hopper",
+        disabled_by=None,
+    )
     mock_restore_cache(hass, (State("binary_sensor.litter_robot_4_hopper", "on"),))
 
     await setup_integration(hass, mock_config_entry, state_payload)

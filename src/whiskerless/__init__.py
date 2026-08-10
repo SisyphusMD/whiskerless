@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from .exceptions import (
     DangerousCommandError,
-    MotorCommandError,
     NeverSendError,
     ProtocolError,
     ProvisioningError,
@@ -27,7 +26,6 @@ __version__ = "0.1.3"
 __all__ = [
     "DangerousCommandError",
     "Hazard",
-    "MotorCommandError",
     "MqttSettings",
     "NeverSendError",
     "ProtocolError",

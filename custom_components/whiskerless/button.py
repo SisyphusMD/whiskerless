@@ -1,11 +1,17 @@
 """Button platform for Whiskerless.
 
-Clean cycle and reset work by synthesising a panel button press (register
-`0x01`), live-proven on ESP 1.1.75. Empty and power are panel buttons too and
-their codes are captured, but writing them is untested and both are costly to
-get wrong: an empty cycle dumps every gram of litter into the drawer, and power
-can take the robot off the network. The filter-change park is unreachable —
-its chord is a long press, which the firmware declines on the write path.
+Every action here is a synthesised panel button press on register `0x01`: the
+write reproduces the exact code the panel emits, so the robot cannot tell it
+from a finger. Clean cycle and reset are live-proven on ESP 1.1.75; empty and
+power are captured from physical presses but have never been written, and both
+ship disabled because their cost is high and their proof is thinner.
+
+Both are immediate: Home Assistant has no entity-level confirmation prompt, so
+being disabled by default is the only barrier an integration can put in front of
+a destructive action.
+
+The filter-change park is not here and cannot be: its chord is a long press, and
+the firmware declines press type 02 on the write path.
 """
 
 from __future__ import annotations
@@ -33,9 +39,6 @@ class WhiskerlessButtonEntityDescription(ButtonEntityDescription):
 
 
 BUTTONS: tuple[WhiskerlessButtonEntityDescription, ...] = (
-    # Writes the code the robot itself emits when the panel Cycle button is
-    # pressed. Motor-gated in the library; the coordinator opts in because a
-    # person pressing this button is a deliberate act.
     WhiskerlessButtonEntityDescription(
         key="start_clean_cycle",
         translation_key="start_clean_cycle",
@@ -45,6 +48,22 @@ BUTTONS: tuple[WhiskerlessButtonEntityDescription, ...] = (
         key="panel_reset",
         translation_key="panel_reset",
         press_fn=lambda coordinator: coordinator.async_panel_reset(),
+    ),
+    # Disabled by default: it empties the globe. Recoverable (Cycle or Reset
+    # brings it home) but it costs a litter refill, so it is opt-in.
+    WhiskerlessButtonEntityDescription(
+        key="start_empty_cycle",
+        translation_key="start_empty_cycle",
+        entity_registry_enabled_default=False,
+        press_fn=lambda coordinator: coordinator.async_empty_cycle(),
+    ),
+    # Disabled by default, and the only entity whose failure mode is a walk to
+    # the machine: Power toggles, and a robot switched off is off the network.
+    WhiskerlessButtonEntityDescription(
+        key="power_toggle",
+        translation_key="power_toggle",
+        entity_registry_enabled_default=False,
+        press_fn=lambda coordinator: coordinator.async_power_toggle(),
     ),
     WhiskerlessButtonEntityDescription(
         key="refresh",

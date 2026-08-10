@@ -7,10 +7,11 @@ import json
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from . import robot_online, setup_integration
-from .const import ACTIVITY_TOPIC
+from .const import ACTIVITY_TOPIC, MOCK_SERIAL
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -48,9 +49,9 @@ async def test_the_clean_cycle_button_sends_a_panel_press(
 ) -> None:
     """The cycle is a synthesised Cycle-button press, not a macro opcode.
 
-    It is MOTOR-classified in the library and refused without ``allow_motor``, so
-    this also proves the coordinator opts in — a person pressing the button is a
-    deliberate act, while everything else stays gated.
+    The byte once shipped as "cleanCycle" (0x02A30000) turned out to reset the
+    robot, so this asserts the exact wire string rather than merely that
+    something was sent.
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
@@ -132,3 +133,24 @@ async def test_every_cycling_status_is_representable(
     state = hass.states.get("sensor.litter_robot_4_status")
     assert state is not None
     assert state.state not in ("unknown", "unavailable"), f"robotStatus {status} not representable"
+
+
+async def test_the_destructive_buttons_ship_disabled(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Empty and Power must never be one stray tap away.
+
+    Home Assistant has no entity-level confirmation prompt, so disabled-by-default
+    is the only barrier the integration itself can put in front of them: an empty
+    cycle costs a litter refill, and Power can leave the robot off the network
+    until someone walks over to it.
+    """
+    await setup_integration(hass, mock_config_entry, state_payload)
+    registry = er.async_get(hass)
+
+    for key in ("start_empty_cycle", "power_toggle"):
+        entity_id = registry.async_get_entity_id("button", "whiskerless", f"{MOCK_SERIAL}_{key}")
+        assert entity_id is not None, f"{key} should still be registered"
+        entry = registry.async_get(entity_id)
+        assert entry is not None
+        assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION, key

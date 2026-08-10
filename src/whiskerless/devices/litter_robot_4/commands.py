@@ -5,10 +5,11 @@ safety :class:`~whiskerless.safety.Hazard`, and — for settings writes — the
 register/value to read back afterward (the firmware commits some writes with
 variable latency, so callers verify and retry; see ``protocol.write_setting``).
 
-Clean cycle and panel reset ARE exposed, as synthesised panel button presses on
-register ``0x01`` — live-proven, three trials. Both are MOTOR-classified and refused
-without ``allow_motor``. powerOn/powerOff and emptyCycle stay absent: they are panel
-buttons too, but their codes have not been captured yet.
+Clean cycle, panel reset and the empty cycle are exposed as synthesised panel
+button presses on register ``0x01``. A write there reproduces the exact code the
+panel emits, so it is the same event as a physical press and the firmware's
+interlocks apply unchanged. powerOn/powerOff stay absent: Power is captured but
+toggles, so firing it can leave the robot off and unreachable.
 """
 
 from __future__ import annotations
@@ -151,9 +152,9 @@ def set_panel_brightness(high: int, low: int) -> Command:
 def clean_cycle() -> Command:
     """Run a clean cycle, by synthesising a press of the panel Cycle button.
 
-    Classified MOTOR: this turns the globe, so it needs ``allow_motor``. The
-    firmware's own pinch, cat-detect and bonnet interlocks still apply — they
-    live in the PIC and no command overrides them.
+    The firmware's own pinch, cat-detect and bonnet interlocks still apply —
+    they live in the PIC, downstream of the button, and no command overrides
+    them. That is equally true of a finger on the panel.
     """
     return _cmd(
         encode_write(const.Register.PANEL_BUTTON, const.PANEL_BUTTON_CYCLE),
@@ -164,12 +165,52 @@ def clean_cycle() -> Command:
     )
 
 
+def empty_cycle() -> Command:
+    """Run an empty cycle, by synthesising a press of the panel Empty button.
+
+    The globe rotates clockwise until every gram of litter has fallen into the
+    waste drawer, then parks and waits: a Cycle or Reset press brings it home.
+
+    The code is captured from a physical press; the written form has not been
+    live-tested, which is a weaker claim than :func:`clean_cycle` carries. It
+    differs from the two proven writes only in the button bit, at the same press
+    type, so it is expected to behave identically.
+    """
+    return _cmd(
+        encode_write(const.Register.PANEL_BUTTON, const.PANEL_BUTTON_EMPTY),
+        "emptyCycle",
+        at_most_once=True,
+        register=const.Register.PANEL_BUTTON,
+        value=const.PANEL_BUTTON_EMPTY,
+    )
+
+
+def power_toggle() -> Command:
+    """Press the panel Power button, which TOGGLES the robot on or off.
+
+    Classified DANGEROUS, and the only panel button that is: every other action
+    here can be undone from the same MQTT connection that started it, while a
+    robot powered off this way leaves the network and can only be brought back
+    by someone pressing Power on the machine. Callers must opt in explicitly.
+
+    Captured from a physical press; the written form has not been live-tested.
+    """
+    return _cmd(
+        encode_write(const.Register.PANEL_BUTTON, const.PANEL_BUTTON_POWER),
+        "powerToggle",
+        at_most_once=True,
+        register=const.Register.PANEL_BUTTON,
+        value=const.PANEL_BUTTON_POWER,
+    )
+
+
 def panel_reset() -> Command:
     """Press the panel Reset button: acknowledge a full alarm, clear a fault.
 
-    Classified MOTOR despite sounding harmless: from idle it only acknowledges an
-    alarm, but during a cycle it releases a cat-interrupt pause — the interlock
-    that holds the globe still while something is inside it.
+    From idle it only acknowledges an alarm, but during a cycle it releases a
+    cat-interrupt pause. Firing it blind from an automation can therefore resume
+    a cycle that the robot had stopped for a reason — the same thing a person
+    pressing the button without looking would do.
     """
     return _cmd(
         encode_write(const.Register.PANEL_BUTTON, const.PANEL_BUTTON_RESET),

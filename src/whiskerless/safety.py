@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from .exceptions import DangerousCommandError, MotorCommandError, NeverSendError, ProtocolError
+from .exceptions import DangerousCommandError, NeverSendError, ProtocolError
 
 # --- the evidence-backed safety classes --------------------------------------
 
@@ -43,11 +43,6 @@ from .exceptions import DangerousCommandError, MotorCommandError, NeverSendError
 #: mislabeled "cleanCycle" and one send was followed by a reboot, never replicated.
 #: See the module docstring: this set is refused on cost, not on proof.
 NEVER_SEND_OPCODES: frozenset[int] = frozenset({0xA3, 0xA4, 0xAC, 0xAD})
-
-#: Opcodes that drive the globe motor, by register. Still empty: the clean cycle
-#: turned out not to be an opcode at all but a value written to the panel button
-#: register, so it is gated by PANEL_BUTTON_MOTOR below instead.
-MOTOR_OPCODES: frozenset[int] = frozenset()
 
 #: `0x01` carries panel button presses and accepts writes — writing the code the
 #: robot emits for a button synthesises that press. Live-proven on ESP 1.1.75,
@@ -85,18 +80,32 @@ PANEL_BUTTON_NEVER: frozenset[int] = frozenset(
         (PANEL_BUTTON_RESET | PANEL_BUTTON_CONNECT) << 8 | PANEL_PRESS_LONG,  # simulate plug pull
     }
 )
-#: Both proven buttons can turn the globe, so both are gated behind
-#: ``allow_motor``. Reset looks harmless — from idle it only acknowledges an
-#: alarm — but it also RELEASES a cycle paused on cat-detect, which is the
-#: interlock that stops the globe when something is inside it. An automation
-#: firing Reset blind could restart a cycle over a cat.
-PANEL_BUTTON_MOTOR: frozenset[int] = frozenset({0x0201, 0x0401})  # cycle, reset
-#: Every other button value stays dangerous. Empty (0x0801) and Power (0x0101)
-#: have been captured from physical presses but never written, and an empty
-#: cycle dumps every gram of litter into the drawer while Power can take the
-#: robot off the network with no way back short of someone walking over to it.
-#: Long presses cannot be synthesised at all: the firmware performs press type
-#: 01 and silently declines 02, so the hold-only chords never reach here.
+#: Short presses of the buttons a person uses for routine operation. These are
+#: SAFE and ungated: the write reproduces exactly the code the panel emits, so it
+#: is the same event as someone pressing the button, and the firmware's pinch,
+#: cat-detect and bonnet interlocks sit downstream and apply either way.
+#:
+#: An earlier version gated these behind a motor flag. That class was invented
+#: when the globe trigger was believed to be an unknown macro opcode and the one
+#: candidate turned out to reboot the robot. Once the trigger turned out to be a
+#: synthesised button press the gate was guarding a hazard that does not exist,
+#: and every caller passed the flag unconditionally, which made the real gates
+#: below look like the same kind of formality.
+#:
+#: Empty rests on a weaker claim than the other two: its code is captured from a
+#: physical press and has never been written. It shares the press type of both
+#: proven writes and differs only in the button bit. It is not more *hazardous* —
+#: it is a documented maintenance function with its own panel button — only less
+#: proven, so it is labelled rather than gated. That it empties the globe into the
+#: drawer is a reason not to wire it to an automation, not a reason to refuse it.
+PANEL_BUTTON_SAFE: frozenset[int] = frozenset({0x0201, 0x0401, 0x0801})
+#: Every other button value stays DANGEROUS. Power (0x0101) is captured and
+#: deliberately left out: it toggles, so firing it can leave the robot switched
+#: off and unreachable. That is the one panel button whose cost is losing control
+#: of the device rather than moving litter around.
+#:
+#: Long presses cannot be synthesised at all — the firmware performs press type
+#: 01 and silently declines 02 — so the hold-only chords never reach here.
 
 #: Report macros that are safe to send with a zero value (PROVEN live). A
 #: non-zero value on these indexes a firmware jump table, so it is treated as
@@ -115,7 +124,6 @@ class Hazard(Enum):
 
     NOOP = "noop"            # type byte is neither read nor write → silent no-op
     SAFE = "safe"            # read, report macro (value 0), or settings write
-    MOTOR = "motor"          # drives the globe (clean cycle)
     DANGEROUS = "dangerous"  # untraced / control-band / calibration / identity write
     NEVER = "never"          # brick / reset-class — unconditionally refused
 
@@ -164,15 +172,13 @@ def classify(ctype: CommandType, register: int, value: int) -> Hazard:
     # type-2: macro dispatch or generic register write.
     if register in NEVER_SEND_OPCODES:
         return Hazard.NEVER
-    if register in MOTOR_OPCODES:
-        return Hazard.MOTOR
     if register == PANEL_BUTTON_REGISTER:
         # By value: the same register runs the globe, acknowledges an alarm, or
         # factory-resets the robot depending only on which bits are set.
         if value in PANEL_BUTTON_NEVER:
             return Hazard.NEVER
-        if value in PANEL_BUTTON_MOTOR:
-            return Hazard.MOTOR
+        if value in PANEL_BUTTON_SAFE:
+            return Hazard.SAFE
         return Hazard.DANGEROUS
     if register in SAFE_REPORT_MACROS:
         return Hazard.SAFE if value == 0 else Hazard.DANGEROUS
@@ -188,28 +194,17 @@ def classify_code(code: str) -> Hazard:
     return classify(*parse_code(code))
 
 
-def assert_sendable(
-    code: str,
-    *,
-    allow_motor: bool = False,
-    allow_dangerous: bool = False,
-) -> Hazard:
+def assert_sendable(code: str, *, allow_dangerous: bool = False) -> Hazard:
     """Raise unless ``code`` is allowed to be published to a robot.
 
-    ``NEVER`` commands are refused unconditionally. ``MOTOR`` requires
-    ``allow_motor=True`` (the caller must have confirmed the globe is clear), and
-    ``DANGEROUS`` requires ``allow_dangerous=True``. Returns the
-    :class:`Hazard` on success so callers can log/branch on it.
+    ``NEVER`` commands are refused unconditionally and ``DANGEROUS`` requires
+    ``allow_dangerous=True``. Returns the :class:`Hazard` on success so callers
+    can log or branch on it.
     """
     hazard = classify_code(code)
     if hazard is Hazard.NEVER:
         raise NeverSendError(
             f"{code} is a brick/reset-class command and is refused unconditionally"
-        )
-    if hazard is Hazard.MOTOR and not allow_motor:
-        raise MotorCommandError(
-            f"{code} drives the globe motor; pass allow_motor=True after "
-            "confirming the globe is clear"
         )
     if hazard is Hazard.DANGEROUS and not allow_dangerous:
         raise DangerousCommandError(

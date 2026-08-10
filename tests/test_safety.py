@@ -4,14 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from whiskerless import safety
 from whiskerless.devices.litter_robot_4 import commands
-from whiskerless.exceptions import (
-    DangerousCommandError,
-    MotorCommandError,
-    NeverSendError,
-    ProtocolError,
-)
+from whiskerless.exceptions import DangerousCommandError, NeverSendError, ProtocolError
 from whiskerless.safety import Hazard, assert_sendable, classify_code
 
 
@@ -39,17 +33,7 @@ def test_classify(code: str, hazard: Hazard) -> None:
 def test_never_send_is_unconditional(code: str) -> None:
     # No combination of flags lets a brick/reset-class command through.
     with pytest.raises(NeverSendError):
-        assert_sendable(code, allow_motor=True, allow_dangerous=True)
-
-
-def test_motor_gate(monkeypatch: pytest.MonkeyPatch) -> None:
-    # No opcode is currently proven to drive the globe (MOTOR_OPCODES is empty); the
-    # old 0xA3 guess turned out to reset the robot. This exercises the gate a future,
-    # confirmed cleanCycle trigger will use by standing in a placeholder opcode.
-    monkeypatch.setattr(safety, "MOTOR_OPCODES", frozenset({0xB7}))
-    with pytest.raises(MotorCommandError):
-        assert_sendable("0x02B70000")
-    assert assert_sendable("0x02B70000", allow_motor=True) is Hazard.MOTOR
+        assert_sendable(code, allow_dangerous=True)
 
 
 def test_dangerous_requires_optin() -> None:
@@ -72,33 +56,35 @@ def test_parse_rejects_malformed(code: str) -> None:
 class TestPanelButton:
     """`0x01` is classified by VALUE — the same register does two different jobs."""
 
-    def test_the_clean_cycle_needs_the_motor_gate(self) -> None:
-        code = commands.clean_cycle().code
-        assert classify_code(code) is Hazard.MOTOR
-        with pytest.raises(MotorCommandError):
-            assert_sendable(code)
-        assert_sendable(code, allow_motor=True)
+    @pytest.mark.parametrize(
+        "build", [commands.clean_cycle, commands.panel_reset, commands.empty_cycle]
+    )
+    def test_the_routine_presses_are_ungated(self, build: object) -> None:
+        """A written press IS a panel press, so the guard adds nothing to it.
 
-    def test_reset_is_motor_gated_too(self) -> None:
-        """It looks harmless and is not.
-
-        From idle Reset only acknowledges an alarm, but during a cycle it releases
-        a cat-detect pause — the interlock holding the globe still while something
-        is inside. An automation firing it blind could restart a cycle over a cat.
+        These were once gated behind an ``allow_motor`` flag invented when the
+        globe trigger was thought to be an unknown macro opcode. Writing 0x01
+        reproduces the code the panel emits and the firmware's pinch, cat-detect
+        and bonnet interlocks sit downstream of it, so the gate protected against
+        a hazard that does not exist — and every caller passed the flag anyway.
         """
-        code = commands.panel_reset().code
-        assert classify_code(code) is Hazard.MOTOR
-        with pytest.raises(MotorCommandError):
-            assert_sendable(code)
-        assert_sendable(code, allow_motor=True)
+        assert assert_sendable(build().code) is Hazard.SAFE  # type: ignore[operator]
 
-    @pytest.mark.parametrize("value", [0x0101, 0x0801, 0x1001, 0x0000])
-    def test_every_other_button_stays_refused(self, value: int) -> None:
-        """Only the two proven values are allowed through.
+    def test_power_is_the_one_press_that_still_needs_an_opt_in(self) -> None:
+        """Every other action can be undone from the same connection; this cannot.
 
-        The remaining bits are untested and one of them may be power, which could
-        take the robot off the network with no remote way back.
+        Power toggles, and a robot switched off has left the network, so nothing
+        over MQTT can switch it back on.
         """
+        code = commands.power_toggle().code
+        assert classify_code(code) is Hazard.DANGEROUS
+        with pytest.raises(DangerousCommandError):
+            assert_sendable(code)
+        assert assert_sendable(code, allow_dangerous=True) is Hazard.DANGEROUS
+
+    @pytest.mark.parametrize("value", [0x1001, 0x0000, 0x0601, 0x0201 | 0x0800])
+    def test_unrecognised_button_values_stay_refused(self, value: int) -> None:
+        """Classification is by VALUE: an unlisted combination is still untested."""
         code = f"0x0201{value:04X}"
         assert classify_code(code) is Hazard.DANGEROUS
         with pytest.raises(DangerousCommandError):
@@ -124,8 +110,8 @@ class TestPanelButtonNeverSend:
     def test_destructive_combos_cannot_be_sent_at_all(self, code: str, what: str) -> None:
         assert classify_code(code) is Hazard.NEVER
         with pytest.raises(NeverSendError):
-            assert_sendable(code, allow_motor=True, allow_dangerous=True)
+            assert_sendable(code, allow_dangerous=True)
 
     def test_the_shipped_actions_are_still_reachable(self) -> None:
-        for code in ("0x02010201", "0x02010401"):
-            assert_sendable(code, allow_motor=True)
+        for code in ("0x02010201", "0x02010401", "0x02010801"):
+            assert_sendable(code)

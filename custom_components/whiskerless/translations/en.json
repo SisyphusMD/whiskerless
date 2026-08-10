@@ -153,6 +153,12 @@
       "panel_reset": {
         "name": "Reset"
       },
+      "start_empty_cycle": {
+        "name": "Empty cycle (danger)"
+      },
+      "power_toggle": {
+        "name": "Power toggle (danger)"
+      },
       "start_clean_cycle": {
         "name": "Start clean cycle"
       }

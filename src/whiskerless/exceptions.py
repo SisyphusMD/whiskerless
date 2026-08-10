@@ -21,10 +21,6 @@ class NeverSendError(SafetyError):
     """
 
 
-class MotorCommandError(SafetyError):
-    """A motor command (clean cycle) was refused without explicit opt-in."""
-
-
 class DangerousCommandError(SafetyError):
     """An untraced / control-band / calibration write was refused.
 

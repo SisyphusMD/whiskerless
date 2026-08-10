@@ -499,11 +499,10 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         await super().async_shutdown()
 
     # --- publishing (every send is guarded) ----------------------------------
-    async def _publish(self, command: Command, *, allow_motor: bool = False) -> None:
-        # allow_motor is opt-in per call rather than a coordinator-wide setting: a
-        # person pressing "Start clean cycle" is a deliberate act, and everything
-        # else stays refused by default.
-        assert_sendable(command.code, allow_motor=allow_motor)
+    async def _publish(self, command: Command, *, allow_dangerous: bool = False) -> None:
+        # Every send is classified, including the ones this integration builds
+        # itself: the guard is the one chokepoint, not a check on user input.
+        assert_sendable(command.code, allow_dangerous=allow_dangerous)
         await mqtt.async_publish(
             self.hass,
             command_topic(self.serial),
@@ -573,7 +572,11 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         )
 
     async def _press_and_confirm(
-        self, command: Command, *, confirms: Callable[[LitterRobot4State], bool] | None = None
+        self,
+        command: Command,
+        *,
+        confirms: Callable[[LitterRobot4State], bool] | None = None,
+        allow_dangerous: bool = False,
     ) -> None:
         """Send a panel-button press exactly once and confirm the robot acted.
 
@@ -593,7 +596,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             self._press_echo.clear()
             self._awaited_press = command.value
             try:
-                await self._publish(command, allow_motor=True)
+                await self._publish(command, allow_dangerous=allow_dangerous)
                 with contextlib.suppress(TimeoutError):
                     async with asyncio.timeout(_PRESS_TIMEOUT):
                         await self._press_echo.wait()
@@ -631,6 +634,38 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         await self._press_and_confirm(
             commands.clean_cycle(), confirms=lambda s: s.robot_status == "clean_cycle"
         )
+
+    async def async_empty_cycle(self) -> None:
+        """Run an empty cycle: the globe dumps every gram of litter and parks.
+
+        Confirmed against the empty odometer rather than ``robot_status``: no
+        capture has ever shown which integer a local robot reports during an
+        empty cycle, so the status this would have to match is unknown, while
+        ``odometerEmptyCycles`` is in every state document and moves once per run.
+        """
+        before = self.data.robot.odometer_empty_cycles
+        await self._press_and_confirm(
+            commands.empty_cycle(),
+            confirms=lambda s: (
+                before is not None
+                and s.odometer_empty_cycles is not None
+                and s.odometer_empty_cycles != before
+            ),
+        )
+
+    async def async_power_toggle(self) -> None:
+        """Press Power, which toggles the robot on or off.
+
+        The only command here that opts past the safety guard, and the only one
+        that can end with the robot unreachable: powered off, it leaves the
+        network, and nothing on this connection can bring it back. The entity is
+        disabled by default for the same reason.
+
+        No state fallback. If the press turned the robot OFF then silence is the
+        expected outcome, so asking for fresh state and getting nothing would
+        prove nothing either way.
+        """
+        await self._press_and_confirm(commands.power_toggle(), allow_dangerous=True)
 
     async def async_panel_reset(self) -> None:
         """Press Reset: acknowledge a full alarm, or release a stalled cycle.

@@ -205,6 +205,16 @@ CAT_WEIGHT_DIVISOR = 50
 # physical chord does.
 PANEL_BUTTON_CYCLE = 0x0201
 PANEL_BUTTON_RESET = 0x0401
+# Captured from a physical Empty press, never yet written. Cycle and Reset are
+# proven as writes and this differs from them only in the button bit, at the
+# same press type, so it is expected to work — but expected is not proven, and
+# the cost of being wrong is a globe that dumps its litter into the drawer.
+PANEL_BUTTON_EMPTY = 0x0801
+# Power TOGGLES: one press turned a running robot off, the next turned it back on
+# and it immediately ran a boot cycle. Captured, never written. A robot switched
+# off this way cannot be switched back on over MQTT, because it is no longer on
+# the network — that is the one panel button whose cost is a walk to the machine.
+PANEL_BUTTON_POWER = 0x0101
 
 
 # HOPPER_LINK (0x57) value meaning "hopper disconnected" (int16 -15, live-PROVEN
