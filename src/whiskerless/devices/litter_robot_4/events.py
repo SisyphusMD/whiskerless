@@ -27,6 +27,7 @@ from typing import TypeAlias
 
 from .codec import ActivityReading
 from .const import (
+    CAT_WEIGHT_DIVISOR,
     DRAWER_BAY_REMOVED_CODES,
     HOPPER_LINK_DISCONNECTED,
     Register,
@@ -149,7 +150,7 @@ def events_from_readings(readings: list[ActivityReading]) -> list[LitterRobotEve
     for reading in readings:
         if reading.register == Register.CAT_WEIGHT:
             if reading.value:  # a 0 reading carries no measurement
-                events.append(CatWeightMeasured(weight_lb=reading.value / 100))
+                events.append(CatWeightMeasured(weight_lb=reading.value / CAT_WEIGHT_DIVISOR))
         elif reading.register == Register.LITTER_HOPPER_DISPENSED:
             events.append(
                 HopperDispensed(

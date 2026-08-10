@@ -37,9 +37,10 @@ class LitterRobot4State:
     # calibration should prefer their own derivation over a derived value, but
     # never over the device's own answer.
     litter_level_reported: bool = False
-    # lb. Passed through as-is: the cloud `catWeight` field is already in pounds,
-    # but the raw activity register (0x09) is int16/100. If a live `/state` proves
-    # the local value is the raw register, divide by 100 here.
+    # lb. Passed through as-is: the cloud `catWeight` field is already in pounds.
+    # No captured robot has ever put catWeight in its state document, so this is
+    # untested — and the pet-weight sensor deliberately does not fall back to it.
+    # The activity register (0x09) is raw and needs CAT_WEIGHT_DIVISOR.
     cat_weight: float | None = None
 
     # Light / panel settings

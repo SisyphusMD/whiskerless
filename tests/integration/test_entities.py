@@ -115,3 +115,20 @@ async def test_an_unacknowledged_press_is_never_resent(
         coord.build_command_payload = original
 
     assert sent.count("0x02010201") == 1, "a press must never be sent twice"
+
+
+@pytest.mark.parametrize("status", [10, 13, 14])
+async def test_every_cycling_status_is_representable(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str, status: int
+) -> None:
+    """A slug the library can produce but the sensor cannot show reads unavailable.
+
+    The status sensor is an enum, so adding a value to the decoder without adding
+    it here makes the entity vanish during exactly the states it was added for.
+    """
+    doc = json.loads(state_payload)
+    doc["robotStatus"] = status
+    await setup_integration(hass, mock_config_entry, json.dumps(doc))
+    state = hass.states.get("sensor.litter_robot_4_status")
+    assert state is not None
+    assert state.state not in ("unknown", "unavailable"), f"robotStatus {status} not representable"

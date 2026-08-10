@@ -86,10 +86,17 @@ def test_status_10_is_cleaning_on_every_firmware() -> None:
         assert state.is_cleaning is True
 
 
-def test_status_13_was_never_real() -> None:
-    # The old table claimed 13 = cycling, from a static RE brief. It has never
-    # been observed on the wire on either firmware, so it must not decode.
-    assert LitterRobot4State.from_state_doc({"robotStatus": 13}).robot_status == "unknown_13"
+def test_status_13_is_the_power_up_cycle_not_the_clean_cycle() -> None:
+    """13 is the boot cycle, not the clean cycle.
+
+    Captured live across a panel Power off/on, held for the whole automatic cycle
+    a robot runs on boot. It must suppress litter readings because the globe is
+    turning, and it must not be confused with the ordinary clean cycle (10).
+    """
+    state = LitterRobot4State.from_state_doc({"robotStatus": 13, "litterLevel": 450})
+    assert state.robot_status == "power_up_cycle"
+    assert state.is_cleaning
+    assert state.litter_level_mm is None
 
 
 def test_esp14_new_status_values() -> None:
@@ -295,3 +302,18 @@ def test_the_per_day_schedule_decodes_from_the_state_document() -> None:
     )
     assert state.weekday_sleep_times == {"sunday": 440, "monday": 450}
     assert state.weekday_wake_times == {"sunday": 920}
+
+
+def test_the_globe_moves_in_more_states_than_the_clean_cycle() -> None:
+    """Any state where the ToF is not facing a level bed must suppress litter.
+
+    13 is the automatic cycle the robot runs on power-up and 14 is the filter
+    wizard, which parks the globe inverted for minutes. Both were unmapped, so
+    both published ToF readings taken off a moving or upturned globe as though
+    they were real litter levels.
+    """
+    for status in (10, 13, 14):
+        state = LitterRobot4State.from_state_doc({"robotStatus": status, "litterLevel": 450})
+        assert state.litter_level_mm is None, f"robotStatus {status} must suppress litter"
+    ready = LitterRobot4State.from_state_doc({"robotStatus": 4, "litterLevel": 450})
+    assert ready.litter_level_mm == 450

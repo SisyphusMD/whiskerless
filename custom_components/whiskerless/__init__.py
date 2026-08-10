@@ -133,6 +133,34 @@ def _enable_hopper_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
     return flipped
 
 
+#: Entities that shipped disabled and are now on by default. Clearing the flag in
+#: the platform only affects entities created from here on: one already in the
+#: registry keeps its stored disabled_by forever, so an existing install would
+#: never see the change.
+_NOW_ENABLED_BY_DEFAULT: tuple[tuple[str, str], ...] = (("button", "calibrate_litter_empty"),)
+
+
+def _promote_newly_default_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
+    """Enable entities that used to default to disabled.
+
+    Only INTEGRATION-disabled entries are touched: someone who turned the entity
+    off by hand keeps that decision, and the entry-wide "disable new entities"
+    preference still wins.
+    """
+    if entry.pref_disable_new_entities:
+        return
+    registry = er.async_get(hass)
+    for domain, key in _NOW_ENABLED_BY_DEFAULT:
+        entity_id = registry.async_get_entity_id(
+            domain, DOMAIN, f"{entry.runtime_data.serial}_{key}"
+        )
+        if entity_id is None:
+            continue
+        existing = registry.async_get(entity_id)
+        if existing is not None and existing.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
+            registry.async_update_entity(entity_id, disabled_by=None)
+
+
 def _drop_hopper_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
     """Discard the one-shot readings that bridged the enabling reload.
 
@@ -156,6 +184,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
     # Before forwarding, so entries an earlier setup created are built enabled
     # in this same pass rather than only after another reload.
     _enable_hopper_entities(hass, entry)
+    _promote_newly_default_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # Again, for entries the platforms just created. If that flipped anything a
     # reload is queued, so the bootstrap readings have to survive to seed it.

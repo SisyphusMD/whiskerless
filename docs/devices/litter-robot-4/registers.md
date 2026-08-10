@@ -90,7 +90,7 @@ was.
 | `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
 | `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum | PROVEN |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
-| `0x09` | catWeight | raw / 100 = lb (telemetry) | HIGH |
+| `0x09` | catWeight | raw / **50** = lb (telemetry) — see the enum note | MED |
 
 ## Enums
 
@@ -103,12 +103,17 @@ named but their exact integers aren't all pinned yet.
   the scale. `4` and `10` are live-captured on both ESP 1.1.75 and 1.4.4; the rest
   on 1.4.4 only. There is no firmware split — the two builds agree on every value
   either has been seen to emit.
+  Also live-captured since: `1`/`2`/`3` during power-up (which of the three means
+  what is unresolved, so they share one slug), **`13` = the automatic cycle a robot
+  runs on boot**, and **`14` = the filter-change wizard**. Both 13 and 14 suppress
+  litter readings — 13 turns the globe, 14 parks it inverted for minutes.
+
   This table previously read `10` = cat/weight pause and `13` = cleaning, tagged
-  PROVEN. That came from a static firmware-RE brief and was never checked against
-  a live cycle. A narrated manual cycle on 1.1.75 holds `robotStatus` at `10` for
-  the entire cycle with `catDetect` at `0` throughout, and `13` has never appeared
-  on either firmware. Other cloud-string states (empty, find-dump, power-up/down,
-  filter-change) exist; their integers remain unpinned.
+  PROVEN, from a static firmware-RE brief never checked against a live cycle. A
+  narrated manual cycle on 1.1.75 holds `robotStatus` at `10` throughout with
+  `catDetect` at `0`, so `10` is the clean cycle. `13` was then removed from the
+  map for lack of any observation, and later captured on a power cycle — so the
+  brief was half right about it: cycling, but not the *clean* cycle.
 - **robotCycleStatus (`0x4E`):** `1` = idle/complete, then `2` → `3` → `4` → `5` → `1`
   per cycle. The cloud names them DUMP → DFI → LEVEL → HOME → IDLE; the drawer is
   measured during `3` and the LitterHopper dispenses during `4`. Captured on both
@@ -121,7 +126,13 @@ named but their exact integers aren't all pinned yet.
 - **nightLightMode (`0x18`):** `0` = off, `1` = on, `2` = auto (PROVEN).
 - **nightLightBrightness (`0x19`):** direct %, common presets 25 / 50 / 100.
 - **globeMotorFault / Retract (`0x35` / `0x4D`):** `0` = none, `1..9` = fault.
-- **catWeight:** raw int16 ÷ 100 = pounds.
+- **catWeight (`0x09`):** raw int16 ÷ **50** = pounds. The divisor was 100 —
+  inherited from the cloud field's units and never checked against a weighed
+  animal — until a live comparison: raw 408 reported twice for a cat weighing
+  ~8.1 lb on a household scale. 408/100 is 4.08 lb, half the cat; 408/50 is 8.16.
+  One comparison against a home weigh-in, so treat it as the better estimate
+  rather than settled — but a factor of 1.99 is not weighing error. A reported
+  weight that looks like double the animal means this went the wrong way.
 
 ## A note on the state document
 

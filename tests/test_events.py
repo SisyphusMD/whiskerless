@@ -18,10 +18,22 @@ def _events(*codes: str):
 
 
 def test_cat_weight_from_visit_burst() -> None:
-    # Real capture 2026-07-27 03:52Z: cat visit emitted 0x0901A2 = 4.18 lb.
+    """Raw 0x01A2 = 418, which is 8.36 lb at the measured divisor.
+
+    The divisor was 100 until a weighed comparison: a robot reporting raw 408 for
+    a cat weighing ~8.1 lb on a household scale. That is a factor of 1.99, which
+    no weighing error explains. See CAT_WEIGHT_DIVISOR.
+    """
     events = _events("0x370011", "0x0901A2", "0x6F0013")
     weights = [e for e in events if isinstance(e, CatWeightMeasured)]
-    assert weights == [CatWeightMeasured(weight_lb=4.18)]
+    assert weights == [CatWeightMeasured(weight_lb=8.36)]
+
+
+def test_the_weight_divisor_matches_the_weighed_observation() -> None:
+    """Raw 408 must report the cat that was actually on the scale, not half of her."""
+    (event,) = _events("0x090198")
+    assert isinstance(event, CatWeightMeasured)
+    assert event.weight_lb == 8.16
 
 
 def test_zero_weight_reading_is_ignored() -> None:

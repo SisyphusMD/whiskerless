@@ -144,3 +144,51 @@ async def test_live_entities_survive_the_sweep(
     assert registry.async_get_entity_id(
         "binary_sensor", "whiskerless", f"{MOCK_SERIAL}_hopper_connected"
     )
+
+
+async def test_an_entity_that_became_default_on_is_enabled_on_upgrade(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Flipping the platform default does nothing for entities that already exist.
+
+    A registry entry keeps the disabled_by it was created with, so without an
+    explicit promotion the change is invisible to every existing install — which
+    is everyone who would benefit from it.
+    """
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    was_disabled = registry.async_get_or_create(
+        "button",
+        "whiskerless",
+        f"{MOCK_SERIAL}_calibrate_litter_empty",
+        config_entry=mock_config_entry,
+        disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+    )
+    assert was_disabled.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    entry = registry.async_get(was_disabled.entity_id)
+    assert entry is not None
+    assert entry.disabled_by is None
+
+
+async def test_a_hand_disabled_entity_is_left_alone(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Someone who turned it off themselves meant it."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    chosen = registry.async_get_or_create(
+        "button",
+        "whiskerless",
+        f"{MOCK_SERIAL}_calibrate_litter_empty",
+        config_entry=mock_config_entry,
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    entry = registry.async_get(chosen.entity_id)
+    assert entry is not None
+    assert entry.disabled_by is er.RegistryEntryDisabler.USER

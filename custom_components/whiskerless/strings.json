@@ -33,7 +33,8 @@
           "powering_up": "Powering up",
           "powering_down": "Powering down",
           "off": "Off",
-          "changing_filter": "Changing filter"
+          "changing_filter": "Changing filter",
+          "power_up_cycle": "Power-up cycle"
         }
       },
       "litter_level": {

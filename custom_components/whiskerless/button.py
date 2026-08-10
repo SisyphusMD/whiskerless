@@ -59,14 +59,13 @@ BUTTONS: tuple[WhiskerlessButtonEntityDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.async_calibrate_litter(empty=False),
     ),
-    # Optional second point. Emptying the globe is a chore nobody should have to
-    # do for a dashboard number, so this upgrades the scale when it happens to
-    # be convenient rather than being required.
+    # Optional second point, but visible: an empty globe happens anyway after an
+    # empty cycle or a litter change, and someone who has one in front of them
+    # should not have to go and enable an entity first to use the moment.
     WhiskerlessButtonEntityDescription(
         key="calibrate_litter_empty",
         translation_key="calibrate_litter_empty",
         entity_category=EntityCategory.CONFIG,
-        entity_registry_enabled_default=False,
         press_fn=lambda coordinator: coordinator.async_calibrate_litter(empty=True),
     ),
 )

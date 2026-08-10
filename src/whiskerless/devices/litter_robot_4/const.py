@@ -87,7 +87,7 @@ class Register(IntEnum):
     # darkened room the panel stepped slightly BRIGHTER (lo = brightness in
     # a DARK room). Yes: the stock config is brighter at night (40/50).
     PANEL_BRIGHTNESS = 0x0E
-    CAT_WEIGHT = 0x09                # activity: raw int16 / 100 = lb
+    CAT_WEIGHT = 0x09                # activity: raw / CAT_WEIGHT_DIVISOR = lb
     LITTER_HOPPER_DISPENSED = 0x0C   # activity
     CLEAN_CYCLE_WAIT_TIME = 0x16     # minutes (direct)
     IS_KEYPAD_LOCKOUT = 0x17         # 0/1
@@ -156,6 +156,20 @@ class Register(IntEnum):
     CAT_VISIT_DURATION = 0xBC
 
 
+# CAT_WEIGHT (0x09) raw-to-pounds divisor.
+#
+# The inherited value was 100, taken from the cloud field's units and never
+# checked against a weighed animal. Measured on 2026-08-10: the robot reported
+# raw 408 twice for a visit by Nahla, who weighs ~8.1 lb on a household scale.
+# 408/100 = 4.08 lb (half the cat); 408/50 = 8.16 lb.
+#
+# ONE comparison, against a home weigh-in that carries its own error — but a
+# factor of 1.99 is not weighing error. Treated as the better of two estimates
+# rather than settled: a second cat, or a second robot, would confirm it. If a
+# reported weight ever looks like double the animal, this is the first suspect.
+CAT_WEIGHT_DIVISOR = 50
+
+
 # PANEL_BUTTON (0x01) values, as emitted by the robot on a physical press and
 # accepted back as a synthesised one. The trailing 01 is the press; 0x010000 is
 # what the register reads between presses.
@@ -222,6 +236,23 @@ ROBOT_STATUS: dict[int, str] = {
     6: "cat_sensor_timing",   # post-visit countdown, early tick (1.4.4)
     7: "cat_sensor_timing",   # countdown / weight-hold, red panel light (1.4.4)
     10: "clean_cycle",        # live-captured, 1.1.75 + 1.4.4
+    # Power-up, captured end to end on 1.1.75 across a panel Power off/on:
+    # robotStatus walks 1 -> 3 -> 2 -> 13, odometerPowerCycles ticking in the same
+    # burst. Which of 1/2/3 means what is unresolved, so all three share a slug.
+    #
+    # 13 is the automatic cycle a robot runs on boot — NOT the ordinary clean
+    # cycle (10). It belongs in CLEANING_STATUSES because the globe is turning:
+    # unmapped, the ToF readings taken mid-rotation publish as a real litter level.
+    1: "powering_up",
+    2: "powering_up",
+    3: "powering_up",
+    13: "power_up_cycle",     # live-captured, 1.1.75
+    # The filter-change wizard, held for the whole wizard: the park rotation, the
+    # indefinite wait, and the Reset-triggered ride home. Captured end to end on
+    # 1.4.4 by CryingPecan. Routed through LITTER_UNRELIABLE_STATUSES rather than
+    # CLEANING_STATUSES because the globe sits inverted and still for minutes —
+    # not cycling, but certainly not measuring litter either.
+    14: "changing_filter",    # live-captured, 1.4.4
     25: "cat_detected",       # weight on the scale / cat inside (1.4.4)
 }
 ROBOT_STATUS_STRINGS: dict[str, str] = {
@@ -235,13 +266,14 @@ ROBOT_STATUS_STRINGS: dict[str, str] = {
     "robot_power_up": "powering_up",
     "robot_power_down": "powering_down",
     "robot_power_off": "off",
-    # The filter-change wizard parks the globe inverted and waits for a physical
-    # press. Captured from a cloud-connected 1.4.4 robot; the matching local ints
-    # have not been observed, so only the string form decodes for now.
+    # The filter-change wizard parks the globe inverted and waits. Both forms
+    # decode: this string from a cloud-connected robot, and the local int 14 above.
     "robot_change_filter": "changing_filter",
 }
 # Status values that mean the globe is actively cycling.
-CLEANING_STATUSES: frozenset[str] = frozenset({"clean_cycle", "empty_cycle"})
+CLEANING_STATUSES: frozenset[str] = frozenset(
+    {"clean_cycle", "empty_cycle", "power_up_cycle"}
+)
 
 # Statuses where the ToF sensors are not looking at a level litter bed, so any
 # litter reading is meaningless. Broader than CLEANING_STATUSES: the

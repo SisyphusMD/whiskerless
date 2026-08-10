@@ -621,7 +621,12 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
 
     async def async_clean_cycle(self) -> None:
         """Run a clean cycle. The robot reports its own progress from there."""
-        await self._press_and_confirm(commands.clean_cycle(), confirms=lambda s: s.is_cleaning)
+        # Specifically clean_cycle, not is_cleaning: the boot cycle also counts as
+        # cleaning, so a press sent during one would be "confirmed" by a cycle it
+        # had nothing to do with.
+        await self._press_and_confirm(
+            commands.clean_cycle(), confirms=lambda s: s.robot_status == "clean_cycle"
+        )
 
     async def async_panel_reset(self) -> None:
         """Press Reset: acknowledge a full alarm, or release a stalled cycle.

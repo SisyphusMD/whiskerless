@@ -122,9 +122,9 @@ async def test_a_live_value_beats_the_restored_one(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     assert hass.states.get("sensor.litter_robot_4_pet_weight").state == "4.18"
 
-    robot.push(json.dumps({"type": "action", "data": ["0x0903AC"]}), ACTIVITY_TOPIC)  # 940 = 9.4 lb
+    robot.push(json.dumps({"type": "action", "data": ["0x0903AC"]}), ACTIVITY_TOPIC)  # 940 raw
     await hass.async_block_till_done()
 
     state = hass.states.get("sensor.litter_robot_4_pet_weight")
     assert state is not None
-    assert state.state == "9.4"
+    assert state.state == "18.8"  # 940 / CAT_WEIGHT_DIVISOR

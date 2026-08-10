@@ -19,8 +19,10 @@ of the below lives in `docs/devices/litter-robot-4/`.
   0.1.2 removal, which pulled a clean-cycle button built on a byte that never was
   the cycle. Both are gated: they turn the globe, so the library refuses them
   unless the caller opts in.
-- **Pet weight actually works.** It is reported only in the activity stream,
-  which was previously used as a poll trigger and thrown away.
+- **Pet weight actually works,** and reports the whole cat. It is carried only in
+  the activity stream, which was previously used as a poll trigger and thrown
+  away — and the raw-to-pounds divisor was inherited, never checked. A weighed
+  comparison showed it reporting half: a cat measuring ~8.1 lb came back as 4.08.
 - **New entities:** last cat visit, last visit duration, waste drawer removed,
   and panel brightness for bright and dark rooms.
 - **LitterHopper support:** connected, fill gauge, and an out-of-litter alert the
@@ -35,8 +37,12 @@ of the below lives in `docs/devices/litter-robot-4/`.
 ### Fixed
 
 - **`robotStatus` 10 is the clean cycle, on every firmware.** The old map called
-  it a cat pause; a narrated live cycle disproved that. Also adds `5`, `6`/`7`
-  and `25`.
+  it a cat pause; a narrated live cycle disproved that. Also adds `5`, `6`/`7`,
+  `25`, the power-up states `1`/`2`/`3`, the boot cycle `13`, and the filter
+  wizard `14`. The last two matter: both move or invert the globe, and while
+  unmapped their ToF readings were published as real litter levels.
+- **The empty-litter calibration button is available without hunting for it.** It
+  shipped disabled, including for anyone who already had it registered.
 - **The cycle phase ladder** now runs `2 → 3 → 4 → 5 → 1`, so robots no longer
   publish `unknown_4` mid-cycle.
 - **Litter readings are suppressed while the globe is not level** — mid-cycle the
