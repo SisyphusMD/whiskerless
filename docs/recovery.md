@@ -65,8 +65,9 @@ isn't something whiskerless causes.)
 The robot reports **events**, so right after connecting there may simply be
 nothing new to report yet. To pull a fresh snapshot on demand:
 
-- **Home Assistant:** enable and press the **Refresh** button (a diagnostic
-  entity), or wait — the integration also polls a full state every few minutes.
+- **Home Assistant:** press the **Refresh** button (a diagnostic entity on the
+  device page), or wait — the integration also polls a full state every few
+  minutes.
 - **CLI:** `whiskerless state …` requests and prints a full state document.
 
 Make sure your listener is subscribed *before* the robot publishes a burst — the

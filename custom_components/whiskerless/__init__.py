@@ -137,7 +137,10 @@ def _enable_hopper_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
 #: the platform only affects entities created from here on: one already in the
 #: registry keeps its stored disabled_by forever, so an existing install would
 #: never see the change.
-_NOW_ENABLED_BY_DEFAULT: tuple[tuple[str, str], ...] = (("button", "calibrate_litter_empty"),)
+_NOW_ENABLED_BY_DEFAULT: tuple[tuple[str, str], ...] = (
+    ("button", "calibrate_litter_empty"),
+    ("button", "refresh"),
+)
 
 
 def _promote_newly_default_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:

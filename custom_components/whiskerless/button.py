@@ -65,11 +65,13 @@ BUTTONS: tuple[WhiskerlessButtonEntityDescription, ...] = (
         entity_registry_enabled_default=False,
         press_fn=lambda coordinator: coordinator.async_power_toggle(),
     ),
+    # Enabled: it is a read-only requestState publish, and it is what the
+    # troubleshooting docs tell you to press when a robot has gone quiet — being
+    # sent to enable an entity first is friction at exactly the wrong moment.
     WhiskerlessButtonEntityDescription(
         key="refresh",
         translation_key="refresh",
         entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
         press_fn=lambda coordinator: coordinator.async_request_refresh(),
     ),
     # Litter percentage has no universal curve — the cloud measures against a
