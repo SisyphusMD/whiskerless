@@ -17,6 +17,10 @@ appeared to succeed — and it is still not writable. A tag inherited from the s
 firmware brief is an inference, not a test, and has already been wrong twice
 (`robotStatus` `13`; the panel sleep bank).
 
+Observations that have not yet earned a row here — a register seen firing once, a
+value pattern from a single cycle — accumulate in
+[`capture-notebook.md`](capture-notebook.md) until a later capture reproduces them.
+
 ## Settings (read + write)
 
 | Reg | Field | Meaning | Conf |
@@ -214,6 +218,11 @@ the only register that appeared in the mains→battery transition burst — a ba
 reading is the obvious guess and is not yet evidence.
 
 A further 33 answer but read zero, which says nothing about their meaning.
+
+`0x3C` and `0x66` are two of those zeroes, and they are the concrete reason a zero says
+nothing: both were later caught emitting on the activity stream during a clean cycle,
+where they carry values that repeat cycle to cycle — see the
+[capture notebook](capture-notebook.md).
 
 ### What the sweep cannot tell you
 
