@@ -55,7 +55,7 @@ jobs:
           # The oldest interpreter pyproject advertises, with the oldest
           # dependencies it advertises — the combination a user on a long-term
           # distro actually gets, and the one nothing else here exercises.
-          python-version: "3.11.0"
+          python-version: "3.11.15"
       - name: Install at the declared minimums
         # `lowest-direct` pins what this project declares (aiomqtt 2.0.0, bleak
         # 0.22.0) while letting their own dependencies resolve normally. A plain
