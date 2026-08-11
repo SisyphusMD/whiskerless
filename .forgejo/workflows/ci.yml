@@ -50,11 +50,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
       - name: Shellcheck
-        # The release path is five shell scripts that only ever run during a
-        # release, so a mistake in one surfaces while cutting it rather than in
-        # review. ruff already covers packaging's Python; this covers the rest.
-        run: shellcheck $(git ls-files '*.sh')
+        # The release path is five shell scripts that only run during a release, so
+        # a mistake in one surfaces while cutting it rather than in review. ruff
+        # already covers packaging's Python; this covers the rest.
+        #
+        # Through a pinned image, not a preinstalled binary: GitHub's hosted runners
+        # ship shellcheck and the Forgejo runner does not, so calling it directly
+        # passes on one forge and fails on the other. docker create/cp/start rather
+        # than a bind mount, because the Forgejo runner is itself containerised and
+        # a -v path from inside it does not resolve on the host daemon.
+        run: |
+          set -euo pipefail
+          # renovate: datasource=docker depName=koalaman/shellcheck
+          SHELLCHECK="koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d"
+          mapfile -t scripts < <(git ls-files '*.sh')
+          cid=$(docker create -w /work "$SHELLCHECK" "${scripts[@]}")
+          docker cp . "$cid":/work
+          rc=0
+          docker start -a "$cid" || rc=$?
+          docker rm "$cid" >/dev/null
+          exit "$rc"
       - name: Documentation links
         # Relative links rot silently: a doc moves and the link keeps rendering,
         # just pointing at nothing. The setup guide alone links to the recovery

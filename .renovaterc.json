@@ -10,7 +10,8 @@
   "fetchChangeLogs": "pr",
   "enabledManagers": [
     "pep621",
-    "github-actions"
+    "github-actions",
+    "custom.regex"
   ],
   "github-actions": {
     "managerFilePatterns": [
@@ -89,6 +90,18 @@
       ],
       "matchCurrentValue": "/^(macos-)?15(-intel)?$/",
       "allowedVersions": "/^(macos-)?15(-intel)?$/"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Docker images pinned tag@digest inside a workflow `docker` shell block. The github-actions manager does not look inside `run:` scripts, so without this the shellcheck image (and any future one) freezes at whatever digest it was pinned to.",
+      "managerFilePatterns": [
+        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+)(?: packageName=(?<packageName>\\S+))?\\s+[^\\n]*?:(?<currentValue>[\\w][\\w.-]*)@(?<currentDigest>sha256:[0-9a-f]+)"
+      ]
     }
   ]
 }
