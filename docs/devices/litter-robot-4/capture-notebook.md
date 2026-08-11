@@ -25,7 +25,12 @@ mosquitto_sub -h <broker> -p 8883 --cafile ca.crt -i <client-id> \
 **Never use the robot's serial as the client id.** It collides with the robot's own
 connection and kicks it off the broker.
 
-Two properties of the robot's output will corrupt a capture if you don't expect them:
+**A `prod/LR4/#` subscription carries every robot on the broker.** Split by the serial in
+the topic before counting anything. Two robots on the same firmware have already been seen
+reporting `catDetect` differently, so a blended capture invents a register that contradicts
+itself.
+
+Three properties of the robot's output will corrupt a capture if you don't expect them:
 
 - **State payloads are pretty-printed JSON**, indented with tabs, so a single state
   message spans ~40 lines in any line-oriented capture. Reassemble by treating the
@@ -35,87 +40,183 @@ Two properties of the robot's output will corrupt a capture if you don't expect 
   than it publishes: events carrying a payload timestamp of `14:29:52` have been seen
   arriving 16 seconds later. Order activity by the payload's own `timestamp` field, never
   by arrival — sorting by arrival silently reorders the cycle.
+- **The robot's clock is not the capture's clock.** One event carried a payload timestamp
+  70 seconds *ahead* of its own arrival. Payload time is the right ordering key within a
+  robot, but do not treat it as accurate wall-clock, and do not compare it across robots.
 
 ## Watchlist
 
 | Question | What would answer it |
 |---|---|
-| Does `catDetect` `2` ever coincide with a cat? | A visit narrated against the clock — `3` has meant a body in the globe 37 times out of 37 |
-| What do `0x3C` / `0x66` measure? | They repeat per cycle — correlate the values against a cycle interrupted mid-way |
-| What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`? | Perturb something physical and watch which one moves |
+| Is `catDetect` a bitfield whose bit 0 is the cat? | Days on the second robot. Bit 0 held for 76 of 77 collapses across two robots, but one reports `3` for a cat and the other `1` |
+| What is `catDetect` bit 1, and why does only the hopper robot set it? | Detach the LitterHopper from robot 1 and see whether the long bit-1-only runs stop |
+| Is `0x32` the sleep flag? | Two transitions in one capture, both 5 s ahead of `sleepStatus`. Toggle sleep by hand and watch it |
+| Is `0x4C` "a cycle is owed"? | It has only ever been seen while asleep, so "a visit while asleep" fits the same data — catch a deferred cycle with sleep off |
+| What do `0x3C` / `0x66` measure? | They repeat per cycle and now reproduce across two robots — correlate against a cycle interrupted mid-way |
+| What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`, `0x71`? | Perturb something physical and watch which one moves |
+| What are `0x0C`, `0x41`, `0x67`? | Robot 2 emitted them in its first cycle after provisioning and robot 1 never has, including on a commanded cycle — watch whether they recur once robot 2 settles |
 | What does the `0x3402C0` tick count? | It runs ≈2-minutely only between a visit and the cycle — change the clean-delay setting and see whether the count follows |
 | Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | More automatic cycles; check whether `0x1064`/`0x1065`/`0xE065` vary with anything visible |
-| Is the `catWeight` divisor 50 or 100? | **A narrated visit** — a known, weighed cat in the globe at a noted time. Raw 809/914/1095 is either 16–22 lb or 8–11 lb, and unattributed readings cannot choose |
+| Is the `catWeight` divisor 50 or 100? | **A narrated visit** — a known, weighed cat in the globe at a noted time. Seven distinct raws are either 13–22 lb or 6.7–11 lb, and unattributed readings cannot choose |
 | Which ToF source drives `litterLevel`? | `0x58`/`0x59`/`0x5A` are all visible individually — check which one the published figure follows |
-| Does anything above `0x7F` exist on 1.1.75? | An accumulating null result across many captures |
+| Does anything above `0x7F` exist on 1.1.75? | An accumulating null result — now two robots, 23h37m and 9m, still nothing |
 
 ## Sessions
 
-### 2026-08-10/11, 12h19m — five clean cycles, five cat visits
+### 2026-08-10/11, 23h37m — two robots, seven clean cycles, an 8-hour sleep window
 
-ESP 1.1.75 (`espFirmware`, all 409 state documents), LitterHopper attached. 1346 records:
-409 state, 500 activity, 437 command. One continuous capture, no pod restarts.
+One continuous capture, no pod restarts. 2336 records reassembled with zero orphan lines
+and zero unparsed payloads.
 
-Read twice before at 4h31m and 8h25m; each pass corrected the one before it, so the
-figures here replace the earlier ones rather than adding to them.
+- **Robot 1** `LR4C654321`, ESP 1.1.75, LitterHopper attached — the whole 23h37m. 2066
+  records: 658 state, 715 activity (604 after dedupe), 693 command. Six clean cycles.
+- **Robot 2** `LR4C123456`, ESP 1.1.75, no hopper — the last **9m34s**, from the moment
+  BLE provisioning put it on this broker. 270 records: 73 state, 124 activity (103 after
+  dedupe), 73 command. One commanded cycle and one cat visit.
 
-**Every time below is the payload's own `timestamp`, not arrival,** and activity counts
-are deduped on `(payload time, register, value)`. Timing this entry off arrival stamps —
-which an earlier pass did — shifts cycle boundaries by seconds and invents differences
-between events that are one redelivered message.
+Read three times before at 4h31m, 8h25m and 12h19m; each pass corrected the one before it,
+so the figures here replace the earlier ones rather than adding to them.
 
-**Registers seen:** `0x01` `0x09` `0x0B` `0x33` `0x34` `0x37` `0x3B` `0x3C` `0x3E` `0x42`
-`0x43` `0x44` `0x47` `0x48` `0x49` `0x4A` `0x4E` `0x4F` `0x57` `0x58` `0x59` `0x5A`
-`0x5E` `0x64` `0x66`.
+**Every time below is the payload's own `timestamp`, not arrival,** activity counts are
+deduped on `(payload time, register, value)`, and **every figure is for one serial.**
+Timing this entry off arrival stamps — which two earlier passes did — shifts cycle
+boundaries by seconds and invents differences between events that are one redelivered
+message. **State documents carry a `timestamp` too**, and it is not decoration: arrival
+lags it by up to 24 s on 516 of the 731 state records here. An earlier draft of this entry
+used state arrival times and got the sleep boundary, the `0x32` lead and the whole `0x37`
+correlation table wrong.
 
-**Nothing above `0x7F`,** across five complete cat visits — the exact scenario that
-should emit `0xBC` (visit duration) and `0xB9` (visit close). Neither has ever appeared
-on this robot.
+**Registers seen, robot 1 (28):** `0x01` `0x09` `0x0B` `0x32` `0x33` `0x34` `0x37` `0x3B`
+`0x3C` `0x3E` `0x42` `0x43` `0x44` `0x47` `0x48` `0x49` `0x4A` `0x4C` `0x4E` `0x4F` `0x57`
+`0x58` `0x59` `0x5A` `0x5E` `0x64` `0x66` `0x71`. The last eleven hours added `0x32`,
+`0x4C` and `0x71`, none of which the 12h19m read had seen.
 
-**`catDetect` `3` means a body in the globe; `2` does not.** All 37 `litterLevel`
-collapses below 300 mm carried `3`; none carried `2`. What separates them is that long
-runs of `2` hold with `litterLevel` sitting at exactly the figures the idle hours on
-either side report, so the ToF is looking at an undisturbed litter bed throughout:
+**Registers seen, robot 2 (25):** the same set less `0x09` `0x32` `0x3B` `0x4C` `0x57`
+`0x71`, plus `0x0C` `0x41` `0x67` — three registers robot 1 has never emitted in 23h37m,
+including during its own commanded cycle.
+
+**Nothing above `0x7F` on either robot,** across ten complete cat visits — nine on robot 1
+and one on robot 2, counting a visit as a run with `catDetect` bit 0 set. That is the exact
+scenario that should emit `0xBC` (visit duration) and `0xB9` (visit close). Neither has
+ever appeared on 1.1.75.
+
+**`catDetect` behaves as if bit 0 tracked the cat.** This is the headline of the two-robot
+window, and it replaces the previous entry's "`3` means a body, `2` does not" — which was
+true of robot 1 and is not a description of the field. It is a correlation across two
+machines, not a decode: `3 == 1 | 2` is arithmetic, and on its own does not distinguish a
+bitfield from an enum that happens to number its states that way.
+
+The two robots run the same firmware and report a cat differently. Robot 1 says `3`;
+robot 2 says `1` and has never once emitted `2` or `3`:
+
+| | `0` | `1` | `2` | `3` |
+|---|---|---|---|---|
+| robot 1, awake | 368 | — | 78 | 47 |
+| robot 1, asleep | 124 | 1 | 9 | 31 |
+| robot 2 | 46 | 27 | — | — |
+
+`3` is `1 | 2`, and testing bit 0 against a `litterLevel` collapse below 300 mm (a body
+in the way of the ToF) separates the two robots' vocabularies cleanly. Excluding cycles,
+where the globe rather than the litter is being measured:
+
+| | bit 0 set | bit 0 clear |
+|---|---|---|
+| robot 1, collapsed | **64** | 1 |
+| robot 1, not collapsed | 15 | 427 |
+| robot 2, collapsed | **12** | 0 |
+| robot 2, not collapsed | 15 | 17 |
+
+**76 of 77 collapses across both robots carry `catDetect & 1`.** The single exception is
+08-11 07:09:24, `litterLevel` 129, `catDetect` `2`. It arrived five seconds after mosquitto
+logged robot 1 re-establishing its session (07:09:19), which is suggestive and no more —
+the document itself is complete and well-formed, and proximity is not evidence that it is
+stale. Treat it as unexplained.
+
+Note also the 30 documents (15 per robot) where bit 0 is set with no collapse. Those are
+consistent with a cat the ToF cannot see, and equally consistent with bit 0 meaning
+something other than a cat.
+
+Bit 1 is something else, and **only the robot with a LitterHopper attached ever sets it.**
+On robot 1 it holds for long stretches with the litter bed undisturbed:
 
 | run of `catDetect` `2` | duration | `litterLevel` |
 |---|---|---|
-| 08-10 18:24:37 | 2h15m51s | 432–434 |
-| 08-11 00:45:05 | 25m18s | 433–434 |
-| 08-11 01:13:59 | 41m24s | 435–441 |
-| 08-11 01:56:37 | 10m05s | 439–440 |
+| 08-10 18:24:36 | 2h15m51s | 432–434 |
+| 08-11 00:45:02 | 25m20s | 433–434 |
+| 08-11 01:13:58 | 41m24s | 435–441 |
+| 08-11 01:56:37 | 10m04s | 439–440 |
 
-That is 3h32m of the 12h19m capture — **29% of the time** — spent reporting a cat with an
-empty globe. It is routine, not an anomaly. `2` also appears as a 6–9 s blip mid-cycle
-(16:37:15, 20:50:12), where a rotating globe is a likelier cause than a cat.
+That is 3h33m of the 23h37m — and **all of it in the first half**, with no bit-1-only run
+at all in the last eleven hours. The 12h19m read called this "29% of the time … routine,
+not an anomaly"; over the full window it is 15%, and it is better described as clustered
+than as routine. The hopper is the one hardware difference between the two robots, which
+is what puts it on the watchlist above.
 
 **It is not a cat identity.** Whisker's multi-pet feature makes that a reasonable guess,
 but within the single 16:26 visit the value ran `3 → 2 → 3 → 2 → 3 → 2 → 3 → 0` — seven
 changes in 131 seconds, each one tracking whether the ToF could see the animal. No
-identity code behaves that way. `1` never appears at all across 409 state documents, and
-none of the 69 fields the state document carries names a pet, a profile or an index; the
-only per-visit measurement the robot publishes is the raw weight on `0x09`. Whatever
-attributes a visit to one of several cats, it is not happening on the device.
+identity code behaves that way, and robot 2 uses a single value for every visit. None of
+the 69 fields the state document carries names a pet, a profile or an index; the only
+per-visit measurement the robot publishes is the raw weight on `0x09`. Whatever attributes
+a visit to one of several cats, it is not happening on the device.
 
-`models.py` decodes the field with `_bool()`, so any non-zero is `cat_detected=True`. On
-this capture that reported a cat for 3h32m with an empty globe, and
-`litter_is_sampleable()` — which wants `cat_detected is False` and `robot_status ==
-"ready"` — discarded the whole window of otherwise ideal settled samples. Not yet a
-reason to change the decode: `2` may mean a cat on the entry step, where the load cells
-feel it and the ToF cannot see it.
+`models.py` decodes the field with `_bool()`, so any non-zero is `cat_detected=True`. That
+is right for robot 2 and wrong for robot 1, where it reported a cat for 3h33m with an empty
+globe and `litter_is_sampleable()` — which wants `cat_detected is False` and `robot_status
+== "ready"` — discarded the whole window of otherwise ideal settled samples. Decoding
+`catDetect & 1` instead would fix robot 1 and leave robot 2 byte-identical. **Not yet:**
+robot 2 has nine minutes and one visit behind it, and bit 0 may still turn out to mean "the
+ToF can see something" rather than "a cat is here" — a cat on the entry step, felt by the
+load cells and invisible to the sensor, would read bit 0 clear either way.
+
+**Robot 1 slept for 8 hours of this capture, and sleep changes what it reports.** The new
+eleven hours are mostly a sleep window, so almost every difference from the 12h19m read
+traces back to it. `sleepStatus` went `1` at 08-11 04:37:34Z and `0` at 12:37:36Z, with
+`panelSleepTime` 1297 and `panelWakeTime` 337 — 21:37 and 05:37 in local time, which puts
+the robot at UTC−7 and confirms the schedule is stored as local minutes. `weekdaySleepModeEnabled`
+read 127 (all seven days) throughout.
+
+While asleep the robot:
+
+- **ran no clean cycle at all**, through four separate cat visits;
+- **never published `robotStatus` `7` or `25`** — 125 and 23 of them while awake, and all
+  165 sleeping state documents read `4`;
+- produced both of the `catDetect` oddities above (the lone `1`, and the lone bit-0-clear
+  collapse).
+
+It did **not** go quiet: 165 state documents arrived on the usual ~5-minute cadence, and
+the activity stream carried 112 emissions, most of them from the four visits. What is true
+is narrower — during the long gaps *between* those visits, `0x3B0001` is the only thing
+that fires, at 08:09:45, 09:10:02, 10:10:19 and 11:10:37, spaced 60m17s, 60m17s and 60m18s.
+
+**`0x32` may be the sleep flag.** `0x320001` fired at 04:37:32 and `0x320000` at 12:37:33 —
+2 s and 3 s before `sleepStatus` changed in the state document — and the register appears
+nowhere else in 23h37m. Two transitions in one capture is not this notebook's bar, so it
+stays here rather than in `registers.md`.
+
+**`0x4C` has only ever been seen asleep.** Nine emissions of `0x4C0001`, every one during a
+sleeping cat visit (04:44, 07:08, 12:02, 12:25), then `0x4C0000` at 12:37:33 alongside the
+`0x32` clear. "A cycle is owed" fits, and so does "a visit happened while asleep" — the
+robot has never been observed owing a cycle while awake, because awake it just runs one.
+
+**`0x71` is unexplained.** A single `0x710001` at 04:24:07, thirteen minutes before sleep,
+and nothing else in the capture.
 
 **`robotStatus` `25` and `7` are live on 1.1.75, and they follow the scale rather than
-the globe.** Both appear in the state documents (`7` ×125, `25` ×20) and `0x340006` puts
+the globe.** Both appear in the state documents (`7` ×125, `25` ×23) and `0x340006` puts
 `6` on the activity stream, though no state document caught it. `registers.md` tags
 `5`/`6`/`7`/`25` as 1.4.4-only; for `6`/`7`/`25` that is now wrong.
 
 The same `4 → 25 → 7` path ran for a real visit (16:26, `catDetect` `3`) and for the
 2h15m run with no body in the globe (18:24, `catDetect` `2`) — consistent with the
 enum's own "weight on the scale" note. A third visit (16:42, 10 s) cleared straight back
-to `4` and never cycled at all.
+to `4` and never cycled at all. **Robot 2's single visit ran the same `4 → 25 → 7` path**,
+which is the first time this has been seen on a second machine.
 
 **The clean-cycle delay counts from the last `0x37` emission, not from `catDetect`
-reaching `0`.** `cleanCycleWaitTime` reads `7` in all 409 state documents, and every
-automatic cycle started 7m00s after the sensor last spoke, to within two seconds:
+reaching `0` — while the robot is awake.** `cleanCycleWaitTime` reads `7` in all 658 state
+documents, and every *awake* automatic cycle started 7m00s after the sensor last spoke, to
+within two seconds:
 
 | last `0x37` | +7m | cycle (`0x34000A`) | error |
 |---|---|---|---|
@@ -124,16 +225,22 @@ automatic cycle started 7m00s after the sensor last spoke, to within two seconds
 | 23:41:32 | 23:48:32 | 23:48:34 | +2s |
 | 02:07:30 | 02:14:30 | 02:14:32 | +2s |
 
-All four automatic cycles in the capture; the fifth was commanded and has no wait to
-measure.
-
 Measured instead from `catDetect` reaching `0`, the first two of those look erratic (+75s
 and +0s) — because a late `0x37` blip at 16:29:48 restarted the timer more than
 a minute after the state document had already published `catDetect` `0`. The sensor
 going quiet and the cat leaving are not the same instant.
 
-Four cycles is a strong correlation but they are all one capture, which is not the bar
-this notebook sets. `registers.md` keeps `0x16` described as the wait it is, with no
+**The sixth cycle looks deferred by sleep.** It broke the pattern at +10m35s: the visit
+ended at 12:27:01 with the robot asleep, its +7m would have landed at 12:34:01 inside the
+sleep window, and the cycle fired at 12:37:36 — the same payload second in which
+`sleepStatus` cleared. Sleep deferring an owed cycle fits that neatly, but **one cycle is
+not a mechanism**, and the coincident timestamps cannot separate "the timer was suspended
+and wake released it" from "wake independently triggers a cycle" or from a timer that ran
+all along and was merely gated at the end. Four cats visited during the sleep window and
+only one cycle ran at wake, so whatever the rule is, it does not queue one per visit.
+
+Four awake cycles is a strong correlation but they are all one capture, which is not the
+bar this notebook sets. `registers.md` keeps `0x16` described as the wait it is, with no
 claim about what starts the clock, until a separate capture reproduces this.
 
 **`0x3C` and `0x66` are cycle-local and not cumulative.** Both fire only during a clean
@@ -150,49 +257,77 @@ phases one-for-one, so even "one per phase" is more than the data supports:
 | 3 | 542, 568, 773, 1081, 1288 | 8475, 12368, 16635, 20604 |
 | 4 | 568, 773, 1081, 1288 | 8479, 12369, 12369, 16631, 20608, 20608 |
 | 5 | 568, 773, 1081, 1288 | 8476, 12368, 12368, 16628, 20609 |
+| 6 (after sleep) | 568, 773, **1080**, 1288 | 8473, 12374, 12374, 16623, 20599, 20599 |
+| **robot 2** (commanded) | **563**, 773, **1075**, 1288 | 8346, 12397, 12397, 16498, 20588 |
 
-Deduped on payload timestamp, `0x3C` emits the **same four values every cycle** — 568,
-773, 1081, 1288 — with cycles 2 and 3 adding one earlier reading (536, 542) and shading
-568 to 567. `0x66` likewise lands in four clusters, ~8477, ~12366, ~16635 and ~20609.
-`0x5E` (10 emissions: 1736, 1740, 1745) and `0x64` (10: 1819, 1834, 1835, 1841, 1842)
-are also cycle-only.
+Deduped on payload timestamp, `0x3C` lands in the **same four tight clusters every cycle** —
+~568, 773, ~1081, 1288 — with cycles 2 and 3 adding one earlier reading (536, 542). The
+12h19m read called these four identical values; the wider sample shows them drifting by a
+count or two (567 in cycle 2, 1080 in cycle 6), so they are readings that repeat, not
+constants. `0x66` likewise lands in four clusters, ~8477, ~12366, ~16635 and ~20609.
+`0x5E` and `0x64` are also cycle-only.
+
+**A second robot reproduces the shape.** Robot 2's first cycle hit 773 and 1288 exactly and
+came within 6 of the other two, so these are close to firmware constants rather than
+per-machine counters — but the small, consistent offsets mean they are readings, not
+literals.
 
 Pairing the two by position rather than by arrival, the ~16:1 ratio holds at two of the
-four slots and misses at the other two: 773 → 12366 is 15.99 and 1288 → 20609 is 16.00,
-but 568 → 8477 is 14.93 and 1081 → 16635 is 15.39. The misses are the interesting part —
-16 × 530 = 8480 and 16 × 1040 = 16640 would both fit, and 530 is close to the extra 536 /
-542 that only cycles 2 and 3 reported. So `0x66` may well be `0x3C` at sixteen times the
-resolution, with `0x3C` not always publishing the reading that pairs with it. Still short
-of a decode.
+four slots and misses at the other two: on robot 1, 773 → 12366 is 15.99 and 1288 → 20609
+is 16.00, but 568 → 8477 is 14.93 and 1081 → 16635 is 15.39. **Robot 2 misses at the same
+two slots** — 16.04 and 15.98 against 14.82 and 15.35 — which is the part that makes this
+look structural. 16 × 530 = 8480 and 16 × 1040 = 16640 would both fit, and 530 is close to
+the extra 536 / 542 that only cycles 2 and 3 reported. So `0x66` may well be `0x3C` at
+sixteen times the resolution, with `0x3C` not always publishing the reading that pairs with
+it. Still short of a decode.
 
-**`0x37` bit 0 mirrors `catDetect` going non-zero** — 51 emissions, every one of them
-followed within a minute by a state document that agrees:
+**`0x37` bit 0 half-mirrors `catDetect`, and the `0x10` / `0x20` group is what decides
+which half.** 85 deduped emissions on robot 1, matched against the first state document
+within 60 s. The 12h19m read gave this as a clean two-row rule over 51 emissions; on the
+full window, and on payload rather than arrival timestamps, only three of the four cells
+hold:
 
-| `0x37` | next `catDetect` |
-|---|---|
-| `0x11` / `0x21` (bit 0 set) | non-zero |
-| `0x10` / `0x20` (bit 0 clear) | falling to 0 |
+| `0x37` | next `catDetect` | |
+|---|---|---|
+| `0x21` (bit 0 set) | non-zero 14/14 | holds |
+| `0x11` (bit 0 set) | non-zero 22/23 | holds |
+| `0x20` (bit 0 clear) | `0` 15/17 | holds |
+| `0x10` (bit 0 clear) | `0` only 5/29 — `2` ×17, `3` ×6 | **does not hold** |
 
-That is a weaker claim than "tracks the cat", and deliberately so: bit 0 was set for the
-2h15m run where `catDetect` read `2` with an empty globe, so it follows the same sensor
-`catDetect` does rather than an animal. The `0x10` / `0x20` field varies independently —
-`0x20` shows up at visit edges and `0x10` during the fine-grained toggling — and is
-unexplained. A fifth value, `0x371021`, appeared once (18:54:42, mid-run).
+So "bit 0 clear means the cat is leaving" is true of the `0x20` group and false of the
+`0x10` group, which is the reverse of the previous reading being a property of bit 0 at
+all. A fifth value, `0x371021`, appeared twice.
+
+Even where it holds this is weaker than "tracks the cat": bit 0 was set through the 2h15m
+run where `catDetect` read `2` with an empty globe, so it follows the same sensor
+`catDetect` does rather than an animal.
+
+**`0x20` is not `catDetect` bit 1**, which is the obvious guess once `catDetect` is read as
+a bitfield: `0x370020` is followed by `catDetect` `0` fifteen times against `2` twice, and
+`3` never. What *is* true, on the thin evidence of two machines: robot 1 emits both the
+`0x10` and `0x20` forms and sets `catDetect` bit 1, and robot 2 emits only `0x370010` /
+`0x370011` and never sets it.
+
+Robot 2 emitted 17 of them through its one visit, tracking `catDetect` `1` and `0` — though
+not in a strict alternation.
 
 `registers.md` rates `0x37` LOW and records the values it had seen as not cat-related;
 these low ones plainly are. It also gives `catDetect` as 0/1/2 in the state document —
 this capture repeatedly shows 3.
 
-**`0x48` → `DFILevelPercent` at ≈0.70, on three independent cycles** — 28 → 20 (0.714),
-32 → 22 (0.688), and 42 → 30 (0.714). The last is the cleanest of the three, being the
-only one where the percent actually moved (20 → 30) rather than restating a value it
-already held. This reproduces on 1.1.75 the ratio `registers.md` derived from a 38-cycle
-capture on 1.4.4. The companion lasers (`0x49`, `0x4A`) fire in the same cycles and only
-in cycles, reading 41/42/47 and 28/32/42.
+**`0x48` → `DFILevelPercent` at ≈0.70, now on four independent cycles** — 28 → 20 (0.714),
+32 → 22 (0.688), 42 → 30 (0.714) and 43 → 30 (0.698). Pair these on the value the percent
+*settles* to, not the next state document: `DFILevelPercent` commits with latency, and
+reading the first document after the emission gives 1.000 / 0.625 / 0.476 and looks like a
+refutation. Two of the four moved the percent rather than restating it (20 → 30, 32 → 30),
+which is the cleaner evidence. This reproduces on 1.1.75 the ratio `registers.md` derived
+from a 38-cycle capture on 1.4.4. The companion lasers (`0x49`, `0x4A`) fire in the same
+cycles and only in cycles, reading 41/42/47/59 and 28/32/40/42.
 
 **`0x58` / `0x59` / `0x5A` behave like the ToF trio `registers.md` says they are.** They
 report in correlated bursts, ordered `0x58` → `0x59` → `0x5A` and spanning about three
-seconds, though not every burst carries all three — the counts are 19 / 14 / 19. Their
+seconds, though not every burst carries all three — the counts are 28 / 22 / 26 on robot 1
+and 8 / 7 / 8 on robot 2 in nine minutes. Their
 values (166–405, 241–437, 135–292) sit in the same millimetre range as `litterLevel`, and
 they cluster in visits, dropping well below the ~433 mm idle bed while a cat is in the
 way. That corroborates from the activity stream what the `catDetect` `3` finding argued
@@ -207,7 +342,8 @@ sources behind `litterLevel`, visible individually.
 **`0x34` and `0x4F` carry values far outside their enums, in two distinct shapes.**
 
 `0x3402C0` (704) is a **≈2-minute tick that runs only between a visit ending and the
-clean cycle starting** — before all four automatic cycles, and nowhere else in 12h19m:
+clean cycle starting** — before all four awake automatic cycles, and nowhere else in
+23h37m:
 
 | before cycle | ticks |
 |---|---|
@@ -216,7 +352,16 @@ clean cycle starting** — before all four automatic cycles, and nowhere else in
 | 23:48:34 | 23:45:03, 23:47:03 |
 | 02:14:32 | 02:09:30, 02:11:31, 02:13:31 |
 
-Two minutes apart to within a second, every time. Whatever it counts, it is not a status.
+Two minutes apart to within a second, every time. All 12 ticks in the capture sit in one of
+those four windows — none stray. Whatever it counts, it is not a status.
+
+The sixth cycle — the one that fired at wake — got **no ticks at all**, which is what a
+countdown that does not run during sleep would look like.
+
+Robot 2 emitted a single tick at 13:56:40, roughly 3½ minutes after its visit ended. That
+is consistent with the same countdown starting, but the capture ends before any cycle could
+follow, so it establishes nothing: a periodic marker or a post-visit one-shot fits that
+lone event just as well.
 
 A second shape fires within a second of an automatic cycle starting and **never on a
 commanded one**: `0x341064`+`0x341065` at 16:36:48, `0x34E065` at 20:49:38, `0x341064` at
@@ -248,22 +393,39 @@ So 2m13s transition-to-idle, 2m21s from the press itself. Measured between the s
 transitions, the second cycle ran 3m49s and the third 2m39s. `odometerCleanCycles`
 increments on the activity stream (`0x3E`) at the *start* of a cycle, not the end.
 
-**Three cat weights, and they sharpen the ÷50 question rather than settling it.** Four
-`0x09` emissions carrying three distinct values: the two reading 809 share one payload
-timestamp (`23:41:35Z`), so they are a single measurement redelivered — checked the way
-this notebook says to check it, by payload timestamp and not by arrival.
+**Seven cat weights, and they sharpen the ÷50 question rather than settling it.** Nine
+`0x09` emissions carrying seven distinct values. The two reading 809 share one payload
+timestamp (`23:41:35Z`) and are a single measurement redelivered; the 666 and 878 pairs
+carry timestamps one and two seconds apart, so by this notebook's own rule they count as
+distinct emissions even though one weigh-in is the likelier physical story.
 
-| `0x09` raw | payload timestamp | ÷50 | ÷100 |
-|---|---|---|---|
-| 914 | 16:28:37Z | 18.28 lb | 9.14 lb |
-| 809 | 23:41:35Z | 16.18 lb | 8.09 lb |
-| 1095 | 02:07:33Z | 21.90 lb | 10.95 lb |
+| `0x09` raw | payload timestamp | ÷50 | ÷100 | |
+|---|---|---|---|---|
+| 914 | 16:28:37Z | 18.28 lb | 9.14 lb | awake |
+| 809 | 23:41:35Z | 16.18 lb | 8.09 lb | awake |
+| 1095 | 02:07:33Z | 21.90 lb | 10.95 lb | awake |
+| 983 | 04:44:44Z | 19.66 lb | 9.83 lb | asleep |
+| 666 | 07:09:25Z | 13.32 lb | 6.66 lb | asleep |
+| 878 | 12:04:34Z | 17.56 lb | 8.78 lb | asleep |
+| 939 | 12:27:02Z | 18.78 lb | 9.39 lb | asleep |
 
-**Nothing here says which cat any reading belongs to.** Three cats share this robot and
-five visits happened, three of which produced a weight — but one animal visiting three
-times would also produce three readings, and a scale reading a shifting cat need not
-repeat itself. "Three values, three cats" is an assumption, not an observation, and the
-rest of this entry does not lean on it.
+**Nothing here says which cat any reading belongs to.** Three cats share this robot, nine
+visits happened and seven weigh-ins came out — but one animal visiting seven times would
+also produce seven readings, and a scale reading a shifting cat need not repeat itself.
+"Seven values, three cats" is an assumption, not an observation, and the rest of this entry
+does not lean on it.
+
+The weigh-ins do not map one-for-one onto the visits either. Five land inside or within
+seconds of a `catDetect` bit-0 run, but 878 came two minutes after one and **1095 came
+eleven minutes after the bit-0 run ended**, during a stretch where only bit 1 was set. That
+does not say the cat had left — this entry does not know what bit 0 measures — and a weight
+sampled during the visit and published late fits equally. Either way `0x09` is not reliably
+co-timed with a bit-0 run, so pairing a weight to an animal by timestamp alone would be
+guesswork on top of guesswork.
+
+The wider sample does move the *spread*, which is the one thing unattributed readings can
+speak to: ÷50 puts this household's cats between 13.3 and 21.9 lb, ÷100 between 6.7 and
+11.0 lb. Neither range is impossible, and neither is evidence on its own.
 
 What the numbers do is strain the evidence that set the divisor to 50: raw 408, reported
 twice, for the one cat ever weighed at ~8.1 lb on a household scale (408/50 = 8.16).
@@ -280,14 +442,22 @@ against a household scale. `registers.md` already warns that "a reported weight 
 like double the animal means this went the wrong way"; a narrated weigh-in is what says
 which direction that applies in.
 
-**`0x57` −30 fires during a clean cycle and only during one** — five emissions at
-14:30:17, 16:39:40, 16:39:41, 20:51:33 and 02:16:11, never once outside a cycle in
-12h19m. It is neither once per cycle nor once per anything: the 16:39 cycle fired it
-twice a second apart (two distinct payload timestamps, not a redelivery), and the 23:48
-cycle fired it not at all — five emissions across four of five cycles. The positives (9, 14, 19, 20, 21, 24, 29,
-70, 90, 99) land around visits and cycle edges. The hopper was attached and dispensing
-throughout, so −30 is not a disconnect; a cycle-time emission fits the timing better than
-the waste-drawer service that `HopperLinkChanged` cites.
+**`0x57` −30 usually fires during a clean cycle, but not only during one.** The 12h19m read
+claimed "never once outside a cycle"; the extra eleven hours broke that. Seven emissions
+now — 14:30:17, 16:39:40, 16:39:41, 20:51:33, 02:16:11, **02:52:34** and 12:39:05 — of
+which six sit inside a cycle and one plainly does not. The 02:52:34 outlier came 2m37s
+after an awake visit that produced no cycle at all (`robotStatus` ran `4 → 25 → 4` and
+never reached `10`).
+
+It is neither once per cycle nor once per anything: the 16:39 cycle fired it twice a second
+apart (two distinct payload timestamps, not a redelivery), and the 23:48 cycle fired it not
+at all. The positives (9, 14, 16, 18, 19, 20, 21, 24, 29, 49, 51, 56, 66, 70, 90, 99, 104)
+land around visits and cycle edges.
+
+**Robot 2 emitted no `0x57` whatsoever** in 9m34s covering a full cycle and a full visit —
+the one window where robot 1 emits it constantly. Robot 2 has no LitterHopper and no hopper
+fields in its state document at all, which is the strongest evidence yet that `0x57` really
+is the hopper register `registers.md` calls it, whatever −30 means within that.
 
 This is not what makes `hopper_connected` read unknown: the coordinator already declines
 to let an unnamed code overwrite an established link state, so −30 passes through
@@ -298,3 +468,36 @@ distance in mm from the top of the globe down, so a cat in the way is measured t
 of the litter surface and the reading collapses — 110 is the distance to the top of the
 cat, not a change in the litter bed. whiskerless already discards these: see
 `litter_is_sampleable()`, which requires a settled, idle robot with no cat detected.
+
+**Robot 2's first nine minutes emit three registers robot 1 never has.** They all landed in
+its first cycle after provisioning, and robot 1's own commanded cycle produced none of
+them, so "commanded cycle" is not the trigger:
+
+| register | emissions |
+|---|---|
+| `0x41` | `0x410000` ×2, 13:49:00 and 13:49:01 |
+| `0x67` | `0x670118` (280), `0x670204` (516), `0x67031E` (798) — all three inside one second |
+| `0x0C` | `0x0C0114` (276) at 13:49:35, then `0x0C103C` and `0x0C2078` at 13:49:55 |
+
+The `0x0C` pair is worth a second look: `0x2078` is exactly twice `0x103C`, and splitting
+each as a leading index and a value gives (1, 60) and (2, 120), also exactly double. That
+is a guess about a two-sample register, not a decode.
+
+Robot 2 also idles at `litterLevel` ~471 against robot 1's ~433 (a shallower bed, not a
+protocol difference), carried `DFILevelPercent` 0 → 19 across its first cycle, and has **no
+hopper fields whatsoever** in its state document.
+
+**Connection behaviour** — this paragraph alone comes from the **broker's** log
+(`kubectl logs` on the mosquitto pod), not from the MQTT capture, which carries only
+`prod/LR4/…` messages and cannot see sessions at all.
+
+Robot 1 reconnected twice, at 07:09:19 and 12:26:02, each logged as "already connected,
+closing old connection" — the same line a client-id collision produces. Both new
+connections came from the robot's own address (192.168.3.30), so this is the robot
+re-establishing a session the broker had not yet reaped, *not* the collision a subscriber
+using the serial as its client id would cause. Robot 2's first connection is 13:47:08 from
+192.168.3.31, and the broker log has nothing for that serial before it.
+
+**No state document went missing for more than ten minutes across the whole 23h37m.**
+Whatever causes the "did not respond to a state request" warnings, it did not happen in
+this window on this robot.
