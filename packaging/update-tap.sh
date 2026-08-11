@@ -30,9 +30,21 @@ url="https://files.pythonhosted.org/packages/source/w/whiskerless/whiskerless-${
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# Built from the checked-out tag, not downloaded. hatchling is reproducible here, so this is the
-# same artifact publish.yml uploaded — and if it is not, the comparison below says so.
-python3 -m build --sdist --outdir "$work/local" "$root" >/dev/null
+# Built from a pristine export of the tag, never from the working tree. hatchling sweeps untracked,
+# un-ignored files into the sdist, so anything sitting beside the checkout — a tap clone, a build
+# directory — silently changes the hash and fails the comparison below for a reason that has nothing
+# to do with PyPI. Exporting also means what gets verified is the tag itself, which is what shipped.
+mkdir -p "$work/src"
+if git -C "$root" rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null 2>&1; then
+  src_ref="refs/tags/$tag"
+else
+  # A shallow checkout of a tag push does not always carry the tag ref; HEAD is that commit.
+  src_ref="HEAD"
+fi
+git -C "$root" archive --format=tar "$src_ref" | tar -x -C "$work/src"
+# hatchling is reproducible here, so this is the same artifact publish.yml uploaded — and if it is
+# not, the comparison below says so.
+python3 -m build --sdist --outdir "$work/local" "$work/src" >/dev/null
 local_sdist="$work/local/whiskerless-${pypi_version}.tar.gz"
 [ -f "$local_sdist" ] || { echo "local build did not produce $local_sdist" >&2; ls "$work/local" >&2; exit 1; }
 

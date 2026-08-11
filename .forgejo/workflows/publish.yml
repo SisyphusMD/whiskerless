@@ -48,9 +48,18 @@ jobs:
         # frozen bundle against the build machine's glibc, and this runner's 2.39
         # would make the published binary refuse to start on Debian 12, RHEL 9 or
         # an older Pi OS — the machines most likely to be near a litter box.
+        #
+        # Source goes in and the binary comes out via `docker cp`, NOT a bind
+        # mount. This runner executes each job inside its own container, so $PWD
+        # is a path in that container while `-v` is resolved by the daemon against
+        # the HOST — where it does not exist, so Docker mounts an empty directory
+        # and the build fails on a missing pyproject.toml. `docker cp` streams
+        # through the daemon API, so it does not care whose filesystem is whose.
+        # (The same bind mount is correct in .github/workflows/release-linux.yml:
+        # GitHub runs steps directly on the VM.)
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD:/w" -w /w quay.io/pypa/manylinux_2_28_x86_64 bash -euo pipefail -c '
+          cid="$(docker create -w /w quay.io/pypa/manylinux_2_28_x86_64 bash -euo pipefail -c '
             PY="$(ls -d /opt/python/cp3*-cp3* | grep -v "t$" | sort -V | tail -1)/bin/python"
             "$PY" -m pip install --upgrade pip pyinstaller
             "$PY" -m pip install ".[ble]"
@@ -58,7 +67,13 @@ jobs:
               --collect-all bleak --collect-all aiomqtt packaging/launcher.py
             "$PY" packaging/check-glibc-floor.py "$(cat packaging/glibc-floor.txt)" \
               dist/whiskerless-linux-x86_64
-          '
+          ')"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          # /w does not exist in the image, so this creates it holding the contents of the checkout.
+          docker cp . "$cid:/w"
+          docker start -a "$cid"
+          mkdir -p dist
+          docker cp "$cid:/w/dist/whiskerless-linux-x86_64" dist/whiskerless-linux-x86_64
       - name: Smoke-test the binary
         # A frozen bundle that misses a hidden import fails at run time, not build
         # time, so a broken artifact would upload looking perfectly healthy.
@@ -109,10 +124,14 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip build
           AUTH="http.extraheader=Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
-          git -c "$AUTH" clone "${GITHUB_SERVER_URL}/SisyphusMD/homebrew-tap.git" tap
+          # Cloned OUTSIDE the checkout. update-tap.sh builds an sdist to compare against PyPI, and
+          # anything left beside the source is swept into it — a tap clone here made the comparison
+          # fail against a hash that was never wrong.
+          tap="$(mktemp -d)/tap"
+          git -c "$AUTH" clone "${GITHUB_SERVER_URL}/SisyphusMD/homebrew-tap.git" "$tap"
           chmod +x packaging/update-tap.sh
-          bash packaging/update-tap.sh "$GITHUB_REF_NAME" tap
-          cd tap
+          bash packaging/update-tap.sh "$GITHUB_REF_NAME" "$tap"
+          cd "$tap"
           git config user.name "forgejo-actions[bot]"
           git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
           git add Formula/
