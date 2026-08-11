@@ -25,9 +25,17 @@ done
 
 id=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -skf "${auth[@]}" "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
 if [ -z "$id" ]; then
+  # Check-then-create, with up to three workflows racing (see github-release.sh).
+  # A loser gets a duplicate-tag error and no id; re-read and adopt the winner's
+  # release, whose notes are the same CHANGELOG section this call would have set.
   id=$(curl --max-time 300 -sSk "${auth[@]}" -H "Content-Type: application/json" \
     -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b,prerelease:($t|test("-rc\\."))}')" \
-    "$api/releases" | jq -r .id)
+    "$api/releases" | jq -r '.id // empty')
+  if [ -z "$id" ]; then
+    id=$(curl --max-time 30 --retry 3 --retry-connrefused --retry-max-time 90 -skf "${auth[@]}" \
+      "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
+  fi
+  [ -n "$id" ] || { echo "could not create or find the release for $tag on $host" >&2; exit 1; }
 fi
 echo "release id on $host: $id"
 

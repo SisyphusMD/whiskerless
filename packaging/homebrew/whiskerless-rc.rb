@@ -1,31 +1,29 @@
-# Homebrew formula for a personal tap (SisyphusMD/homebrew-tap).
+# Homebrew formula for the PRERELEASE (release-candidate) channel of the personal tap.
 #
-# A source install of the Python package into an isolated virtualenv on the user's machine — so
-# there is NO Apple notarization requirement (that applies only to the separate signed .pkg). It is
-# arch-agnostic: the package is pure Python, so a single `brew install` covers macOS (Apple Silicon
-# or Intel) AND Linux (amd64/arm64). Self-contained from the user's side: Homebrew provides
-# python@3.14 + the venv; no user-managed Python. (The .pkg/.deb ship a PyInstaller-frozen bundle
-# instead, for machines without one.)
+# A SEPARATE formula from the stable `whiskerless`, so `brew install sisyphusmd/tap/whiskerless-rc`
+# tracks the newest `-rc.N` while the stable formula stays on the last real release. It exists so a
+# candidate can be validated on a real robot through the same Homebrew path users take, without ever
+# pointing the stable formula at a candidate build. Same source-venv install as the stable formula
+# (see whiskerless.rb for the design notes).
 #
-# The BLE extra is included: `whiskerless provision` is the one command a new user runs, and it is
-# the only one that needs bleak. A formula that installed the CLI but not the provisioner would be
-# the wrong half.
+# The prerelease workflow fills in url/sha per rc.
 #
-# The release workflow fills in url/sha per version.
-#
-# Install:  brew install sisyphusmd/tap/whiskerless
-class Whiskerless < Formula
+# Install:  brew install sisyphusmd/tap/whiskerless-rc
+class WhiskerlessRc < Formula
   include Language::Python::Virtualenv
 
-  desc "Fully-local MQTT control and telemetry for the Whisker Litter-Robot 4"
+  desc "Fully-local MQTT control and telemetry for the Litter-Robot 4 (release candidate)"
   homepage "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
-  url "https://forgejo.bryantserver.com/SisyphusMD/whiskerless/archive/v0.0.0.tar.gz"
+  url "https://forgejo.bryantserver.com/SisyphusMD/whiskerless/archive/v0.0.0-rc.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
 
   # matches the interpreter the .pkg/.deb bundles freeze; bump by hand with each CPython minor —
   # no Renovate manager covers this formula.
   depends_on "python@3.14"
+
+  # Same `whiskerless` binary as the stable formula, so the two cannot coexist.
+  conflicts_with "whiskerless", because: "both install the same whiskerless binary"
 
   # RESOURCES ARE NOT WRITTEN YET. `virtualenv_install_with_resources` installs each resource with
   # pip's --no-deps, so the list has to be the COMPLETE closure — aiomqtt pulls paho-mqtt, and bleak

@@ -21,7 +21,7 @@ jobs:
         # Both ends of the supported range: 3.11 is the floor pyproject
         # advertises, and running only the newest interpreter let 3.12-only
         # syntax reach the library unnoticed.
-        python-version: ["3.11", "3.14"]
+        python-version: ["3.11.0", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -32,7 +32,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,ble]"
       - name: Ruff
-        run: ruff check src custom_components tests
+        run: ruff check src custom_components tests packaging
       - name: Mypy (library, strict)
         run: mypy
       - name: Pytest (library)
@@ -55,7 +55,7 @@ jobs:
           # The oldest interpreter pyproject advertises, with the oldest
           # dependencies it advertises — the combination a user on a long-term
           # distro actually gets, and the one nothing else here exercises.
-          python-version: "3.11"
+          python-version: "3.11.0"
       - name: Install at the declared minimums
         # `lowest-direct` pins what this project declares (aiomqtt 2.0.0, bleak
         # 0.22.0) while letting their own dependencies resolve normally. A plain

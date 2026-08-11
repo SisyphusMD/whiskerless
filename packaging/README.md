@@ -50,22 +50,28 @@ The `.deb`/`.rpm` declare **no** dependency on a system Python: PyInstaller
 bundles the interpreter, so the package works on a machine that has none. That
 is the point — the audience is someone provisioning a robot from a laptop.
 
-### Homebrew (not wired up yet)
+### Homebrew (drafted, NOT publishable yet)
 
-`packaging/homebrew/whiskerless.rb` is a **cask**, not a formula: the macOS
-artifact is an already-notarized `.pkg`, and shipping a bare binary through a
-formula would put it back behind Gatekeeper quarantine.
+`packaging/homebrew/whiskerless.rb` and `whiskerless-rc.rb` are **formulas**, not
+casks — a source install into a virtualenv, matching how `dreame-valetudo` does
+it in the same tap. That needs no Apple notarization (which applies only to the
+separate `.pkg`) and covers macOS and Linux on both architectures from one file.
+The `-rc` formula is separate so a candidate can be validated through the real
+Homebrew path without the stable formula ever pointing at one.
 
-It needs a tap repository that does not exist yet. One-time setup:
+**They are not publishable as they stand.** Two things are missing:
 
-1. Create `github.com/SisyphusMD/homebrew-tap` with a `Casks/` directory.
-2. After a stable release: `packaging/homebrew-cask.sh 0.2.0 > …/Casks/whiskerless.rb`
-   — it downloads both `.pkg` assets and hashes what users will actually get.
-3. Commit it. Users then run `brew install --cask sisyphusmd/tap/whiskerless`.
+1. **Resources.** `virtualenv_install_with_resources` installs each resource with
+   pip's `--no-deps`, so the list must be the complete closure — aiomqtt pulls
+   paho-mqtt, bleak pulls pyobjc-* on macOS and dbus-fast on Linux. Generate it,
+   never hand-write it: `brew update-python-resources Formula/whiskerless.rb`.
+2. **Stamping and publishing.** Nothing fills in `url`/`sha256` per release or
+   pushes to `SisyphusMD/homebrew-tap` (which exists, with a `Formula/` layout).
+   `release.yml` and `prerelease.yml` need that step, plus a PAT with write
+   access to the tap.
 
-Automating step 2 in `release-linux.yml` needs a PAT with write access to the
-tap; until the tap exists there is nothing to push to, and the README's
-download-the-`.pkg` instructions remain correct.
+Until both are done the README's download-the-`.pkg` instructions are the
+correct macOS path, and `brew install sisyphusmd/tap/whiskerless` will not work.
 
 ## Secrets
 

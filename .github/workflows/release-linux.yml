@@ -29,22 +29,39 @@ jobs:
           - os: ubuntu-latest
             arch: amd64
             nfpm_arch: x86_64
+            image: quay.io/pypa/manylinux_2_28_x86_64
             ship_binary: false
           - os: ubuntu-24.04-arm
             arch: arm64
             nfpm_arch: arm64
+            image: quay.io/pypa/manylinux_2_28_aarch64
             ship_binary: true
+    # PyInstaller links the frozen bundle against the BUILD machine's glibc, so a
+    # binary built on the runner itself would demand glibc 2.39 and refuse to start
+    # on Debian 12, RHEL 9 or an older Pi OS. manylinux_2_28 is the oldest ABI we
+    # promise; check-glibc-floor.py below proves the promise was kept.
+    container: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.14"
       - name: Build the binary
         run: |
-          python -m pip install --upgrade pip pyinstaller
-          python -m pip install ".[ble]"
-          pyinstaller --onefile --name whiskerless \
+          set -euo pipefail
+          # manylinux ships every supported CPython under /opt/python; take the
+          # newest non-freethreaded one rather than pinning a tag that ages out.
+          PY="$(ls -d /opt/python/cp3*-cp3* | grep -v 't$' | sort -V | tail -1)/bin/python"
+          echo "building with $($PY -V)"
+          "$PY" -m pip install --upgrade pip pyinstaller
+          "$PY" -m pip install ".[ble]"
+          "$PY" -m PyInstaller --onefile --name whiskerless \
             --collect-all bleak --collect-all aiomqtt packaging/launcher.py
+          # The checker imports PyInstaller to read the embedded archive.
+          echo "PY=$PY" >> "$GITHUB_ENV"
+      - name: Enforce the declared glibc floor
+        # The failure this catches is invisible otherwise: the binary builds,
+        # uploads and runs perfectly on the machine that made it.
+        run: |
+          "$PY" packaging/check-glibc-floor.py \
+            "$(cat packaging/glibc-floor.txt)" dist/whiskerless
       - name: Smoke-test the binary
         # A PyInstaller bundle that misses a hidden import fails at run time, not
         # build time, so the artifact would look fine and be useless. --help

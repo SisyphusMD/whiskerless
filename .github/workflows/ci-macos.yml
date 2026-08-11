@@ -1,0 +1,63 @@
+name: CI (macOS)
+
+# Forgejo remains the primary CI authority; its runners are Linux only. This
+# supplies the macOS legs, which matter here because the standalone provisioner
+# ships as a signed .pkg for both architectures and bleak's Bluetooth backend is
+# platform-specific — a macOS-only import or CoreBluetooth path bug would
+# otherwise be found by whoever downloaded the .pkg.
+#
+# Both the OLDEST supported macOS and the CURRENT one, on both architectures:
+# `macos-latest` alone silently tracks whatever GitHub last promoted, which is
+# the opposite of knowing what the floor is.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: macos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.arch }}, ${{ matrix.tier }})
+    # Forgejo also reads .github/workflows but has no macOS runner.
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+            tier: floor
+          - os: macos-26
+            arch: arm64
+            tier: current
+          - os: macos-15-intel
+            arch: x86_64
+            tier: floor
+          - os: macos-26-intel
+            arch: x86_64
+            tier: current
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,ble]"
+      - name: Pytest (library)
+        # No lint or mypy leg: those are platform-independent and already run on
+        # Linux. What is macOS-specific is whether the code imports and runs.
+        run: pytest -q
+      - name: Import the BLE stack on this platform
+        # bleak resolves its backend at import time (CoreBluetooth here, BlueZ on
+        # Linux). The suite fakes bleak at the transport boundary, so nothing
+        # else proves the real backend loads on the OS the .pkg targets.
+        run: python -c "import bleak; from whiskerless.ble.transport import scan; print('bleak backend imports')"

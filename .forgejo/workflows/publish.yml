@@ -44,11 +44,25 @@ jobs:
         with:
           python-version: "3.14"
       - name: Build Linux binary
+        # Built inside manylinux_2_28, not on the runner: PyInstaller links the
+        # frozen bundle against the build machine's glibc, and this runner's 2.39
+        # would make the published binary refuse to start on Debian 12, RHEL 9 or
+        # an older Pi OS — the machines most likely to be near a litter box.
         run: |
-          python -m pip install --upgrade pip pyinstaller
-          python -m pip install ".[ble]"
-          pyinstaller --onefile --name whiskerless-linux-x86_64 \
-            --collect-all bleak --collect-all aiomqtt packaging/launcher.py
+          set -euo pipefail
+          docker run --rm -v "$PWD:/w" -w /w quay.io/pypa/manylinux_2_28_x86_64 bash -euo pipefail -c '
+            PY="$(ls -d /opt/python/cp3*-cp3* | grep -v "t$" | sort -V | tail -1)/bin/python"
+            "$PY" -m pip install --upgrade pip pyinstaller
+            "$PY" -m pip install ".[ble]"
+            "$PY" -m PyInstaller --onefile --name whiskerless-linux-x86_64 \
+              --collect-all bleak --collect-all aiomqtt packaging/launcher.py
+            "$PY" packaging/check-glibc-floor.py "$(cat packaging/glibc-floor.txt)" \
+              dist/whiskerless-linux-x86_64
+          '
+      - name: Smoke-test the binary
+        # A frozen bundle that misses a hidden import fails at run time, not build
+        # time, so a broken artifact would upload looking perfectly healthy.
+        run: ./dist/whiskerless-linux-x86_64 --help > /dev/null
       - name: Release notes from CHANGELOG
         run: bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
       - name: Create the three releases with the Linux binary

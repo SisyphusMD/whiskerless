@@ -139,18 +139,34 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
 
 ### Changed
 
+- **The Linux binaries would not have started on Debian 12, RHEL 9 or an older
+  Pi OS.** PyInstaller freezes the interpreter but links against the build
+  machine's glibc, so building on a current Ubuntu quietly required glibc 2.39
+  — and nothing noticed, because the binary runs fine on the runner that made
+  it. They are now built in a manylinux_2_28 container and a release fails if
+  any bundled ELF asks for more than the declared floor.
 - **Linux gets arm64 binaries and real packages.** `.deb` and `.rpm` for both
   architectures, plus an arm64 build of the standalone provisioner for
   Raspberry Pis and arm servers — the x86_64 binary already shipped. Neither
   package needs a system Python; PyInstaller bundles it, which is the point on
-  a laptop that has none. A Homebrew cask is written but not published: it
-  needs a tap repository that does not exist yet.
+  a laptop that has none. Homebrew is drafted but **not yet published**: a
+  formula pair (stable + `-rc`) that installs from source into a virtualenv,
+  which needs no notarization and covers macOS and Linux on both architectures
+  from one file. Its resource list still has to be generated and no workflow
+  stamps it, so `brew install` does not work yet.
 - **CI tests what the package advertises, not just what resolves today.** The
   library suite now runs on macOS as well as Linux (the provisioner binary
   ships for macOS, and bleak's backend differs by platform), and a new job
   installs the *oldest* aiomqtt and bleak that pyproject claims to support.
-  The prerelease gate re-checks both floors, since a prerelease can be cut from
-  a branch CI never saw.
+  The Python floor leg now pins 3.11.0 rather than "3.11", which resolved to
+  the newest patch and so tested a floor nobody advertises. macOS is tested at
+  its oldest and current releases on both architectures. The prerelease gate
+  re-checks the floors in their own job, because `uv` leaves a requirement the
+  environment already satisfies alone and would otherwise test latest twice.
+- **Release publishing survives its own concurrency.** Three workflows race to
+  create each release; the helpers did a check-then-create, so a loser hit
+  "already exists" and failed the job. They now adopt the winner's release,
+  whose notes are the same CHANGELOG section they were about to write.
 
 - **The clean cycle, reset and empty presses no longer need a motor opt-in.**
   **Breaking (library):** `Hazard.MOTOR`, `MotorCommandError` and the

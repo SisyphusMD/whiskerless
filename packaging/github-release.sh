@@ -26,8 +26,19 @@ done
 
 id=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -sf "${auth[@]}" "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
 if [ -z "$id" ]; then
-  id=$(curl --max-time 300 -sSf "${auth[@]}" -X POST "$api/releases" \
-    -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b,prerelease:($t|test("-rc\\."))}')" | jq -r .id)
+  # Three workflows race to create this release (Forgejo publish.yml, and
+  # GitHub's release-macos.yml + release-linux.yml). The read above is a
+  # check-then-create, so two of them can both see nothing and both POST; the
+  # loser gets 422 already_exists. Adopt the winner's release rather than
+  # failing — every caller passes the same CHANGELOG section, so the notes it
+  # already set are byte-identical to the ones being abandoned here.
+  id=$(curl --max-time 300 -sS "${auth[@]}" -X POST "$api/releases" \
+    -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b,prerelease:($t|test("-rc\\."))}')" | jq -r '.id // empty')
+  if [ -z "$id" ]; then
+    id=$(curl --max-time 30 --retry 3 --retry-connrefused --retry-max-time 90 -sf "${auth[@]}" \
+      "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
+  fi
+  [ -n "$id" ] || { echo "could not create or find the GitHub release for $tag" >&2; exit 1; }
 fi
 echo "GitHub release id: $id"
 
