@@ -115,7 +115,10 @@ before settling.
 - **Litter level** (%) and **Litter level distance** (mm, diagnostic, disabled by default)
 - **Waste drawer level** (%)
 - **Pet weight** (lb)
+- **Last cat visit** and **Last visit duration** — see the firmware note below
+- **Waste drawer last moved**
 - **Clean cycle count** (diagnostic)
+- **Litter calibration reference** (diagnostic)
 - **Wi-Fi signal** (dBm, diagnostic, disabled by default)
 
 **Binary sensors**
@@ -183,6 +186,25 @@ reading unknown forever on the robots that don't have one:
 dispense or a link message, they enable themselves and come up carrying that
 reading. Detection is remembered, so they stay enabled. If you turn one off by
 hand it stays off.
+
+**Two entities that may not behave the way you expect**
+
+**Last visit duration** needs **ESP 1.4.4 or newer.** The duration arrives on its
+own register, which 1.4.4 emits at the end of every visit — and 1.1.75 appears
+never to emit at all: a 12-hour capture of a 1.1.75 robot recorded five visits and
+three pet-weight readings without a single duration. On 1.4.4 a weight reading is
+always accompanied by a duration, so three weights and no durations is a firmware
+difference rather than a run of short visits. On 1.1.75 the sensor simply stays
+unknown; nothing is misconfigured.
+
+**Cat detected can stay on long after the cat has gone,** sometimes for hours. The
+robot reports occupancy from the scale underneath, not from the sensors that look
+into the globe, and it holds that report while it believes weight is still on the
+scale. A 12-hour capture spent 29% of its time reporting a cat while the distance
+sensors read an ordinary, undisturbed litter bed. If you automate on this entity,
+treat it as "the robot is busy with a cat" rather than "there is a cat in the box
+right now" — and note that the litter percentage deliberately does not sample
+while it is on.
 
 Settings writes are verified by reading them back, and the schedule times retry
 automatically (the robot commits those with a little latency).
