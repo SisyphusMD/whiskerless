@@ -18,17 +18,15 @@ and bridges.
    version string, runs the test gate, commits, tags, and pushes. Git push-mirror
    fans the commit + tag out to GitHub and the NAS Forgejo.
 2. **Forgejo `publish.yml`** (tag-triggered): publishes the library to **PyPI**,
-   builds the **Linux binary**, and **creates the release on all three** (Forgejo,
-   NAS, GitHub) with the CHANGELOG section as the notes + the Linux binary.
+   builds **every Linux artifact** — raw binaries, `.deb` and `.rpm` for amd64 and
+   arm64 — and **creates the release on all three** (Forgejo, NAS, GitHub) with the
+   CHANGELOG section as the notes. Both architectures build locally: buildx's
+   docker-container driver carries QEMU, so the arm64 leg emulates inside the
+   builder rather than needing an arm64 runner.
 3. **GitHub `release-macos.yml`** (mirrored tag, GitHub's free macOS runners — the
-   one job that needs a Mac): builds the **signed + notarized `.pkg`** and appends
-   it to the **GitHub** and **public-Forgejo** releases (all it can reach).
-4. **GitHub `release-linux.yml`** (mirrored tag): builds the **arm64 Linux
-   binary** on GitHub's native arm64 runner and the **`.deb` + `.rpm` for both
-   architectures**, and appends them to the GitHub and public-Forgejo releases.
-   The x86_64 raw binary is deliberately left to `publish.yml` so the two
-   workflows never upload an asset of the same name.
-5. **Forgejo `publish.yml` `nas-pkg` job**: waits for the `.pkg` on the public
+   one job that genuinely needs a Mac): builds the **signed + notarized `.pkg`** and
+   appends it to the **GitHub** and **public-Forgejo** releases (all it can reach).
+4. **Forgejo `publish.yml` `nas-pkg` job**: waits for the `.pkg` on the public
    Forgejo release, then **copies it to the internal NAS** release.
 
 All three releases end up with the same notes; PyPI has the library. The release
@@ -41,22 +39,20 @@ write the same release in any order.
 |---|---|---|
 | `whiskerless` on PyPI | `publish.yml` | any Python 3.11+ |
 | `whiskerless-linux-x86_64` | `publish.yml` | Linux, no Python needed |
-| `whiskerless-linux-arm64` | `release-linux.yml` | Linux arm64 (Pi, arm servers) |
-| `whiskerless_<v>_{amd64,arm64}.deb` | `release-linux.yml` | Debian / Ubuntu |
-| `whiskerless-<v>.{x86_64,aarch64}.rpm` | `release-linux.yml` | Fedora / RHEL |
+| `whiskerless-linux-arm64` | `publish.yml` | Linux arm64 (Pi, arm servers) |
+| `whiskerless_<v>_{amd64,arm64}.deb` | `publish.yml` | Debian / Ubuntu |
+| `whiskerless-<v>.{x86_64,aarch64}.rpm` | `publish.yml` | Fedora / RHEL |
 | `whiskerless-macos-{arm64,x86_64}.pkg` | `release-macos.yml` | macOS, signed + notarized |
 
 The `.deb`/`.rpm` declare **no** dependency on a system Python: PyInstaller
 bundles the interpreter, so the package works on a machine that has none. That
 is the point — the audience is someone provisioning a robot from a laptop.
 
-Both are **installed before they are published**. `release-linux.yml`'s `verify`
-job installs the `.deb` on Debian 12 (glibc 2.36) and the `.rpm` on Rocky 9
-(2.34) and runs the binary; `publish` needs `verify`, so a package that cannot
-install never reaches a release. Those two distros are chosen deliberately:
-both sit above the declared 2.28 floor and below the runner's 2.39, which is
-exactly the window where a binary built on the runner fails and a manylinux one
-must not.
+Both are **installed and run before they are published**, on both architectures,
+by `publish.yml`'s package smoke step. The distro it installs on sits above the
+declared 2.28 glibc floor and below the build image's, which is exactly the
+window where a binary frozen against the wrong libc installs cleanly and then
+refuses to start.
 
 ### Homebrew
 

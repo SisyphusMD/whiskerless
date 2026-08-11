@@ -26,7 +26,6 @@ on:
     workflows:
       - "CI (macOS)"
       - "Release (macOS pkg)"
-      - "Release (Linux arm64 + deb/rpm)"
     types: [completed]
 
 permissions:

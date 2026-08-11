@@ -95,13 +95,33 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Docker images pinned tag@digest inside a workflow `docker` shell block. The github-actions manager does not look inside `run:` scripts, so without this the shellcheck image (and any future one) freezes at whatever digest it was pinned to.",
+      "description": "Docker images pinned tag@digest inside a workflow `docker` shell block, or in the packaging Dockerfiles. The github-actions manager does not look inside `run:` scripts and the dockerfile manager is not enabled, so without this every base image freezes at whatever digest it was pinned to.",
       "managerFilePatterns": [
-        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/"
+        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/",
+        "/^packaging/.+\\.Dockerfile$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+)(?: packageName=(?<packageName>\\S+))?\\s+[^\\n]*?:(?<currentValue>[\\w][\\w.-]*)@(?<currentDigest>sha256:[0-9a-f]+)"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Version pins annotated with a `# renovate:` comment in a workflow shell block \u2014 the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them.",
+      "managerFilePatterns": [
+        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>pypi|python-version) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[A-Z_]+=\"(?<currentValue>[^\"]+)\""
+      ]
     }
-  ]
+  ],
+  "postUpgradeTasks": {
+    "commands": [
+      "bash packaging/refresh-pins.sh"
+    ],
+    "fileFilters": [
+      ".forgejo/workflows/publish.yml"
+    ],
+    "executionMode": "branch"
+  }
 }

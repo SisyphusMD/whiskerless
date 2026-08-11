@@ -55,8 +55,23 @@ sha="$($shacmd "$local_sdist" | awk '{print $1}')"
 # PyPI must already serve exactly these bytes. Homebrew would otherwise surface a mismatch as an
 # install-time checksum failure for whoever happened to install first.
 # -f so an HTTP error page is never hashed as if it were the sdist.
-curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 10 --max-time 120 "$url" -o "$work/remote.tar.gz" \
-  || { echo "could not download the published sdist: $url" >&2; exit 1; }
+#
+# Polled rather than fetched once: this runs seconds after the upload job, and
+# files.pythonhosted.org serves a 404 for a little while after twine reports
+# success. curl's --retry does not treat 404 as retryable, so a fresh release
+# raced the CDN and failed a check that had nothing wrong with it.
+downloaded=""
+deadline=$(( $(date +%s) + 300 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  # No --retry here: the outer loop IS the retry, and nesting one inside the other let a stalling
+  # CDN run four 120s attempts per iteration and blow the five minutes this claims to bound.
+  if curl -fsSL --connect-timeout 10 --max-time 60 "$url" -o "$work/remote.tar.gz"; then
+    downloaded=1
+    break
+  fi
+  sleep 10
+done
+[ -n "$downloaded" ] || { echo "could not download the published sdist within 5 min: $url" >&2; exit 1; }
 remote_sha="$($shacmd "$work/remote.tar.gz" | awk '{print $1}')"
 [ "$remote_sha" = "$sha" ] || {
   echo "PyPI sdist does not match the locally built one" >&2
