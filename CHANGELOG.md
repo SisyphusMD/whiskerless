@@ -7,210 +7,70 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 Thanks to [@CryingPecan](https://github.com/CryingPecan), whose LitterHopper robot
-on ESP 1.4.4 is behind much of what's below.
-
-Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
+on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
+`docs/devices/litter-robot-4/`.
 
 ### Added
 
-- **The clean cycle is back, and reset with it.** Both work by synthesising a
-  panel button press — the code the robot already emits when you press it —
-  proven on ESP 1.1.75 and independently confirmed on 1.4.4. This reverses the
-  0.1.2 removal, which pulled a clean-cycle button built on a byte that never was
-  the cycle.
-- **Pet weight actually works,** and reports the whole cat. It is carried only in
-  the activity stream, which was previously used as a poll trigger and thrown
-  away — and the raw-to-pounds divisor was inherited, never checked. A weighed
-  comparison showed it reporting half: a cat measuring ~8.1 lb came back as 4.08.
-- **New entities:** last cat visit, last visit duration, waste drawer last moved,
+- **The clean cycle and reset buttons are back**, and this time they work: they
+  synthesise the same button press the panel sends. Proven on ESP 1.1.75 and 1.4.4.
+- **Empty cycle and Power buttons**, disabled by default and named `(danger)` — an
+  empty cycle dumps the globe into the drawer, and Power takes the robot off the
+  network. The CLI gains `empty-cycle` and `power`, which prompt first.
+- **Pet weight actually works**, and reports the whole cat rather than half of it.
+- **LitterHopper support**: connected, fill gauge, and an out-of-litter alert the
+  firmware itself never raises. The hopper entities switch themselves on the first
+  time a hopper reports.
+- **Litter level as a percentage.** It calibrates itself over time; one button press
+  with the globe filled to the line pins it immediately.
+- **New entities**: last cat visit, last visit duration, waste drawer last moved,
   and panel brightness for bright and dark rooms.
-- **Empty cycle and Power buttons**, both disabled by default and named
-  `(danger)`: an empty cycle dumps the whole globe into the drawer, and Power
-  toggles the robot off the network. The CLI gains `empty-cycle` and `power`,
-  which prompt before sending.
-- **LitterHopper support:** connected, fill gauge, and an out-of-litter alert the
-  firmware itself never raises. The four hopper entities turn themselves on the
-  first time a hopper reports; one you disable by hand stays off.
-- **Litter percentage calibration.** One button press with the globe filled to
-  the line anchors the percentage to your robot; a second with it empty upgrades
-  to a true two-point scale.
-- **Activity-derived entities survive a restart** instead of reading unknown
-  until the next cat visit or dispense.
-- **The documentation gained the sections the quality scale asks for** and the
-  self-assessment was claiming without them: supported devices, how data is
-  updated, what people use it for, and how to remove the integration. hassfest
-  skips `quality_scale.yaml` for custom integrations, so CI now measures
-  integration coverage itself and gates the config flow at the 100% the scale
-  requires.
+- **Activity-derived entities survive a restart** instead of reading unknown until
+  the next cat visit.
+- **New install channels**: `brew install sisyphusmd/tap/whiskerless`, `.deb` and
+  `.rpm` for amd64 and arm64, and standalone Linux binaries for both. None of them
+  need a system Python — the audience is someone provisioning a robot from a laptop
+  that has none.
 
 ### Fixed
 
-- **The filter-change wizard is decoded** — its status, both cycle phases, and
-  the fact that litter readings during it are meaningless. It cannot be started
-  remotely: the panel chord is a long press, and the robot performs short presses
-  over MQTT while declining long ones.
-- **Every `0x0B` annunciator value is named** (bonnet, cat, cycle, ready, night
-  light, reset), which closes the "random housekeeping chatter" question.
-- **`robotStatus` 10 is the clean cycle, on every firmware.** The old map called
-  it a cat pause; a narrated live cycle disproved that. Also adds `5`, `6`/`7`,
-  `25`, the power-up states `1`/`2`/`3`, the boot cycle `13`, and the filter
-  wizard `14`. The last two matter: both move or invert the globe, and while
-  unmapped their ToF readings were published as real litter levels.
-- **The empty-litter calibration button is available without hunting for it.** It
-  shipped disabled, including for anyone who already had it registered.
-- **The weekday sleep schedule now arms every day.** That setting is a per-day
-  bitmask, not a switch, and turning it on wrote the value for Sunday alone — so
-  it appeared to work if you tested on a Sunday and did nothing all week.
-- **The cycle phase ladder** now runs `2 → 3 → 4 → 5 → 1`, so robots no longer
-  publish `unknown_4` mid-cycle.
-- **Litter readings are suppressed while the globe is not level** — mid-cycle the
-  sensors read the globe, not the litter, and it was published as a real level.
-- **Broker failures are reported, not raised as a traceback.**
-- **The CLI works against a CA generated by this project's own documentation,**
-  which Python 3.13+ rejected under strict X.509 verification.
-- **The panel sleep schedule can now actually be set.** The sleep and wake time
-  entities wrote a register the firmware only computes, so they never did
-  anything; they now write the real per-weekday schedule.
-- **Panel sleep mode says what is actually wrong** instead of timing out. The
-  robot derives it from the weekday sleep schedule, which is the switch to use.
-- **The waste-drawer sensor no longer guesses which way the drawer went.**
-  **Breaking:** `binary_sensor.<robot>_waste_drawer_removed` is replaced by
-  `sensor.<robot>_waste_drawer_last_moved`. Nine different codes turned up across
-  removals and insertions alike, and a direct read answers the same value either
-  way, so the robot reports that the drawer moved and nothing more.
-- **One dispense can no longer prove an empty hopper on its own.** The floor is
-  meant to need corroboration across separate dispenses, but detecting a hopper
-  for the first time reloads the entry, and the fresh coordinator started with an
-  open deduplication window — so a redelivery of that same first dispense, which
-  is exactly when one is most likely to still be in flight, counted as a second
-  one. Only ever affected the first dispense of a robot's life, and only robots
-  that have a hopper at all.
-- **The hopper stops dropping to unknown.** A link code we cannot name is no
-  longer treated as a disconnect — one such code repeats on a healthy, dispensing
-  hopper. Only a proven disconnect changes the state.
-- **A multi-register write no longer loses one of its parts.** Two commands sent
-  back to back were seen landing as one; they are now paced and each is verified.
-- **Pet weight can no longer report a cat 100× too heavy.** It fell back to a
-  state-document field in unknown units that no captured robot actually sends.
-- **Panel brightness is verified rather than assumed.** The library reported every
-  write as successful without checking; it now reads the value back like the rest.
-- `pic_firmware`, previously always null, composed from the local `mb*` fields.
-- Entities a previous version created but this one no longer produces are removed
-  from the registry instead of lingering forever as unavailable.
-- The example dashboard card no longer lists `select.<robot>_clean_cycle_wait_time`,
-  an entity that stopped existing when that control became a number.
-- **`whiskerless set night-light-mode auto` works.** The name-to-number map was
-  passed as `dict.get`'s default argument, which Python evaluates eagerly, so
-  every spelling the map existed to accept — `off`, `on`, `auto` — raised before
-  the lookup could return. It crashed with a traceback rather than an error, and
-  it is the exact command in the README quickstart.
-- **The library has tests where it had none.** The CLI was at 0% despite shipping
-  on PyPI, and `link.apply_setting` — the command line's own copy of the
-  write-verify-retry loop — was barely exercised. Adds the destructive-action
-  confirmation prompts (including that `power` has no `--yes` to skip it), the
-  raw `send` guard path, both transports' retry and give-up behaviour, and the
-  safety chokepoint's last two branches, plus BLE provisioning driven end to end
-  against a faked radio — the one irreversible thing here, and previously the
-  least tested. Library coverage 55% → 99%, with `safety.py` at 100% and both
-  numbers now gated in CI.
-- **The invariants that only ran when someone remembered are now tests.** The
-  version stamper that keeps four release strings in agreement had none, and a
-  disagreement there breaks a HACS install with no other symptom. Joined by
-  checks that `strings.json` and the shipped English still match, that every
-  entity resolves to a translated name, that `quality_scale.yaml` still covers
-  the real rule list, and that the example automations reference entities that
-  exist — each of which caught a real defect by hand first.
-- **The declared Home Assistant minimum was wrong.** `hacs.json` said 2025.2.0,
-  but every platform imports `AddConfigEntryEntitiesCallback`, which Home
-  Assistant only gained in 2025.3.0. HACS enforces that minimum, so a user on
-  2025.2 could install this and watch it fail at import. Nothing caught it
-  because the integration tests only ever run against the newest Home Assistant.
-- **The write paths are tested.** Integration coverage went from 93% to 99% —
-  it had been under the 95% the quality scale asks for while claiming to meet it.
-  Reads were well covered and writes barely were, which is backwards: a decode
-  bug shows a wrong number, a write bug changes the robot. Adds per-platform
-  write tests, every panel press, the activity-stream entities, a snapshot of the
-  whole entity surface, and the coordinator's retry, timeout, unload and
-  broker-not-ready paths. CI now gates the numbers instead of reporting them.
-- **The Refresh button ships enabled.** It is a read-only state request, and it is
-  what the troubleshooting docs tell you to press when a robot has gone quiet —
-  being sent to enable an entity first was friction at the worst moment. Existing
-  installs get it turned on too, unless you disabled it by hand.
+- **The weekday sleep schedule now arms every day.** It is a per-day bitmask, not a
+  switch, and turning it on armed Sunday alone — so it looked fine if you tested on
+  a Sunday and did nothing all week.
+- **The panel sleep schedule can actually be set.** The sleep and wake time entities
+  wrote a register the firmware only computes, so they never did anything.
+- **Litter readings are suppressed while the globe is not level.** Mid-cycle the
+  sensors read the globe rather than the litter, and that was published as a level.
+- **`robotStatus` 10 is the clean cycle** on every firmware; the old map called it a
+  cat pause. The boot cycle and the filter-change wizard are mapped too — both move
+  the globe, and while unmapped their readings published as real litter levels.
+- **`whiskerless set night-light-mode auto` works.** Every spelling the command
+  accepts used to crash — and it is the command in the README quickstart.
+- **The declared Home Assistant minimum was wrong** (2025.2.0), so a user on 2025.2
+  could install this and watch it fail. It is 2025.3.0.
+- **Every settings write is verified** by reading it back, a multi-register write no
+  longer loses one of its parts, and broker failures are reported rather than raised
+  as a traceback.
+- The hopper no longer drops to unknown on a link code that is not a disconnect, and
+  one dispense can no longer prove an empty hopper on its own.
 
 ### Changed
 
-- **Both test suites are gated at 99% coverage**, up from 98% (library) and 95%
-  (integration). The quality scale only asks for 95%; the gates now match what the
-  suites actually hold, so a regression fails the build instead of quietly eating
-  the headroom. `safety.py` and the config flow stay at their separate 100%.
-- **Last visit duration enables itself, like the hopper entities.** It needs ESP
-  1.4.4: a 12-hour capture of a 1.1.75 robot logged five cat visits and three pet
-  weights without one duration, and on 1.4.4 a weight always comes with a
-  duration, so the register is absent rather than the visits being short. It now
-  ships disabled and switches on the first time a robot reports one, carrying that
-  first reading — rather than being a sensor that reads unknown for the life of a
-  1.1.75 robot.
-- **Cat detected is documented as following the scale,** not the sensors looking
-  into the globe, so it can stay on for hours after a cat leaves; the same capture
-  spent 29% of its time reporting a cat over an undisturbed litter bed. The entity
-  list also gained the four entities that ship but were never listed.
-- **The Linux binaries would not have started on Debian 12, RHEL 9 or an older
-  Pi OS.** PyInstaller freezes the interpreter but links against the build
-  machine's glibc, so building on a current Ubuntu quietly required glibc 2.39
-  — and nothing noticed, because the binary runs fine on the runner that made
-  it. They are now built in a manylinux_2_28 container and a release fails if
-  any bundled ELF asks for more than the declared floor.
-- **The packages are installed before they are published.** The `.deb` goes on
-  Debian 12 and the `.rpm` on Rocky 9, and the binary is run, before a release
-  can carry them — both distros sit above the declared glibc floor and below
-  the build runner's, which is the window where this class of bug lives. CI
-  also shellchecks the release scripts and fails on a broken documentation
-  link, neither of which anything checked before.
-- **Linux gets arm64 binaries and real packages.** `.deb` and `.rpm` for both
-  architectures, plus an arm64 build of the standalone provisioner for
-  Raspberry Pis and arm servers — the x86_64 binary already shipped. Neither
-  package needs a system Python; PyInstaller bundles it, which is the point on
-  a laptop that has none.
-- **`brew install sisyphusmd/tap/whiskerless`**, with a separate
-  `whiskerless-rc` channel for candidates. A source install into a virtualenv,
-  so it needs no notarization and covers macOS and Linux on both architectures
-  from one file. The formula checksum is taken from an sdist built locally at
-  the tag and then required to match what PyPI serves — a registry download is
-  what that checksum exists to protect against, so it is never its source.
-- **CI tests what the package advertises, not just what resolves today.** The
-  library suite now runs on macOS as well as Linux (the provisioner binary
-  ships for macOS, and bleak's backend differs by platform), and a new job
-  installs the *oldest* aiomqtt and bleak that pyproject claims to support.
-  The Python floor leg now pins 3.11.0 rather than "3.11", which resolved to
-  the newest patch and so tested a floor nobody advertises. macOS is tested at
-  its oldest and current releases on both architectures. The prerelease gate
-  re-checks the floors in their own job, because `uv` leaves a requirement the
-  environment already satisfies alone and would otherwise test latest twice.
-- **Release publishing survives its own concurrency.** Three workflows race to
-  create each release; the helpers did a check-then-create, so a loser hit
-  "already exists" and failed the job. They now adopt the winner's release,
-  whose notes are the same CHANGELOG section they were about to write.
-
-- **The clean cycle, reset and empty presses no longer need a motor opt-in.**
-  **Breaking (library):** `Hazard.MOTOR`, `MotorCommandError` and the
-  `allow_motor` argument are gone. Writing the panel button register reproduces
-  the code the panel emits, so a written press is the same event as a physical
-  one and the robot's own interlocks apply either way. Power still requires
-  `allow_dangerous`.
-- **Clean cycle wait time is now a number (3–30 minutes), not a select.**
-  **Breaking:** automations using `select.<robot>_clean_cycle_wait_time` must
-  move to `number.<robot>_clean_cycle_wait_time`.
-- Panel brightness High/Low name the **ambient light level**, not the brightness
-  rank. The stock 40/50 is deliberately brighter at night.
-- `isPanelSleepMode` and the panel sleep/wake times are documented as read-only:
-  the firmware computes all three from the weekday schedule registers.
-- The register map now says what PROVEN has to mean, demotes the rows that never
-  earned it, and documents the readable file as `0x00`-`0x7F` with 123 of those 128
-  addresses mapped. `unitPowerType` is pinned (0 = mains, 1 = battery) and
-  `isUSBPowerOn` turns out to mean mains present, not USB. `0x02A10000` returns
-  Wi-Fi RSSI only, not the schedule.
-- Releases are never published before the library version they pin exists on
-  PyPI, and CI now exercises the Python 3.11 floor it advertises.
+- **Breaking:** `binary_sensor.<robot>_waste_drawer_removed` is replaced by
+  `sensor.<robot>_waste_drawer_last_moved`. The robot reports that the drawer moved
+  and never which way — nine codes turned up across removals and insertions alike.
+- **Breaking:** clean cycle wait time is a number (3–30 minutes), not a select. Move
+  automations from `select.<robot>_clean_cycle_wait_time` to
+  `number.<robot>_clean_cycle_wait_time`.
+- **Breaking (library):** `Hazard.MOTOR`, `MotorCommandError` and `allow_motor` are
+  gone. A written press is the same event as a physical one, so the robot's own
+  interlocks apply either way. Power still requires `allow_dangerous`.
+- **Last visit duration needs ESP 1.4.4**, so it ships disabled and switches on the
+  first time a robot reports one. On 1.1.75 that register has never appeared, and the
+  sensor would otherwise read unknown for the life of the robot.
+- **Cat detected follows the scale**, not the sensors looking into the globe, so it
+  can stay on for hours after a cat leaves. Automate on it as "the robot is busy
+  with a cat" rather than "there is a cat in the box right now".
 
 ## [0.1.3] - 2026-07-02
 
