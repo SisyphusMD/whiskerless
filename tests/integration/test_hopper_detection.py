@@ -25,6 +25,15 @@ HOPPER_ENTITIES = (
 # A real dispense triple from a live capture. Phase 1 (0x0C103D) is the fill
 # gauge reading 61, which on that robot was an empty hopper.
 DISPENSE = json.dumps({"type": "action", "data": ["0x0C0105", "0x0C103D", "0x0C2076"]})
+# A healthy 0x57 link report — the only event that proves a hopper exists: a
+# hopperless 1.1.75 robot emits the dispense burst most cycles but has never
+# produced a 0x57.
+LINK_REPORT = json.dumps({"type": "action", "data": ["0x570014"]})
+# Link LAST on purpose: corroboration is computed over the whole message, so a
+# dispense must be believed even when the 0x57 lands after it in the array.
+LINKED_DISPENSE = json.dumps(
+    {"type": "action", "data": ["0x0C0105", "0x0C103D", "0x0C2076", "0x570014"]}
+)
 
 
 def _disabled_by(registry: er.EntityRegistry, domain: str, key: str) -> object:
@@ -48,22 +57,48 @@ async def test_hopper_entities_start_disabled(
         assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION
 
 
-async def test_a_dispense_enables_them(
+async def test_a_link_report_enables_them(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     state_payload: str,
 ) -> None:
-    """First hopper report switches all four on, without a restart."""
+    """First healthy 0x57 report switches all four on, without a restart."""
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
-        robot.push(DISPENSE, ACTIVITY_TOPIC)
+        robot.push(LINK_REPORT, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
     assert mock_config_entry.options[CONF_HOPPER_SEEN] is True
     registry = er.async_get(hass)
     for domain, key in HOPPER_ENTITIES:
         assert _disabled_by(registry, domain, key) is None, f"{key} should be enabled"
+
+
+async def test_a_dispense_alone_does_not_enable_them(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """The dispense burst is not evidence a hopper exists.
+
+    A hopperless 1.1.75 robot emits the same 0x0C burst most cycles (the
+    hopper-attached 1.1.75 never has), so an uncorroborated burst must neither
+    enable the entities nor record any hopper fact.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    with robot_online(robot):
+        robot.push(DISPENSE, ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+
+    assert not mock_config_entry.options.get(CONF_HOPPER_SEEN)
+    data = mock_config_entry.runtime_data.data
+    assert data.hopper_fill_raw is None
+    assert data.last_hopper_dispensed is None
+    registry = er.async_get(hass)
+    for domain, key in HOPPER_ENTITIES:
+        assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION
 
 
 async def test_the_proving_reading_survives_the_reload(
@@ -79,7 +114,7 @@ async def test_the_proving_reading_survives_the_reload(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
-        robot.push(DISPENSE, ACTIVITY_TOPIC)
+        robot.push(LINKED_DISPENSE, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
     # Served straight back by the coordinator the reload built, so the entity
@@ -157,10 +192,19 @@ async def test_a_retained_reading_cannot_corroborate_itself(
 ) -> None:
     """The last gauge value is kept between dispenses, so learning must be driven
     by the dispense event. Sampling it on every heartbeat would let one bad
-    reading confirm itself within seconds and become a permanent anchor."""
+    reading confirm itself within seconds and become a permanent anchor.
+
+    The hopper is pre-armed so no detection reload interrupts the sequence; the
+    persisted flag deliberately does not open the dispense gate (old rc builds
+    set it from bare bursts), so a link report precedes the dispense here —
+    which also exercises the prior-message half of the gate."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
+        robot.push(LINK_REPORT, ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
         robot.push(DISPENSE, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
         # Several ordinary state refreshes, each carrying the retained value.

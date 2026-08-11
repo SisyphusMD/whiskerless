@@ -169,7 +169,7 @@ async def test_a_live_value_beats_the_restored_one(
 
     state = hass.states.get("sensor.litter_robot_4_pet_weight")
     assert state is not None
-    assert state.state == "18.8"  # 940 / CAT_WEIGHT_DIVISOR
+    assert state.state == "9.4"  # 940 / CAT_WEIGHT_DIVISOR
 
 
 async def test_a_decimal_in_the_cache_is_restored_as_a_number(

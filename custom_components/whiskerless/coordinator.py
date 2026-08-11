@@ -409,7 +409,6 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
     def _handle_activity_events(self, message: ActivityMessage) -> bool:
         """Fold an activity message's semantic events into the derived facts."""
         changed = False
-        hopper_reported = False
         duration_reported = False
         # A press we are waiting on, echoed back: the robot confirming it acted.
         if self._awaited_press is not None and any(
@@ -417,18 +416,31 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             for r in message.readings
         ):
             self._press_echo.set()
-        for event in events_from_readings(message.readings):
-            if isinstance(event, HopperDispensed) or (
-                isinstance(event, HopperLinkChanged) and event.connected
-            ):
-                hopper_reported = True
+        events = events_from_readings(message.readings)
+        # Computed over the whole message so corroboration does not depend on
+        # where in one payload's data array the 0x57 landed.
+        link_in_message = any(
+            isinstance(e, HopperLinkChanged) and e.connected for e in events
+        )
+        for event in events:
             if isinstance(event, CatWeightMeasured):
                 self._cat_weight_lb = event.weight_lb
                 self._last_cat_visit = dt_util.utcnow()
                 changed = True
             elif isinstance(event, HopperDispensed):
+                # A dispense burst alone is not evidence a hopper exists: a
+                # hopperless 1.1.75 robot emits the same 0x0C burst most cycles
+                # (phase-1 "gauge" 58-84), while the hopper-attached 1.1.75 has
+                # never emitted 0x0C. Only a healthy 0x57 — which the hopperless
+                # robot has never produced — corroborates the hardware, and the
+                # persisted seen-flag deliberately does not count: earlier rc
+                # builds set it from bare bursts. A real hopper re-proves itself
+                # within a visit, so this costs at most one sample.
+                if not (self._hopper_link_reported or link_in_message):
+                    continue
                 self._last_hopper_dispensed = dt_util.utcnow()
-                # Dispensing is proof of a working link, same as a 0x57 report.
+                # On a corroborated hopper, dispensing is proof of a working
+                # link, same as a 0x57 report.
                 self._hopper_link_reported = True
                 self._hopper_connected = True  # it just dispensed
                 if event.phase == lr4.HOPPER_DISPENSE_FILL_PHASE:
@@ -460,7 +472,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             elif isinstance(event, DrawerBayMoved):
                 self._drawer_last_moved = dt_util.utcnow()
                 changed = True
-        if hopper_reported and not self._hopper_seen:
+        if link_in_message and not self._hopper_seen:
             self._record_hopper_sighting()
         if duration_reported and not self._visit_duration_seen:
             self._record_visit_duration_sighting()

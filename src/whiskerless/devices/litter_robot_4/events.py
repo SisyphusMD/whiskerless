@@ -3,10 +3,12 @@
 Several LR4 facts never appear in the state document and exist ONLY as activity
 readings — live-proven on ESP 1.4.4 with a LitterHopper attached:
 
-* **cat weight** (register 0x09): fires once per cat visit, raw int16 / 50 lb.
+* **cat weight** (register 0x09): fires once per cat visit, raw int16 / 100 lb.
   The local state doc has no weight field, so this stream is the only source.
 * **hopper dispense** (register 0x0C): a burst of phase-tagged values at the
-  tail of a clean cycle when the hopper tops up the globe.
+  tail of a clean cycle. Not proof a hopper exists — a hopperless 1.1.75 robot
+  emits the same burst — so corroborate with 0x57 before treating it as
+  hopper data.
 * **hopper link** (register 0x57): 0xFFF1 (-15) when the hopper connection is
   lost (detach, or any bonnet movement — the hopper mounts on the bonnet);
   positive values while attached.
@@ -68,7 +70,12 @@ class HopperDispensed:
     * phase 1 — **the hopper's own fill gauge**: 89-92 while maintained near
       the owner's ~90% target, declining monotonically (76→66) as the hopper
       ran down. Unitless until the empty/refill anchors calibrate it.
-    * phase 2 — routine step marker (120-121 observed, invariant)
+    * phase 2 — routine step marker (119-121 observed, invariant)
+
+    The burst is NOT evidence a hopper is attached: a hopperless 1.1.75 robot
+    emits it most cycles (phase-1 values 58-84), while the hopper-attached
+    1.1.75 has never emitted 0x0C. Treat phase 1 as a fill gauge only after
+    0x57 has corroborated the hardware.
     """
 
     raw: int
@@ -80,11 +87,11 @@ class HopperDispensed:
 class HopperLinkChanged:
     """Hopper link state (register 0x57).
 
-    Positive values are the healthy per-visit choreography (19-48 observed).
+    Positive values are the healthy per-visit choreography (9-104 observed).
     Negative values are faults, of which only -15 is characterized (detach, and
     any bonnet movement — the hopper mounts on the bonnet). A second negative,
-    -30, was captured on 1.1.75 around waste-drawer service on a robot whose
-    hopper was attached, so the fault space is wider than one code.
+    -30, recurs on 1.1.75 with the hopper attached and healthy — mostly inside
+    clean cycles, once after a visit — so the fault space is wider than one code.
 
     ``connected`` is therefore tri-state: ``None`` for a negative we cannot
     name, rather than forcing an unrecognized fault to read as connected.

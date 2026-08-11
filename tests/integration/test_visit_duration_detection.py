@@ -187,7 +187,7 @@ async def test_a_hopper_sighting_does_not_enable_it(
 
     with robot_online(robot):
         robot.push(
-            json.dumps({"type": "action", "data": ["0x0C0105", "0x0C103D", "0x0C2076"]}),
+            json.dumps({"type": "action", "data": ["0x570014"]}),
             ACTIVITY_TOPIC,
         )
         await hass.async_block_till_done()

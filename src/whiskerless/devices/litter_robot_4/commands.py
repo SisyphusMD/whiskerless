@@ -222,6 +222,12 @@ def panel_reset() -> Command:
 
 
 def set_panel_sleep_mode(enabled: bool) -> Command:
+    """Attempt-and-report only: the firmware refuses this write.
+
+    `0x1A` is computed from `0x1D`, so the write is acknowledged and discarded
+    with the register echoed unchanged. Kept so callers can try once and report
+    the refusal; the real setting is :func:`set_weekday_sleep_enabled`.
+    """
     value = 1 if enabled else 0
     return _cmd(
         encode_write(const.Register.IS_PANEL_SLEEP_MODE, value),
@@ -232,6 +238,8 @@ def set_panel_sleep_mode(enabled: bool) -> Command:
 
 
 def set_panel_sleep_time(minutes_since_midnight: int) -> Command:
+    """Attempt-and-report only: `0x1B` mirrors today's weekday pair and the
+    firmware refuses a direct write. Use :func:`set_panel_sleep_times`."""
     minutes = _clamp(minutes_since_midnight, 0, 1439)
     return _cmd(
         encode_write(const.Register.PANEL_SLEEP_TIME, minutes),
@@ -242,6 +250,8 @@ def set_panel_sleep_time(minutes_since_midnight: int) -> Command:
 
 
 def set_panel_wake_time(minutes_since_midnight: int) -> Command:
+    """Attempt-and-report only: `0x1C` is refused exactly as `0x1B` is. Use
+    :func:`set_panel_wake_times`."""
     minutes = _clamp(minutes_since_midnight, 0, 1439)
     return _cmd(
         encode_write(const.Register.PANEL_WAKE_TIME, minutes),

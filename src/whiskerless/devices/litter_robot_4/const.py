@@ -88,7 +88,10 @@ class Register(IntEnum):
     # a DARK room). Yes: the stock config is brighter at night (40/50).
     PANEL_BRIGHTNESS = 0x0E
     CAT_WEIGHT = 0x09                # activity: raw / CAT_WEIGHT_DIVISOR = lb
-    LITTER_HOPPER_DISPENSED = 0x0C   # activity
+    # Dispense-choreography burst (activity only). NOT proof a hopper exists: a
+    # hopperless 1.1.75 robot emits the same burst most cycles, while the
+    # hopper-attached 1.1.75 has never emitted it — see events.HopperDispensed.
+    LITTER_HOPPER_DISPENSED = 0x0C
     CLEAN_CYCLE_WAIT_TIME = 0x16     # minutes (direct)
     IS_KEYPAD_LOCKOUT = 0x17         # 0/1
     NIGHT_LIGHT_MODE = 0x18          # 0=off 1=on 2=auto
@@ -145,8 +148,9 @@ class Register(IntEnum):
     # Hopper link/state channel (activity only; not in the state document).
     # Live-observed on ESP 1.4.4 with a LitterHopper: 0xFFF1 (-15) = link lost
     # (fires on hopper detach AND bonnet lift — the hopper rides on the bonnet);
-    # positive values (19/30/35-48/87) form an init/measurement sequence whose
-    # exact meaning is still open. See docs/devices/litter-robot-4/registers.md.
+    # positive values (9-104 observed across 1.1.75 and 1.4.4) form an
+    # init/measurement sequence whose exact meaning is still open.
+    # See docs/devices/litter-robot-4/registers.md.
     HOPPER_LINK = 0x57
     TOF1 = 0x58
     TOF2 = 0x59
@@ -174,16 +178,15 @@ WEEKDAY_SLEEP_ALL_DAYS = 0x7F
 
 # CAT_WEIGHT (0x09) raw-to-pounds divisor.
 #
-# The inherited value was 100, taken from the cloud field's units and never
-# checked against a weighed animal. Measured on 2026-08-10: the robot reported
-# raw 408 twice for a visit by Nahla, who weighs ~8.1 lb on a household scale.
-# 408/100 = 4.08 lb (half the cat); 408/50 = 8.16 lb.
-#
-# ONE comparison, against a home weigh-in that carries its own error — but a
-# factor of 1.99 is not weighing error. Treated as the better of two estimates
-# rather than settled: a second cat, or a second robot, would confirm it. If a
-# reported weight ever looks like double the animal, this is the first suspect.
-CAT_WEIGHT_DIVISOR = 50
+# 100, matching the cloud field's units. Briefly 50, on the strength of one
+# reading: raw 408 attributed to Nahla (~8.1 lb on a household scale), where
+# only /50 gives a whole cat. A 23h37m capture then produced seven distinct
+# raws (666-1095) that /50 turns into 13.3-21.9 lb — double every cat in the
+# household (owner-attributed range ~8-12 lb) — while /100 gives 6.7-11.0 lb
+# and reads raw 809 as 8.09 lb, matching Nahla's weigh-in exactly. That makes
+# the lone 408 (~half of 809) the anomaly, not the units. If weights ever look
+# halved again, suspect another 408-style partial reading before this divisor.
+CAT_WEIGHT_DIVISOR = 100
 
 
 # PANEL_BUTTON (0x01) values, as emitted by the robot on a physical press and
@@ -249,7 +252,9 @@ HOPPER_DISPENSE_FILL_PHASE = 1
 # the bare auger; the firmware itself never flags empty and keeps running a
 # normal dispense every cycle) · 84 immediately after a refill (fresh litter
 # mounds unevenly before dispenses redistribute it). The bands don't overlap;
-# <= this threshold means empty.
+# <= this threshold means empty. Only meaningful once 0x57 has corroborated
+# that a hopper exists: a hopperless robot's phase-1 values (58-84 observed)
+# land in the same range.
 HOPPER_FILL_EMPTY_MAX = 72
 
 

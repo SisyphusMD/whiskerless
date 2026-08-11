@@ -17,7 +17,8 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **Empty cycle and Power buttons**, disabled by default and named `(danger)` — an
   empty cycle dumps the globe into the drawer, and Power takes the robot off the
   network. The CLI gains `empty-cycle` and `power`, which prompt first.
-- **Pet weight actually works**, and reports the whole cat rather than half of it.
+- **Pet weight actually works.** Recent rc builds doubled the reading; weights now
+  match the household scale (raw ÷ 100, the cloud's own units).
 - **LitterHopper support**: connected, fill gauge, and an out-of-litter alert the
   firmware itself never raises. The hopper entities switch themselves on the first
   time a hopper reports.
@@ -34,6 +35,9 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 ### Fixed
 
+- **A robot without a LitterHopper no longer grows hopper entities.** The dispense
+  burst turns out to fire on hopperless robots too, so it no longer counts as proof
+  a hopper exists — only a real hopper link report (`0x57`) switches the entities on.
 - **The weekday sleep schedule now arms every day.** It is a per-day bitmask, not a
   switch, and turning it on armed Sunday alone — so it looked fine if you tested on
   a Sunday and did nothing all week.

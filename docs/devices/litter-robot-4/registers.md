@@ -83,10 +83,10 @@ was.
 | `0x07` | unitPowerType | **`0` = mains, `1` = battery** — proven by pulling AC and restoring it | PROVEN |
 | `0x31` | unitPowerStatus | `1` on a running robot; unchanged across a mains→battery→mains transition | LOW |
 | `0x38` | isUSBPowerOn | **mains present, not USB** — went 1→0 with AC out and back, with the hopper untouched throughout. The LR4 has no user USB power; the field is misnamed | PROVEN |
-| `0x32` | sleepStatus | `1` while inside the panel sleep window, `0` outside — tracks the clock, not just the enable bit | PROVEN |
+| `0x32` | sleepStatus | `1` while inside the panel sleep window, `0` outside — tracks the clock, not just the enable bit. The *field* is live-proven (both boundary transitions captured against the schedule); the register number rests on the brief plus one capture's two aligned `0x32` activity transitions | PROVEN (field) |
 | `0x34` | robotStatus | see enum below | PROVEN |
 | `0x35` | globeMotorFaultStatus | 0 = none, 1..9 fault | HIGH |
-| `0x37` | catDetect | **not a boolean** — the state doc shows 0/1/2 while activity carries 16, 17, 32, 33, 256, 512, 1024, and 512/1024 fire on bonnet open/close, nothing cat-related | LOW |
+| `0x37` | catDetect | **not a boolean** — the state doc shows 0–3, and two robots on one firmware use different vocabularies (`3` vs `1` for a cat; see the [notebook](capture-notebook.md)). Activity carries 16/17/32/33 — cat-correlated — plus 256, and 512/1024 on bonnet open/close | LOW |
 | `0x39` | USBFaultStatus | 0/1/2 | HIGH |
 | `0x3A` | isBonnetRemoved | bonnet interlock | HIGH |
 | `0x3B` | isNightLightLEDOn | LED state | HIGH |
@@ -100,7 +100,7 @@ was.
 | `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum | PROVEN |
 | `0x56` | drawer bay | the waste drawer **moved** — direction is not recoverable, see below | PROVEN (as an event) |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
-| `0x09` | catWeight | raw / **50** = lb (telemetry) — see the enum note | MED |
+| `0x09` | catWeight | raw / **100** = lb (telemetry) — see the enum note | MED |
 
 ## Enums
 
@@ -137,13 +137,15 @@ named but their exact integers aren't all pinned yet.
 - **nightLightMode (`0x18`):** `0` = off, `1` = on, `2` = auto (PROVEN).
 - **nightLightBrightness (`0x19`):** direct %, common presets 25 / 50 / 100.
 - **globeMotorFault / Retract (`0x35` / `0x4D`):** `0` = none, `1..9` = fault.
-- **catWeight (`0x09`):** raw int16 ÷ **50** = pounds. The divisor was 100 —
-  inherited from the cloud field's units and never checked against a weighed
-  animal — until a live comparison: raw 408 reported twice for a cat weighing
-  ~8.1 lb on a household scale. 408/100 is 4.08 lb, half the cat; 408/50 is 8.16.
-  One comparison against a home weigh-in, so treat it as the better estimate
-  rather than settled — but a factor of 1.99 is not weighing error. A reported
-  weight that looks like double the animal means this went the wrong way.
+- **catWeight (`0x09`):** raw int16 ÷ **100** = pounds, matching the cloud
+  field's units. The divisor spent a few days at 50 on the strength of one
+  reading — raw 408 attributed to a cat weighing ~8.1 lb on a household scale —
+  until a 23h37m capture produced seven distinct raws (666–1095) that ÷50 turns
+  into 13.3–21.9 lb, double every cat in the household (owner-attributed range
+  ~8–12 lb), while ÷100 gives 6.7–11.0 lb and reads raw 809 as 8.09 lb —
+  matching the same cat's weigh-in exactly. The lone 408 (≈ half of 809) is the
+  unexplained reading, not the units. A narrated visit — known cat, noted time,
+  raw read off the wire — is still what would close this for good.
 
 ## The drawer bay (`0x56`) reports movement, not position — an open problem
 

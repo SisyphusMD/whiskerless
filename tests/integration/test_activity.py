@@ -88,14 +88,15 @@ async def test_the_first_dispense_cannot_corroborate_itself_across_the_reload(
 ) -> None:
     """The sharpest version of the redelivery problem, and the one that shipped.
 
-    The very first dispense of a robot's life also detects the hopper, which
-    enables its entities and reloads the entry. A fresh coordinator starts with an
-    open deduplication window, so a redelivery arriving in that gap — seconds
-    after the original, exactly when one is most likely to still be in flight —
-    used to count as a second dispense and anchor the empty floor on its own.
+    The first believed dispense of a robot's life rides in with the 0x57 report
+    that detects the hopper, which enables its entities and reloads the entry. A
+    fresh coordinator starts with an open deduplication window, so a redelivery
+    arriving in that gap — seconds after the original, exactly when one is most
+    likely to still be in flight — used to count as a second dispense and anchor
+    the empty floor on its own.
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
-    dispense = _activity("0x0C0105", "0x0C103D", "0x0C2076")
+    dispense = _activity("0x570014", "0x0C0105", "0x0C103D", "0x0C2076")
 
     with robot_online(robot):
         robot.push(dispense, ACTIVITY_TOPIC)
@@ -141,7 +142,9 @@ async def test_a_redelivered_dispense_does_not_corroborate_itself(
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
     robot = await setup_integration(hass, mock_config_entry, state_payload)
-    dispense = _activity("0x0C0105", "0x0C103D", "0x0C2076")
+    # The 0x57 rides along because the persisted flag alone no longer opens the
+    # dispense gate; the pre-armed option still keeps the detection reload away.
+    dispense = _activity("0x570014", "0x0C0105", "0x0C103D", "0x0C2076")
 
     with robot_online(robot):
         for _ in range(2):
