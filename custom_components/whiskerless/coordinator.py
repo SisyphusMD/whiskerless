@@ -53,6 +53,7 @@ from whiskerless.devices.litter_robot_4.events import (
     HopperLinkChanged,
     events_from_readings,
 )
+from whiskerless.devices.litter_robot_4.models import cat_detect_bit0
 from whiskerless.devices.litter_robot_4.protocol import (
     ActivityMessage,
     StateMessage,
@@ -62,12 +63,18 @@ from whiskerless.devices.litter_robot_4.protocol import (
 from whiskerless.safety import assert_sendable
 
 from .const import (
+    CONF_CAT_VISIT_LAST,
+    CONF_CAT_VISIT_SEEN,
+    CONF_DRAWER_LAST,
+    CONF_DRAWER_SEEN,
     CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
     CONF_LEARNED_HOPPER,
     CONF_LEARNED_LITTER,
     CONF_LITTER_EMPTY_MM,
     CONF_LITTER_FULL_MM,
+    CONF_PET_WEIGHT_LAST,
+    CONF_PET_WEIGHT_SEEN,
     CONF_SERIAL,
     CONF_VISIT_DURATION_LAST,
     CONF_VISIT_DURATION_SEEN,
@@ -159,6 +166,9 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._hopper_link_reported = False
         self._hopper_seen = bool(config_entry.options.get(CONF_HOPPER_SEEN))
         self._visit_duration_seen = bool(config_entry.options.get(CONF_VISIT_DURATION_SEEN))
+        self._drawer_seen = bool(config_entry.options.get(CONF_DRAWER_SEEN))
+        self._pet_weight_seen = bool(config_entry.options.get(CONF_PET_WEIGHT_SEEN))
+        self._cat_visit_seen = bool(config_entry.options.get(CONF_CAT_VISIT_SEEN))
         self._learned_litter = Learned.from_dict(config_entry.options.get(CONF_LEARNED_LITTER))
         self._learned_hopper = Learned.from_dict(config_entry.options.get(CONF_LEARNED_HOPPER))
         self._last_hopper_dispensed: datetime | None = None
@@ -198,6 +208,16 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             visit_at = duration_last.get("visit_at")
             if visit_at:
                 self._last_cat_visit = dt_util.parse_datetime(visit_at)
+        # And for the other gated event sensors, enabled by the same mechanism.
+        drawer_last = config_entry.options.get(CONF_DRAWER_LAST) or {}
+        if drawer_last.get("moved_at"):
+            self._drawer_last_moved = dt_util.parse_datetime(drawer_last["moved_at"])
+        weight_last = config_entry.options.get(CONF_PET_WEIGHT_LAST) or {}
+        if weight_last.get("weight_lb") is not None:
+            self._cat_weight_lb = weight_last["weight_lb"]
+        visit_last = config_entry.options.get(CONF_CAT_VISIT_LAST) or {}
+        if visit_last.get("visit_at"):
+            self._last_cat_visit = dt_util.parse_datetime(visit_last["visit_at"])
 
 
 
@@ -271,55 +291,74 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             self._persist_learned()
 
     @callback
-    def _record_hopper_sighting(self) -> None:
-        """Persist that this robot has a hopper, with the readings that proved it.
+    def _record_sighting(self, seen_key: str, last_key: str, payload: dict[str, object]) -> None:
+        """Persist a first sighting, with the readings that proved it.
 
         Deliberately only writes state here. Enabling the entities happens in
         async_setup_entry, after the platforms have registered them, so this can
-        never race platform setup; the reload below is what gets us there.
+        never race platform setup — and the CALLER schedules the reload that
+        gets us there, once per message, however many sightings it proved.
         """
-        self._hopper_seen = True
-        dispensed = self._last_hopper_dispensed
         self.hass.config_entries.async_update_entry(
             self.config_entry,
-            options={
-                **self.config_entry.options,
-                CONF_HOPPER_SEEN: True,
-                CONF_HOPPER_LAST: {
-                    "connected": self._hopper_connected,
-                    "fill": self._hopper_fill_raw,
-                    "dispensed": dispensed.isoformat() if dispensed else None,
-                },
+            options={**self.config_entry.options, seen_key: True, last_key: payload},
+        )
+
+    @callback
+    def _record_hopper_sighting(self) -> None:
+        self._hopper_seen = True
+        dispensed = self._last_hopper_dispensed
+        self._record_sighting(
+            CONF_HOPPER_SEEN,
+            CONF_HOPPER_LAST,
+            {
+                "connected": self._hopper_connected,
+                "fill": self._hopper_fill_raw,
+                "dispensed": dispensed.isoformat() if dispensed else None,
             },
         )
-        self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
     @callback
     def _record_visit_duration_sighting(self) -> None:
-        """Persist that this robot reports visit durations, with the one that proved it.
-
-        Same contract as :meth:`_record_hopper_sighting`: state only here, the
-        entity is enabled in async_setup_entry after the platforms have
-        registered it, and the reload below is what gets us there.
-        """
         self._visit_duration_seen = True
         visit = self._last_cat_visit
-        self.hass.config_entries.async_update_entry(
-            self.config_entry,
-            options={
-                **self.config_entry.options,
-                CONF_VISIT_DURATION_SEEN: True,
-                CONF_VISIT_DURATION_LAST: {
-                    "duration_s": self._last_visit_duration_s,
-                    # The same event stamps last_cat_visit, an always-enabled
-                    # sensor that would otherwise be reset to unknown by the
-                    # reload this schedules — and its own restore cache is
-                    # seconds too old to help.
-                    "visit_at": visit.isoformat() if visit else None,
-                },
+        self._record_sighting(
+            CONF_VISIT_DURATION_SEEN,
+            CONF_VISIT_DURATION_LAST,
+            {
+                "duration_s": self._last_visit_duration_s,
+                # The same event stamps last_cat_visit, whose own restore cache
+                # is seconds too old to survive the reload this schedules.
+                "visit_at": visit.isoformat() if visit else None,
             },
         )
-        self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
+
+    @callback
+    def _record_drawer_sighting(self) -> None:
+        self._drawer_seen = True
+        moved = self._drawer_last_moved
+        self._record_sighting(
+            CONF_DRAWER_SEEN,
+            CONF_DRAWER_LAST,
+            {"moved_at": moved.isoformat() if moved else None},
+        )
+
+    @callback
+    def _record_pet_weight_sighting(self) -> None:
+        self._pet_weight_seen = True
+        self._record_sighting(
+            CONF_PET_WEIGHT_SEEN, CONF_PET_WEIGHT_LAST, {"weight_lb": self._cat_weight_lb}
+        )
+
+    @callback
+    def _record_cat_visit_sighting(self) -> None:
+        self._cat_visit_seen = True
+        visit = self._last_cat_visit
+        self._record_sighting(
+            CONF_CAT_VISIT_SEEN,
+            CONF_CAT_VISIT_LAST,
+            {"visit_at": visit.isoformat() if visit else None},
+        )
 
     @property
     def litter_full_mm(self) -> int | None:
@@ -410,6 +449,8 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         """Fold an activity message's semantic events into the derived facts."""
         changed = False
         duration_reported = False
+        weight_reported = False
+        drawer_reported = False
         # A press we are waiting on, echoed back: the robot confirming it acted.
         if self._awaited_press is not None and any(
             r.register == lr4.Register.PANEL_BUTTON and r.value == self._awaited_press
@@ -426,6 +467,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             if isinstance(event, CatWeightMeasured):
                 self._cat_weight_lb = event.weight_lb
                 self._last_cat_visit = dt_util.utcnow()
+                weight_reported = True
                 changed = True
             elif isinstance(event, HopperDispensed):
                 # A dispense burst alone is not evidence a hopper exists: a
@@ -471,11 +513,28 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 changed = True
             elif isinstance(event, DrawerBayMoved):
                 self._drawer_last_moved = dt_util.utcnow()
+                drawer_reported = True
                 changed = True
+        sighted = False
         if link_in_message and not self._hopper_seen:
             self._record_hopper_sighting()
+            sighted = True
         if duration_reported and not self._visit_duration_seen:
             self._record_visit_duration_sighting()
+            sighted = True
+        if weight_reported and not self._pet_weight_seen:
+            self._record_pet_weight_sighting()
+            sighted = True
+        if (weight_reported or duration_reported) and not self._cat_visit_seen:
+            self._record_cat_visit_sighting()
+            sighted = True
+        if drawer_reported and not self._drawer_seen:
+            self._record_drawer_sighting()
+            sighted = True
+        if sighted:
+            # One reload however many sightings this message proved: each
+            # scheduled reload is a full unload/setup cycle, not debounced.
+            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
         return changed
 
 
@@ -501,6 +560,26 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         try:
             parsed = parse_message(message.topic, message.payload)
             if isinstance(parsed, StateMessage):
+                # Visits are stamped from the occupancy transition too: some
+                # robots never emit a weight or duration event, and their
+                # visits are real anyway. Bit 0, not the decoder's any-nonzero
+                # boolean: bit-1-only runs last hours with an empty globe on
+                # hopper robots and are not visits. False -> True only — a
+                # first document arriving mid-visit proves presence, not an
+                # arrival.
+                prev_bit0 = (
+                    cat_detect_bit0(self._robot.raw.get("catDetect"))
+                    if self._robot is not None
+                    else None
+                )
+                new_bit0 = cat_detect_bit0(parsed.state.raw.get("catDetect"))
+                if prev_bit0 is False and new_bit0 is True:
+                    self._last_cat_visit = dt_util.utcnow()
+                    if not self._cat_visit_seen:
+                        self._record_cat_visit_sighting()
+                        self.hass.config_entries.async_schedule_reload(
+                            self.config_entry.entry_id
+                        )
                 self._robot = parsed.state
                 self._learn(parsed.state)
                 self._state_event.set()

@@ -28,7 +28,11 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
-from whiskerless.devices.litter_robot_4.models import litter_level_percent_from_mm
+from whiskerless.devices.litter_robot_4.calibration import hopper_percent_provisional
+from whiskerless.devices.litter_robot_4.models import (
+    LITTER_DEFAULT_FULL_MM,
+    litter_level_percent_from_mm,
+)
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator, WhiskerlessData
 from .entity import WhiskerlessEntity
@@ -117,6 +121,8 @@ class WhiskerlessDataSensorEntityDescription(SensorEntityDescription):
     # State-sourced ones must not: their None is an active suppression, and
     # showing the last value would contradict it.
     restores: bool = True
+    # Extra attributes, e.g. whether a value is a calibration or a default.
+    attributes_fn: Callable[[WhiskerlessData], dict[str, str] | None] | None = None
 
 
 # These facts exist ONLY in the activity stream: the local state document never
@@ -157,12 +163,19 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         # NAME with the firmware's raw value, and no captured robot has ever emitted
         # it, so whether it needs the activity register's ÷100 is untested — falling
         # back to it would risk reporting a 12 lb cat as 1200 lb.
+        # Gated: one live 1.1.75 robot has never emitted a weight in 30 h of
+        # visits, and there this would be a permanent unknown.
+        entity_registry_enabled_default=False,
         data_fn=lambda data: data.cat_weight_lb,
     ),
     WhiskerlessDataSensorEntityDescription(
         key="last_cat_visit",
         translation_key="last_cat_visit",
         device_class=SensorDeviceClass.TIMESTAMP,
+        # Gated like the rest of the event sensors, but stamped from the
+        # occupancy transition as well as weight/duration events, so it enables
+        # at the first visit on every robot.
+        entity_registry_enabled_default=False,
         data_fn=lambda data: data.last_cat_visit,
     ),
     # Register 0x56 reports that the drawer moved but not which way, and a read
@@ -173,6 +186,10 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         key="waste_drawer_last_moved",
         translation_key="waste_drawer_last_moved",
         device_class=SensorDeviceClass.TIMESTAMP,
+        # Gated: 0x56 has never been observed on 1.1.75 — a real drawer
+        # emptying there left no event — so this may never fire on some
+        # firmware.
+        entity_registry_enabled_default=False,
         data_fn=lambda data: data.drawer_last_moved,
     ),
     WhiskerlessDataSensorEntityDescription(
@@ -209,18 +226,40 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        data_fn=lambda data: data.litter_reference_mm,
+        # An uncalibrated robot runs on the approximation curve's anchor, and
+        # showing that anchor (labelled) beats reading unknown until someone
+        # presses a calibration button.
+        data_fn=lambda data: (
+            data.litter_reference_mm
+            if data.litter_reference_mm is not None
+            else LITTER_DEFAULT_FULL_MM
+        ),
+        attributes_fn=lambda data: {
+            "source": "calibrated" if data.litter_reference_mm is not None else "default"
+        },
         restores=False,
     ),
-    # The percentage the raw gauge means on THIS robot, once its floor and
-    # ceiling have been learned. Unknown until the scale is wide enough to trust.
+    # The percentage the raw gauge means on THIS robot once its floor has been
+    # learned; before that, a display-only estimate against the typical band,
+    # labelled via the source attribute.
     WhiskerlessDataSensorEntityDescription(
         key="hopper_level",
         translation_key="hopper_level",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_registry_enabled_default=False,
-        data_fn=lambda data: data.hopper_fill_percent,
+        data_fn=lambda data: (
+            data.hopper_fill_percent
+            if data.hopper_fill_percent is not None
+            else (
+                hopper_percent_provisional(data.hopper_fill_raw)
+                if data.hopper_fill_raw is not None
+                else None
+            )
+        ),
+        attributes_fn=lambda data: {
+            "source": "measured" if data.hopper_fill_percent is not None else "estimate"
+        },
         # Never restored. This is unknown both when there is no reading and when
         # the learned scale is not yet trusted, and resurrecting an old
         # percentage in the second case would show a number derived from a scale
@@ -314,3 +353,9 @@ class WhiskerlessDataSensor(WhiskerlessEntity, RestoreSensor):
         if current is None and self.entity_description.restores:
             return self._restored
         return current
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        fn = self.entity_description.attributes_fn
+        return fn(self.coordinator.data) if fn else None

@@ -18,7 +18,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
 )
 
-from . import setup_integration
+from . import seed_gated_sensors, setup_integration
 from .const import ACTIVITY_TOPIC, MOCK_SERIAL
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
@@ -37,7 +37,9 @@ def _duration_reported(hass: HomeAssistant, entry: MockConfigEntry) -> None:
     tests model.
     """
     entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(entry, options={CONF_VISIT_DURATION_SEEN: True})
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_VISIT_DURATION_SEEN: True}
+    )
     er.async_get(hass).async_get_or_create(
         "sensor",
         "whiskerless",
@@ -80,6 +82,7 @@ async def test_a_timestamp_sensor_survives_a_restart(
     state_payload: str,
 ) -> None:
     """Timestamps restore as datetimes, not re-parsed strings."""
+    seed_gated_sensors(hass, mock_config_entry)
     mock_restore_cache_with_extra_data(
         hass,
         (
@@ -107,7 +110,9 @@ async def test_a_binary_sensor_survives_a_restart(
     # reports, so the registry entry is seeded enabled here — otherwise the
     # entity is not added during this setup and there is nothing to restore.
     mock_config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+    )
     er.async_get(hass).async_get_or_create(
         "binary_sensor",
         "whiskerless",
@@ -151,6 +156,7 @@ async def test_a_live_value_beats_the_restored_one(
     its state document, and the raw register is hundredths of a pound, so a state
     document is not a source this sensor may fall back on.
     """
+    seed_gated_sensors(hass, mock_config_entry)
     mock_restore_cache_with_extra_data(
         hass,
         (

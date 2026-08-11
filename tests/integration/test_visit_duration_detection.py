@@ -141,7 +141,8 @@ async def test_detection_is_remembered_across_restarts(
     """A robot known to report durations does not re-disable the sensor."""
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={CONF_VISIT_DURATION_SEEN: True}
+        mock_config_entry,
+        options={**mock_config_entry.options, CONF_VISIT_DURATION_SEEN: True},
     )
 
     await setup_integration(hass, mock_config_entry, state_payload)
@@ -165,7 +166,8 @@ async def test_a_user_disabled_sensor_is_not_re_enabled(
         disabled_by=er.RegistryEntryDisabler.USER,
     )
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={CONF_VISIT_DURATION_SEEN: True}
+        mock_config_entry,
+        options={**mock_config_entry.options, CONF_VISIT_DURATION_SEEN: True},
     )
 
     await setup_integration(hass, mock_config_entry, state_payload)

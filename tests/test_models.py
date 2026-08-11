@@ -419,3 +419,16 @@ def test_an_unmappable_string_is_returned_as_itself() -> None:
     """A cloud spelling we have not seen is more useful raw than dropped."""
     state = LitterRobot4State.from_state_doc({"robotStatus": "ROBOT_SOMETHING_NEW"})
     assert state.robot_status_raw == "ROBOT_SOMETHING_NEW"
+
+
+def test_cat_detect_bit0_reads_the_bit_and_refuses_strings() -> None:
+    """Bit 0 tracked the cat on both observed vocabularies; bit 1 did not."""
+    from whiskerless.devices.litter_robot_4.models import cat_detect_bit0
+
+    assert cat_detect_bit0(0) is False
+    assert cat_detect_bit0(1) is True
+    assert cat_detect_bit0(2) is False
+    assert cat_detect_bit0(3) is True
+    assert cat_detect_bit0("3") is True
+    assert cat_detect_bit0("CAT_DETECT") is None
+    assert cat_detect_bit0(None) is None

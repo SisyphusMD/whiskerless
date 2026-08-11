@@ -191,6 +191,12 @@ class LitterRobot4State:
         )
 
 
+# The full-fill anchor of the inherited approximation curve, exposed so a
+# consumer can label a reading derived from it as a default rather than a
+# per-robot calibration.
+LITTER_DEFAULT_FULL_MM = 440
+
+
 def litter_level_percent_from_mm(
     mm: int, *, full_mm: int | None = None, empty_mm: int | None = None
 ) -> int:
@@ -216,7 +222,24 @@ def litter_level_percent_from_mm(
             return max(min(round((empty_mm - mm) / span * 100), 100), 0)
         # 90% at the line, on the cloud's slope of ~0.6 mm per percent.
         return max(min(round(90 - (mm - full_mm) / 0.6), 100), 0)
-    return min(max(round((100 - (mm - 440) / 0.6) / 10) * 10, 0), 100)
+    return min(max(round((100 - (mm - LITTER_DEFAULT_FULL_MM) / 0.6) / 10) * 10, 0), 100)
+
+
+def cat_detect_bit0(value: Any) -> bool | None:
+    """Whether catDetect's bit 0 — the bit that tracked the cat on both observed
+    vocabularies (76 of 77 litter-collapses across two robots) — is set.
+
+    None when the field is absent or a cloud-style string: bit arithmetic on an
+    unknown vocabulary would be a guess. Deliberately separate from the
+    decoder's boolean, which stays any-nonzero until the bitfield reading is
+    re-proven; this exists for consumers that must not treat the
+    hopper-correlated bit 1 — observed set for hours at a time with an empty
+    globe — as a cat.
+    """
+    n = _int(value)
+    if n is None:
+        return None
+    return bool(n & 1)
 
 
 # --- defensive scalar decoders -----------------------------------------------

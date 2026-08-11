@@ -120,7 +120,10 @@ async def test_the_reference_sensor_shows_the_press_landed(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     before = hass.states.get("sensor.litter_robot_4_litter_calibration_reference")
     assert before is not None
-    assert before.state == "unknown"
+    # Uncalibrated shows the approximation curve's anchor, labelled as such,
+    # rather than an alarming unknown.
+    assert before.state == "440"
+    assert before.attributes["source"] == "default"
 
     with robot_online(robot):
         await _press(hass, CALIBRATE)
@@ -129,3 +132,4 @@ async def test_the_reference_sensor_shows_the_press_landed(
     after = hass.states.get("sensor.litter_robot_4_litter_calibration_reference")
     assert after is not None
     assert after.state == "455"
+    assert after.attributes["source"] == "calibrated"

@@ -196,3 +196,14 @@ def test_a_lower_reading_is_not_floor_confirmation() -> None:
     learned.observe(72, bounds=HOPPER_PLAUSIBLE, corroboration=HOPPER_CORROBORATION, count_hits=True)
     assert learned.low_hits == 2, "a new low must not top up the old floor count"
     assert hopper_percent(80, learned) is None
+
+
+def test_provisional_percent_maps_the_typical_band() -> None:
+    """Display-only estimate for an uncalibrated unit: clamped to the band."""
+    from whiskerless.devices.litter_robot_4.calibration import hopper_percent_provisional
+
+    assert hopper_percent_provisional(84) == 75
+    assert hopper_percent_provisional(66) == 0
+    assert hopper_percent_provisional(90) == 100
+    assert hopper_percent_provisional(50) == 0
+    assert hopper_percent_provisional(120) == 100

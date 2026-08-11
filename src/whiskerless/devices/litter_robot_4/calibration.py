@@ -69,6 +69,11 @@ HOPPER_PLAUSIBLE = (10, 300)
 LITTER_CORROBORATION_MM = 6
 HOPPER_CORROBORATION = 4
 
+# The gauge band observed across units so far: floors 61-70, maintained tops
+# 84-92. A provisional display percentage maps over this typical band until the
+# robot's own floor is learned; it never feeds the learned anchors.
+HOPPER_FILL_TYPICAL_RANGE = (66, 90)
+
 # Refuse to derive a percentage from a scale too narrow to be real, which would
 # turn ordinary noise into large swings.
 LITTER_MIN_SPAN_MM = 25
@@ -184,6 +189,17 @@ def litter_is_sampleable(robot: LitterRobot4State) -> bool:
         and robot.cat_detected is False
         and robot.robot_status == "ready"
     )
+
+
+def hopper_percent_provisional(raw: int) -> int:
+    """A display-only estimate against the typical band, for an uncalibrated unit.
+
+    Per-unit floors and ceilings vary enough that this can be off by tens of
+    points; it exists so an uncalibrated hopper shows an estimate rather than
+    unknown, and consumers should label it as such.
+    """
+    low, high = HOPPER_FILL_TYPICAL_RANGE
+    return max(min(round((raw - low) / (high - low) * 100), 100), 0)
 
 
 def hopper_percent(raw: int, learned: Learned) -> int | None:

@@ -6,13 +6,22 @@ from awesomeversion import AwesomeVersion
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import restore_state
 from homeassistant.loader import async_get_integration
 
 from . import binary_sensor, button, number, select, sensor, switch
 from . import time as time_platform
 from .const import (
+    CONF_CAT_VISIT_LAST,
+    CONF_CAT_VISIT_SEEN,
+    CONF_DETECTION_RESET_BY,
+    CONF_DRAWER_LAST,
+    CONF_DRAWER_SEEN,
     CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
+    CONF_PET_WEIGHT_LAST,
+    CONF_PET_WEIGHT_SEEN,
+    CONF_SERIAL,
     CONF_VISIT_DURATION_LAST,
     CONF_VISIT_DURATION_SEEN,
     DOMAIN,
@@ -109,13 +118,86 @@ VISIT_DURATION_ENTITIES: tuple[tuple[str, str], ...] = (
     (Platform.SENSOR, "last_visit_duration"),
 )
 
+# The remaining event-only facts, gated on the same principle: 0x56 has never
+# been observed on 1.1.75, and one live 1.1.75 robot has never emitted a weight,
+# so each of these can be a permanent unknown on real hardware.
+DRAWER_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "waste_drawer_last_moved"),)
+PET_WEIGHT_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "pet_weight"),)
+CAT_VISIT_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "last_cat_visit"),)
+
 #: Every capability that ships disabled until the robot proves it has one, as
 #: (option recording the sighting, option holding the readings that bridge the
 #: enabling reload, entities to switch on).
 _DETECTED: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     (CONF_HOPPER_SEEN, CONF_HOPPER_LAST, HOPPER_ENTITIES),
     (CONF_VISIT_DURATION_SEEN, CONF_VISIT_DURATION_LAST, VISIT_DURATION_ENTITIES),
+    (CONF_DRAWER_SEEN, CONF_DRAWER_LAST, DRAWER_ENTITIES),
+    (CONF_PET_WEIGHT_SEEN, CONF_PET_WEIGHT_LAST, PET_WEIGHT_ENTITIES),
+    (CONF_CAT_VISIT_SEEN, CONF_CAT_VISIT_LAST, CAT_VISIT_ENTITIES),
 )
+
+#: Groups whose sighting may be seeded from a sensor's restore cache in the
+#: one-shot sweep below: a restored value there is a real past report. The
+#: hopper and visit-duration flags are deliberately NOT seedable — earlier
+#: builds recorded them from evidence since proven wrong, so the restored
+#: values themselves are suspect and the hardware must re-prove itself.
+_RESTORE_SEEDABLE: frozenset[str] = frozenset(
+    {CONF_DRAWER_SEEN, CONF_PET_WEIGHT_SEEN, CONF_CAT_VISIT_SEEN}
+)
+
+
+def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
+    """One-shot upgrade sweep: every detection must be backed by real evidence.
+
+    Earlier builds recorded a hopper from the 0x0C dispense burst — which a
+    hopperless robot emits too — and shipped the event sensors enabled
+    unconditionally. Hopper and visit-duration sightings are cleared outright
+    (the hardware re-proves itself within a visit and re-enables); the newly
+    gated sensors are seeded from their restore cache; whatever is still
+    unproven goes back to disabled until its first real report.
+    """
+    if entry.options.get(CONF_DETECTION_RESET_BY):
+        return
+    registry = er.async_get(hass)
+    options = dict(entry.options)
+    options.pop(CONF_HOPPER_SEEN, None)
+    options.pop(CONF_VISIT_DURATION_SEEN, None)
+    last_states = restore_state.async_get(hass).last_states
+    # From entry data, not runtime_data: this must run BEFORE the coordinator
+    # is built, so the coordinator reads the post-sweep flags and a re-proving
+    # 0x57 can re-sight in the same session.
+    serial = entry.data[CONF_SERIAL]
+    for seen_key, _, entities in _DETECTED:
+        if not options.get(seen_key) and seen_key in _RESTORE_SEEDABLE:
+            for domain, key in entities:
+                entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{serial}_{key}")
+                stored = last_states.get(entity_id) if entity_id else None
+                if stored is None:
+                    continue
+                # A sensor unavailable at the last shutdown still carries its
+                # real native value in the restore extra data — that is
+                # evidence too, and demoting on the rendered state alone would
+                # hide a sensor whose fact may be rare or never recur.
+                extra = stored.extra_data.as_dict() if stored.extra_data else {}
+                if (
+                    stored.state.state not in ("unknown", "unavailable")
+                    or extra.get("native_value") is not None
+                ):
+                    options[seen_key] = True
+                    break
+        if options.get(seen_key):
+            continue
+        for domain, key in entities:
+            entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{serial}_{key}")
+            if entity_id is None:
+                continue
+            existing = registry.async_get(entity_id)
+            if existing is not None and existing.disabled_by is None:
+                registry.async_update_entity(
+                    entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
+                )
+    options[CONF_DETECTION_RESET_BY] = True
+    hass.config_entries.async_update_entry(entry, options=options)
 
 
 def _enable_detected_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
@@ -205,6 +287,7 @@ def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry
 
 async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Set up Whiskerless from a config entry."""
+    _reset_unproven_detections(hass, entry)
     coordinator = WhiskerlessCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 

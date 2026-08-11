@@ -38,6 +38,20 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **A robot without a LitterHopper no longer grows hopper entities.** The dispense
   burst turns out to fire on hopperless robots too, so it no longer counts as proof
   a hopper exists — only a real hopper link report (`0x57`) switches the entities on.
+- **Event sensors now appear only once their fact has actually been reported.** Pet
+  weight, last cat visit, and waste drawer last moved start hidden and switch on at
+  their first real report — some firmware never emits the drawer event or a weight,
+  and those sensors read unknown forever there. A one-time sweep on upgrade applies
+  the same standard to existing installs: sensors whose values were real stay, hopper
+  and visit-duration detections re-prove themselves at the next report (a robot with
+  a real hopper re-enables within one visit), and phantom entities disappear.
+- **Last cat visit now updates on every robot.** It stamps from the occupancy signal
+  itself, not only from weight events — one robot has visits but has never weighed
+  anything, and its visit sensor stayed empty.
+- **Fewer unknowns while calibration settles.** The litter calibration reference
+  shows the built-in default (marked `source: default`) instead of unknown, and the
+  hopper level shows a labelled estimate until the empty floor has actually been
+  learned.
 - **The weekday sleep schedule now arms every day.** It is a per-day bitmask, not a
   switch, and turning it on armed Sunday alone — so it looked fine if you tested on
   a Sunday and did nothing all week.

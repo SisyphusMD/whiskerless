@@ -16,9 +16,35 @@ from unittest.mock import patch
 from homeassistant.components import mqtt
 from homeassistant.components.mqtt.models import ReceiveMessage
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from .const import ACTIVITY_TOPIC, STATE_TOPIC
+from .const import ACTIVITY_TOPIC, MOCK_SERIAL, STATE_TOPIC
+
+# The gated event sensors, with the object ids the platform would generate.
+_GATED_SENSORS = (
+    ("pet_weight", "litter_robot_4_pet_weight"),
+    ("last_cat_visit", "litter_robot_4_last_cat_visit"),
+    ("waste_drawer_last_moved", "litter_robot_4_waste_drawer_last_moved"),
+)
+
+
+def seed_gated_sensors(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """Pre-create the gated event sensors enabled, as on a robot whose facts
+    have all reported once. The promotion path itself is covered in
+    test_report_gating; state-level tests need the entities present in the
+    first setup pass rather than after HA's debounced registry reload."""
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    for key, object_id in _GATED_SENSORS:
+        registry.async_get_or_create(
+            "sensor",
+            "whiskerless",
+            f"{MOCK_SERIAL}_{key}",
+            config_entry=entry,
+            disabled_by=None,
+            suggested_object_id=object_id,
+        )
 
 
 @dataclass

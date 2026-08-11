@@ -29,6 +29,22 @@ CONF_HOPPER_LAST = "hopper_last"
 CONF_VISIT_DURATION_SEEN = "visit_duration_seen"
 CONF_VISIT_DURATION_LAST = "visit_duration_last"
 
+# Observation sensors gate on their first real report, the same pattern as the
+# hopper: a sensor that exists before its fact has ever been emitted is a
+# permanent unknown on a robot that never emits it (0x56 has never been seen on
+# 1.1.75; one 1.1.75 robot has never emitted a weight). Controls are exempt —
+# their existence is the capability, not a report.
+CONF_DRAWER_SEEN = "drawer_seen"
+CONF_DRAWER_LAST = "drawer_last"
+CONF_PET_WEIGHT_SEEN = "pet_weight_seen"
+CONF_PET_WEIGHT_LAST = "pet_weight_last"
+CONF_CAT_VISIT_SEEN = "cat_visit_seen"
+CONF_CAT_VISIT_LAST = "cat_visit_last"
+# One-shot upgrade sweep marker: clears detections recorded by builds whose
+# evidence rules were wrong and seeds the newly gated sensors from their
+# restore cache. See _reset_unproven_detections.
+CONF_DETECTION_RESET_BY = "detection_reset_by"
+
 # Extremes learned from what the robot reports, so a user who never calibrates
 # still gets a scale. Explicit calibration overrides these.
 CONF_LEARNED_LITTER = "learned_litter"

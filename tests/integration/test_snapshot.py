@@ -25,7 +25,7 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from syrupy.assertion import SnapshotAssertion
 
-from . import setup_integration
+from . import seed_gated_sensors, setup_integration
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -36,6 +36,7 @@ async def test_the_entity_surface(
     state_payload: str,
     snapshot: SnapshotAssertion,
 ) -> None:
+    seed_gated_sensors(hass, mock_config_entry)
     await setup_integration(hass, mock_config_entry, state_payload)
     registry = er.async_get(hass)
 
@@ -79,6 +80,7 @@ async def test_a_robot_that_stops_answering_takes_every_entity_unavailable(
     stale value while the robot is gone is worse than one that admits it, and the
     difference is invisible in a snapshot taken while everything is healthy.
     """
+    seed_gated_sensors(hass, mock_config_entry)
     await setup_integration(hass, mock_config_entry, state_payload)
     coordinator = mock_config_entry.runtime_data
 

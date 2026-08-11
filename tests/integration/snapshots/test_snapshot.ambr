@@ -1211,6 +1211,7 @@
     'attributes': ReadOnlyDict({
       'device_class': 'distance',
       'friendly_name': 'Litter-Robot 4 Litter calibration reference',
+      'source': 'default',
       'unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
     }),
     'context': <ANY>,
@@ -1218,7 +1219,7 @@
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
-    'state': 'unknown',
+    'state': '440',
   })
 # ---
 # name: test_the_entity_surface[sensor.litter_robot_4_litter_level-entry]

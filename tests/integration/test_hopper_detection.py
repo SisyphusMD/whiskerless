@@ -133,7 +133,9 @@ async def test_detection_is_remembered_across_restarts(
 ) -> None:
     """A robot known to have a hopper does not re-disable its entities."""
     mock_config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+    )
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
@@ -157,7 +159,9 @@ async def test_a_user_disabled_entity_is_not_re_enabled(
         config_entry=mock_config_entry,
         disabled_by=er.RegistryEntryDisabler.USER,
     )
-    hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+    )
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
@@ -173,7 +177,9 @@ async def test_the_disable_new_entities_preference_wins(
     as our own default; promoting anyway would override the user."""
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={CONF_HOPPER_SEEN: True}, pref_disable_new_entities=True
+        mock_config_entry,
+        options={**mock_config_entry.options, CONF_HOPPER_SEEN: True},
+        pref_disable_new_entities=True,
     )
 
     await setup_integration(hass, mock_config_entry, state_payload)
@@ -199,7 +205,9 @@ async def test_a_retained_reading_cannot_corroborate_itself(
     set it from bare bursts), so a link report precedes the dispense here —
     which also exercises the prior-message half of the gate."""
     mock_config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+    )
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
@@ -215,6 +223,40 @@ async def test_a_retained_reading_cannot_corroborate_itself(
     learned = mock_config_entry.options.get("learned_hopper") or {}
     assert learned.get("low") is None, "one sample must not become an anchor"
     assert learned.get("low_candidate") == 0x03D
+
+
+async def test_the_level_estimates_until_the_floor_is_learned(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Before the floor is proven, the level maps over the typical band, labelled.
+
+    Per-unit floors vary, so this can be off by tens of points — hence the
+    source attribute; the learned anchors are untouched by it.
+    """
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+    )
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_hopper_level",
+        config_entry=mock_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper_level",
+    )
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    with robot_online(robot):
+        # Fill gauge 84: (84 - 66) / (90 - 66) = 75% of the typical band.
+        robot.push(json.dumps({"type": "action", "data": ["0x570014", "0x0C1054"]}), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.litter_robot_4_hopper_level")
+    assert state is not None
+    assert state.state == "75"
+    assert state.attributes["source"] == "estimate"
 
 
 async def test_an_unnamed_link_code_does_not_erase_a_known_connection(

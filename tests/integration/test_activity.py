@@ -15,7 +15,7 @@ from custom_components.whiskerless.const import CONF_HOPPER_SEEN
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from . import robot_online, setup_integration
+from . import robot_online, seed_gated_sensors, setup_integration
 from .const import ACTIVITY_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
@@ -73,6 +73,7 @@ async def test_the_drawer_bay_records_that_it_moved(
     Nine different codes turned up across removals and insertions alike, which is
     why this asserts only that any of them stamps the sensor.
     """
+    seed_gated_sensors(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     assert hass.states.get(DRAWER_MOVED).state == "unknown"
 
@@ -140,7 +141,9 @@ async def test_a_redelivered_dispense_does_not_corroborate_itself(
     fresh coordinator, which would hide the deduplication being tested.
     """
     mock_config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(mock_config_entry, options={CONF_HOPPER_SEEN: True})
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+    )
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     # The 0x57 rides along because the persisted flag alone no longer opens the
     # dispense gate; the pre-armed option still keeps the detection reload away.
