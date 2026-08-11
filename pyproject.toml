@@ -119,10 +119,10 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
-# Coverage of the INTEGRATION only. The quality scale asks for two different
-# numbers — config_flow.py at 100% (config-flow-test-coverage) and the package
-# above 95% (test-coverage) — so CI reports the whole package and gates the
-# config flow separately rather than averaging the two into one threshold.
+# Coverage of the INTEGRATION only. Both suites here are held at 99%, which is
+# above what the quality scale asks (95%, test-coverage); config_flow.py is a
+# separate 100% (config-flow-test-coverage), so CI reports the whole package and
+# gates the config flow on its own rather than averaging the two together.
 [tool.coverage.run]
 source = ["custom_components/whiskerless"]
 branch = true

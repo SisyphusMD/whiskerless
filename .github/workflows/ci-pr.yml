@@ -44,7 +44,7 @@ jobs:
         # because it is the chokepoint every send funnels through.
         run: >-
           pytest -q --cov=whiskerless --cov-report=term-missing
-          --cov-config=pyproject.toml --cov-fail-under=98
+          --cov-config=pyproject.toml --cov-fail-under=99
       - name: Coverage gate (safety chokepoint)
         run: coverage report --include='*/safety.py' --fail-under=100
 
@@ -130,9 +130,10 @@ jobs:
           mypy --strict --python-version 3.13 --namespace-packages
           --explicit-package-bases custom_components/whiskerless
       - name: Pytest (integration)
-        # The quality scale asks for two different numbers, so they are two gates:
-        # the package above 95% (test-coverage) and the config flow at exactly 100%
-        # (config-flow-test-coverage), which averaging into one threshold would hide.
-        run: pytest tests/integration --cov --cov-report=term-missing --cov-fail-under=95
+        # Two gates, because averaging them into one would hide either. This
+        # project holds every suite at 99%; the quality scale only asks for 95%
+        # (test-coverage), and the config flow is a separate 100%
+        # (config-flow-test-coverage).
+        run: pytest tests/integration --cov --cov-report=term-missing --cov-fail-under=99
       - name: Coverage gate (config flow)
         run: coverage report --include='custom_components/whiskerless/config_flow.py' --fail-under=100

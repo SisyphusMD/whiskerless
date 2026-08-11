@@ -317,3 +317,56 @@ def test_robot_helper_refuses_to_push_before_subscription() -> None:
     """Guards the test harness itself: a silent no-op here fakes a passing test."""
     with pytest.raises(AssertionError):
         Robot(payload="{}").push("{}")
+
+
+async def test_a_malformed_message_does_not_break_the_subscription(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """One unparseable payload must not cost the robot its live connection.
+
+    The subscription is the integration's only source of state, and a decode is
+    the one step handling a message that can raise on data nobody controls. If
+    that escaped, a single malformed publish would leave the robot mute until
+    Home Assistant restarted.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    # The decoder is defensive enough that malformed bytes come back as None
+    # rather than raising, so the guard is here for a decode bug rather than for
+    # bad input. Simulating one is the only way to exercise what it promises.
+    with patch.object(coord, "parse_message", side_effect=ValueError("decode bug")):
+        robot.push("{not json at all", ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+    assert "Error handling MQTT message" in caplog.text
+
+    # Still listening: a good state document after the bad one is still decoded.
+    with robot_online(robot):
+        robot.push(state_payload)
+        await hass.async_block_till_done()
+    assert hass.states.get("sensor.litter_robot_4_status").state != STATE_UNAVAILABLE
+
+
+async def test_shutdown_cancels_an_in_flight_refresh(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """Unloading while a throttled refresh is queued must not leave it running.
+
+    The refresh is fired as a background task, so an entry unloaded mid-flight
+    would otherwise publish through a subscription that is already gone.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    # An activity message schedules the refresh task; do not let it finish.
+    robot.push(json.dumps({"type": "action", "data": ["0x0B0016"]}), ACTIVITY_TOPIC)
+    assert coordinator._tasks, "an activity message should queue a refresh"
+    pending = next(iter(coordinator._tasks))
+
+    await coordinator.async_shutdown()
+
+    assert pending.cancelled() or pending.done()

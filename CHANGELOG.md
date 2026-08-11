@@ -139,6 +139,10 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
 
 ### Changed
 
+- **Both test suites are gated at 99% coverage**, up from 98% (library) and 95%
+  (integration). The quality scale only asks for 95%; the gates now match what the
+  suites actually hold, so a regression fails the build instead of quietly eating
+  the headroom. `safety.py` and the config flow stay at their separate 100%.
 - **Last visit duration enables itself, like the hopper entities.** It needs ESP
   1.4.4: a 12-hour capture of a 1.1.75 robot logged five cat visits and three pet
   weights without one duration, and on 1.4.4 a weight always comes with a
