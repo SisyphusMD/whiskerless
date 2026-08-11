@@ -26,7 +26,7 @@ value pattern from a single cycle — accumulate in
 | Reg | Field | Meaning | Conf |
 |---|---|---|---|
 | `0x0E` | DisplayIntensity High/Low | panel brightness (hi byte = High, lo byte = Low) | PROVEN |
-| `0x16` | cleanCycleWaitTime | minutes before a cycle after a cat leaves | PROVEN |
+| `0x16` | cleanCycleWaitTime | minutes the robot waits before cycling | PROVEN |
 | `0x17` | isKeypadLockout | control lock 0/1 | PROVEN |
 | `0x18` | nightLightMode | 0 = off, 1 = on, 2 = auto | PROVEN |
 | `0x19` | nightLightBrightness | 0–100 % | PROVEN |

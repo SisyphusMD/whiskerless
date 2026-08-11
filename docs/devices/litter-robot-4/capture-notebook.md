@@ -73,6 +73,14 @@ same figures the idle hours on either side report, so the ToF was looking at an
 undisturbed litter bed the whole time. `2` also appears as a 6–9 s blip mid-cycle
 (16:37:15, 20:50:12), where a rotating globe is a likelier cause than a cat.
 
+**It is not a cat identity.** Whisker's multi-pet feature makes that a reasonable guess,
+but within the single 16:26 visit the value ran `3 → 2 → 3 → 2 → 3 → 2 → 3 → 0` — seven
+changes in 131 seconds, each one tracking whether the ToF could see the animal. No
+identity code behaves that way. `1` never appears at all across 264 state documents, and
+none of the 69 fields the state document carries names a pet, a profile or an index; the
+only per-visit measurement the robot publishes is the raw weight on `0x09`. Whatever
+attributes a visit to one of several cats, it is not happening on the device.
+
 `models.py` decodes the field with `_bool()`, so any non-zero is `cat_detected=True`. On
 this capture that reported a cat for 2h15m with an empty globe, and
 `litter_is_sampleable()` — which wants `cat_detected is False` and `robot_status ==
@@ -87,9 +95,26 @@ the globe.** Both appear in the state documents (`7` ×64, `25` ×13) and `0x340
 
 The same `4 → 25 → 7` path ran for a real visit (16:26, `catDetect` `3`) and for the
 2h15m run with no body in the globe (18:24, `catDetect` `2`) — consistent with the
-enum's own "weight on the scale" note. Delay from `catDetect` reaching `0` to the cycle
-starting was 8m17s after the visit and 7m04s after the long run; a third visit (16:42,
-10 s) cleared straight back to `4` and never cycled at all.
+enum's own "weight on the scale" note. A third visit (16:42, 10 s) cleared straight back
+to `4` and never cycled at all.
+
+**The clean-cycle delay counts from the last `0x37` emission, not from `catDetect`
+reaching `0`.** `cleanCycleWaitTime` reads `7` in all 264 state documents, and both
+automatic cycles started 7m00s after the sensor last spoke, to within two seconds:
+
+| last `0x37` | +7m | cycle (`0x34000A`) | error |
+|---|---|---|---|
+| 16:29:50 | 16:36:50 | 16:36:51 | +1s |
+| 20:42:37 | 20:49:37 | 20:49:39 | +2s |
+
+Measured instead from `catDetect` reaching `0`, the same two cycles look erratic (+75s
+and +0s) — because a late `0x37` blip at 16:29:46/16:29:50 restarted the timer more than
+a minute after the state document had already published `catDetect` `0`. The sensor
+going quiet and the cat leaving are not the same instant.
+
+Two cycles in one capture is a correlation, not the anchor proven. `registers.md` keeps
+`0x16` described as the wait it is, with no claim about what starts the clock, until a
+later capture reproduces this.
 
 **`0x3C` and `0x66` are cycle-local and not cumulative.** Both fire only during a clean
 cycle. Values rise through a cycle and then restart near the same figures on the next,
