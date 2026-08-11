@@ -1,0 +1,117 @@
+name: Retry infrastructure failures
+
+# GitHub's hosted runners occasionally fail BEFORE any of our steps run — the
+# observed case was `Set up job` dying with "Failed to load
+# actions/checkout/<sha>/action.yml", i.e. the runner fetched a truncated action
+# manifest. The same pinned SHA loaded fine on three other runners in the same
+# matrix, so nothing in this repository could have prevented it.
+#
+# "Just re-run it" is not a policy: it puts a human in the loop for a machine
+# fault, and it trains people to re-run red builds without reading them. So this
+# retries automatically — but ONLY when the failure is provably not ours, and it
+# leaves a record so flakes stay countable instead of invisible.
+#
+# The discriminator is exact rather than heuristic. A runner-phase failure looks
+# like this (observed, run 31446127430):
+#
+#     job: Test (arm64, current)  conclusion: failure
+#        1 failure  Set up job          <- the only step; none of ours ran
+#
+# A real failure always fails one of OUR named steps, with `Set up job` green
+# above it. So: retry only when every failed step belongs to a phase the runner
+# owns. A failing test can never be attributed to `Set up job`, which is what
+# keeps this from becoming a way to launder flaky tests into green builds.
+on:
+  workflow_run:
+    workflows:
+      - "CI (macOS)"
+      - "Release (macOS pkg)"
+      - "Release (Linux arm64 + deb/rpm)"
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry:
+    name: Retry if the runner, not the code, failed
+    # run_attempt == 1 bounds this to a single retry: a fault that recurs is not
+    # transient, and must be allowed to stay red.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether the failure was infrastructural
+        id: triage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The attempt-specific endpoint, not `/jobs`: that one returns the
+          # LATEST attempt, so once a retry has happened it reports the retry's
+          # green jobs and this triage sees nothing to explain.
+          gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs" > jobs.json
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+
+          # Runner phases that happen BEFORE any of our steps. Deliberately not
+          # `Complete job`: that fails after our steps have already uploaded
+          # artifacts, and artifacts are immutable within a run — so re-running
+          # would fail on the duplicate name rather than repair anything. A
+          # `Complete job` failure also means the work itself finished.
+          RUNNER_PHASES = {"Set up job", "Set up runner"}
+
+          jobs = json.load(open("jobs.json"))["jobs"]
+          failed = [j for j in jobs if j["conclusion"] == "failure"]
+          report, infra = [], bool(failed)
+          for job in failed:
+              bad = [s["name"] for s in job.get("steps", []) if s["conclusion"] == "failure"]
+              ours = [name for name in bad if name not in RUNNER_PHASES]
+              report.append(f"{job['name']}: failed steps={bad or ['(none recorded)']}")
+              if ours:
+                  infra = False
+                  report.append(f"    -> our step failed: {ours}; not retrying")
+          print(f"infra={'true' if infra else 'false'}")
+          print("summary<<EOF")
+          print("\n".join(report) or "no failed jobs found")
+          print("EOF")
+          PY
+      - name: Re-run the failed jobs
+        if: steps.triage.outputs.infra == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/rerun-failed-jobs"
+      - name: Record it
+        # Every run of this workflow IS the flake log: the Actions tab shows how
+        # often the runners failed us, which is the number worth watching. A
+        # sudden cluster means the image regressed, not that we got unlucky.
+        env:
+          # Through the environment, not `${{ }}` inside the script: a job name
+          # containing a quote would otherwise break the shell, and this runs
+          # precisely when things are already going wrong.
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SUMMARY: ${{ steps.triage.outputs.summary }}
+          INFRA: ${{ steps.triage.outputs.infra }}
+        run: |
+          {
+            echo "### $WORKFLOW — attempt $ATTEMPT failed"
+            echo
+            echo '```'
+            echo "$SUMMARY"
+            echo '```'
+            echo
+            if [ "$INFRA" = "true" ]; then
+              echo "Runner-phase failure only — re-ran the failed jobs once."
+              echo "If the retry also fails, it is not transient and stays red."
+            else
+              echo "One of our own steps failed. Left red deliberately; this is a real failure."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

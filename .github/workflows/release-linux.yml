@@ -95,6 +95,8 @@ jobs:
             *.rpm
             whiskerless-linux-*
           if-no-files-found: error
+          # A re-run must not trip over its own earlier attempt's upload.
+          overwrite: true
 
   publish:
     name: Append the Linux artifacts to the GitHub + Forgejo releases
