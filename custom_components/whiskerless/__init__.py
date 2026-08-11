@@ -10,7 +10,13 @@ from homeassistant.loader import async_get_integration
 
 from . import binary_sensor, button, number, select, sensor, switch
 from . import time as time_platform
-from .const import CONF_HOPPER_LAST, CONF_HOPPER_SEEN, DOMAIN
+from .const import (
+    CONF_HOPPER_LAST,
+    CONF_HOPPER_SEEN,
+    CONF_VISIT_DURATION_LAST,
+    CONF_VISIT_DURATION_SEEN,
+    DOMAIN,
+)
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 
 # Option key recording which version last swept the entity registry.
@@ -97,9 +103,23 @@ HOPPER_ENTITIES: tuple[tuple[str, str], ...] = (
     (Platform.SENSOR, "last_hopper_dispensed"),
 )
 
+# Register 0xBC, which ESP 1.1.75 has never emitted. Same treatment for the same
+# reason: better absent than permanently unknown on the firmware that lacks it.
+VISIT_DURATION_ENTITIES: tuple[tuple[str, str], ...] = (
+    (Platform.SENSOR, "last_visit_duration"),
+)
 
-def _enable_hopper_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
-    """Turn on the hopper entities once this robot is known to have one.
+#: Every capability that ships disabled until the robot proves it has one, as
+#: (option recording the sighting, option holding the readings that bridge the
+#: enabling reload, entities to switch on).
+_DETECTED: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
+    (CONF_HOPPER_SEEN, CONF_HOPPER_LAST, HOPPER_ENTITIES),
+    (CONF_VISIT_DURATION_SEEN, CONF_VISIT_DURATION_LAST, VISIT_DURATION_ENTITIES),
+)
+
+
+def _enable_detected_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
+    """Turn on the entities for every capability this robot has now proved.
 
     Called twice per setup. Before the platforms are forwarded it catches
     entries an earlier setup created, so they are built enabled in this same
@@ -118,18 +138,23 @@ def _enable_hopper_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
     one off keeps that choice, and the entry-wide "disable new entities"
     preference is honoured rather than overridden.
     """
-    if not entry.options.get(CONF_HOPPER_SEEN) or entry.pref_disable_new_entities:
+    if entry.pref_disable_new_entities:
         return False
     flipped = False
     registry = er.async_get(hass)
-    for domain, key in HOPPER_ENTITIES:
-        entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{entry.runtime_data.serial}_{key}")
-        if entity_id is None:
+    for seen_key, _, entities in _DETECTED:
+        if not entry.options.get(seen_key):
             continue
-        existing = registry.async_get(entity_id)
-        if existing is not None and existing.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
-            registry.async_update_entity(entity_id, disabled_by=None)
-            flipped = True
+        for domain, key in entities:
+            entity_id = registry.async_get_entity_id(
+                domain, DOMAIN, f"{entry.runtime_data.serial}_{key}"
+            )
+            if entity_id is None:
+                continue
+            existing = registry.async_get(entity_id)
+            if existing is not None and existing.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
+                registry.async_update_entity(entity_id, disabled_by=None)
+                flipped = True
     return flipped
 
 
@@ -164,16 +189,17 @@ def _promote_newly_default_entities(hass: HomeAssistant, entry: WhiskerlessConfi
             registry.async_update_entity(entity_id, disabled_by=None)
 
 
-def _drop_hopper_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
+def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
     """Discard the one-shot readings that bridged the enabling reload.
 
     They exist only so the entities have a value the instant they appear. Kept
     beyond that they would be re-applied on every startup and clobber the newer
     values the entities restore for themselves.
     """
-    if CONF_HOPPER_LAST not in entry.options:
+    bootstrap = {last_key for _, last_key, _ in _DETECTED}
+    if not bootstrap & entry.options.keys():
         return
-    options = {k: v for k, v in entry.options.items() if k != CONF_HOPPER_LAST}
+    options = {k: v for k, v in entry.options.items() if k not in bootstrap}
     hass.config_entries.async_update_entry(entry, options=options)
 
 
@@ -186,13 +212,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
     await _remove_retired_entities(hass, entry)
     # Before forwarding, so entries an earlier setup created are built enabled
     # in this same pass rather than only after another reload.
-    _enable_hopper_entities(hass, entry)
+    _enable_detected_entities(hass, entry)
     _promote_newly_default_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # Again, for entries the platforms just created. If that flipped anything a
     # reload is queued, so the bootstrap readings have to survive to seed it.
-    if not _enable_hopper_entities(hass, entry):
-        _drop_hopper_bootstrap(hass, entry)
+    if not _enable_detected_entities(hass, entry):
+        _drop_detection_bootstrap(hass, entry)
     return True
 
 

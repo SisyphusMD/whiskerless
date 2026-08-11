@@ -21,6 +21,14 @@ CONF_SERIAL = "serial"
 CONF_HOPPER_SEEN = "hopper_seen"
 CONF_HOPPER_LAST = "hopper_last"
 
+# The same pair for the visit duration (register 0xBC), which is not optional
+# hardware but an older-firmware gap: ESP 1.4.4 reports one at the end of every
+# visit, and 1.1.75 never has. A 12h capture of a 1.1.75 robot logged five visits
+# and three cat weights without a single duration, and on 1.4.4 a weight is always
+# accompanied by one — so the sensor would sit unknown forever on that firmware.
+CONF_VISIT_DURATION_SEEN = "visit_duration_seen"
+CONF_VISIT_DURATION_LAST = "visit_duration_last"
+
 # Extremes learned from what the robot reports, so a user who never calibrates
 # still gets a scale. Explicit calibration overrides these.
 CONF_LEARNED_LITTER = "learned_litter"

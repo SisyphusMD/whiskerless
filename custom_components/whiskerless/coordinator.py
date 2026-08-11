@@ -69,6 +69,8 @@ from .const import (
     CONF_LITTER_EMPTY_MM,
     CONF_LITTER_FULL_MM,
     CONF_SERIAL,
+    CONF_VISIT_DURATION_LAST,
+    CONF_VISIT_DURATION_SEEN,
     DEFAULT_NAME,
     DOMAIN,
     HEARTBEAT_INTERVAL,
@@ -156,6 +158,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._hopper_connected: bool | None = None
         self._hopper_link_reported = False
         self._hopper_seen = bool(config_entry.options.get(CONF_HOPPER_SEEN))
+        self._visit_duration_seen = bool(config_entry.options.get(CONF_VISIT_DURATION_SEEN))
         self._learned_litter = Learned.from_dict(config_entry.options.get(CONF_LEARNED_LITTER))
         self._learned_hopper = Learned.from_dict(config_entry.options.get(CONF_LEARNED_HOPPER))
         self._last_hopper_dispensed: datetime | None = None
@@ -187,6 +190,14 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 age = (dt_util.utcnow() - self._last_hopper_dispensed).total_seconds()
                 if 0 <= age < _DISPENSE_DEDUPE:
                     self._last_hopper_sample_at = hass.loop.time() - age
+        # The same bridge for the visit duration, whose entity is enabled by the
+        # same reload and would otherwise wait for the next cat.
+        duration_last = config_entry.options.get(CONF_VISIT_DURATION_LAST) or {}
+        if duration_last:
+            self._last_visit_duration_s = duration_last.get("duration_s")
+            visit_at = duration_last.get("visit_at")
+            if visit_at:
+                self._last_cat_visit = dt_util.parse_datetime(visit_at)
 
 
 
@@ -283,6 +294,33 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         )
         self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
+    @callback
+    def _record_visit_duration_sighting(self) -> None:
+        """Persist that this robot reports visit durations, with the one that proved it.
+
+        Same contract as :meth:`_record_hopper_sighting`: state only here, the
+        entity is enabled in async_setup_entry after the platforms have
+        registered it, and the reload below is what gets us there.
+        """
+        self._visit_duration_seen = True
+        visit = self._last_cat_visit
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            options={
+                **self.config_entry.options,
+                CONF_VISIT_DURATION_SEEN: True,
+                CONF_VISIT_DURATION_LAST: {
+                    "duration_s": self._last_visit_duration_s,
+                    # The same event stamps last_cat_visit, an always-enabled
+                    # sensor that would otherwise be reset to unknown by the
+                    # reload this schedules — and its own restore cache is
+                    # seconds too old to help.
+                    "visit_at": visit.isoformat() if visit else None,
+                },
+            },
+        )
+        self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
+
     @property
     def litter_full_mm(self) -> int | None:
         """The calibrated reading when the globe is filled to the line."""
@@ -372,6 +410,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         """Fold an activity message's semantic events into the derived facts."""
         changed = False
         hopper_reported = False
+        duration_reported = False
         # A press we are waiting on, echoed back: the robot confirming it acted.
         if self._awaited_press is not None and any(
             r.register == lr4.Register.PANEL_BUTTON and r.value == self._awaited_press
@@ -416,12 +455,15 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 # weight event, so it also stamps last_cat_visit.
                 self._last_visit_duration_s = event.duration_s
                 self._last_cat_visit = dt_util.utcnow()
+                duration_reported = True
                 changed = True
             elif isinstance(event, DrawerBayMoved):
                 self._drawer_last_moved = dt_util.utcnow()
                 changed = True
         if hopper_reported and not self._hopper_seen:
             self._record_hopper_sighting()
+        if duration_reported and not self._visit_duration_seen:
+            self._record_visit_duration_sighting()
         return changed
 
 

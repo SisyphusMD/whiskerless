@@ -34,7 +34,9 @@ async def test_a_visit_ending_stamps_the_time_and_the_duration(
 ) -> None:
     """0xBC closes a visit whether or not it was long enough to weigh the cat."""
     robot = await setup_integration(hass, mock_config_entry, state_payload)
-    assert hass.states.get(VISIT_DURATION).state == "unknown"
+    # Absent, not unknown: ESP 1.1.75 never emits 0xBC, so the sensor ships
+    # disabled and the first duration is what brings it into existence.
+    assert hass.states.get(VISIT_DURATION) is None
 
     with robot_online(robot):
         robot.push(_activity(f"0xBC{30:04X}"), ACTIVITY_TOPIC)

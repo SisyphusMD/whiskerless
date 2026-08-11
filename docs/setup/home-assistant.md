@@ -115,7 +115,7 @@ before settling.
 - **Litter level** (%) and **Litter level distance** (mm, diagnostic, disabled by default)
 - **Waste drawer level** (%)
 - **Pet weight** (lb)
-- **Last cat visit** and **Last visit duration** — see the firmware note below
+- **Last cat visit**, and **Last visit duration** (ESP 1.4.4+, enables itself)
 - **Waste drawer last moved**
 - **Clean cycle count** (diagnostic)
 - **Litter calibration reference** (diagnostic)
@@ -189,13 +189,18 @@ hand it stays off.
 
 **Two entities that may not behave the way you expect**
 
-**Last visit duration** needs **ESP 1.4.4 or newer.** The duration arrives on its
-own register, which 1.4.4 emits at the end of every visit — and 1.1.75 appears
-never to emit at all: a 12-hour capture of a 1.1.75 robot recorded five visits and
-three pet-weight readings without a single duration. On 1.4.4 a weight reading is
-always accompanied by a duration, so three weights and no durations is a firmware
-difference rather than a run of short visits. On 1.1.75 the sensor simply stays
-unknown; nothing is misconfigured.
+**Last visit duration** needs **ESP 1.4.4 or newer**, so it ships **disabled** and
+switches itself on the first time your robot reports one — exactly like the hopper
+entities above, and for the same reason. The duration arrives on its own register,
+which 1.4.4 emits at the end of every visit and 1.1.75 appears never to emit at
+all: a 12-hour capture of a 1.1.75 robot recorded five visits and three pet-weight
+readings without a single duration. On 1.4.4 a weight reading is always accompanied
+by a duration, so three weights and no durations is a firmware difference rather
+than a run of short visits.
+
+**You don't need to do anything here either.** On 1.4.4 the next cat enables it,
+carrying that first duration. On 1.1.75 it stays out of your way instead of sitting
+unknown forever.
 
 **Cat detected can stay on long after the cat has gone,** sometimes for hours. The
 robot reports occupancy from the scale underneath, not from the sensors that look

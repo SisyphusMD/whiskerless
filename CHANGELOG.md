@@ -139,15 +139,17 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
 
 ### Changed
 
-- **Two entities now say up front when they will look broken.** *Last visit
-  duration* needs ESP 1.4.4 — a 12-hour capture of a 1.1.75 robot logged five cat
-  visits and three pet weights without one duration, and on 1.4.4 a weight always
-  comes with a duration, so the register is absent rather than the visits being
-  short. *Cat detected* can stay on for hours after a cat leaves, because the
-  robot reports it from the scale rather than from the sensors looking into the
-  globe; the same capture spent 29% of its time reporting a cat over an
-  undisturbed litter bed. The entity list also gained the four entities that
-  ship but were never listed.
+- **Last visit duration enables itself, like the hopper entities.** It needs ESP
+  1.4.4: a 12-hour capture of a 1.1.75 robot logged five cat visits and three pet
+  weights without one duration, and on 1.4.4 a weight always comes with a
+  duration, so the register is absent rather than the visits being short. It now
+  ships disabled and switches on the first time a robot reports one, carrying that
+  first reading — rather than being a sensor that reads unknown for the life of a
+  1.1.75 robot.
+- **Cat detected is documented as following the scale,** not the sensors looking
+  into the globe, so it can stay on for hours after a cat leaves; the same capture
+  spent 29% of its time reporting a cat over an undisturbed litter bed. The entity
+  list also gained the four entities that ship but were never listed.
 - **The Linux binaries would not have started on Debian 12, RHEL 9 or an older
   Pi OS.** PyInstaller freezes the interpreter but links against the build
   machine's glibc, so building on a current Ubuntu quietly required glibc 2.39

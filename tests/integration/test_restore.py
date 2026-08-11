@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
-from custom_components.whiskerless.const import CONF_HOPPER_SEEN
+from custom_components.whiskerless.const import CONF_HOPPER_SEEN, CONF_VISIT_DURATION_SEEN
 from homeassistant.components.sensor import SensorExtraStoredData
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant, State
@@ -26,6 +26,30 @@ pytestmark = pytest.mark.usefixtures("mqtt_mock")
 VISIT_AT = datetime(2026, 8, 8, 17, 40, 26, tzinfo=UTC)
 
 
+def _duration_reported(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """Mark the robot as one that reports visit durations.
+
+    The sensor ships disabled and enables itself on the first 0xBC, so a restore
+    test needs a robot that has already produced one — which is also the only
+    robot that could have written the cache these tests restore from. That means
+    a registry entry already enabled: detection during *this* setup would only
+    flip it after a reload, which is a different scenario from the restart these
+    tests model.
+    """
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options={CONF_VISIT_DURATION_SEEN: True})
+    er.async_get(hass).async_get_or_create(
+        "sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_last_visit_duration",
+        config_entry=entry,
+        disabled_by=None,
+        # Without this the pre-created entry claims a generated entity_id and the
+        # platform reuses it, so the state lands somewhere these tests do not look.
+        suggested_object_id="litter_robot_4_last_visit_duration",
+    )
+
+
 async def test_a_numeric_sensor_survives_a_restart(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -42,6 +66,7 @@ async def test_a_numeric_sensor_survives_a_restart(
         ),
     )
 
+    _duration_reported(hass, mock_config_entry)
     await setup_integration(hass, mock_config_entry, state_payload)
 
     state = hass.states.get("sensor.litter_robot_4_last_visit_duration")
@@ -106,6 +131,7 @@ async def test_a_fresh_install_has_nothing_to_restore(
     state_payload: str,
 ) -> None:
     """With no stored state the entity is honestly unknown, not a stale zero."""
+    _duration_reported(hass, mock_config_entry)
     await setup_integration(hass, mock_config_entry, state_payload)
 
     state = hass.states.get("sensor.litter_robot_4_last_visit_duration")
@@ -167,6 +193,7 @@ async def test_a_decimal_in_the_cache_is_restored_as_a_number(
         ),
     )
 
+    _duration_reported(hass, mock_config_entry)
     await setup_integration(hass, mock_config_entry, state_payload)
 
     state = hass.states.get("sensor.litter_robot_4_last_visit_duration")
@@ -195,6 +222,7 @@ async def test_a_plain_date_in_the_cache_is_refused(
         ),
     )
 
+    _duration_reported(hass, mock_config_entry)
     await setup_integration(hass, mock_config_entry, state_payload)
 
     state = hass.states.get("sensor.litter_robot_4_last_visit_duration")
