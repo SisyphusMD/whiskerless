@@ -8,6 +8,11 @@ version = "0.1.3"
 description = "Un-cloud your Whisker devices — fully-local MQTT control + telemetry for the Litter-Robot 4."
 readme = "README.md"
 license = "MIT"
+# 3.11 is an API boundary, not a preference: asyncio.timeout() landed in 3.11 and
+# carries the read/verify waits in link.py, client.py and the CLI. Supporting 3.10
+# (Ubuntu 22.04 LTS) would mean taking the async-timeout backport as a runtime
+# dependency for one call. CI tests 3.11.0 exactly — "3.11" resolves to the newest
+# patch, which is not the floor anyone actually has.
 requires-python = ">=3.11"
 authors = [{ name = "Cody Bryant" }]
 keywords = ["litter-robot", "whisker", "mqtt", "home-assistant", "local", "iot"]
@@ -26,9 +31,18 @@ classifiers = [
 # aiomqtt is the only hard runtime dep: it carries the codec/command layer that
 # both the CLI and the Home Assistant integration build on. BLE re-provisioning
 # is bench-only, so bleak is an optional extra rather than a baseline cost.
+#
+# 2.0.0 is an API boundary: 1.x exposed `Client.messages` as a method used through
+# `async with client.messages() as m`, while 2.0 made it the attribute this code
+# iterates directly (`async for message in client.messages`). 1.x cannot run this.
 dependencies = ["aiomqtt>=2.0.0"]
 
 [project.optional-dependencies]
+# NOT an API boundary — the two bleak features used here (`BleakScanner.discover(
+# return_adv=True)` and `BleakClient.services` as a property) both exist in 0.20.2.
+# 0.22.0 is a deliberate SUPPORT floor: it is the version CI installs and tests, and
+# claiming older releases would mean supporting backend fixes nobody here has run.
+# Lower it only together with the dependency-floors CI job that proves it.
 ble = ["bleak>=0.22.0"]
 dev = [
     "mypy>=1.11",

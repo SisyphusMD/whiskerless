@@ -91,6 +91,34 @@ jobs:
             exit 1
           fi
 
+  homebrew-tap:
+    name: Update the Homebrew tap formula (stable or -rc per tag)
+    # After pypi: update-tap.sh requires PyPI to already serve bytes identical to
+    # the sdist it builds locally, which is the whole point of the check.
+    needs: pypi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Fill the formula + push to the tap
+        env:
+          TOKEN: ${{ secrets.CLUSTER_FORGEJO_TAP_WRITE_PAT }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          AUTH="http.extraheader=Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          git -c "$AUTH" clone "${GITHUB_SERVER_URL}/SisyphusMD/homebrew-tap.git" tap
+          chmod +x packaging/update-tap.sh
+          bash packaging/update-tap.sh "$GITHUB_REF_NAME" tap
+          cd tap
+          git config user.name "forgejo-actions[bot]"
+          git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
+          git add Formula/
+          git commit -m "whiskerless ${GITHUB_REF_NAME#v}" || { echo "no change to publish"; exit 0; }
+          git -c "$AUTH" push
+
   nas-pkg:
     name: Bridge the macOS .pkg → NAS
     needs: releases

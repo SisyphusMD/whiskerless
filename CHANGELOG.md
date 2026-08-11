@@ -149,11 +149,13 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   architectures, plus an arm64 build of the standalone provisioner for
   Raspberry Pis and arm servers — the x86_64 binary already shipped. Neither
   package needs a system Python; PyInstaller bundles it, which is the point on
-  a laptop that has none. Homebrew is drafted but **not yet published**: a
-  formula pair (stable + `-rc`) that installs from source into a virtualenv,
-  which needs no notarization and covers macOS and Linux on both architectures
-  from one file. Its resource list still has to be generated and no workflow
-  stamps it, so `brew install` does not work yet.
+  a laptop that has none.
+- **`brew install sisyphusmd/tap/whiskerless`**, with a separate
+  `whiskerless-rc` channel for candidates. A source install into a virtualenv,
+  so it needs no notarization and covers macOS and Linux on both architectures
+  from one file. The formula checksum is taken from an sdist built locally at
+  the tag and then required to match what PyPI serves — a registry download is
+  what that checksum exists to protect against, so it is never its source.
 - **CI tests what the package advertises, not just what resolves today.** The
   library suite now runs on macOS as well as Linux (the provisioner binary
   ships for macOS, and bleak's backend differs by platform), and a new job

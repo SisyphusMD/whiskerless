@@ -50,28 +50,52 @@ The `.deb`/`.rpm` declare **no** dependency on a system Python: PyInstaller
 bundles the interpreter, so the package works on a machine that has none. That
 is the point — the audience is someone provisioning a robot from a laptop.
 
-### Homebrew (drafted, NOT publishable yet)
+### Homebrew
 
-`packaging/homebrew/whiskerless.rb` and `whiskerless-rc.rb` are **formulas**, not
-casks — a source install into a virtualenv, matching how `dreame-valetudo` does
-it in the same tap. That needs no Apple notarization (which applies only to the
-separate `.pkg`) and covers macOS and Linux on both architectures from one file.
-The `-rc` formula is separate so a candidate can be validated through the real
-Homebrew path without the stable formula ever pointing at one.
+`packaging/homebrew/whiskerless.rb` and `whiskerless-rc.rb` are **formulas**, not casks — a source
+install into a virtualenv, matching how `dreame-valetudo` does it in the same tap. That needs no
+Apple notarization (which applies only to the separate `.pkg`) and covers macOS and Linux on both
+architectures from one file. The `-rc` formula is separate so a candidate can be validated through
+the real Homebrew path without the stable formula ever pointing at one.
 
-**They are not publishable as they stand.** Two things are missing:
+`publish.yml`'s `homebrew-tap` job renders them per tag via `update-tap.sh` and pushes to
+`SisyphusMD/homebrew-tap`. A prerelease tag writes only `whiskerless-rc`; a stable tag writes both,
+re-pointing the rc formula at the stable release so that channel keeps resolving once its candidates
+are pruned.
 
-1. **Resources.** `virtualenv_install_with_resources` installs each resource with
-   pip's `--no-deps`, so the list must be the complete closure — aiomqtt pulls
-   paho-mqtt, bleak pulls pyobjc-* on macOS and dbus-fast on Linux. Generate it,
-   never hand-write it: `brew update-python-resources Formula/whiskerless.rb`.
-2. **Stamping and publishing.** Nothing fills in `url`/`sha256` per release or
-   pushes to `SisyphusMD/homebrew-tap` (which exists, with a `Formula/` layout).
-   `release.yml` and `prerelease.yml` need that step, plus a PAT with write
-   access to the tap.
+**The checksum never comes from a download.** `update-tap.sh` builds the sdist locally from the
+checked-out tag, hashes that, then requires PyPI to be serving identical bytes — a registry download
+is exactly what the formula checksum is meant to protect users from. Verified reproducible here:
+building from the `v0.1.3` tag reproduces the sha256 PyPI serves for 0.1.3, byte for byte. If that
+stops holding, the job fails rather than publishing.
 
-Until both are done the README's download-the-`.pkg` instructions are the
-correct macOS path, and `brew install sisyphusmd/tap/whiskerless` will not work.
+**Resources are generated, never hand-written.** `virtualenv_install_with_resources` installs each
+resource with pip's `--no-deps`, so the list must be the complete closure; a partial one installs
+cleanly and fails on the first import. bleak's dependencies differ by platform (pyobjc on macOS,
+dbus-fast on Linux), emitted as `on_macos` / `on_linux` blocks. After any dependency change,
+regenerate and paste between the RESOURCES markers in both formulas:
+
+```bash
+packaging/homebrew-resources.py
+```
+
+Needs `CLUSTER_FORGEJO_TAP_WRITE_PAT`.
+
+## Transient runner failures
+
+GitHub's hosted runners sometimes fail before any of our steps run — observed 2026-08-11, a
+`Set up job` phase that could not parse `actions/checkout`'s own manifest on the macos-26 beta
+image, while the same pinned SHA loaded fine on three other runners in the same matrix.
+
+`retry-infra-failures.yml` handles those without a human, and deliberately handles nothing else:
+
+- It re-runs **only** when every failed step is a phase the runner owns before ours begin
+  (`Set up job` / `Set up runner`). A failing test always fails one of our named steps, so it can
+  never be laundered into a green build here. `Complete job` is excluded on purpose: it fails after
+  artifacts are uploaded, and artifacts are immutable within a run, so a retry could not succeed.
+- It retries **once** (`run_attempt == 1`). A fault that recurs is not transient and stays red.
+- Every invocation is the flake record: how often this workflow appears in the Actions tab is the
+  number to watch. A cluster means a runner image regressed, not that we got unlucky.
 
 ## Secrets
 
@@ -83,6 +107,7 @@ correct macOS path, and `brew install sisyphusmd/tap/whiskerless` will not work.
 | `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release + receive the bridged `.pkg`). |
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write (Forgejo creates the GitHub release with it). Same PAT used as the GitHub push-mirror password. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`). OIDC trusted publishing isn't available on Forgejo, so this is a token. Scope it to the project once it exists. |
+| `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. |
 
 ### On GitHub (`github.com/SisyphusMD/whiskerless` → Settings → Secrets and variables → Actions)
 
