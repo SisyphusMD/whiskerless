@@ -125,6 +125,27 @@ jobs:
           mypy
           pytest -q
 
+  dependency-floor-gate:
+    name: Qualify the declared dependency minimums
+    runs-on: ubuntu-latest
+    steps:
+      # A separate job, not a second step in floor-gate: `uv pip install` leaves a
+      # requirement the environment already satisfies alone, so running this after
+      # a latest-deps install silently tests latest twice. A fresh runner is the
+      # simplest way to guarantee the floors are what actually gets installed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install at the declared minimums and test
+        run: |
+          python -m pip install --upgrade pip uv
+          uv pip install --system --resolution lowest-direct -e ".[dev,ble]"
+          python -c "import aiomqtt, bleak; print('floors installed')"
+          pytest -q
+
   integration-gate:
     name: Qualify the integration (Python 3.13)
     runs-on: ubuntu-latest
@@ -151,7 +172,7 @@ jobs:
 
   tag:
     name: Authorize and push prerelease tag
-    needs: [gate, floor-gate, integration-gate]
+    needs: [gate, floor-gate, dependency-floor-gate, integration-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Fresh checkout with no persisted credential

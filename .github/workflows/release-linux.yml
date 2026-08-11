@@ -1,0 +1,121 @@
+name: Release (Linux arm64 + deb/rpm)
+
+# Forgejo's publish.yml already builds the x86_64 raw binary on its own runner.
+# This adds what that runner cannot: an arm64 build (GitHub has native arm64
+# Linux runners; emulating one under QEMU to run PyInstaller is slow and
+# fragile), plus .deb and .rpm for both architectures. It appends them to the
+# two releases it can reach, exactly as release-macos.yml does for the .pkg.
+#
+# The x86_64 raw binary is deliberately NOT re-uploaded here — publish.yml owns
+# it, and two assets of the same name racing each other is worse than one.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} (binary + deb + rpm)
+    # Forgejo Actions also reads .github/workflows; its runner is x86_64 Linux
+    # only, so this stays on GitHub (server_url is the Forgejo instance URL there).
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            nfpm_arch: x86_64
+            ship_binary: false
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            nfpm_arch: arm64
+            ship_binary: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Build the binary
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m pip install ".[ble]"
+          pyinstaller --onefile --name whiskerless \
+            --collect-all bleak --collect-all aiomqtt packaging/launcher.py
+      - name: Smoke-test the binary
+        # A PyInstaller bundle that misses a hidden import fails at run time, not
+        # build time, so the artifact would look fine and be useless. --help
+        # exercises the whole import graph the CLI touches on startup.
+        run: |
+          ./dist/whiskerless --help > /dev/null
+          ./dist/whiskerless send --help > /dev/null
+      - name: Package deb + rpm
+        env:
+          NFPM_VERSION: "2.43.0"
+        run: |
+          set -euo pipefail
+          curl -sSL -o nfpm.tar.gz \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_${{ matrix.nfpm_arch }}.tar.gz"
+          tar xzf nfpm.tar.gz nfpm
+          # deb and rpm both sort `~rc.1` before the final release; the tag's
+          # `-rc.1` is illegal in a deb version and sorts AFTER 0.2.0 in rpm.
+          version="${GITHUB_REF_NAME#v}"
+          export VERSION="${version/-rc./~rc.}"
+          export ARCH="${{ matrix.arch }}"
+          ./nfpm package -f packaging/nfpm.yaml -p deb -t "whiskerless_${VERSION}_${{ matrix.arch }}.deb"
+          ./nfpm package -f packaging/nfpm.yaml -p rpm -t "whiskerless-${VERSION}.${{ matrix.nfpm_arch }}.rpm"
+      - name: Name the raw binary for its architecture
+        if: ${{ matrix.ship_binary }}
+        run: cp dist/whiskerless "whiskerless-linux-${{ matrix.arch }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            *.deb
+            *.rpm
+            whiskerless-linux-*
+          if-no-files-found: error
+
+  publish:
+    name: Append the Linux artifacts to the GitHub + Forgejo releases
+    if: ${{ github.server_url == 'https://github.com' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: linux
+          merge-multiple: true
+      - name: Release notes from CHANGELOG
+        run: bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
+      - name: Wait for the pinned library to exist on PyPI
+        # Same reason as release-macos.yml: these helpers CREATE the release when
+        # it is missing, and HACS offers the update the moment it exists. Landing
+        # it before PyPI has the version leaves the first updaters with a manifest
+        # pinning something pip cannot install.
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # PEP 440: the tag says 0.2.0-rc.1, PyPI normalizes it to 0.2.0rc1.
+          pypi_version="$(printf '%s' "$version" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
+          for _ in $(seq 1 60); do
+            if curl -sSfI -o /dev/null \
+              "https://pypi.org/pypi/whiskerless/${pypi_version}/json"; then
+              echo "whiskerless ${pypi_version} is on PyPI"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::whiskerless ${pypi_version} never appeared on PyPI"
+          exit 1
+      - name: Append to the GitHub + public-Forgejo releases
+        run: |
+          chmod +x packaging/github-release.sh packaging/forgejo-release.sh
+          packaging/github-release.sh "${{ secrets.GITHUB_TOKEN }}" \
+            "$GITHUB_REF_NAME" notes.md linux/*
+          packaging/forgejo-release.sh forgejo.bryantserver.com \
+            "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md linux/*

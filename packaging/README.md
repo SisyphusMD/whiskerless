@@ -1,9 +1,10 @@
 # Packaging & release
 
 `launcher.py` is the PyInstaller entry point; `entitlements.plist` carries the
-hardened-runtime exceptions PyInstaller needs for notarization;
-`changelog-section.sh`, `forgejo-release.sh`, and `github-release.sh` are release
-helpers.
+hardened-runtime exceptions PyInstaller needs for notarization; `nfpm.yaml` is
+the `.deb`/`.rpm` recipe; `homebrew/` and `homebrew-cask.sh` are the Homebrew
+cask and its regenerator; `changelog-section.sh`, `forgejo-release.sh`, and
+`github-release.sh` are release helpers.
 
 ## How a release flows
 
@@ -22,12 +23,49 @@ and bridges.
 3. **GitHub `release-macos.yml`** (mirrored tag, GitHub's free macOS runners — the
    one job that needs a Mac): builds the **signed + notarized `.pkg`** and appends
    it to the **GitHub** and **public-Forgejo** releases (all it can reach).
-4. **Forgejo `publish.yml` `nas-pkg` job**: waits for the `.pkg` on the public
+4. **GitHub `release-linux.yml`** (mirrored tag): builds the **arm64 Linux
+   binary** on GitHub's native arm64 runner and the **`.deb` + `.rpm` for both
+   architectures**, and appends them to the GitHub and public-Forgejo releases.
+   The x86_64 raw binary is deliberately left to `publish.yml` so the two
+   workflows never upload an asset of the same name.
+5. **Forgejo `publish.yml` `nas-pkg` job**: waits for the `.pkg` on the public
    Forgejo release, then **copies it to the internal NAS** release.
 
-All three releases end up with the same notes + both binaries; PyPI has the
-library. The release helpers are idempotent (create-or-reuse + replace assets),
-so the two forges can write the same release in any order.
+All three releases end up with the same notes; PyPI has the library. The release
+helpers are idempotent (create-or-reuse + replace assets), so the forges can
+write the same release in any order.
+
+### What each release carries
+
+| Artifact | Built by | Runs on |
+|---|---|---|
+| `whiskerless` on PyPI | `publish.yml` | any Python 3.11+ |
+| `whiskerless-linux-x86_64` | `publish.yml` | Linux, no Python needed |
+| `whiskerless-linux-arm64` | `release-linux.yml` | Linux arm64 (Pi, arm servers) |
+| `whiskerless_<v>_{amd64,arm64}.deb` | `release-linux.yml` | Debian / Ubuntu |
+| `whiskerless-<v>.{x86_64,aarch64}.rpm` | `release-linux.yml` | Fedora / RHEL |
+| `whiskerless-macos-{arm64,x86_64}.pkg` | `release-macos.yml` | macOS, signed + notarized |
+
+The `.deb`/`.rpm` declare **no** dependency on a system Python: PyInstaller
+bundles the interpreter, so the package works on a machine that has none. That
+is the point — the audience is someone provisioning a robot from a laptop.
+
+### Homebrew (not wired up yet)
+
+`packaging/homebrew/whiskerless.rb` is a **cask**, not a formula: the macOS
+artifact is an already-notarized `.pkg`, and shipping a bare binary through a
+formula would put it back behind Gatekeeper quarantine.
+
+It needs a tap repository that does not exist yet. One-time setup:
+
+1. Create `github.com/SisyphusMD/homebrew-tap` with a `Casks/` directory.
+2. After a stable release: `packaging/homebrew-cask.sh 0.2.0 > …/Casks/whiskerless.rb`
+   — it downloads both `.pkg` assets and hashes what users will actually get.
+3. Commit it. Users then run `brew install --cask sisyphusmd/tap/whiskerless`.
+
+Automating step 2 in `release-linux.yml` needs a PAT with write access to the
+tap; until the tap exists there is nothing to push to, and the README's
+download-the-`.pkg` instructions remain correct.
 
 ## Secrets
 

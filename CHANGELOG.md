@@ -120,6 +120,11 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   entity resolves to a translated name, that `quality_scale.yaml` still covers
   the real rule list, and that the example automations reference entities that
   exist — each of which caught a real defect by hand first.
+- **The declared Home Assistant minimum was wrong.** `hacs.json` said 2025.2.0,
+  but every platform imports `AddConfigEntryEntitiesCallback`, which Home
+  Assistant only gained in 2025.3.0. HACS enforces that minimum, so a user on
+  2025.2 could install this and watch it fail at import. Nothing caught it
+  because the integration tests only ever run against the newest Home Assistant.
 - **The write paths are tested.** Integration coverage went from 93% to 99% —
   it had been under the 95% the quality scale asks for while claiming to meet it.
   Reads were well covered and writes barely were, which is backwards: a decode
@@ -133,6 +138,19 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   installs get it turned on too, unless you disabled it by hand.
 
 ### Changed
+
+- **Linux gets arm64 binaries and real packages.** `.deb` and `.rpm` for both
+  architectures, plus an arm64 build of the standalone provisioner for
+  Raspberry Pis and arm servers — the x86_64 binary already shipped. Neither
+  package needs a system Python; PyInstaller bundles it, which is the point on
+  a laptop that has none. A Homebrew cask is written but not published: it
+  needs a tap repository that does not exist yet.
+- **CI tests what the package advertises, not just what resolves today.** The
+  library suite now runs on macOS as well as Linux (the provisioner binary
+  ships for macOS, and bleak's backend differs by platform), and a new job
+  installs the *oldest* aiomqtt and bleak that pyproject claims to support.
+  The prerelease gate re-checks both floors, since a prerelease can be cut from
+  a branch CI never saw.
 
 - **The clean cycle, reset and empty presses no longer need a motor opt-in.**
   **Breaking (library):** `Hazard.MOTOR`, `MotorCommandError` and the

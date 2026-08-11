@@ -1,0 +1,39 @@
+# nfpm recipe for the .deb and .rpm built from the PyInstaller binary.
+#
+# The binary is self-contained (PyInstaller bundles CPython, aiomqtt and bleak),
+# so these packages deliberately declare NO dependency on a system Python. That
+# is the whole point of shipping them: the audience is someone re-provisioning a
+# robot from a laptop who does not have, and should not need, a Python install.
+#
+# ARCH and VERSION come from the workflow; nfpm expands ${...} from the
+# environment at build time.
+name: whiskerless
+arch: ${ARCH}
+version: ${VERSION}
+# The tag carries 0.2.0-rc.1; deb and rpm both order `~rc.1` BEFORE the final
+# release, which is what a prerelease has to do. A bare `-rc.1` would sort after
+# 0.2.0 in rpm and is not even legal in a deb version.
+version_schema: none
+section: net
+priority: optional
+maintainer: Cody Bryant <cody@casabryant.com>
+description: |
+  Fully-local MQTT control and telemetry for the Whisker Litter-Robot 4.
+  Includes the one-time BLE provisioner that re-points a robot at your own
+  broker, so the robot never talks to Whisker's cloud again.
+vendor: SisyphusMD
+homepage: https://github.com/SisyphusMD/whiskerless
+license: MIT
+contents:
+  - src: ./dist/whiskerless
+    dst: /usr/bin/whiskerless
+    file_info:
+      mode: 0755
+  - src: ./LICENSE
+    dst: /usr/share/doc/whiskerless/LICENSE
+    file_info:
+      mode: 0644
+  - src: ./README.md
+    dst: /usr/share/doc/whiskerless/README.md
+    file_info:
+      mode: 0644

@@ -13,14 +13,19 @@ concurrency:
 
 jobs:
   library:
-    name: Lint, type-check, test (library, ${{ matrix.python-version }})
+    name: Lint, type-check, test (library, ${{ matrix.os }}, ${{ matrix.python-version }})
     # Forgejo Actions also reads .github/workflows; without this the same jobs
     # would run twice there (server_url is the Forgejo instance URL on Forgejo).
     if: ${{ github.server_url == 'https://github.com' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # Both ends of the Python range on Linux, and macOS because the
+        # standalone provisioner binary ships for it: bleak's backend differs by
+        # platform, and a macOS-only import or path bug would otherwise be found
+        # by whoever downloaded the .pkg rather than by CI.
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,6 +49,31 @@ jobs:
           --cov-config=pyproject.toml --cov-fail-under=98
       - name: Coverage gate (safety chokepoint)
         run: coverage report --include='*/safety.py' --fail-under=100
+
+  dependency-floors:
+    name: Test the dependency floors the package advertises
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # The oldest interpreter pyproject advertises, with the oldest
+          # dependencies it advertises — the combination a user on a long-term
+          # distro actually gets, and the one nothing else here exercises.
+          python-version: "3.11"
+      - name: Install at the declared minimums
+        # `lowest-direct` pins what this project declares (aiomqtt 2.0.0, bleak
+        # 0.22.0) while letting their own dependencies resolve normally. A plain
+        # `lowest` would also floor transitive packages, which this project does
+        # not claim to support and cannot fix.
+        run: |
+          python -m pip install --upgrade pip uv
+          uv pip install --system --resolution lowest-direct -e ".[dev,ble]"
+      - name: Pytest (library, at the floors)
+        # No coverage gate: this job answers "does the advertised minimum work",
+        # and the ceiling jobs already hold the line on coverage.
+        run: pytest -q
 
   homeassistant:
     name: Type-check + test the integration
