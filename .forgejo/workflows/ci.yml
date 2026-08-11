@@ -45,6 +45,22 @@ jobs:
       - name: Coverage gate (safety chokepoint)
         run: coverage report --include='*/safety.py' --fail-under=100
 
+  hygiene:
+    name: Shell scripts and documentation links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Shellcheck
+        # The release path is five shell scripts that only ever run during a
+        # release, so a mistake in one surfaces while cutting it rather than in
+        # review. ruff already covers packaging's Python; this covers the rest.
+        run: shellcheck $(git ls-files '*.sh')
+      - name: Documentation links
+        # Relative links rot silently: a doc moves and the link keeps rendering,
+        # just pointing at nothing. The setup guide alone links to the recovery
+        # guide, the compatibility notes and the examples directory.
+        run: python3 packaging/check-doc-links.py .
+
   dependency-floors:
     name: Test the dependency floors the package advertises
     runs-on: ubuntu-latest

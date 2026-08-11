@@ -145,6 +145,12 @@ Protocol detail for all of the below lives in `docs/devices/litter-robot-4/`.
   — and nothing noticed, because the binary runs fine on the runner that made
   it. They are now built in a manylinux_2_28 container and a release fails if
   any bundled ELF asks for more than the declared floor.
+- **The packages are installed before they are published.** The `.deb` goes on
+  Debian 12 and the `.rpm` on Rocky 9, and the binary is run, before a release
+  can carry them — both distros sit above the declared glibc floor and below
+  the build runner's, which is the window where this class of bug lives. CI
+  also shellchecks the release scripts and fails on a broken documentation
+  link, neither of which anything checked before.
 - **Linux gets arm64 binaries and real packages.** `.deb` and `.rpm` for both
   architectures, plus an arm64 build of the standalone provisioner for
   Raspberry Pis and arm servers — the x86_64 binary already shipped. Neither

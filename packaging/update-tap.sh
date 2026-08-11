@@ -96,10 +96,15 @@ render_formula() {
       -e "s|REPLACE_VERSION|${pypi_version}|g" \
       -e "s|REPLACE_SDIST_SHA256|${sha}|" \
       "$here/homebrew/${formula}.rb" > "$out"
-  grep -Fq "url \"$url\"" "$out" \
-    && grep -Fq "sha256 \"$sha\"" "$out" \
-    && ! grep -Eq 'REPLACE_(PYPI_)?VERSION|REPLACE_SDIST_SHA256' "$out" \
-    || { echo "formula template substitution failed for $formula" >&2; exit 1; }
+  # Spelled as an explicit `if` rather than `A && B || C`: that reads as if-then-else
+  # and is not (shellcheck SC2015), which is a bad shape for the check standing
+  # between a template and a published formula.
+  if ! grep -Fq "url \"$url\"" "$out" \
+    || ! grep -Fq "sha256 \"$sha\"" "$out" \
+    || grep -Eq 'REPLACE_(PYPI_)?VERSION|REPLACE_SDIST_SHA256' "$out"; then
+    echo "formula template substitution failed for $formula" >&2
+    exit 1
+  fi
   echo "wrote $out (tag=$tag sha=$sha)"
 }
 

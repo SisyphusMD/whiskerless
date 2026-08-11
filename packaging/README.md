@@ -50,6 +50,14 @@ The `.deb`/`.rpm` declare **no** dependency on a system Python: PyInstaller
 bundles the interpreter, so the package works on a machine that has none. That
 is the point — the audience is someone provisioning a robot from a laptop.
 
+Both are **installed before they are published**. `release-linux.yml`'s `verify`
+job installs the `.deb` on Debian 12 (glibc 2.36) and the `.rpm` on Rocky 9
+(2.34) and runs the binary; `publish` needs `verify`, so a package that cannot
+install never reaches a release. Those two distros are chosen deliberately:
+both sit above the declared 2.28 floor and below the runner's 2.39, which is
+exactly the window where a binary built on the runner fails and a manylinux one
+must not.
+
 ### Homebrew
 
 `packaging/homebrew/whiskerless.rb` and `whiskerless-rc.rb` are **formulas**, not casks — a source

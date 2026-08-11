@@ -98,10 +98,48 @@ jobs:
           # A re-run must not trip over its own earlier attempt's upload.
           overwrite: true
 
+  verify:
+    name: Install the packages on the distros they claim to support
+    # A separate job on a plain runner, not a step in `build`: that job runs
+    # inside the manylinux container, and `docker run` there would need a socket
+    # the runner does not mount into container jobs.
+    if: ${{ github.server_url == 'https://github.com' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: linux
+          merge-multiple: true
+      - name: Debian 12 (glibc 2.36) and Rocky 9 (2.34)
+        # The glibc floor is a promise about machines nobody here builds on, so it
+        # is proved by installing on them. Both distros sit above the declared 2.28
+        # and below the runner's 2.39 — the exact window where a binary built on
+        # the runner fails and a manylinux one must not.
+        # amd64 only: these base images are pulled for the host architecture.
+        run: |
+          set -euo pipefail
+          deb="$(ls linux/whiskerless_*_amd64.deb)"
+          rpm="$(ls linux/whiskerless-*.x86_64.rpm)"
+          docker run --rm -v "$PWD:/w" -w /w debian:12 bash -eux -c "
+            ldd --version | head -1
+            apt-get update -qq >/dev/null
+            apt-get install -y -qq ./$deb >/dev/null
+            whiskerless --help > /dev/null
+            whiskerless send --help > /dev/null
+            echo 'debian 12: installed and runs'
+          "
+          docker run --rm -v "$PWD:/w" -w /w rockylinux/rockylinux:9 bash -eux -c "
+            ldd --version | head -1
+            dnf install -y -q ./$rpm >/dev/null
+            whiskerless --help > /dev/null
+            echo 'rocky 9: installed and runs'
+          "
+
   publish:
     name: Append the Linux artifacts to the GitHub + Forgejo releases
     if: ${{ github.server_url == 'https://github.com' }}
-    needs: build
+    needs: [build, verify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
