@@ -88,9 +88,9 @@ class Register(IntEnum):
     # a DARK room). Yes: the stock config is brighter at night (40/50).
     PANEL_BRIGHTNESS = 0x0E
     CAT_WEIGHT = 0x09                # activity: raw / CAT_WEIGHT_DIVISOR = lb
-    # Dispense-choreography burst (activity only). NOT proof a hopper exists: a
-    # hopperless 1.1.75 robot emits the same burst most cycles, while the
-    # hopper-attached 1.1.75 has never emitted it — see events.HopperDispensed.
+    # Dispense-choreography burst (activity only). NOT proof a hopper exists:
+    # two 1.1.75 robots that both carry one disagree — one emits the burst most
+    # cycles, the other never has — see events.HopperDispensed.
     LITTER_HOPPER_DISPENSED = 0x0C
     CLEAN_CYCLE_WAIT_TIME = 0x16     # minutes (direct)
     IS_KEYPAD_LOCKOUT = 0x17         # 0/1
@@ -220,12 +220,14 @@ PANEL_BUTTON_EMPTY = 0x0801
 PANEL_BUTTON_POWER = 0x0101
 
 
-# HOPPER_LINK (0x57) value meaning "hopper disconnected" (int16 -15, live-PROVEN
-# on detach/reattach and bonnet lift/reseat).
+# HOPPER_LINK (0x57) value historically read as "hopper disconnected" (int16 -15).
 #
-# Other negatives are NOT disconnections and must stay unnamed: -30 (0xFFE2) recurs
-# on an idle robot with the hopper attached and dispensing normally, so treating any
-# negative as a fault would report a working hopper as gone.
+# That reading is not safe. A narrated 2026-08-11 session produced -15 for a full
+# hopper detach AND for merely pulling the hopper's drawer, so a routine refill makes
+# this read disconnected; nothing on the wire announces reconnection. Positives fire
+# on a robot with the hopper physically in the owner's hand, so they prove nothing
+# either. Other negatives stay unnamed: -30 (0xFFE2) recurs on an idle robot with the
+# hopper attached and dispensing normally, and -17/-31 appeared once each.
 HOPPER_LINK_DISCONNECTED = 0xFFF1
 
 # STATUS_ANNUNCIATOR (0x0B) values, every one labeled against a live observed
@@ -240,7 +242,9 @@ STATUS_ANNUNCIATIONS: dict[int, str] = {
     20: "cycle_running",
     22: "ready",
     102: "night_light_changed",   # fires with IS_NIGHT_LIGHT_LED_ON transitions
-    105: "reset_tare",            # fires on a Reset press (physical or written)
+    # 105 was labeled "fires on a Reset press". Two narrated physical Resets emitted
+    # 22 (ready) and no 105 at all, so whatever raises it, the press alone does not.
+    105: "reset_tare",
 }
 
 # LITTER_HOPPER_DISPENSED (0x0C) phase whose value is the hopper's own fill
@@ -253,8 +257,8 @@ HOPPER_DISPENSE_FILL_PHASE = 1
 # normal dispense every cycle) · 84 immediately after a refill (fresh litter
 # mounds unevenly before dispenses redistribute it). The bands don't overlap;
 # <= this threshold means empty. Only meaningful once 0x57 has corroborated
-# that a hopper exists: a hopperless robot's phase-1 values (58-84 observed)
-# land in the same range.
+# that a hopper exists: a second 1.1.75 robot's phase-1 values (58-84 observed)
+# land in the same range without any drain behind them.
 HOPPER_FILL_EMPTY_MAX = 72
 
 

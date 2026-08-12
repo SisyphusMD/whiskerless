@@ -7,9 +7,9 @@ readings — live-proven on ESP 1.4.4 with a LitterHopper attached:
   visits. Short visits can omit it, and 1.1.75 has repeated or delayed readings.
   The local state doc has no weight field, so this stream is the only source.
 * **hopper dispense** (register 0x0C): a burst of phase-tagged values at the
-  tail of a clean cycle. Not proof a hopper exists — a hopperless 1.1.75 robot
-  emits the same burst — so corroborate with 0x57 before treating it as
-  hopper data.
+  tail of a clean cycle. Not proof a hopper exists — one 1.1.75 robot emits the
+  burst on most cycles while another, equipped identically, never has — so
+  corroborate with 0x57 before treating it as hopper data.
 * **hopper link** (register 0x57): 0xFFF1 (-15) when the hopper connection is
   lost (detach, or any bonnet movement — the hopper mounts on the bonnet);
   positive values while attached.
@@ -73,10 +73,11 @@ class HopperDispensed:
       ran down. Unitless until the empty/refill anchors calibrate it.
     * phase 2 — routine step marker (119-121 observed, invariant)
 
-    The burst is NOT evidence a hopper is attached: a hopperless 1.1.75 robot
-    emits it most cycles (phase-1 values 58-84), while the hopper-attached
-    1.1.75 has never emitted 0x0C. Treat phase 1 as a fill gauge only after
-    0x57 has corroborated the hardware.
+    The burst is NOT evidence a hopper is attached: two 1.1.75 robots that both
+    carry one disagree completely — one emits it most cycles (phase-1 values
+    58-84), the other never has. No hopperless robot has been captured, so the
+    burst has never been tested against absent hardware in either direction.
+    Treat phase 1 as a fill gauge only after 0x57 has corroborated the hardware.
     """
 
     raw: int

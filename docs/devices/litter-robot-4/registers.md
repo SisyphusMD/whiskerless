@@ -86,9 +86,9 @@ was.
 | `0x32` | sleepStatus | `1` while inside the panel sleep window, `0` outside — tracks the clock, not just the enable bit. The *field* is live-proven (both boundary transitions captured against the schedule); the register number rests on the brief plus one capture's two aligned `0x32` activity transitions | PROVEN (field) |
 | `0x34` | robotStatus | see enum below | PROVEN |
 | `0x35` | globeMotorFaultStatus | 0 = none, 1..9 fault | HIGH |
-| `0x37` | catDetect | **not a boolean** — the state doc shows 0–3, and two robots on one firmware use different vocabularies (`3` vs `1` for a cat; see the [notebook](capture-notebook.md)). Activity carries 16/17/32/33 — cat-correlated — plus 256, and 512/1024 on bonnet open/close | LOW |
+| `0x37` | catDetect | **a two-bit field, not a boolean** — bit 0 = time-of-flight sight line, bit 1 = load cell. `1` an arm in the beam, `2` an inert weight on the pan, `3` a cat, `0` idle; both bits driven independently in one narrated session. Activity carries 16/17/32/33 (the low bit tracking bit 0), plus 256, and 512/1024 on bonnet open/close | PROVEN |
 | `0x39` | USBFaultStatus | 0/1/2 | HIGH |
-| `0x3A` | isBonnetRemoved | bonnet interlock | HIGH |
+| `0x3A` | isBonnetRemoved | bonnet interlock — `1` on lift, `0` on reseat, in lockstep with `robotStatus 5` on both robots | PROVEN |
 | `0x3B` | isNightLightLEDOn | LED state | HIGH |
 | `0x3D–0x40` | odometer Power/Clean/Empty/Filter cycles | lifetime counts | HIGH |
 | `0x42` | DFINumberOfCycles | drawer cycles | HIGH |
@@ -98,9 +98,10 @@ was.
 | `0x4D` | globeMotorRetractFaultStatus | fault enum | HIGH |
 | `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
 | `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum | PROVEN |
-| `0x56` | drawer bay | the waste drawer **moved** — direction is not recoverable, see below | PROVEN (as an event) |
-| `0x57` | LitterHopper link | activity-only channel; `-15` = disconnected, positives accompany a healthy link, other negatives remain unresolved | PROVEN (`-15` event) |
+| `0x56` | drawer bay | fires on **seating only** — 5 seats emitted, 5 removals silent, across two robots and two different drawers. The *value* encodes nothing (10, 11, 12 all seen for the same move); the emission is the signal, see below | PROVEN (as a seat event) |
+| `0x57` | hopper subsystem | activity-only, and **not usable as a link state** — positives fire on a robot with the hopper physically detached, and `-15` fires for a drawer pull as well as a full detach. Reattach emits no distinct code. Negatives seen: `-15`, `-17`, `-30`, `-31`, none reliably reproducible | LOW |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
+| `0x6F` | unknown | rides the visit-close bundle beside `0xBC`/`0xB9`; 82, 177, 103, 48 observed, no relation to duration found | LOW |
 | `0x09` | catWeight | raw / **100** = lb (telemetry) — see the enum note | MED |
 
 ## Enums
@@ -113,8 +114,10 @@ named but their exact integers aren't all pinned yet.
   bonnet removed, `6`/`7` = post-visit countdown, `25` = cat detected / weight on
   the scale. `4`, `10`, `7` and `25` are live-captured on both ESP 1.1.75 and 1.4.4
   (`6` too, but on 1.1.75 only via `0x340006` on the activity stream — no state
-  document has caught it); `5` on 1.4.4 only. There is no firmware split — the two
-  builds agree on every value either has been seen to emit.
+  document has caught it). `5` is live-captured on both builds too: a narrated bonnet
+  lift on **1.1.75** ran `4 → 5 → 4` on both robots, in lockstep with `isBonnetRemoved`.
+  There is no firmware split — the two builds agree on every value either has been
+  seen to emit.
   Also live-captured since: `1`/`2`/`3` during power-up (which of the three means
   what is unresolved, so they share one slug), **`13` = the automatic cycle a robot
   runs on boot**, and **`14` = the filter-change wizard**. Both 13 and 14 suppress
@@ -148,23 +151,28 @@ named but their exact integers aren't all pinned yet.
   unexplained reading, not the units. A narrated visit — known cat, noted time,
   raw read off the wire — is still what would close this for good.
 
-## The drawer bay (`0x56`) reports movement, not position — an open problem
+## The drawer bay (`0x56`) reports seating, not position
 
-This is the weakest decode in the map, and it is documented as unsolved rather than
-patched again. **What is solid:** `0x56` is silent unless the waste drawer moves, and
-the state document's DFI fields never flag a pulled drawer, so this register is the
-only drawer-service signal there is.
+**What is solid:** `0x56` is silent unless a drawer moves, and the state document's DFI
+fields never flag a pulled drawer, so this register is the only drawer-service signal
+there is.
 
-**What is not:** which way it moved. Across three rounds of narrated pulls the values
-were 10, 11, 13, 14, 15, 16, 17 and 28, with removals and insertions sharing values;
-seating the drawer fully sometimes emitted nothing at all. A direct type-1 read
-answers ~78 whether the drawer is in **or** out, so position cannot be recovered that
-way either.
+**Direction is recoverable — from whether the register speaks, not from what it says.**
+A narrated 2026-08-11 session on two robots and two different drawers gave 5 seatings
+and 5 removals: **every seating emitted, every removal was silent.** The values across
+those seatings were 10, 11 and 12 for the same physical move, so the number carries
+nothing.
 
-Three successive attempts to name a removal code each held until the next capture
-contradicted them (`{10}`, then `{10, 11}`, then a per-unit theory that was wrong).
-whiskerless therefore exposes *when the drawer last moved* and claims nothing about
-where it is.
+That also explains why three earlier rounds failed. They read direction out of the
+*value*, pooling 10, 11, 13, 14, 15, 16, 17 and 28 from both directions, and three
+successive attempts to name a removal code each held until the next capture contradicted
+them (`{10}`, then `{10, 11}`, then a per-unit theory that was wrong). A direct type-1
+read answers ~78 whether the drawer is in **or** out, so absolute position is still not
+recoverable — only the seat event.
+
+whiskerless still exposes *when the drawer last moved* and claims nothing about where it
+is; the seat-only asymmetry is five observations old and has not yet earned a behaviour
+change.
 
 **What would actually settle it.** Not more pulls — a *timestamped, narrated* sequence
 recorded against a running capture, where every transition is called out as it

@@ -147,7 +147,7 @@ async def test_a_first_document_arriving_mid_visit_is_not_an_arrival(
 async def test_the_sweep_clears_an_unproven_hopper(
     hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
-    """rc.6 recorded hoppers from the dispense burst a hopperless robot emits.
+    """rc.6 recorded hoppers from a dispense burst that proves no such thing.
 
     The flag is cleared and the entities go back to disabled; a real hopper
     re-proves itself with a 0x57 within a visit and re-enables.

@@ -25,9 +25,9 @@ HOPPER_ENTITIES = (
 # A real dispense triple from a live capture. Phase 1 (0x0C103D) is the fill
 # gauge reading 61, which on that robot was an empty hopper.
 DISPENSE = json.dumps({"type": "action", "data": ["0x0C0105", "0x0C103D", "0x0C2076"]})
-# A healthy 0x57 link report — the only event that proves a hopper exists: a
-# hopperless 1.1.75 robot emits the dispense burst most cycles but has never
-# produced a 0x57.
+# A healthy 0x57 link report — the only event taken as proof a hopper exists.
+# The dispense burst cannot serve: of two 1.1.75 robots that both carry a
+# hopper, one emits it most cycles and the other never has.
 LINK_REPORT = json.dumps({"type": "action", "data": ["0x570014"]})
 # Link LAST on purpose: corroboration is computed over the whole message, so a
 # dispense must be believed even when the 0x57 lands after it in the array.
@@ -82,9 +82,9 @@ async def test_a_dispense_alone_does_not_enable_them(
 ) -> None:
     """The dispense burst is not evidence a hopper exists.
 
-    A hopperless 1.1.75 robot emits the same 0x0C burst most cycles (the
-    hopper-attached 1.1.75 never has), so an uncorroborated burst must neither
-    enable the entities nor record any hopper fact.
+    Two 1.1.75 robots that both carry a hopper disagree completely — one emits
+    the 0x0C burst most cycles, the other never has — so an uncorroborated burst
+    must neither enable the entities nor record any hopper fact.
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 

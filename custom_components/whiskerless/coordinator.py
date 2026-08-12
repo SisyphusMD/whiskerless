@@ -469,14 +469,13 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 weight_reported = True
                 changed = True
             elif isinstance(event, HopperDispensed):
-                # A dispense burst alone is not evidence a hopper exists: a
-                # hopperless 1.1.75 robot emits the same 0x0C burst most cycles
-                # (phase-1 "gauge" 58-84), while the hopper-attached 1.1.75 has
-                # never emitted 0x0C. Only a healthy 0x57 — which the hopperless
-                # robot has never produced — corroborates the hardware, and the
-                # persisted seen-flag deliberately does not count: earlier rc
-                # builds set it from bare bursts. A real hopper re-proves itself
-                # within a visit, so this costs at most one sample.
+                # A dispense burst alone is not evidence a hopper exists: two
+                # 1.1.75 robots that both carry one disagree completely — one
+                # emits the 0x0C burst most cycles (phase-1 "gauge" 58-84), the
+                # other never has. Only a healthy 0x57 corroborates the hardware,
+                # and the persisted seen-flag deliberately does not count: earlier
+                # rc builds set it from bare bursts. A real hopper re-proves
+                # itself within a visit, so this costs at most one sample.
                 if not (self._hopper_link_reported or link_in_message):
                     continue
                 self._last_hopper_dispensed = dt_util.utcnow()

@@ -48,21 +48,128 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 
 | Question | What would answer it |
 |---|---|
-| Is `catDetect` a bitfield whose bit 0 is the cat? | Days on the second robot. Bit 0 held for 76 of 77 collapses across two robots, but one reports `3` for a cat and the other `1` |
-| What is `catDetect` bit 1, and why does only the hopper robot set it? | Detach the LitterHopper from robot 1 and see whether the long bit-1-only runs stop |
+| ~~Is `catDetect` a bitfield whose bit 0 is the cat?~~ | **ANSWERED 2026-08-11.** Bit 0 = ToF sight line, bit 1 = load cell; all four values driven independently, 24 samples of perfect separation on a live cat |
+| ~~What is `catDetect` bit 1?~~ | **ANSWERED 2026-08-11.** The load cell — an inert weight sets it with the beam clear, and Whisker's "excess weight" fault is bit 1 alone. Nothing to do with the hopper |
 | Is `0x32` the sleep flag? | Two transitions in one capture, 2 s and 3 s ahead of `sleepStatus`. Toggle sleep by hand and watch it |
 | Is `0x4C` "a cycle is owed"? | It has only ever been seen while asleep, so "a visit while asleep" fits the same data — catch a deferred cycle with sleep off |
 | What do `0x3C` / `0x66` measure? | They repeat per cycle and now reproduce across two robots — correlate against a cycle interrupted mid-way |
 | What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`, `0x71`? | Perturb something physical and watch which one moves |
-| What are `0x0C`, `0x41`, `0x67`? | Robot 2 emits `0x0C` and `0x67` in most cycles (see the addendum) and `0x41` only in its first; robot 1 never emits any of the three, including on a commanded cycle. Why does only the hopperless robot run the dispense burst? |
+| What are `0x0C`, `0x41`, `0x67`? | `0x0C` is **demand-driven** — robot 2 ran it while starved, stopped after a refill and has been silent for five cycles; robot 1 has never needed a dispense. Whether it needs the *hardware* is still open: run a cycle with litter scooped out of the globe and the hopper off |
 | What are `0x5F`–`0x63`? | Seen once, bracketing robot 2's `0x350001` globe-motor fault (addendum) — catch a second fault |
-| What does the `0x3402C0` tick count? | It runs ≈2-minutely only between a visit and the cycle — change the clean-delay setting and see whether the count follows |
-| Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | More automatic cycles; check whether `0x1064`/`0x1065`/`0xE065` vary with anything visible |
-| Is the `catWeight` divisor 100 for certain? | Set to 100 on the owner-attributed household range (~8–12 lb) and the 809 ↔ 8.1 lb match; a **narrated visit** would close it, and the old raw 408 (half of 809) is still unexplained |
+| ~~What does the `0x3402C0` tick count?~~ | **ANSWERED 2026-08-11.** The clean-delay countdown — three ticks exactly 2 min apart, ending 13 s before a cycle that fired 1 s off `cleanCycleWaitTime` |
+| Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | Looked settled (`1064` automatic, `0x01=0201` commanded) until a cycle carried the button code with nobody at the machine. Needs cycles where presence is certain |
+| Is the `catWeight` divisor 100 for certain? | **The known-weight method does not work** — three trials gave divisors 72.4, 84.8 and 88.5, and an inert object sheds load against the globe wall. Needs a real cat, a clean tare, and a same-evening household weigh-in |
+| Why does `0x57` fire at all? | Not the hopper link: positives appear with the hopper detached, `-15` appears for a drawer pull, and reattach is silent. Negatives `-15`, `-17`, `-30`, `-31` are all unreproducible |
 | Which ToF source drives `litterLevel`? | `0x58`/`0x59`/`0x5A` are all visible individually — check which one the published figure follows |
 | Does anything above `0x7F` exist on 1.1.75? | An accumulating null result — now two robots, 23h37m and 9m, still nothing |
 
 ## Sessions
+
+### 2026-08-11 evening — narrated experiment night, both robots
+
+The first session where the robots were *driven* rather than watched. Every action was
+announced to the clock and matched against payload timestamps. That is why so much of it
+outranks the passive captures below: the 2×2 `catDetect` table exists because both bits
+were varied deliberately, not because two variables happened to move together.
+
+**Both robots carry a LitterHopper.** The repo asserted for weeks that robot 2 had none,
+and several conclusions were built on that; the owner corrected it mid-session and eleven
+places were fixed. Nothing here rests on a hardware inventory nobody verified.
+
+**`catDetect` is a two-bit field: bit 0 = time-of-flight sight line, bit 1 = load cell.**
+All four values produced on one robot inside twenty minutes, each bit driven alone:
+
+|  | ToF clear | ToF blocked |
+|---|---|---|
+| **no weight** | `0` — idle, litterLevel 427–445 | `1` — an arm in the beam, 203 / 165 |
+| **weight** | `2` — an inert jug, 424 | `3` — a cat, 153–415 |
+
+A live visit (20:45:16–20:46:38) gave 24 state samples with **perfect separation**: every
+`3` at litterLevel ≤ 415, every `2` at ≥ 422, no exceptions, and the cat repositioned four
+times with bit 0 following the sight line each time while bit 1 stayed pinned. Whisker's
+own support documentation corroborates bit 1 independently — "blue light bar with partial
+yellow flashing" is *excess weight detected, scale triggered over 30 minutes*, which is
+bit 1 alone, and a Reset (which zeroes the scale) clears it.
+
+That kills the old "two robots use different vocabularies, `3` vs `1` for a cat" reading.
+Robot 2 emitted 0, 1, 2 **and** 3 in one evening; the split was an artifact of a
+nine-minute sample.
+
+**`robotStatus 5` exists on 1.1.75.** Bonnet lifts on both robots ran `4 → 5 → 4` (24 s
+each) in lockstep with `isBonnetRemoved` and `0x3A`. The map said `5` was 1.4.4-only.
+
+**Direction on the drawer bay is recoverable — from emission, not value.** Five seatings,
+five removals, two robots, two different drawers: **every seat emitted `0x56`, every
+removal was silent.** Seat values were 10, 11 and 12 for the same move, so the number
+carries nothing. Three earlier rounds failed because they read direction out of the value.
+`0x56` had never once appeared in the preceding 35 h of passive capture.
+
+**`0x57` is not a hopper link signal in either direction.** Positives fired during a real
+cat visit with the hopper in the owner's hand; `-15` fired for a drawer pull as well as a
+full detach; reattach emits no distinct code at all. Four removals of the same drawer gave
+`-17`, nothing, nothing, `-15` — and a Reset-cleared control produced a *third* outcome, so
+pending-cycle state does not explain it. New negatives `-17` and `-31` appeared.
+
+**`0x0C` is demand-driven, not evidence of hardware.** Robot 2 ran the dispense burst on
+five straight cycles while its gauge read 58–60 (empty), the owner refilled it at ~07:50,
+the next cycle reported **84** — the exact post-refill value `const.py` documents from an
+11-day 1.4.4 arc — and it has been silent on all five cycles since. Its idle litterLevel
+went 444 (starved) → 424 → **427–428, flat to 1 mm for seven hours**. Robot 1 held 430–437
+for 35 h and has never dispensed once. So absence of `0x0C` means no deficit, not no
+hopper — which is why `hopper_fill_percent` reads unknown on a well-fed robot.
+
+**The clean-delay countdown is exact.** Visit closed 20:46:39, `cleanCycleWaitTime` 7,
+cycle fired 20:53:38 — one second out. `0x3402C0` ticked at 20:49:24 / 20:51:24 / 20:53:25,
+two minutes apart, stopping 13 s before the cycle. That is what the tick counts.
+
+**`0x01` echoes physical presses.** Cycle → `0x01=0201`, Reset → `0x01=0401`, matching what
+`commands.py` writes, confirmed seven times.
+
+#### The weight divisor is still open, and the known-weight method does not work
+
+The firmware **requires `catDetect == 3` to publish a weight**: a 10 lb jug held bit 1
+alone for 172 s and produced no `0x09`; occluded so bit 0 also set, it published.
+
+| true | raw | implied divisor | conditions |
+|---|---|---|---|
+| 9.1 lb (cat) | 805 | 88.5 | tare taken with hopper on, hopper off during the visit |
+| 10.0 lb | 724 | 72.4 | clean tare, occluded, 42 s |
+| 25.0 lb | 2119 | 84.8 | clean tare, occluded, 41 s |
+
+Three trials, three divisors, 22 % spread — **not** the signature of a wrong constant, which
+would land on the same wrong number every time. All read low (28 % / 15 %). The likely cause
+is that an inert object sheds load against the globe wall while a cat settles its whole mass
+on the pan. **÷100 is neither confirmed nor refuted**, and a divisor derived from these
+points would be worse than the one in the code. Settling it needs a real cat with a clean
+tare and a same-evening household weigh-in.
+
+#### Refuted during the same session
+
+Kept because the notebook's value is in what stopped being true, and each of these looked
+clean before the next observation:
+
+- **`0xB9` gates the weight report** — four visit-closes lined up perfectly (`1` = cat with
+  a weight, `2` = phantom without), then a 25 lb trial closed `2` and published anyway. The
+  gate is `catDetect` reaching 3.
+- **`0x34=1064` marks automatic cycles and `0x01=0201` commanded ones** — held for two
+  cycles, then a cycle at 21:27:04 carried the button code with nobody at the machine.
+  Unresolved; do not write it up as answered.
+- **`0x0C` would fire on a hopperless cycle with real demand** — predicted, and it did not.
+  But the bed returned to its 427 target by levelling alone, so there was no true deficit
+  and the test did not discriminate. Still open.
+- **`0x0B = 105` is `reset_tare`, fired by a Reset press** — two narrated physical Resets
+  emitted 22 (`ready`) and no 105 at all.
+
+#### Also seen
+
+`0x6F` (undocumented, four sightings at visit close: 82, 177, 103, 48) · `0x71 = 1` (second
+sighting ever) · `0x0B = 8` (not in the annunciator table) · `0xBC`/`0xB9` **only ever from
+robot 2** — robot 1 has never emitted either, same firmware build, which matters for the
+question of whether `0xBC` is firmware-gated. Phantom visits shorter than the 300 s guard
+(235 s, 172 s) would publish as genuine cat visits.
+
+**Not done:** engineered sleep window, empty/power finales, a second seat on robot 1's
+bottom drawer, and the `0x0C` deficit experiment.
 
 ### 2026-08-10/11, 23h37m — two robots, seven clean cycles, an 8-hour sleep window
 
@@ -71,7 +178,7 @@ and zero unparsed payloads.
 
 - **Robot 1** `LR4C654321`, ESP 1.1.75, LitterHopper attached — the whole 23h37m. 2066
   records: 658 state, 715 activity (604 after dedupe), 693 command. Six clean cycles.
-- **Robot 2** `LR4C123456`, ESP 1.1.75, no hopper — the last **9m34s**, from the moment
+- **Robot 2** `LR4C123456`, ESP 1.1.75, LitterHopper attached — the last **9m34s**, from the moment
   BLE provisioning put it on this broker. 270 records: 73 state, 124 activity (103 after
   dedupe), 73 command. One commanded cycle and one cat visit.
 
@@ -478,11 +585,13 @@ at all. The positives (9, 14, 16, 18, 19, 20, 21, 24, 29, 49, 51, 56, 66, 70, 90
 land around visits and cycle edges.
 
 **Robot 2 emitted no `0x57` whatsoever** in 9m34s covering a full cycle and a full visit —
-the one window where robot 1 emits it constantly. That silence is the strongest evidence
-yet that `0x57` really is the hopper register `registers.md` calls it, whatever −30 means
-within that. (The state document is no help here: on 1.1.75 it carries the identical 69
-fields on both robots — no hopper fields even with the hopper attached — so field
-presence distinguishes nothing.)
+the one window where robot 1 emits it constantly. That silence was once read as the
+strongest evidence yet that `0x57` really is the hopper register `registers.md` calls it.
+**That inference is void: both robots carry a LitterHopper.** Two identically equipped
+machines disagree completely on the register, so whatever `0x57` tracks, it is not the
+presence of the hardware. (The state document is no help either: on 1.1.75 it carries the
+identical 69 fields on both robots — no hopper fields at all — so field presence
+distinguishes nothing.)
 
 This is not what makes `hopper_connected` read unknown: the coordinator already declines
 to let an unnamed code overwrite an established link state, so −30 passes through
@@ -507,10 +616,10 @@ them, so "commanded cycle" is not the trigger:
 The `0x0C` pair is worth a second look: `0x2078` is exactly twice `0x103C`, and splitting
 each as a leading index and a value gives (1, 60) and (2, 120), also exactly double. That
 is a guess about a two-sample register, not a decode. It is also the exact dispense
-choreography `events.py` attributes to the LitterHopper — a phase-0 marker of 276, a
-phase-1 "fill gauge", a phase-2 marker of 120 — from a robot with **no hopper**, while
-hopper-equipped robot 1 has emitted no `0x0C` in six cycles. On this firmware a dispense
-burst is evidence of a cycle phase, not of a hopper.
+choreography `events.py` attributes to the LitterHopper, while robot 1 has emitted no
+`0x0C` in six cycles. **Both robots carry a hopper**, so this is two identically equipped
+machines behaving differently, and the burst distinguishes nothing about the hardware in
+either direction.
 
 Robot 2 also idles at `litterLevel` ~471 against robot 1's ~433 (a shallower bed, not a
 protocol difference) and carried `DFILevelPercent` 0 → 19 across its first cycle.

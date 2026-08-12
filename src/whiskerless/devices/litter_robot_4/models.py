@@ -89,8 +89,8 @@ class LitterRobot4State:
     odometer_empty_cycles: int | None = None
     odometer_filter_cycles: int | None = None
 
-    # Sensors / occupancy. catDetect is not a boolean; bit 0 is the
-    # cat-correlated signal shared by both observed device vocabularies.
+    # Sensors / occupancy. catDetect is not a boolean; bit 0 is the ToF sight
+    # line and bit 1 the load cell, so only bit 0 can mean "a cat is in there".
     cat_detected: bool | None = None
     sleep_status: Any = None
 
@@ -227,13 +227,21 @@ def litter_level_percent_from_mm(
 
 
 def cat_detect_bit0(value: Any) -> bool | None:
-    """Whether catDetect's bit 0 — the bit that tracked the cat on both observed
-    vocabularies (110 of 111 litter collapses across two robots) — is set.
+    """Whether catDetect's bit 0 — the time-of-flight sight line — is set.
+
+    catDetect is a two-bit field: **bit 0 is the ToF view, bit 1 the load cell.**
+    Both bits were driven independently in one narrated session — an arm in the
+    beam gives 1, an inert weight on the pan gives 2, a cat gives 3, and a live
+    visit held perfect separation across 24 samples (every 3 at litterLevel
+    <= 415, every 2 at >= 422). Whisker's own "excess weight detected" fault,
+    raised when the scale reads loaded for over 30 minutes, is bit 1 alone.
+
+    Only bit 0 may become occupancy. Bit 1 stays set for as long as anything
+    rests on the scale — a shifted bonnet held it for over two hours — so
+    treating any non-zero value as a cat reports a phantom visit that never ends.
 
     Recognized cloud-style boolean strings keep their boolean meaning; an absent
-    field or unknown string returns None. Other bits carry distinct sensor or
-    hardware states and must not become occupancy: bit 1 was observed set for
-    hours at a time with an empty globe on the hopper-equipped robot.
+    field or unknown string returns None.
     """
     n = _int(value)
     if n is None:

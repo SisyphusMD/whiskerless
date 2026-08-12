@@ -149,8 +149,8 @@ _RESTORE_SEEDABLE: frozenset[str] = frozenset(
 def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
     """One-shot upgrade sweep: every detection must be backed by real evidence.
 
-    Earlier builds recorded a hopper from the 0x0C dispense burst — which a
-    hopperless robot emits too — and shipped the event sensors enabled
+    Earlier builds recorded a hopper from the 0x0C dispense burst — which is no
+    evidence of the hardware — and shipped the event sensors enabled
     unconditionally. Hopper and visit-duration sightings are cleared outright
     (the hardware re-proves itself within a visit and re-enables); the newly
     gated sensors are seeded from their restore cache; whatever is still
