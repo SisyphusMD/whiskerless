@@ -27,8 +27,9 @@ reflash, and fully reversible**.
 
 You get:
 
-- a **Home Assistant integration** (HACS) built to the **Platinum** quality bar —
-  fully local, push-first, fully typed;
+- a **Home Assistant integration** (HACS) built against the platinum checklist —
+  fully local, push-first, fully typed. (The quality scale is only awarded to
+  core integrations, so that is the bar it was written to, not a badge it holds.)
 - a **`whiskerless` CLI + Python library** to provision, monitor, read, and
   control a robot directly;
 - a **complete, public protocol reference** — the first published map of the LR4

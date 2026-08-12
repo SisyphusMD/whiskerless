@@ -35,9 +35,20 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 ### Fixed
 
-- **A robot without a LitterHopper no longer grows hopper entities.** The dispense
-  burst turns out to fire on hopperless robots too, so it no longer counts as proof
-  a hopper exists — only a real hopper link report (`0x57`) switches the entities on.
+- **The LitterHopper is now detected by watching it deliver litter.** The link
+  register `0x57` looked like the answer, but a narrated session produced healthy
+  readings from it with the hopper sitting on a bench, and its "disconnected" code
+  from merely opening the hopper's drawer to refill it — so a refill could park the
+  hopper sensor on *disconnected* with nothing on the wire to ever clear it. Nothing
+  is derived from that register any more. **Hopper** reports connected once litter
+  has actually been dispensed and never reports disconnected, because no signal for
+  that exists.
+- **A robot that dispenses but rarely reports its link no longer loses its hopper
+  telemetry.** Requiring `0x57` to corroborate a dispense discarded every fill
+  reading on such a robot and left its four hopper entities disabled indefinitely.
+- **The hopper level survives a restart.** Dispensing only happens when the litter
+  bed is actually low, so a well-fed robot can go days without one; the last gauge
+  is now remembered instead of the level reading unknown until it next runs low.
 - **Event sensors now appear only once their fact has actually been reported.** Pet
   weight, last cat visit, and waste drawer last moved start hidden and switch on at
   their first real report — some firmware never emits the drawer event or a weight,
@@ -48,9 +59,11 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **Last cat visit now updates on every robot.** It stamps from the occupancy signal
   itself, not only from weight events — one robot has visits but has never weighed
   anything, and its visit sensor stayed empty.
-- **Cat detection no longer mistakes the LitterHopper's second sensor bit for a cat.**
-  That bit can stay set for hours with an empty globe; occupancy and litter calibration
-  now use the cat-correlated bit shared by both tested robots.
+- **Cat detection no longer mistakes weight on the scale for a cat.** The occupancy
+  field is two bits — one for what the robot can see, one for what it can feel — and
+  a bonnet reseated slightly off held the second bit for over two hours, which the
+  robot itself reports as an "excess weight" fault. Occupancy and litter calibration
+  now use the bit that tracks the animal.
 - **Fewer unknowns while calibration settles.** The litter calibration reference
   shows the built-in default (marked `source: default`) instead of unknown, and the
   hopper level shows a labelled estimate until the empty floor has actually been

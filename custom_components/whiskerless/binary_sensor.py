@@ -130,11 +130,20 @@ class _RestoringBinarySensor(WhiskerlessEntity, BinarySensorEntity, RestoreEntit
             self._restored = last.state == STATE_ON
 
 
-class WhiskerlessHopperConnectedSensor(_RestoringBinarySensor):
-    """LitterHopper link state, derived from the activity stream (reg 0x57).
+class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
+    """LitterHopper presence, derived from dispense activity.
 
-    The state document carries no hopper fields locally; the link register is
-    the only signal. Unknown until the hopper first speaks (visit or dispense).
+    It reports `on` once the robot has actually delivered litter and never
+    reports `off`: there is no disconnect signal. `0x57` looked like one for
+    months, but a narrated session produced positives with the hopper on the
+    bench and `-15` for merely opening the hopper's drawer, with reattachment
+    silent — so deriving connectivity from it turned a routine refill into a
+    fault that never cleared. A missing hopper is indistinguishable from a
+    well-fed one, because dispensing is demand-driven; unknown is the honest
+    answer there.
+
+    It needs no restore cache: the sighting that enables this entity is itself
+    persisted, so a proven hopper comes back proven.
     """
 
     _attr_translation_key = "hopper_connected"
@@ -148,12 +157,7 @@ class WhiskerlessHopperConnectedSensor(_RestoringBinarySensor):
     @property
     @override
     def is_on(self) -> bool | None:
-        data = self.coordinator.data
-        if data.hopper_link_reported:
-            # 0x57 deliberately reports None for a fault we cannot name; a
-            # restored value must not dress that up as connected.
-            return data.hopper_connected
-        return self._restored
+        return self.coordinator.data.hopper_connected
 
 
 class WhiskerlessHopperEmptySensor(_RestoringBinarySensor):

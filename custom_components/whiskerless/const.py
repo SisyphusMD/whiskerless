@@ -20,6 +20,11 @@ CONF_SERIAL = "serial"
 # enabled and the readings that proved it survive the reload enabling triggers.
 CONF_HOPPER_SEEN = "hopper_seen"
 CONF_HOPPER_LAST = "hopper_last"
+#: The last raw fill gauge, kept for good rather than dropped with the bootstrap
+#: above. Dispensing is demand-driven, so a well-fed robot can go days without
+#: one — long enough that a restart would otherwise leave the level unknown
+#: until it next runs low.
+CONF_HOPPER_FILL_RAW = "hopper_fill_raw"
 
 # The same pair for the visit duration (register 0xBC), which is not optional
 # hardware but an older-firmware gap: ESP 1.4.4 reports one at the end of every
@@ -44,6 +49,11 @@ CONF_CAT_VISIT_LAST = "cat_visit_last"
 # evidence rules were wrong and seeds the newly gated sensors from their
 # restore cache. See _reset_unproven_detections.
 CONF_DETECTION_RESET_BY = "detection_reset_by"
+#: Bumped whenever the standard of proof behind a detection changes, so installs
+#: that already ran an earlier sweep run the new one. Revision 2 retires hopper
+#: sightings recorded from a 0x57 link report, which is now known to prove
+#: nothing — a positive arrives with the hopper sitting on a bench.
+DETECTION_RESET_REVISION = 2
 
 # Extremes learned from what the robot reports, so a user who never calibrates
 # still gets a scale. Explicit calibration overrides these.

@@ -12,6 +12,7 @@ from custom_components.whiskerless.const import (
     CONF_DETECTION_RESET_BY,
     CONF_DRAWER_SEEN,
     CONF_PET_WEIGHT_SEEN,
+    DETECTION_RESET_REVISION,
     DOMAIN,
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -67,7 +68,7 @@ def mock_config_entry() -> MockConfigEntry:
         unique_id=MOCK_SERIAL,
         data=dict(MOCK_CONFIG),
         options={
-            CONF_DETECTION_RESET_BY: True,
+            CONF_DETECTION_RESET_BY: DETECTION_RESET_REVISION,
             CONF_DRAWER_SEEN: True,
             CONF_PET_WEIGHT_SEEN: True,
             CONF_CAT_VISIT_SEEN: True,

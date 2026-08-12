@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from custom_components.whiskerless.const import CONF_HOPPER_LAST, CONF_HOPPER_SEEN
+from custom_components.whiskerless.const import (
+    CONF_HOPPER_FILL_RAW,
+    CONF_HOPPER_LAST,
+    CONF_HOPPER_SEEN,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -25,12 +29,11 @@ HOPPER_ENTITIES = (
 # A real dispense triple from a live capture. Phase 1 (0x0C103D) is the fill
 # gauge reading 61, which on that robot was an empty hopper.
 DISPENSE = json.dumps({"type": "action", "data": ["0x0C0105", "0x0C103D", "0x0C2076"]})
-# A healthy 0x57 link report — the only event taken as proof a hopper exists.
-# The dispense burst cannot serve: of two 1.1.75 robots that both carry a
-# hopper, one emits it most cycles and the other never has.
+# A healthy 0x57 link report. Once treated as the only proof a hopper exists,
+# now inert: positives arrive with the hopper sitting on a bench.
 LINK_REPORT = json.dumps({"type": "action", "data": ["0x570014"]})
-# Link LAST on purpose: corroboration is computed over the whole message, so a
-# dispense must be believed even when the 0x57 lands after it in the array.
+# A dispense that happens to carry a link code too. It must be believed on the
+# strength of the burst alone, with the 0x57 neither helping nor hindering.
 LINKED_DISPENSE = json.dumps(
     {"type": "action", "data": ["0x0C0105", "0x0C103D", "0x0C2076", "0x570014"]}
 )
@@ -57,34 +60,39 @@ async def test_hopper_entities_start_disabled(
         assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION
 
 
-async def test_a_link_report_enables_them(
+async def test_a_link_report_alone_does_not_enable_them(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     state_payload: str,
 ) -> None:
-    """First healthy 0x57 report switches all four on, without a restart."""
+    """0x57 proves nothing, so it must not switch the entities on.
+
+    A narrated session produced healthy positives while the hopper sat on the
+    bench. Enabling four entities on that signal grows a hopper on a robot that
+    has none.
+    """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
         robot.push(LINK_REPORT, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
-    assert mock_config_entry.options[CONF_HOPPER_SEEN] is True
+    assert not mock_config_entry.options.get(CONF_HOPPER_SEEN)
     registry = er.async_get(hass)
     for domain, key in HOPPER_ENTITIES:
-        assert _disabled_by(registry, domain, key) is None, f"{key} should be enabled"
+        assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION
 
 
-async def test_a_dispense_alone_does_not_enable_them(
+async def test_a_dispense_enables_them(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     state_payload: str,
 ) -> None:
-    """The dispense burst is not evidence a hopper exists.
+    """Delivering litter is the only hopper evidence there is.
 
-    Two 1.1.75 robots that both carry a hopper disagree completely — one emits
-    the 0x0C burst most cycles, the other never has — so an uncorroborated burst
-    must neither enable the entities nor record any hopper fact.
+    0x57 used to gate this. That gate then discarded every fill sample on a
+    robot which dispenses happily but rarely emits 0x57, leaving its hopper
+    entities disabled indefinitely.
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
@@ -92,13 +100,74 @@ async def test_a_dispense_alone_does_not_enable_them(
         robot.push(DISPENSE, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
-    assert not mock_config_entry.options.get(CONF_HOPPER_SEEN)
+    assert mock_config_entry.options[CONF_HOPPER_SEEN] is True
     data = mock_config_entry.runtime_data.data
-    assert data.hopper_fill_raw is None
-    assert data.last_hopper_dispensed is None
+    assert data.hopper_fill_raw == 61
+    assert data.last_hopper_dispensed is not None
     registry = er.async_get(hass)
     for domain, key in HOPPER_ENTITIES:
-        assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION
+        assert _disabled_by(registry, domain, key) is None, f"{key} should be enabled"
+
+
+async def test_the_gauge_outlives_the_bootstrap(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """The latest gauge is kept for good, and tracks every dispense.
+
+    CONF_HOPPER_LAST is a one-shot that is dropped once the enabling reload has
+    landed, so it cannot answer for the level after a restart. Dispensing is
+    demand-driven and a well-fed robot can go days without one, which is long
+    enough that the level would otherwise read unknown until it next runs low.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    with robot_online(robot):
+        robot.push(DISPENSE, ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+    assert mock_config_entry.options[CONF_HOPPER_FILL_RAW] == 61
+
+    with robot_online(robot):
+        robot.push(
+            json.dumps({"type": "action", "data": ["0x0C0105", "0x0C1054", "0x0C2076"]}),
+            ACTIVITY_TOPIC,
+        )
+        await hass.async_block_till_done()
+    assert mock_config_entry.options[CONF_HOPPER_FILL_RAW] == 84
+
+
+async def test_the_empty_alert_waits_for_a_gauge(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """A known hopper with no gauge yet must not claim to be full or empty.
+
+    Dispensing is demand-driven, so a hopper proven months ago can have no
+    current reading; the alert falls back to whatever it restored rather than
+    inventing a level from nothing.
+    """
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+    )
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "binary_sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_hopper_empty",
+        config_entry=mock_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper_out_of_litter",
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    assert mock_config_entry.runtime_data.data.hopper_fill_raw is None
+    state = hass.states.get("binary_sensor.litter_robot_4_hopper_out_of_litter")
+    assert state is not None
+    assert state.state == "unknown"
 
 
 async def test_the_proving_reading_survives_the_reload(
@@ -131,10 +200,19 @@ async def test_detection_is_remembered_across_restarts(
     mock_config_entry: MockConfigEntry,
     state_payload: str,
 ) -> None:
-    """A robot known to have a hopper does not re-disable its entities."""
+    """A robot known to have a hopper does not re-disable its entities.
+
+    And it comes back with the gauge it last saw, rather than an unknown level
+    until the robot next happens to run low enough to dispense.
+    """
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+        mock_config_entry,
+        options={
+            **mock_config_entry.options,
+            CONF_HOPPER_SEEN: True,
+            CONF_HOPPER_FILL_RAW: 84,
+        },
     )
 
     await setup_integration(hass, mock_config_entry, state_payload)
@@ -142,6 +220,7 @@ async def test_detection_is_remembered_across_restarts(
     registry = er.async_get(hass)
     for domain, key in HOPPER_ENTITIES:
         assert _disabled_by(registry, domain, key) is None
+    assert mock_config_entry.runtime_data.data.hopper_fill_raw == 84
 
 
 async def test_a_user_disabled_entity_is_not_re_enabled(
@@ -250,7 +329,10 @@ async def test_the_level_estimates_until_the_floor_is_learned(
 
     with robot_online(robot):
         # Fill gauge 84: (84 - 66) / (90 - 66) = 75% of the typical band.
-        robot.push(json.dumps({"type": "action", "data": ["0x570014", "0x0C1054"]}), ACTIVITY_TOPIC)
+        robot.push(
+            json.dumps({"type": "action", "data": ["0x0C0105", "0x0C1054", "0x0C2076"]}),
+            ACTIVITY_TOPIC,
+        )
         await hass.async_block_till_done()
 
     state = hass.states.get("sensor.litter_robot_4_hopper_level")
@@ -259,29 +341,48 @@ async def test_the_level_estimates_until_the_floor_is_learned(
     assert state.attributes["source"] == "estimate"
 
 
-async def test_an_unnamed_link_code_does_not_erase_a_known_connection(
+async def test_no_0x57_code_moves_the_connected_sensor(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
-    """`0x57FFE2` (-30) is not a disconnect.
+    """0x57 is inert, including `-15`.
 
-    It was captured repeating once a minute while the hopper was attached,
-    dispensing and reporting a healthy gauge, then cleared on its own. Only
-    `-15` is a proven disconnect; anything else unnamed leaves the last known
-    state alone rather than describing a working hopper as unknown.
+    `-15` was the one "proven" disconnect for months, then a narrated session
+    produced it for merely opening the hopper's own drawer to refill it — with
+    reattachment silent, so it would never clear. A dispense proves the hopper;
+    nothing on this register may contradict that.
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     with robot_online(robot):
-        robot.push(json.dumps({"type": "action", "data": ["0x570001"]}), ACTIVITY_TOPIC)
+        robot.push(DISPENSE, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
     assert hass.states.get("binary_sensor.litter_robot_4_hopper").state == "on"
 
-    with robot_online(robot):
-        robot.push(json.dumps({"type": "action", "data": ["0x57FFE2"]}), ACTIVITY_TOPIC)
-        await hass.async_block_till_done()
-    assert hass.states.get("binary_sensor.litter_robot_4_hopper").state == "on"
+    for code in ("0x570001", "0x57FFE2", "0x57FFF1", "0x57FFEF"):
+        with robot_online(robot):
+            robot.push(json.dumps({"type": "action", "data": [code]}), ACTIVITY_TOPIC)
+            await hass.async_block_till_done()
+        assert hass.states.get("binary_sensor.litter_robot_4_hopper").state == "on", code
 
-    # -15 is proven, so it must still be believed.
+
+async def test_a_lone_0x0c_reading_is_not_a_dispense(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A type-1 read of 0x0C decodes to one HopperDispensed. It proves nothing.
+
+    A real dispense is a burst of 2-3 phase-tagged codes; taking a single code as
+    proof would let one diagnostic read grow four hopper entities on a robot that
+    has none.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
     with robot_online(robot):
-        robot.push(json.dumps({"type": "action", "data": ["0x57FFF1"]}), ACTIVITY_TOPIC)
+        robot.push(json.dumps({"type": "action", "data": ["0x0C103D"]}), ACTIVITY_TOPIC)
         await hass.async_block_till_done()
-    assert hass.states.get("binary_sensor.litter_robot_4_hopper").state == "off"
+
+    assert not mock_config_entry.options.get(CONF_HOPPER_SEEN)
+    data = mock_config_entry.runtime_data.data
+    assert data.hopper_fill_raw is None
+    assert data.hopper_connected is None
+    registry = er.async_get(hass)
+    for domain, key in HOPPER_ENTITIES:
+        assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION

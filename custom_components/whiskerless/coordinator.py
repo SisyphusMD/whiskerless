@@ -66,6 +66,7 @@ from .const import (
     CONF_CAT_VISIT_SEEN,
     CONF_DRAWER_LAST,
     CONF_DRAWER_SEEN,
+    CONF_HOPPER_FILL_RAW,
     CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
     CONF_LEARNED_HOPPER,
@@ -119,9 +120,6 @@ class WhiskerlessData:
     last_cat_visit: datetime | None = None
     last_visit_duration_s: int | None = None
     hopper_connected: bool | None = None
-    # Distinguishes "never heard from the link register" from a reading we
-    # heard but cannot name: only the former may fall back to a restored value.
-    hopper_link_reported: bool = False
     # Per-robot litter calibration, so the percentage sensor can use it.
     # The pair actually used for the percentage: the user's measurements when
     # they exist, otherwise the learned extremes once they span enough to trust.
@@ -162,7 +160,6 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._last_cat_visit: datetime | None = None
         self._last_visit_duration_s: int | None = None
         self._hopper_connected: bool | None = None
-        self._hopper_link_reported = False
         self._hopper_seen = bool(config_entry.options.get(CONF_HOPPER_SEEN))
         self._visit_duration_seen = bool(config_entry.options.get(CONF_VISIT_DURATION_SEEN))
         self._drawer_seen = bool(config_entry.options.get(CONF_DRAWER_SEEN))
@@ -171,7 +168,14 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._learned_litter = Learned.from_dict(config_entry.options.get(CONF_LEARNED_LITTER))
         self._learned_hopper = Learned.from_dict(config_entry.options.get(CONF_LEARNED_HOPPER))
         self._last_hopper_dispensed: datetime | None = None
-        self._hopper_fill_raw: int | None = None
+        self._hopper_fill_raw: int | None = config_entry.options.get(CONF_HOPPER_FILL_RAW)
+        # A recorded sighting means this robot was watched delivering litter, and
+        # there is no signal that would ever retract that. Deriving it here rather
+        # than leaning on the entity's restore cache also discards any `off` left
+        # behind by the old 0x57 handling, which could park the sensor on
+        # "disconnected" for good after a refill.
+        if self._hopper_seen:
+            self._hopper_connected = True
         self._last_hopper_sample_at = 0.0
         self._last_litter_sample_at = 0.0
         self._drawer_last_moved: datetime | None = None
@@ -183,8 +187,6 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         # entities have a value the moment they appear.
         last = config_entry.options.get(CONF_HOPPER_LAST) or {}
         if last:
-            self._hopper_connected = last.get("connected")
-            self._hopper_link_reported = last.get("connected") is not None
             self._hopper_fill_raw = last.get("fill")
             dispensed = last.get("dispensed")
             self._last_hopper_dispensed = dt_util.parse_datetime(dispensed) if dispensed else None
@@ -246,6 +248,19 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             count_hits=True,
         ):
             self._persist_learned()
+
+    @callback
+    def _persist_hopper_fill(self) -> None:
+        """Keep the latest gauge across restarts, so the level is not unknown.
+
+        Only on a change, because this writes the config entry: the gauge holds
+        still for days at a time, so in practice this is rarer than the learned
+        scales beside it.
+        """
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            options={**self.config_entry.options, CONF_HOPPER_FILL_RAW: self._hopper_fill_raw},
+        )
 
     @callback
     def _persist_learned(self) -> None:
@@ -429,7 +444,6 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             last_cat_visit=self._last_cat_visit,
             last_visit_duration_s=self._last_visit_duration_s,
             hopper_connected=self._hopper_connected,
-            hopper_link_reported=self._hopper_link_reported,
             litter_full_mm=effective_full,
             litter_empty_mm=effective_empty,
             litter_reference_mm=self.litter_full_mm,
@@ -450,6 +464,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         duration_reported = False
         weight_reported = False
         drawer_reported = False
+        dispense_reported = False
         # A press we are waiting on, echoed back: the robot confirming it acted.
         if self._awaited_press is not None and any(
             r.register == lr4.Register.PANEL_BUTTON and r.value == self._awaited_press
@@ -457,11 +472,11 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         ):
             self._press_echo.set()
         events = events_from_readings(message.readings)
-        # Computed over the whole message so corroboration does not depend on
-        # where in one payload's data array the 0x57 landed.
-        link_in_message = any(
-            isinstance(e, HopperLinkChanged) and e.connected for e in events
-        )
+        # A real dispense is a burst of 2-3 phase-tagged codes in one message. A
+        # type-1 READ of 0x0C decodes to a single HopperDispensed too, and taking
+        # that as proof would let one diagnostic read grow four hopper entities on
+        # a robot that has none.
+        dispensed_here = sum(isinstance(e, HopperDispensed) for e in events) > 1
         for event in events:
             if isinstance(event, CatWeightMeasured):
                 self._cat_weight_lb = event.weight_lb
@@ -469,39 +484,30 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 weight_reported = True
                 changed = True
             elif isinstance(event, HopperDispensed):
-                # A dispense burst alone is not evidence a hopper exists: two
-                # 1.1.75 robots that both carry one disagree completely — one
-                # emits the 0x0C burst most cycles (phase-1 "gauge" 58-84), the
-                # other never has. Only a healthy 0x57 corroborates the hardware,
-                # and the persisted seen-flag deliberately does not count: earlier
-                # rc builds set it from bare bursts. A real hopper re-proves
-                # itself within a visit, so this costs at most one sample.
-                if not (self._hopper_link_reported or link_in_message):
+                # A dispense is the only hopper evidence left. 0x57 used to gate
+                # this, on the belief that it reported the link; a narrated
+                # session disproved that in both directions, and the gate then
+                # discarded every fill sample on a robot that dispenses happily
+                # but rarely emits 0x57.
+                if not dispensed_here:
                     continue
                 self._last_hopper_dispensed = dt_util.utcnow()
-                # On a corroborated hopper, dispensing is proof of a working
-                # link, same as a 0x57 report.
-                self._hopper_link_reported = True
-                self._hopper_connected = True  # it just dispensed
+                self._hopper_connected = True  # something delivered litter
                 if event.phase == lr4.HOPPER_DISPENSE_FILL_PHASE:
-                    self._hopper_fill_raw = event.value
+                    if event.value != self._hopper_fill_raw:
+                        self._hopper_fill_raw = event.value
+                        self._persist_hopper_fill()
                     self._learn_hopper(event.value)
+                dispense_reported = True
                 changed = True
             elif isinstance(event, HopperLinkChanged):
-                first_report = not self._hopper_link_reported
-                self._hopper_link_reported = True
-                # An unnamed code is not evidence of a disconnect, so it must not
-                # overwrite a link state the robot has already told us. `-30` was
-                # captured repeating once a minute while the hopper was attached,
-                # dispensing, and reporting a healthy gauge, then cleared itself —
-                # reporting that as unknown described a working hopper as a mystery.
-                # With nothing known yet, unknown is still the honest answer, so a
-                # first report is published whatever it says.
-                if event.connected is None and not first_report:
-                    continue
-                if first_report or event.connected != self._hopper_connected:
-                    self._hopper_connected = event.connected
-                    changed = True
+                # Deliberately inert. 0x57 is not a link state: positives arrive
+                # while the hopper sits on the bench, -15 fires for opening the
+                # hopper's own drawer as well as for a detach, and a reattach is
+                # silent — so acting on any of it reports a refill as a fault
+                # that never clears. The event stays in the library for the
+                # protocol record; nothing derives connectivity from it.
+                pass
             elif isinstance(event, CatVisitEnded):
                 # The duration closes a visit even when it was too short for a
                 # weight event, so it also stamps last_cat_visit.
@@ -514,7 +520,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 drawer_reported = True
                 changed = True
         sighted = False
-        if link_in_message and not self._hopper_seen:
+        if dispense_reported and not self._hopper_seen:
             self._record_hopper_sighting()
             sighted = True
         if duration_reported and not self._visit_duration_seen:

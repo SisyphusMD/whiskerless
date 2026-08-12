@@ -1,8 +1,8 @@
 """Event sensors gate on their first real report, and the upgrade sweep.
 
 Observations vs capabilities: a sensor that exists before its fact has ever been
-emitted is a permanent unknown on a robot that never emits it (0x56 has never
-been seen on 1.1.75; one live 1.1.75 robot has never emitted a weight). Controls
+emitted is a permanent unknown on a robot that never emits it (0x56 only fires
+on a drawer seat; one live robot has never emitted a weight). Controls
 are exempt — their existence is the capability, not a report.
 """
 
@@ -18,6 +18,8 @@ from custom_components.whiskerless.const import (
     CONF_DRAWER_SEEN,
     CONF_HOPPER_SEEN,
     CONF_PET_WEIGHT_SEEN,
+    CONF_VISIT_DURATION_SEEN,
+    DETECTION_RESET_REVISION,
     DOMAIN,
 )
 from homeassistant.components.sensor import SensorExtraStoredData
@@ -70,7 +72,7 @@ async def test_event_sensors_start_disabled_on_a_fresh_install(
     for domain, key in GATED:
         assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION
     # The sweep ran once and marked itself done.
-    assert bare_config_entry.options[CONF_DETECTION_RESET_BY] is True
+    assert bare_config_entry.options[CONF_DETECTION_RESET_BY] == DETECTION_RESET_REVISION
 
 
 async def test_a_weight_event_enables_weight_and_visit(
@@ -150,7 +152,7 @@ async def test_the_sweep_clears_an_unproven_hopper(
     """rc.6 recorded hoppers from a dispense burst that proves no such thing.
 
     The flag is cleared and the entities go back to disabled; a real hopper
-    re-proves itself with a 0x57 within a visit and re-enables.
+    re-proves itself the next time it delivers litter and re-enables.
     """
     bare_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
@@ -168,7 +170,7 @@ async def test_the_sweep_clears_an_unproven_hopper(
     await setup_integration(hass, bare_config_entry, state_payload)
 
     assert CONF_HOPPER_SEEN not in bare_config_entry.options
-    assert bare_config_entry.options[CONF_DETECTION_RESET_BY] is True
+    assert bare_config_entry.options[CONF_DETECTION_RESET_BY] == DETECTION_RESET_REVISION
     assert _disabled_by(registry, "sensor", "hopper_fill") is er.RegistryEntryDisabler.INTEGRATION
 
 
@@ -292,3 +294,52 @@ async def test_the_sweep_accepts_native_evidence_behind_an_unavailable_state(
 
     assert bare_config_entry.options[CONF_PET_WEIGHT_SEEN] is True
     assert _disabled_by(registry, "sensor", "pet_weight") is None
+
+
+async def test_revision_2_retires_the_hopper_but_keeps_a_proven_duration(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Each revision only invalidates the evidence it actually changed.
+
+    Revision 2 narrowed what proves a hopper and said nothing about durations, so
+    an install swept under revision 1 must not lose a duration it earned — a quiet
+    robot might not report another for a very long time.
+    """
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={
+            CONF_DETECTION_RESET_BY: True,  # the revision-1 marker
+            CONF_HOPPER_SEEN: True,
+            CONF_VISIT_DURATION_SEEN: True,
+        },
+    )
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert CONF_HOPPER_SEEN not in bare_config_entry.options
+    assert bare_config_entry.options[CONF_VISIT_DURATION_SEEN] is True
+    assert bare_config_entry.options[CONF_DETECTION_RESET_BY] == DETECTION_RESET_REVISION
+
+
+async def test_a_downgrade_does_not_re_run_the_sweep(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A newer revision stored by a newer build must survive a downgrade.
+
+    Re-running would strip a hopper that a later, stricter standard had already
+    validated, and the user would have to wait out another dispense to get it back.
+    """
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={
+            CONF_DETECTION_RESET_BY: DETECTION_RESET_REVISION + 1,
+            CONF_HOPPER_SEEN: True,
+        },
+    )
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert bare_config_entry.options[CONF_HOPPER_SEEN] is True
+    assert bare_config_entry.options[CONF_DETECTION_RESET_BY] == DETECTION_RESET_REVISION + 1

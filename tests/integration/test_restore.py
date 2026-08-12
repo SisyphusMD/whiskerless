@@ -105,7 +105,12 @@ async def test_a_binary_sensor_survives_a_restart(
     mock_config_entry: MockConfigEntry,
     state_payload: str,
 ) -> None:
-    """The hopper link is silent between reports, which can be hours."""
+    """The fill gauge is silent between dispenses, which can be days.
+
+    Dispensing only happens when the litter bed is low, so a well-fed robot goes
+    a long time without one and the out-of-litter alert would otherwise blank on
+    every restart.
+    """
     # Hopper entities ship disabled and are promoted by a reload once hardware
     # reports, so the registry entry is seeded enabled here — otherwise the
     # entity is not added during this setup and there is nothing to restore.
@@ -116,16 +121,16 @@ async def test_a_binary_sensor_survives_a_restart(
     er.async_get(hass).async_get_or_create(
         "binary_sensor",
         "whiskerless",
-        f"{MOCK_SERIAL}_hopper_connected",
+        f"{MOCK_SERIAL}_hopper_empty",
         config_entry=mock_config_entry,
-        suggested_object_id="litter_robot_4_hopper",
+        suggested_object_id="litter_robot_4_hopper_out_of_litter",
         disabled_by=None,
     )
-    mock_restore_cache(hass, (State("binary_sensor.litter_robot_4_hopper", "on"),))
+    mock_restore_cache(hass, (State("binary_sensor.litter_robot_4_hopper_out_of_litter", "on"),))
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
-    state = hass.states.get("binary_sensor.litter_robot_4_hopper")
+    state = hass.states.get("binary_sensor.litter_robot_4_hopper_out_of_litter")
     assert state is not None
     assert state.state == "on"
 

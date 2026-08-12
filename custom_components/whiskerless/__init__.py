@@ -24,6 +24,7 @@ from .const import (
     CONF_SERIAL,
     CONF_VISIT_DURATION_LAST,
     CONF_VISIT_DURATION_SEEN,
+    DETECTION_RESET_REVISION,
     DOMAIN,
 )
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
@@ -112,15 +113,16 @@ HOPPER_ENTITIES: tuple[tuple[str, str], ...] = (
     (Platform.SENSOR, "last_hopper_dispensed"),
 )
 
-# Register 0xBC, which ESP 1.1.75 has never emitted. Same treatment for the same
-# reason: better absent than permanently unknown on the firmware that lacks it.
+# Register 0xBC, which some robots never emit — not a firmware split, since two
+# robots on the same build sit either side of it. Same treatment for the same
+# reason: better absent than permanently unknown on hardware that lacks it.
 VISIT_DURATION_ENTITIES: tuple[tuple[str, str], ...] = (
     (Platform.SENSOR, "last_visit_duration"),
 )
 
-# The remaining event-only facts, gated on the same principle: 0x56 has never
-# been observed on 1.1.75, and one live 1.1.75 robot has never emitted a weight,
-# so each of these can be a permanent unknown on real hardware.
+# The remaining event-only facts, gated on the same principle: 0x56 only fires
+# when a drawer is seated, and one live robot has never emitted a weight, so each
+# of these can be a permanent unknown on real hardware.
 DRAWER_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "waste_drawer_last_moved"),)
 PET_WEIGHT_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "pet_weight"),)
 CAT_VISIT_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "last_cat_visit"),)
@@ -147,25 +149,39 @@ _RESTORE_SEEDABLE: frozenset[str] = frozenset(
 
 
 def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
-    """One-shot upgrade sweep: every detection must be backed by real evidence.
+    """Upgrade sweep: every detection must be backed by real evidence.
 
-    Earlier builds recorded a hopper from the 0x0C dispense burst — which is no
-    evidence of the hardware — and shipped the event sensors enabled
-    unconditionally. Hopper and visit-duration sightings are cleared outright
-    (the hardware re-proves itself within a visit and re-enables); the newly
-    gated sensors are seeded from their restore cache; whatever is still
+    Runs once per revision of what counts as evidence, because that standard has
+    changed twice: first the 0x0C dispense burst was retired as proof, then the
+    0x57 link report was too. Hopper and visit-duration sightings are cleared
+    outright (the hardware re-proves itself within a visit and re-enables); the
+    newly gated sensors are seeded from their restore cache; whatever is still
     unproven goes back to disabled until its first real report.
+
+    Without the revision an install that ran the earlier sweep would keep a
+    hopper it was only ever granted by a link report.
     """
-    if entry.options.get(CONF_DETECTION_RESET_BY):
+    # Ordered, not identity: a revision round-tripped through JSON need not be the
+    # same object, and a downgrade leaves a HIGHER revision stored, which must not
+    # re-run a sweep that would disable already-validated entities. The original
+    # marker was the bare `True`, which is revision 1.
+    prior = entry.options.get(CONF_DETECTION_RESET_BY)
+    swept_at = int(prior) if prior else 0
+    if swept_at >= DETECTION_RESET_REVISION:
         return
     registry = er.async_get(hass)
     options = dict(entry.options)
     options.pop(CONF_HOPPER_SEEN, None)
-    options.pop(CONF_VISIT_DURATION_SEEN, None)
+    # Only the first sweep doubted the visit duration. Revision 2 narrowed what
+    # counts as hopper evidence and says nothing about durations, so an install
+    # already swept keeps a duration it genuinely earned — a quiet robot might not
+    # report another for a very long time.
+    if swept_at < 1:
+        options.pop(CONF_VISIT_DURATION_SEEN, None)
     last_states = restore_state.async_get(hass).last_states
     # From entry data, not runtime_data: this must run BEFORE the coordinator
     # is built, so the coordinator reads the post-sweep flags and a re-proving
-    # 0x57 can re-sight in the same session.
+    # dispense can re-sight in the same session.
     serial = entry.data[CONF_SERIAL]
     for seen_key, _, entities in _DETECTED:
         if not options.get(seen_key) and seen_key in _RESTORE_SEEDABLE:
@@ -196,7 +212,7 @@ def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntr
                 registry.async_update_entity(
                     entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
                 )
-    options[CONF_DETECTION_RESET_BY] = True
+    options[CONF_DETECTION_RESET_BY] = DETECTION_RESET_REVISION
     hass.config_entries.async_update_entry(entry, options=options)
 
 

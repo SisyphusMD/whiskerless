@@ -182,25 +182,32 @@ reading unknown forever on the robots that don't have one:
 - **Hopper** (connected), **Hopper out of litter**, **Hopper fill (raw)**,
   **Last hopper dispense**
 
-**You don't need to do anything.** The first time your hopper reports, on a
-dispense or a link message, they enable themselves and come up carrying that
-reading. Detection is remembered, so they stay enabled. If you turn one off by
-hand it stays off.
+**You don't need to do anything.** The first time your robot dispenses litter they
+enable themselves and come up carrying that reading. Detection is remembered, so
+they stay enabled. If you turn one off by hand it stays off.
+
+Dispensing is what proves a hopper because nothing else can. The link register
+looked like an answer for months, until a narrated session produced healthy
+readings from it with the hopper sitting on a bench, and its "disconnected" code
+from merely opening the hopper's drawer to refill it. So **Hopper** reports
+connected once litter has actually been delivered and never reports disconnected —
+there is no signal for that. A robot topped up to its target can go days without
+dispensing, which is why the level is remembered across restarts rather than
+falling back to unknown.
 
 **Two entities that may not behave the way you expect**
 
-**Last visit duration** needs **ESP 1.4.4 or newer**, so it ships **disabled** and
-switches itself on the first time your robot reports one — exactly like the hopper
-entities above, and for the same reason. The duration arrives on its own register,
-which 1.4.4 emits at the end of every visit and 1.1.75 appears never to emit at
-all: a 12-hour capture of a 1.1.75 robot recorded five visits and three pet-weight
-readings without a single duration. On 1.4.4 a weight reading is always accompanied
-by a duration, so three weights and no durations is a firmware difference rather
-than a run of short visits.
+**Last visit duration** is not reported by every robot, so it ships **disabled** and
+switches itself on the first time yours reports one — exactly like the hopper
+entities above, and for the same reason. This was thought to be a firmware split,
+1.4.4 emitting it and 1.1.75 never doing so. It isn't: two robots on the *same*
+1.1.75 build sit either side of it, one reporting a duration at the end of every
+visit and the other having never emitted one. Whatever decides it, the firmware
+version isn't it.
 
-**You don't need to do anything here either.** On 1.4.4 the next cat enables it,
-carrying that first duration. On 1.1.75 it stays out of your way instead of sitting
-unknown forever.
+**You don't need to do anything here either.** If your robot reports durations, the
+next cat enables the entity carrying that first reading. If it doesn't, the entity
+stays out of your way instead of sitting unknown forever.
 
 **Cat detected can stay on long after the cat has gone,** sometimes for hours. The
 robot reports occupancy from the scale underneath, not from the sensors that look
