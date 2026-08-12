@@ -43,6 +43,10 @@ def test_a_cat_on_the_scale_is_not_sampleable() -> None:
     assert not litter_is_sampleable(LitterRobot4State.from_state_doc({**IDLE, "catDetect": 1}))
 
 
+def test_the_hopper_correlated_bit_does_not_block_a_litter_sample() -> None:
+    assert litter_is_sampleable(LitterRobot4State.from_state_doc({**IDLE, "catDetect": 2}))
+
+
 def test_a_running_cycle_is_not_sampleable() -> None:
     # robotStatus 10 also suppresses litter_level_mm outright, so this is belt
     # and braces, which is the point.

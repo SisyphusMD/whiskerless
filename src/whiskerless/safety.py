@@ -112,8 +112,9 @@ PANEL_BUTTON_SAFE: frozenset[int] = frozenset({0x0201, 0x0401, 0x0801})
 #: dangerous instead.
 SAFE_REPORT_MACROS: frozenset[int] = frozenset({0xA0, 0xA1, 0xA7, 0xA9, 0xAE})
 
-#: Registers in the writable *settings* bank — the full set validated by a live
-#: read-modify-restore sweep. Generic writes here are reversible and safe.
+#: Registers whose writes are safe. Most are reversible settings validated by a
+#: live read-modify-restore sweep; 0x1A-0x1C are read-only views whose refused
+#: writes are acknowledged and discarded.
 SAFE_SETTINGS_REGISTERS: frozenset[int] = frozenset(
     {0x05, 0x0E, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, *range(0x1E, 0x2C)}
 )

@@ -164,14 +164,13 @@ the 69 fields the state document carries names a pet, a profile or an index; the
 per-visit measurement the robot publishes is the raw weight on `0x09`. Whatever attributes
 a visit to one of several cats, it is not happening on the device.
 
-`models.py` decodes the field with `_bool()`, so any non-zero is `cat_detected=True`. That
-is right for robot 2 and wrong for robot 1, where it reported a cat for 3h33m with an empty
-globe and `litter_is_sampleable()` — which wants `cat_detected is False` and `robot_status
-== "ready"` — discarded the whole window of otherwise ideal settled samples. Decoding
-`catDetect & 1` instead would fix robot 1 and leave robot 2 byte-identical. **Not yet:**
-robot 2 has nine minutes and one visit behind it, and bit 0 may still turn out to mean "the
-ToF can see something" rather than "a cat is here" — a cat on the entry step, felt by the
-load cells and invisible to the sensor, would read bit 0 clear either way.
+`models.py` once decoded the field with `_bool()`, so any non-zero became
+`cat_detected=True`. That was right for robot 2 and wrong for robot 1, where it reported a
+cat for 3h33m with an empty globe and made `litter_is_sampleable()` discard otherwise ideal
+settled samples. The continuation below extended robot 2 to 499 documents and 13 bit-0
+runs without a single `2` or `3`; all 37 of its cycle-excluded litter collapses carried bit
+0. The decoder now uses `catDetect & 1`. This names the cat-correlated occupancy signal,
+not the whole field: bit 1 remains unresolved.
 
 **Robot 1 slept for 8 hours of this capture, and sleep changes what it reports.** The new
 eleven hours are mostly a sleep window, so almost every difference from the 12h19m read
@@ -530,6 +529,20 @@ not a full read — nothing above has been re-derived at the new boundary):
   so "robot 2 emits only `0x370010`/`0x370011`" did not survive two more hours.
 - Robot 1: nothing new — still no `0x0C`, `0x41` or `0x67`, and still nothing above
   `0x7F` on either robot.
+
+**Continuation audit through arrival 2026-08-12 01:07:55Z** (4,847 records total,
+re-derived from the full pod log):
+
+- Robot 2 reached 499 state documents: `catDetect` `0` ×423 and `1` ×76 across 13 bit-0
+  runs, with no `2` or `3`. All 37 cycle-excluded litter collapses carried bit 0.
+- Robot 1 reached 992 state documents: `catDetect` `0` ×776, `1` ×9, `2` ×114 and `3`
+  ×93. Bit 0 carried 73 of 74 cycle-excluded litter collapses; the sole miss remains the
+  reconnect-adjacent 07:09:24 document above. Across both robots the result is 110/111.
+- `0x57` widened its observed positive range to 110: `0x57006E` at 19:14:22Z, during a
+  cat-correlated state (`catDetect` `3`, `litterLevel` 172). One reading widens a range;
+  it does not decode the value.
+- Robot 2 emitted one new register, `0x650000`, at 16:10:04Z during cycle phase 2. It did
+  not recur through this cutoff, so it stays a single observation with no proposed name.
 
 **Connection behaviour** — this paragraph alone comes from the **broker's** log
 (`kubectl logs` on the mosquitto pod), not from the MQTT capture, which carries only

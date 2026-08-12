@@ -89,7 +89,8 @@ class LitterRobot4State:
     odometer_empty_cycles: int | None = None
     odometer_filter_cycles: int | None = None
 
-    # Sensors / occupancy
+    # Sensors / occupancy. catDetect is not a boolean; bit 0 is the
+    # cat-correlated signal shared by both observed device vocabularies.
     cat_detected: bool | None = None
     sleep_status: Any = None
 
@@ -179,7 +180,7 @@ class LitterRobot4State:
             odometer_clean_cycles=_int(g("odometerCleanCycles")),
             odometer_empty_cycles=_int(g("odometerEmptyCycles")),
             odometer_filter_cycles=_int(g("odometerFilterCycles")),
-            cat_detected=_bool(g("catDetect")),
+            cat_detected=cat_detect_bit0(g("catDetect")),
             sleep_status=g("sleepStatus"),
             wifi_rssi=_int(g("wifiRssi")),
             esp_firmware=esp_firmware,
@@ -227,18 +228,16 @@ def litter_level_percent_from_mm(
 
 def cat_detect_bit0(value: Any) -> bool | None:
     """Whether catDetect's bit 0 — the bit that tracked the cat on both observed
-    vocabularies (76 of 77 litter-collapses across two robots) — is set.
+    vocabularies (110 of 111 litter collapses across two robots) — is set.
 
-    None when the field is absent or a cloud-style string: bit arithmetic on an
-    unknown vocabulary would be a guess. Deliberately separate from the
-    decoder's boolean, which stays any-nonzero until the bitfield reading is
-    re-proven; this exists for consumers that must not treat the
-    hopper-correlated bit 1 — observed set for hours at a time with an empty
-    globe — as a cat.
+    Recognized cloud-style boolean strings keep their boolean meaning; an absent
+    field or unknown string returns None. Other bits carry distinct sensor or
+    hardware states and must not become occupancy: bit 1 was observed set for
+    hours at a time with an empty globe on the hopper-equipped robot.
     """
     n = _int(value)
     if n is None:
-        return None
+        return _bool(value)
     return bool(n & 1)
 
 

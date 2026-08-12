@@ -29,16 +29,16 @@ version report (`0x02AE0000`, or the integration's *Refresh* + version sensors).
 ## Weekday schedule
 
 The 14 registers `0x1E–0x2B` hold the per-weekday sleep/wake schedule as
-minutes-since-midnight. The **round-trip is PROVEN** (writes commit and read back).
-The exact **day ordering is inferred**: whiskerless assumes **Sunday → Saturday,
-sleep-then-wake per day**, i.e.
+minutes-since-midnight. On ESP 1.1.75, both the **round-trip and day ordering are
+PROVEN** by writing a distinct value to every register and reading them back:
+**Sunday → Saturday, sleep-then-wake per day**, i.e.
 
 ```
 0x1E Sun sleep   0x1F Sun wake   0x20 Mon sleep   0x21 Mon wake   …   0x2A Sat sleep   0x2B Sat wake
 ```
 
-If you set a weekday time through whiskerless and the robot's panel shows it on a
-different day, the offset/order is wrong for your firmware — please
+Other firmware has not been checked. If the robot's panel shows a time on a
+different day, the offset/order differs on your firmware; please
 [open an issue](#open-items) with what you set and what the panel showed, and we'll
 correct the mapping.
 

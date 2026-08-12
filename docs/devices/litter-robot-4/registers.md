@@ -99,6 +99,7 @@ was.
 | `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
 | `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum | PROVEN |
 | `0x56` | drawer bay | the waste drawer **moved** — direction is not recoverable, see below | PROVEN (as an event) |
+| `0x57` | LitterHopper link | activity-only channel; `-15` = disconnected, positives accompany a healthy link, other negatives remain unresolved | PROVEN (`-15` event) |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
 | `0x09` | catWeight | raw / **100** = lb (telemetry) — see the enum note | MED |
 

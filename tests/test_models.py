@@ -35,6 +35,18 @@ def test_bools_accept_int_and_string() -> None:
     assert LitterRobot4State.from_state_doc({"isKeypadLockout": 0}).keypad_lockout is False
 
 
+@pytest.mark.parametrize(("raw", "expected"), [(0, False), (1, True), (2, False), (3, True)])
+def test_cat_detected_uses_the_cat_correlated_bit(raw: int, expected: bool) -> None:
+    assert LitterRobot4State.from_state_doc({"catDetect": raw}).cat_detected is expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"), [("true", True), ("false", False), ("CAT_DETECT", None)]
+)
+def test_cat_detected_tolerates_cloud_style_strings(raw: str, expected: bool | None) -> None:
+    assert LitterRobot4State.from_state_doc({"catDetect": raw}).cat_detected is expected
+
+
 def test_litter_level_falls_back_to_mm() -> None:
     state = LitterRobot4State.from_state_doc({"litterLevel": 460})
     assert state.litter_level_mm == 460

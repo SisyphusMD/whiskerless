@@ -148,7 +148,7 @@ class Register(IntEnum):
     # Hopper link/state channel (activity only; not in the state document).
     # Live-observed on ESP 1.4.4 with a LitterHopper: 0xFFF1 (-15) = link lost
     # (fires on hopper detach AND bonnet lift — the hopper rides on the bonnet);
-    # positive values (9-104 observed across 1.1.75 and 1.4.4) form an
+    # positive values (9-110 observed so far across 1.1.75 and 1.4.4) form an
     # init/measurement sequence whose exact meaning is still open.
     # See docs/devices/litter-robot-4/registers.md.
     HOPPER_LINK = 0x57
@@ -259,8 +259,8 @@ HOPPER_FILL_EMPTY_MAX = 72
 
 
 # Per-weekday sleep/wake registers (0x1E–0x2B). Sun→Sat, sleep-then-wake per day.
-# ASSUMED layout (the round-trip is PROVEN; the exact day ordering is inferred —
-# see docs/devices/litter-robot-4/compatibility.md before trusting day labels).
+# The layout and round-trip are live-proven on 1.1.75; other firmware has not been
+# checked. See docs/devices/litter-robot-4/compatibility.md.
 WEEKDAYS: tuple[str, ...] = (
     "sunday",
     "monday",

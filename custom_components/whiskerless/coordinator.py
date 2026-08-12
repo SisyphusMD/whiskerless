@@ -53,7 +53,6 @@ from whiskerless.devices.litter_robot_4.events import (
     HopperLinkChanged,
     events_from_readings,
 )
-from whiskerless.devices.litter_robot_4.models import cat_detect_bit0
 from whiskerless.devices.litter_robot_4.protocol import (
     ActivityMessage,
     StateMessage,
@@ -562,18 +561,13 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             if isinstance(parsed, StateMessage):
                 # Visits are stamped from the occupancy transition too: some
                 # robots never emit a weight or duration event, and their
-                # visits are real anyway. Bit 0, not the decoder's any-nonzero
-                # boolean: bit-1-only runs last hours with an empty globe on
-                # hopper robots and are not visits. False -> True only — a
-                # first document arriving mid-visit proves presence, not an
-                # arrival.
-                prev_bit0 = (
-                    cat_detect_bit0(self._robot.raw.get("catDetect"))
-                    if self._robot is not None
-                    else None
-                )
-                new_bit0 = cat_detect_bit0(parsed.state.raw.get("catDetect"))
-                if prev_bit0 is False and new_bit0 is True:
+                # visits are real anyway. cat_detected is bit 0: bit-1-only
+                # runs last hours with an empty globe on hopper robots and are
+                # not visits. False -> True only — a first document arriving
+                # mid-visit proves presence, not an arrival.
+                previous_occupancy = self._robot.cat_detected if self._robot is not None else None
+                occupancy = parsed.state.cat_detected
+                if previous_occupancy is False and occupancy is True:
                     self._last_cat_visit = dt_util.utcnow()
                     if not self._cat_visit_seen:
                         self._record_cat_visit_sighting()

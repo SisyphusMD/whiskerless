@@ -241,6 +241,7 @@ async def test_a_bit1_only_flap_is_not_a_visit(
         await hass.async_block_till_done()
 
     assert CONF_CAT_VISIT_SEEN not in bare_config_entry.options
+    assert hass.states.get("binary_sensor.litter_robot_4_cat_detected").state == "off"
 
 
 async def test_one_message_proving_two_sensors_schedules_one_reload(

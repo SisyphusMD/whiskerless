@@ -48,6 +48,9 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **Last cat visit now updates on every robot.** It stamps from the occupancy signal
   itself, not only from weight events — one robot has visits but has never weighed
   anything, and its visit sensor stayed empty.
+- **Cat detection no longer mistakes the LitterHopper's second sensor bit for a cat.**
+  That bit can stay set for hours with an empty globe; occupancy and litter calibration
+  now use the cat-correlated bit shared by both tested robots.
 - **Fewer unknowns while calibration settles.** The litter calibration reference
   shows the built-in default (marked `source: default`) instead of unknown, and the
   hopper level shows a labelled estimate until the empty floor has actually been
@@ -86,10 +89,6 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **Last visit duration needs ESP 1.4.4**, so it ships disabled and switches on the
   first time a robot reports one. On 1.1.75 that register has never appeared, and the
   sensor would otherwise read unknown for the life of the robot.
-- **Cat detected follows the scale**, not the sensors looking into the globe, so it
-  can stay on for hours after a cat leaves. Automate on it as "the robot is busy
-  with a cat" rather than "there is a cat in the box right now".
-
 ## [0.1.3] - 2026-07-02
 
 ### Added

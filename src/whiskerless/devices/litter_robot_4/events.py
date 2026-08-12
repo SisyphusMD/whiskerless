@@ -3,7 +3,8 @@
 Several LR4 facts never appear in the state document and exist ONLY as activity
 readings — live-proven on ESP 1.4.4 with a LitterHopper attached:
 
-* **cat weight** (register 0x09): fires once per cat visit, raw int16 / 100 lb.
+* **cat weight** (register 0x09): raw int16 / 100 lb, reported around qualifying
+  visits. Short visits can omit it, and 1.1.75 has repeated or delayed readings.
   The local state doc has no weight field, so this stream is the only source.
 * **hopper dispense** (register 0x0C): a burst of phase-tagged values at the
   tail of a clean cycle. Not proof a hopper exists — a hopperless 1.1.75 robot
@@ -52,7 +53,7 @@ _VISIT_DURATION_MAX_S = 300
 
 @dataclass(frozen=True, slots=True)
 class CatWeightMeasured:
-    """A per-visit scale measurement (register 0x09)."""
+    """A scale measurement reported around a visit (register 0x09)."""
 
     weight_lb: float
 
@@ -87,7 +88,7 @@ class HopperDispensed:
 class HopperLinkChanged:
     """Hopper link state (register 0x57).
 
-    Positive values are the healthy per-visit choreography (9-104 observed).
+    Positive values are the healthy per-visit choreography (9-110 observed so far).
     Negative values are faults, of which only -15 is characterized (detach, and
     any bonnet movement — the hopper mounts on the bonnet). A second negative,
     -30, recurs on 1.1.75 with the hopper attached and healthy — mostly inside
