@@ -49,6 +49,7 @@ from whiskerless.devices.litter_robot_4.events import (
     CatVisitEnded,
     CatWeightMeasured,
     DrawerBayMoved,
+    GlobeMotorFaultChanged,
     HopperDispensed,
     HopperLinkChanged,
     events_from_readings,
@@ -132,6 +133,8 @@ class WhiskerlessData:
     last_hopper_dispensed: datetime | None = None
     hopper_fill_raw: int | None = None
     drawer_last_moved: datetime | None = None
+    # From the ACTIVITY stream, not the state document — see below.
+    globe_motor_fault: int | None = None
 
 
 class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
@@ -179,6 +182,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._last_hopper_sample_at = 0.0
         self._last_litter_sample_at = 0.0
         self._drawer_last_moved: datetime | None = None
+        self._globe_motor_fault: int | None = None
         self._press_echo = asyncio.Event()
         self._awaited_press: int | None = None
         # Enabling an entity reloads the entry, which builds a fresh coordinator
@@ -455,6 +459,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             last_hopper_dispensed=self._last_hopper_dispensed,
             hopper_fill_raw=self._hopper_fill_raw,
             drawer_last_moved=self._drawer_last_moved,
+            globe_motor_fault=self._globe_motor_fault,
         )
 
     @callback
@@ -515,6 +520,14 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 self._last_cat_visit = dt_util.utcnow()
                 duration_reported = True
                 changed = True
+            elif isinstance(event, GlobeMotorFaultChanged):
+                # The state document does not mirror this. One robot held a live
+                # globe-motor fault for 50 minutes while globeMotorFaultStatus
+                # read 0 in every state document it published, so a consumer
+                # watching only the field never learns a fault happened.
+                if event.code != self._globe_motor_fault:
+                    self._globe_motor_fault = event.code
+                    changed = True
             elif isinstance(event, DrawerBayMoved):
                 self._drawer_last_moved = dt_util.utcnow()
                 drawer_reported = True

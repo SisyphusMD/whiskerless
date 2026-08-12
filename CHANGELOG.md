@@ -35,6 +35,12 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 ### Fixed
 
+- **The globe motor fault sensor could sit at `off` through a real fault.** It read
+  the state document, and the state document does not carry the fault: a robot raised
+  one on its activity stream, held it for fifty minutes and cleared it, while
+  `globeMotorFaultStatus` reported no fault in every single state document it published
+  in that window. The sensor now watches both channels, and either one raising a fault
+  is a fault.
 - **The LitterHopper is now detected by watching it deliver litter.** The link
   register `0x57` looked like the answer, but a narrated session produced healthy
   readings from it with the hopper sitting on a bench, and its "disconnected" code

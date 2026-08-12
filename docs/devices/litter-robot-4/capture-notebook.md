@@ -26,9 +26,9 @@ mosquitto_sub -h <broker> -p 8883 --cafile ca.crt -i <client-id> \
 connection and kicks it off the broker.
 
 **A `prod/LR4/#` subscription carries every robot on the broker.** Split by the serial in
-the topic before counting anything. Two robots on the same firmware have already been seen
-reporting `catDetect` differently, so a blended capture invents a register that contradicts
-itself.
+the topic before counting anything. The two robots here differ on several registers, and they
+are **not running the same firmware** — see below — so a blended capture invents a register that
+contradicts itself.
 
 Three properties of the robot's output will corrupt a capture if you don't expect them:
 
@@ -164,8 +164,10 @@ clean before the next observation:
 
 `0x6F` (undocumented, four sightings at visit close: 82, 177, 103, 48) · `0x71 = 1` (second
 sighting ever) · `0x0B = 8` (not in the annunciator table) · `0xBC`/`0xB9` **only ever from
-robot 2** — robot 1 has never emitted either, same firmware build, which matters for the
-question of whether `0xBC` is firmware-gated. Phantom visits shorter than the 300 s guard
+robot 2** — robot 1 has never emitted either. This was read as "same build, so not
+firmware-gated". **That was wrong**: the ESP versions match but the MAIN BOARD versions do not
+(`mbRevision` 89 vs 93, `mbBuild` 1 vs 2, `mbRevisionId` 41027 vs 41088), so a firmware
+explanation is back on the table for every register the two disagree on. Phantom visits shorter than the 300 s guard
 (235 s, 172 s) would publish as genuine cat visits.
 
 **Not done:** engineered sleep window, empty/power finales, a second seat on robot 1's
@@ -217,7 +219,8 @@ true of robot 1 and is not a description of the field. It is a correlation acros
 machines, not a decode: `3 == 1 | 2` is arithmetic, and on its own does not distinguish a
 bitfield from an enum that happens to number its states that way.
 
-The two robots run the same firmware and report a cat differently. Robot 1 says `3`;
+The two robots report a cat differently — and they do NOT run the same firmware (matching ESP,
+differing main board). Robot 1 says `3`;
 robot 2 says `1` and has never once emitted `2` or `3`:
 
 | | `0` | `1` | `2` | `3` |

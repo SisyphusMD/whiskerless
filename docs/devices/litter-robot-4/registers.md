@@ -84,8 +84,8 @@ was.
 | `0x31` | unitPowerStatus | `1` on a running robot; unchanged across a mains→battery→mains transition | LOW |
 | `0x38` | isUSBPowerOn | **mains present, not USB** — went 1→0 with AC out and back, with the hopper untouched throughout. The LR4 has no user USB power; the field is misnamed | PROVEN |
 | `0x32` | sleepStatus | `1` while inside the panel sleep window, `0` outside — tracks the clock, not just the enable bit. The *field* is live-proven (both boundary transitions captured against the schedule); the register number rests on the brief plus one capture's two aligned `0x32` activity transitions | PROVEN (field) |
-| `0x34` | robotStatus | see enum below | PROVEN |
-| `0x35` | globeMotorFaultStatus | 0 = none, 1..9 fault | HIGH |
+| `0x34` | robotStatus **on the state doc only** | On the ACTIVITY stream this register is overloaded: 67 of 208 emissions are not enum members — `0x02C0` is the clean-delay tick and `0x_064`/`0x_065` are pre-cycle markers. It also never carries `25`, though 140 state documents do. Decoding activity `0x34` through the enum yields `unknown_704` for a third of it | PROVEN (field) / see note (activity) |
+| `0x35` | globe motor fault | **The state field does not mirror it.** A live fault (`0x350001` ×3, cleared 50 min later by `0x350000`) arrived only on the activity stream, in messages whose envelope is `type: "fault"`, while `globeMotorFaultStatus` read 0 in all 1198 of that robot's state documents — six of them sampled mid-fault. Read the activity stream, not the field | PROVEN (activity) / CONTRADICTED (field) |
 | `0x37` | catDetect | **a two-bit field, not a boolean** — bit 0 = time-of-flight sight line, bit 1 = load cell. `1` an arm in the beam, `2` an inert weight on the pan, `3` a cat, `0` idle; both bits driven independently in one narrated session. Activity carries 16/17/32/33 (the low bit tracking bit 0), plus 256, and 512/1024 on bonnet open/close | PROVEN |
 | `0x39` | USBFaultStatus | 0/1/2 | HIGH |
 | `0x3A` | isBonnetRemoved | bonnet interlock — `1` on lift, `0` on reseat, in lockstep with `robotStatus 5` on both robots | PROVEN |
@@ -97,11 +97,11 @@ was.
 | `0x47` | litterLevel | litter distance in mm | PROVEN |
 | `0x4D` | globeMotorRetractFaultStatus | fault enum | HIGH |
 | `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
-| `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum | PROVEN |
+| `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum. Like `0x34`, the activity stream carries values outside the enum (5 seen, all on one robot, all in interrupted cycles) | PROVEN (field) |
 | `0x56` | drawer bay | fires on **seating only** — 5 seats emitted, 5 removals silent, across two robots and two different drawers. The *value* encodes nothing (10, 11, 12 all seen for the same move); the emission is the signal, see below | PROVEN (as a seat event) |
 | `0x57` | hopper subsystem | activity-only, and **not usable as a link state** — positives fire on a robot with the hopper physically detached, and `-15` fires for a drawer pull as well as a full detach. Reattach emits no distinct code. Negatives seen: `-15`, `-17`, `-30`, `-31`, none reliably reproducible | LOW |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
-| `0x6F` | unknown | rides the visit-close bundle beside `0xBC`/`0xB9`; 82, 177, 103, 48 observed, no relation to duration found | LOW |
+| `0x6F` | visit duration (probable) | Equals the weight-on-scale span to within ±3 s in **8 of 8** emissions, and is omitted on all 4 visits whose span is under 15 s. Meanwhile `0xBC` — the register named `CAT_VISIT_DURATION` — matches no span that could be constructed. The two may be measuring different things; do not swap the decode on this alone | INFERRED |
 | `0x09` | catWeight | raw / **100** = lb (telemetry) — see the enum note | MED |
 
 ## Enums

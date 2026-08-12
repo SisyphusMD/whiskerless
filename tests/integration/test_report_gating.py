@@ -343,3 +343,52 @@ async def test_a_downgrade_does_not_re_run_the_sweep(
 
     assert bare_config_entry.options[CONF_HOPPER_SEEN] is True
     assert bare_config_entry.options[CONF_DETECTION_RESET_BY] == DETECTION_RESET_REVISION + 1
+
+
+async def test_a_globe_fault_on_the_activity_stream_alone_is_reported(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The state document does not mirror a globe-motor fault.
+
+    A live robot raised 0x350001, held it 50 minutes and cleared it, while
+    globeMotorFaultStatus read 0 in all 1198 state documents it published in that
+    window — six of them sampled during the fault. A sensor reading only the
+    field stayed off throughout.
+    """
+    robot = await setup_integration(hass, bare_config_entry, state_payload)
+    entity = "binary_sensor.litter_robot_4_globe_motor_fault"
+    assert hass.states.get(entity).state == "off"
+
+    with robot_online(robot):
+        robot.push(_activity("0x350001"), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "on"
+
+    # The state document keeps insisting there is no fault; it must not win.
+    with robot_online(robot):
+        robot.push(state_payload)
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "on"
+
+    with robot_online(robot):
+        robot.push(_activity("0x350000"), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off"
+
+
+async def test_an_active_globe_fault_survives_a_reload(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The activity stream only speaks on the edges.
+
+    The observed fault ran fifty minutes between raise and clear. A reload inside
+    that window drops the latch, and the state document's cheerful 0 would then
+    render a live fault as off.
+    """
+    entity = "binary_sensor.litter_robot_4_globe_motor_fault"
+    bare_config_entry.add_to_hass(hass)
+    mock_restore_cache(hass, (State(entity, "on"),))
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert hass.states.get(entity).state == "on"

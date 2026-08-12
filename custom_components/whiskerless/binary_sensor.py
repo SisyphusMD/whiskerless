@@ -32,12 +32,6 @@ class WhiskerlessBinarySensorEntityDescription(BinarySensorEntityDescription):
     value_fn: Callable[[LitterRobot4State], bool | None]
 
 
-def _globe_fault(robot: LitterRobot4State) -> bool | None:
-    if robot.globe_motor_fault is None:
-        return None
-    return robot.globe_motor_fault != 0
-
-
 # Entities built by hand rather than from a description, so the retired-entity
 # sweep in __init__ can still account for their keys. A key missing here gets its
 # registry entry deleted and recreated on every reload, losing the user's entity
@@ -45,6 +39,7 @@ def _globe_fault(robot: LitterRobot4State) -> bool | None:
 STANDALONE_KEYS: tuple[str, ...] = (
     "hopper_connected",
     "hopper_empty",
+    "globe_motor_fault",
 )
 
 BINARY_SENSORS: tuple[WhiskerlessBinarySensorEntityDescription, ...] = (
@@ -66,12 +61,6 @@ BINARY_SENSORS: tuple[WhiskerlessBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.PROBLEM,
         value_fn=lambda robot: robot.is_bonnet_removed,
     ),
-    WhiskerlessBinarySensorEntityDescription(
-        key="globe_motor_fault",
-        translation_key="globe_motor_fault",
-        device_class=BinarySensorDeviceClass.PROBLEM,
-        value_fn=_globe_fault,
-    ),
 )
 
 
@@ -87,6 +76,7 @@ async def async_setup_entry(
     ]
     entities.append(WhiskerlessHopperConnectedSensor(coordinator))
     entities.append(WhiskerlessHopperEmptySensor(coordinator))
+    entities.append(WhiskerlessGlobeMotorFaultSensor(coordinator))
     async_add_entities(entities)
 
 
@@ -185,3 +175,44 @@ class WhiskerlessHopperEmptySensor(_RestoringBinarySensor):
             return self._restored
         return raw <= lr4.HOPPER_FILL_EMPTY_MAX
 
+
+
+class WhiskerlessGlobeMotorFaultSensor(_RestoringBinarySensor):
+    """Globe-motor fault, from the activity stream OR the state document.
+
+    It cannot read the state document alone. One robot raised a fault on the
+    activity stream (`0x350001`, in messages whose envelope is `type: "fault"`),
+    held it for 50 minutes, and cleared it — while `globeMotorFaultStatus` read 0
+    in every one of the 1198 state documents it published across that capture,
+    including six sampled during the fault itself. A sensor watching the field
+    stayed `off` throughout a real fault.
+
+    Either source raising a fault is a fault; the state field is kept because it
+    is the only source on firmware that does populate it.
+
+    It restores, because the activity stream only speaks on the edges. The
+    observed fault lasted fifty minutes between its raise and its clear, and a
+    reload inside that window would otherwise drop the latch and let the state
+    field's cheerful 0 render an active fault as `off`.
+    """
+
+    _attr_translation_key = "globe_motor_fault"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.serial}_globe_motor_fault"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        data = self.coordinator.data
+        from_field = data.robot.globe_motor_fault
+        from_activity = data.globe_motor_fault
+        if from_activity is not None:
+            return bool(from_activity) or bool(from_field)
+        # No edge seen this session. The field reading 0 is NOT evidence of no
+        # fault — that is the whole finding — so a restored latch outranks it.
+        if self._restored is not None:
+            return self._restored or bool(from_field)
+        return None if from_field is None else bool(from_field)

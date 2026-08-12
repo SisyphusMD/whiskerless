@@ -10,12 +10,15 @@ readings — live-proven on ESP 1.4.4 with a LitterHopper attached:
   tail of a clean cycle. Not proof a hopper exists — one 1.1.75 robot emits the
   burst on most cycles while another, equipped identically, never has — so
   corroborate with 0x57 before treating it as hopper data.
-* **hopper link** (register 0x57): 0xFFF1 (-15) when the hopper connection is
-  lost (detach, or any bonnet movement — the hopper mounts on the bonnet);
-  positive values while attached.
+* **hopper link** (register 0x57): not a link state at all — see
+  :class:`HopperLinkChanged`. Nothing derives connectivity from it.
 * **visit duration** (register 0xBC): seconds of settled weight, once per
   visit at its end. Also the gate for the weight event — visits under ~9 s
   often produce no 0x09 at all (0xBC then still fires, possibly with 0).
+* **globe-motor fault** (register 0x35): raised and cleared on the activity
+  stream, in messages whose envelope is `type: "fault"`. The state document's
+  `globeMotorFaultStatus` did NOT mirror a live fault, so this is the only
+  reliable source — see :class:`GlobeMotorFaultChanged`.
 * **drawer bay** (register 0x56): the waste drawer moved, otherwise silent.
   Which way it moved is not recoverable — see :class:`DrawerBayMoved`.
 
@@ -39,6 +42,7 @@ __all__ = [
     "CatVisitEnded",
     "CatWeightMeasured",
     "DrawerBayMoved",
+    "GlobeMotorFaultChanged",
     "HopperDispensed",
     "HopperLinkChanged",
     "LitterRobotEvent",
@@ -89,18 +93,39 @@ class HopperDispensed:
 class HopperLinkChanged:
     """Hopper link state (register 0x57).
 
-    Positive values are the healthy per-visit choreography (9-110 observed so far).
-    Negative values are faults, of which only -15 is characterized (detach, and
-    any bonnet movement — the hopper mounts on the bonnet). A second negative,
-    -30, recurs on 1.1.75 with the hopper attached and healthy — mostly inside
-    clean cycles, once after a visit — so the fault space is wider than one code.
+    Kept for the protocol record; nothing in the integration derives hopper state
+    from it, because it does not carry one. Positives arrive with the hopper
+    sitting on a bench. `-15`, long documented as "link lost on detach AND bonnet
+    lift", fired on neither of two narrated bonnet lifts, and did fire for merely
+    opening the hopper's own drawer. `-17`, `-30` and `-31` are unexplained.
 
-    ``connected`` is therefore tri-state: ``None`` for a negative we cannot
-    name, rather than forcing an unrecognized fault to read as connected.
+    ``connected`` is therefore tri-state and advisory only.
     """
 
     connected: bool | None
     raw: int
+
+
+@dataclass(frozen=True, slots=True)
+class GlobeMotorFaultChanged:
+    """Globe-motor fault, from the activity stream (register 0x35).
+
+    The state document does NOT mirror this. One robot raised `0x350001` three
+    times inside a cycle — in messages whose envelope is `type: "fault"` — and
+    cleared it 50 minutes later with `0x350000`, while `globeMotorFaultStatus`
+    read 0 in every one of its 1198 state documents across the whole capture,
+    including six sampled during the fault. A consumer watching only the state
+    field never learns a fault happened.
+
+    Whether the field is a latch that simply was not set, or the fault lives at a
+    different register than the state field's name implies, is unresolved.
+    """
+
+    code: int
+
+    @property
+    def faulted(self) -> bool:
+        return self.code != 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +166,7 @@ LitterRobotEvent: TypeAlias = (
     CatWeightMeasured
     | HopperDispensed
     | HopperLinkChanged
+    | GlobeMotorFaultChanged
     | CatVisitEnded
     | DrawerBayMoved
 )
@@ -183,6 +209,8 @@ def events_from_readings(readings: list[ActivityReading]) -> list[LitterRobotEve
         elif reading.register == Register.CAT_VISIT_DURATION:
             if reading.value <= _VISIT_DURATION_MAX_S:
                 events.append(CatVisitEnded(duration_s=reading.value))
+        elif reading.register == Register.GLOBE_MOTOR_FAULT_STATUS:
+            events.append(GlobeMotorFaultChanged(code=reading.value))
         elif reading.register == Register.DRAWER_BAY:
             events.append(DrawerBayMoved(raw=reading.value))
     return events

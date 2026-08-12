@@ -145,11 +145,11 @@ class Register(IntEnum):
     GLOBE_MOTOR_RETRACT_FAULT_STATUS = 0x4D
     ROBOT_CYCLE_STATUS = 0x4E
     ROBOT_CYCLE_STATE = 0x4F
-    # Hopper link/state channel (activity only; not in the state document).
-    # Live-observed on ESP 1.4.4 with a LitterHopper: 0xFFF1 (-15) = link lost
-    # (fires on hopper detach AND bonnet lift — the hopper rides on the bonnet);
-    # positive values (9-110 observed so far across 1.1.75 and 1.4.4) form an
-    # init/measurement sequence whose exact meaning is still open.
+    # Hopper subsystem channel (activity only; not in the state document), and
+    # NOT a link state — nothing derives connectivity from it. -15 was long read
+    # as "link lost on detach AND bonnet lift"; it fired on neither of two
+    # narrated bonnet lifts, and did fire for opening the hopper's own drawer.
+    # Positives arrive with the hopper sitting on a bench. -17/-30/-31 unexplained.
     # See docs/devices/litter-robot-4/registers.md.
     HOPPER_LINK = 0x57
     TOF1 = 0x58
@@ -230,11 +230,12 @@ PANEL_BUTTON_POWER = 0x0101
 # hopper attached and dispensing normally, and -17/-31 appeared once each.
 HOPPER_LINK_DISCONNECTED = 0xFFF1
 
-# STATUS_ANNUNCIATOR (0x0B) values, every one labeled against a live observed
-# event (the "random housekeeping" values were never random — 102 is dusk/dawn
-# and light switches, 105 is Reset presses). Documentation-grade: nothing
+# STATUS_ANNUNCIATOR (0x0B) values (the "random housekeeping" values were never
+# random — 102 is dusk/dawn and light switches). Documentation-grade: nothing
 # consumes these yet, but they turn a formerly-opaque chatter register into
 # named events for future decoding work.
+# Value 8 has 10 live emissions (8 on one robot, 2 on the other) and no label yet;
+# 12 has never been seen here, but neither has the filter wizard that would raise it.
 STATUS_ANNUNCIATIONS: dict[int, str] = {
     7: "bonnet_removed",
     9: "cat_detected",
@@ -242,8 +243,9 @@ STATUS_ANNUNCIATIONS: dict[int, str] = {
     20: "cycle_running",
     22: "ready",
     102: "night_light_changed",   # fires with IS_NIGHT_LIGHT_LED_ON transitions
-    # 105 was labeled "fires on a Reset press". Two narrated physical Resets emitted
-    # 22 (ready) and no 105 at all, so whatever raises it, the press alone does not.
+    # 105 was labeled "fires on a Reset press". It has now failed to appear across
+    # NINE Reset presses on two robots, in 230 annunciator readings. Whatever
+    # raises it, a Reset press alone does not.
     105: "reset_tare",
 }
 
