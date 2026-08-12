@@ -52,7 +52,7 @@ correct the mapping.
 | `emptyCycle` | **captured, write untested** — a physical Empty press emits `0x010801`, so `0x02010801` is the code to write. Shipped as a disabled-by-default button; nobody has sent it yet |
 | `powerOn` / `powerOff` | **captured, write untested** — a Power press emits `0x010101` and TOGGLES. Shipped disabled and behind `allow_dangerous`: a robot powered off this way has left the network |
 | filter-change wizard | **unreachable** — the panel chord is a *long* press, and the write path declines press type `02` |
-| waste-drawer position | **unsolved** — `0x56` says the drawer moved, never which way; see the [register map](registers.md#the-drawer-bay-0x56-reports-movement-not-position--an-open-problem) |
+| waste-drawer position | **partly solved** — `0x56` fires on a seat and stays silent on a removal, so direction is readable from whether it speaks; absolute position still is not. See the [register map](registers.md#the-drawer-bay-0x56-reports-seating-not-position) |
 
 Static analysis never recovered these because it was looking in the wrong place: the
 dispatch it wanted lives in a bootloader region absent from every public OTA image,
