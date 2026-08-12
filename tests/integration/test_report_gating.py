@@ -16,6 +16,7 @@ from custom_components.whiskerless.const import (
     CONF_CAT_VISIT_SEEN,
     CONF_DETECTION_RESET_BY,
     CONF_DRAWER_SEEN,
+    CONF_HOPPER_FILL_RAW,
     CONF_HOPPER_SEEN,
     CONF_PET_WEIGHT_SEEN,
     CONF_VISIT_DURATION_SEEN,
@@ -392,3 +393,114 @@ async def test_an_active_globe_fault_survives_a_reload(
     await setup_integration(hass, bare_config_entry, state_payload)
 
     assert hass.states.get(entity).state == "on"
+
+
+async def test_a_restored_fill_gauge_keeps_a_proven_hopper(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Only a dispense can produce that number, which is the standard of proof.
+
+    Revision 2 cleared every hopper flag, and the replacement evidence is a
+    dispense — which is demand-driven, so a robot sitting on its litter target
+    can go weeks without one. That punished correct installs to fix wrong ones.
+    """
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={CONF_DETECTION_RESET_BY: 2, CONF_HOPPER_SEEN: True},
+    )
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MOCK_SERIAL}_hopper_fill",
+        config_entry=bare_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper_fill_raw",
+    )
+    mock_restore_cache(hass, (State("sensor.litter_robot_4_hopper_fill_raw", "84"),))
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert bare_config_entry.options[CONF_HOPPER_SEEN] is True
+    assert _disabled_by(registry, "sensor", "hopper_fill") is None
+
+
+async def test_a_restored_link_state_does_not_keep_a_hopper(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """`hopper_connected` restoring `on` is the suspect evidence, not proof.
+
+    That flag used to be granted by a 0x57 link report, and a positive arrives
+    with the hopper sitting on a bench. Seeding from it would re-grant exactly
+    what the sweep exists to retire.
+    """
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={CONF_DETECTION_RESET_BY: 2, CONF_HOPPER_SEEN: True},
+    )
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "binary_sensor",
+        DOMAIN,
+        f"{MOCK_SERIAL}_hopper_connected",
+        config_entry=bare_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper",
+    )
+    mock_restore_cache(hass, (State("binary_sensor.litter_robot_4_hopper", "on"),))
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert CONF_HOPPER_SEEN not in bare_config_entry.options
+    assert _disabled_by(registry, "binary_sensor", "hopper_connected") is er.RegistryEntryDisabler.INTEGRATION
+
+
+async def test_a_persisted_fill_gauge_also_keeps_the_hopper(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The same evidence, from the option rather than the restore cache.
+
+    The restore cache expires; the persisted gauge does not, so a robot that has
+    not dispensed in a long time still keeps the hopper it proved.
+    """
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={CONF_DETECTION_RESET_BY: 2, CONF_HOPPER_FILL_RAW: 84},
+    )
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert bare_config_entry.options[CONF_HOPPER_SEEN] is True
+
+
+async def test_an_implausible_cached_gauge_is_not_proof(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A cache old enough to predate the multi-reading gate is not provenance.
+
+    Those builds accepted a lone 0x0C as a dispense, and a diagnostic READ of that
+    register produces one too. A real gauge lands in the calibrator's plausible
+    band; a bare register echo need not.
+    """
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={CONF_DETECTION_RESET_BY: 2, CONF_HOPPER_SEEN: True},
+    )
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MOCK_SERIAL}_hopper_fill",
+        config_entry=bare_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper_fill_raw",
+    )
+    mock_restore_cache(hass, (State("sensor.litter_robot_4_hopper_fill_raw", "0"),))
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert CONF_HOPPER_SEEN not in bare_config_entry.options

@@ -41,6 +41,13 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 ### Fixed
 
+- **The hopper entities no longer disappear from a robot that has one.** An upgrade
+  sweep retired hopper detections recorded from the link register, which is right —
+  that register proves nothing. But it also cleared them on robots whose hopper was
+  genuinely proven, and the replacement evidence is a dispense, which only happens
+  when the litter is actually low. A well-fed robot could go weeks without one. The
+  sweep now recognises a previously recorded fill gauge as the proof it is, since
+  only a dispense can produce that number.
 - **Handling the robot no longer shows up as a cat visit.** A Reset press closes a
   visit on the same register a cat does; two of them were published as genuine
   four-minute and three-minute visits. A visit now needs something to have actually

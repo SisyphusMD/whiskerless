@@ -9,6 +9,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state
 from homeassistant.loader import async_get_integration
 
+from whiskerless.devices.litter_robot_4.calibration import HOPPER_PLAUSIBLE
+
 from . import binary_sensor, button, number, select, sensor, switch
 from . import time as time_platform
 from .const import (
@@ -17,6 +19,7 @@ from .const import (
     CONF_DETECTION_RESET_BY,
     CONF_DRAWER_LAST,
     CONF_DRAWER_SEEN,
+    CONF_HOPPER_FILL_RAW,
     CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
     CONF_PET_WEIGHT_LAST,
@@ -139,24 +142,60 @@ _DETECTED: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
 )
 
 #: Groups whose sighting may be seeded from a sensor's restore cache in the
-#: one-shot sweep below: a restored value there is a real past report. The
-#: hopper and visit-duration flags are deliberately NOT seedable — earlier
-#: builds recorded them from evidence since proven wrong, so the restored
-#: values themselves are suspect and the hardware must re-prove itself.
+#: sweep below: a restored value there is a real past report. The
+#: visit-duration flag is deliberately NOT seedable — earlier builds recorded it
+#: from evidence since proven wrong, so the restored value is itself suspect.
 _RESTORE_SEEDABLE: frozenset[str] = frozenset(
     {CONF_DRAWER_SEEN, CONF_PET_WEIGHT_SEEN, CONF_CAT_VISIT_SEEN}
 )
+
+#: The hopper is seedable, but only from ONE of its entities. Its sighting used
+#: to be granted by a 0x57 link report, which proves nothing — so `hopper_connected`
+#: restoring `on` is exactly the suspect evidence this sweep exists to retire. A
+#: restored fill gauge is different: that number comes from a dispense burst, which
+#: is the standard the current rule demands.
+#:
+#: Without this, clearing the flag punishes correct installs to fix incorrect ones.
+#: Dispensing is demand-driven — a robot sitting on its litter target can go weeks
+#: without one — so "re-prove it at the next dispense" can mean weeks of a real
+#: hopper's entities being missing.
+#:
+#: KNOWN WEAKNESS: a cache written by an rc older than the multi-reading gate could
+#: hold a gauge taken from a lone 0x0C, which a diagnostic READ of that register also
+#: produces. The band check below narrows it — a real gauge lands in the plausible
+#: range, a register echo need not — but it is a filter, not provenance. The durable
+#: fix is to record what proved each sighting rather than infer it; until then this
+#: trades a speculative phantom (five entities reading unknown) against an observed
+#: regression (a real hopper's entities missing for weeks).
+_HOPPER_PROOF_ENTITY: tuple[str, str] = (Platform.SENSOR, "hopper_fill")
+
+
+def _plausible_gauge(*values: object) -> bool:
+    """Whether any value looks like a real dispense fill gauge.
+
+    Narrows the legacy-cache weakness described above: a genuine phase-1 gauge
+    lands in the same band the calibrator trusts, while a lone register read can
+    return anything, including 0.
+    """
+    low, high = HOPPER_PLAUSIBLE
+    for value in values:
+        try:
+            if low <= int(float(str(value))) <= high:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
 
 
 def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
     """Upgrade sweep: every detection must be backed by real evidence.
 
-    Runs once per revision of what counts as evidence, because that standard has
-    changed twice: first the 0x0C dispense burst was retired as proof, then the
-    0x57 link report was too. Hopper and visit-duration sightings are cleared
-    outright (the hardware re-proves itself within a visit and re-enables); the
-    newly gated sensors are seeded from their restore cache; whatever is still
-    unproven goes back to disabled until its first real report.
+    Runs once per revision of what counts as evidence, because that standard keeps
+    changing: the 0x0C dispense burst was retired as proof, then the 0x57 link
+    report was too. Sightings are re-derived from each group's restore cache —
+    for the hopper, from the fill gauge specifically, since only a dispense can
+    produce that number — and whatever is still unproven goes back to disabled
+    until its first real report.
 
     Without the revision an install that ran the earlier sweep would keep a
     hopper it was only ever granted by a link report.
@@ -184,8 +223,17 @@ def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntr
     # dispense can re-sight in the same session.
     serial = entry.data[CONF_SERIAL]
     for seen_key, _, entities in _DETECTED:
-        if not options.get(seen_key) and seen_key in _RESTORE_SEEDABLE:
-            for domain, key in entities:
+        seedable = entities if seen_key in _RESTORE_SEEDABLE else ()
+        if seen_key == CONF_HOPPER_SEEN:
+            seedable = (_HOPPER_PROOF_ENTITY,)
+            # A gauge persisted by a previous run is the same evidence, and it
+            # outlives the restore cache's expiry.
+            # Written only by builds that already had the multi-reading gate, so
+            # its provenance is sound without a band check.
+            if entry.options.get(CONF_HOPPER_FILL_RAW) is not None:
+                options[seen_key] = True
+        if not options.get(seen_key) and seedable:
+            for domain, key in seedable:
                 entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{serial}_{key}")
                 stored = last_states.get(entity_id) if entity_id else None
                 if stored is None:
@@ -195,6 +243,11 @@ def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntr
                 # evidence too, and demoting on the rendered state alone would
                 # hide a sensor whose fact may be rare or never recur.
                 extra = stored.extra_data.as_dict() if stored.extra_data else {}
+                if seen_key == CONF_HOPPER_SEEN:
+                    if not _plausible_gauge(stored.state.state, extra.get("native_value")):
+                        continue
+                    options[seen_key] = True
+                    break
                 if (
                     stored.state.state not in ("unknown", "unavailable")
                     or extra.get("native_value") is not None

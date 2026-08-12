@@ -50,10 +50,15 @@ CONF_CAT_VISIT_LAST = "cat_visit_last"
 # restore cache. See _reset_unproven_detections.
 CONF_DETECTION_RESET_BY = "detection_reset_by"
 #: Bumped whenever the standard of proof behind a detection changes, so installs
-#: that already ran an earlier sweep run the new one. Revision 2 retires hopper
-#: sightings recorded from a 0x57 link report, which is now known to prove
-#: nothing — a positive arrives with the hopper sitting on a bench.
-DETECTION_RESET_REVISION = 2
+#: that already ran an earlier sweep run the new one.
+#:
+#: 2 — retired hopper sightings recorded from a 0x57 link report, which proves
+#:     nothing: a positive arrives with the hopper sitting on a bench.
+#: 3 — revision 2 was too blunt. It cleared the flag on robots whose hopper was
+#:     genuinely proven, and the replacement evidence is a dispense, which is
+#:     demand-driven — a robot sitting on its litter target can go weeks without
+#:     one. Re-runs the sweep, now seeding the flag from a restored fill gauge.
+DETECTION_RESET_REVISION = 3
 
 # Extremes learned from what the robot reports, so a user who never calibrates
 # still gets a scale. Explicit calibration overrides these.
