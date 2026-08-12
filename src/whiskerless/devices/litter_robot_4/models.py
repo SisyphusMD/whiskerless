@@ -92,6 +92,10 @@ class LitterRobot4State:
     # Sensors / occupancy. catDetect is not a boolean; bit 0 is the ToF sight
     # line and bit 1 the load cell, so only bit 0 can mean "a cat is in there".
     cat_detected: bool | None = None
+    # Bit 1: something is resting on the scale. Not occupancy — an inert weight
+    # sets it with the beam clear, and the robot itself raises an "excess weight"
+    # fault when it stays set for over 30 minutes.
+    scale_loaded: bool | None = None
     sleep_status: Any = None
 
     # Connectivity / identity (diagnostic)
@@ -181,6 +185,7 @@ class LitterRobot4State:
             odometer_empty_cycles=_int(g("odometerEmptyCycles")),
             odometer_filter_cycles=_int(g("odometerFilterCycles")),
             cat_detected=cat_detect_bit0(g("catDetect")),
+            scale_loaded=cat_detect_bit1(g("catDetect")),
             sleep_status=g("sleepStatus"),
             wifi_rssi=_int(g("wifiRssi")),
             esp_firmware=esp_firmware,
@@ -247,6 +252,23 @@ def cat_detect_bit0(value: Any) -> bool | None:
     if n is None:
         return _bool(value)
     return bool(n & 1)
+
+
+def cat_detect_bit1(value: Any) -> bool | None:
+    """Whether catDetect's bit 1 — the load cell — is set.
+
+    See :func:`cat_detect_bit0` for how the two bits were separated. This one is
+    NOT occupancy: an inert weight sets it with the beam clear. It is the input
+    to the robot's own "excess weight detected" condition, which it raises after
+    the scale has read loaded for over 30 minutes.
+
+    A cloud-style boolean string carries no bit information, so it returns None
+    rather than guessing which bit the boolean stood for.
+    """
+    n = _int(value)
+    if n is None:
+        return None
+    return bool(n & 2)
 
 
 # --- defensive scalar decoders -----------------------------------------------

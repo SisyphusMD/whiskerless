@@ -78,14 +78,17 @@
       }
     },
     "binary_sensor": {
+      "bonnet_removed": {
+        "name": "Bonnet removed"
+      },
       "cat_detected": {
         "name": "Cat detected"
       },
       "drawer_full": {
         "name": "Waste drawer full"
       },
-      "bonnet_removed": {
-        "name": "Bonnet removed"
+      "excess_weight": {
+        "name": "Excess weight"
       },
       "globe_motor_fault": {
         "name": "Globe motor fault"

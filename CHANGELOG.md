@@ -32,9 +32,19 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
   `.rpm` for amd64 and arm64, and standalone Linux binaries for both. None of them
   need a system Python — the audience is someone provisioning a robot from a laptop
   that has none.
+- **Excess weight detection.** The robot refuses to cycle while it thinks something
+  is sitting on the scale, raises the condition itself after 30 minutes, and shows it
+  on the panel — but says nothing about it over MQTT. One robot here sat like that for
+  over two hours after a bonnet was reseated slightly off, with its clean cycle stuck
+  the whole time and nothing on the dashboard to explain it. Now a sensor. Pressing
+  Reset zeroes the scale and clears it.
 
 ### Fixed
 
+- **Handling the robot no longer shows up as a cat visit.** A Reset press closes a
+  visit on the same register a cat does; two of them were published as genuine
+  four-minute and three-minute visits. A visit now needs something to have actually
+  broken the beam, which a hand on the bonnet does not.
 - **The globe motor fault sensor could sit at `off` through a real fault.** It read
   the state document, and the state document does not carry the fault: a robot raised
   one on its activity stream, held it for fifty minutes and cleared it, while
@@ -105,9 +115,11 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **Breaking (library):** `Hazard.MOTOR`, `MotorCommandError` and `allow_motor` are
   gone. A written press is the same event as a physical one, so the robot's own
   interlocks apply either way. Power still requires `allow_dangerous`.
-- **Last visit duration needs ESP 1.4.4**, so it ships disabled and switches on the
-  first time a robot reports one. On 1.1.75 that register has never appeared, and the
-  sensor would otherwise read unknown for the life of the robot.
+- **Last visit duration is not reported by every robot**, so it ships disabled and
+  switches on the first time yours reports one, rather than reading unknown for the
+  life of a robot that never will. This was thought to be a firmware split; it is not.
+  Two robots on the same ESP build sit either side of it.
+
 ## [0.1.3] - 2026-07-02
 
 ### Added

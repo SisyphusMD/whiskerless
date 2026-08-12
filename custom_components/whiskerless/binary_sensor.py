@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import override
 
 from homeassistant.components.binary_sensor import (
@@ -15,6 +16,7 @@ from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util import dt as dt_util
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
 from whiskerless.devices.litter_robot_4 import const as lr4
@@ -23,6 +25,9 @@ from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity
 
 PARALLEL_UPDATES = 0
+
+# Whisker's own threshold for "excess weight detected".
+EXCESS_WEIGHT_AFTER = timedelta(minutes=30)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -40,6 +45,7 @@ STANDALONE_KEYS: tuple[str, ...] = (
     "hopper_connected",
     "hopper_empty",
     "globe_motor_fault",
+    "excess_weight",
 )
 
 BINARY_SENSORS: tuple[WhiskerlessBinarySensorEntityDescription, ...] = (
@@ -77,6 +83,7 @@ async def async_setup_entry(
     entities.append(WhiskerlessHopperConnectedSensor(coordinator))
     entities.append(WhiskerlessHopperEmptySensor(coordinator))
     entities.append(WhiskerlessGlobeMotorFaultSensor(coordinator))
+    entities.append(WhiskerlessExcessWeightSensor(coordinator))
     async_add_entities(entities)
 
 
@@ -216,3 +223,49 @@ class WhiskerlessGlobeMotorFaultSensor(_RestoringBinarySensor):
         if self._restored is not None:
             return self._restored or bool(from_field)
         return None if from_field is None else bool(from_field)
+
+
+class WhiskerlessExcessWeightSensor(_RestoringBinarySensor):
+    """Something has been sitting on the scale too long.
+
+    The robot raises this itself and shows it on the panel as a blue bar with a
+    partial yellow flash, but says nothing about it in the state document. Its
+    own documentation defines the condition as the scale having read loaded for
+    over 30 minutes, and catDetect bit 1 is that reading, so the condition is
+    derivable even though the flag is not published.
+
+    It matters because the robot will not cycle while it believes it is occupied.
+    One unit here held bit 1 for 2 h 09 m after a bonnet was reseated slightly
+    off, with its clean-cycle countdown stuck the whole time and no indication
+    anywhere in Home Assistant. Pressing Reset zeroes the scale and clears it.
+
+    It restores, because the run start is in memory only: a reload would
+    otherwise restart a countdown that the robot has already been serving for
+    hours, and each further reload would restart it again.
+
+    Timing is deliberately coarse. Nothing schedules a callback at the threshold,
+    so the sensor turns on at the next coordinator update, which is at worst one
+    heartbeat (5 min) after the 30-minute mark. That is a bounded lateness on an
+    advisory condition, against a timer that would need cancelling on every clear.
+    """
+
+    _attr_translation_key = "excess_weight"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.serial}_excess_weight"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        data = self.coordinator.data
+        since = data.scale_loaded_since
+        if since is None:
+            # Only a positive "the pan is clear" is an off; an absent bit is unknown.
+            return False if data.robot.scale_loaded is False else None
+        if (dt_util.utcnow() - since) >= EXCESS_WEIGHT_AFTER:
+            return True
+        # Still loaded and the restored answer was yes: the condition never
+        # cleared, this process just forgot when it started.
+        return bool(self._restored)

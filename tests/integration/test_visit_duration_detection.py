@@ -40,6 +40,15 @@ def _disabled_by(registry: er.EntityRegistry) -> object:
     return entry.disabled_by
 
 
+def _occupied(state_payload: str) -> str:
+    """A state document with catDetect bit 0 set: a body in the ToF beam.
+
+    A visit needs one. Handling the robot loads the scale (bit 1) and closes a
+    0xBC exactly like a cat does, so the beam-break is what separates them.
+    """
+    return json.dumps({**json.loads(state_payload), "catDetect": 1})
+
+
 async def test_it_starts_disabled(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -61,6 +70,10 @@ async def test_a_duration_enables_it(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
+
+        robot.push(_occupied(state_payload))
+
+        await hass.async_block_till_done()
         robot.push(VISIT_ENDED, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
@@ -81,6 +94,10 @@ async def test_the_proving_reading_survives_the_reload(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
+
+        robot.push(_occupied(state_payload))
+
+        await hass.async_block_till_done()
         robot.push(VISIT_ENDED, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
@@ -105,6 +122,10 @@ async def test_the_reload_does_not_reset_last_cat_visit(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
+
+        robot.push(_occupied(state_payload))
+
+        await hass.async_block_till_done()
         robot.push(VISIT_ENDED, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
@@ -126,6 +147,10 @@ async def test_a_zero_second_visit_still_counts_as_proof(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
+
+        robot.push(_occupied(state_payload))
+
+        await hass.async_block_till_done()
         robot.push(json.dumps({"type": "action", "data": ["0xBC0000"]}), ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 

@@ -13,7 +13,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import override
 
 from homeassistant.components import mqtt
@@ -106,6 +106,10 @@ _STATE_DEDUPE = 30.0
 # robot's own acknowledgement that it acted, which QoS 1 cannot give — that only
 # proves the broker accepted the message.
 _PRESS_TIMEOUT = 5.0
+# How long after the beam clears a visit close still counts as that visit's. The
+# observed gap was one second; this is loose enough for a slow publish and far
+# tighter than the minutes between handling the robot and its Reset.
+_VISIT_CLOSE_GRACE = timedelta(seconds=90)
 
 @dataclass
 class WhiskerlessData:
@@ -135,6 +139,8 @@ class WhiskerlessData:
     drawer_last_moved: datetime | None = None
     # From the ACTIVITY stream, not the state document — see below.
     globe_motor_fault: int | None = None
+    # When the scale entered its current continuous loaded run, or None.
+    scale_loaded_since: datetime | None = None
 
 
 class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
@@ -183,6 +189,14 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._last_litter_sample_at = 0.0
         self._drawer_last_moved: datetime | None = None
         self._globe_motor_fault: int | None = None
+        # When the ToF beam was last broken. The visit gate reads this rather than
+        # a sticky flag: an arm crossing the beam without loading the scale would
+        # otherwise arm the gate indefinitely, and the next Reset phantom would
+        # sail through it.
+        self._beam_broken_at: datetime | None = None
+        # When the scale first read loaded in the current continuous run, so the
+        # excess-weight condition can be derived. None while the pan is clear.
+        self._scale_loaded_since: datetime | None = None
         self._press_echo = asyncio.Event()
         self._awaited_press: int | None = None
         # Enabling an entity reloads the entry, which builds a fresh coordinator
@@ -252,6 +266,19 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             count_hits=True,
         ):
             self._persist_learned()
+
+    @callback
+    def _beam_seen_recently(self) -> bool:
+        """Whether a body broke the ToF beam recently enough to own a visit close.
+
+        The close trails the departure: in a narrated visit `catDetect` fell to 0
+        one second before `0xBC` arrived, so the gate cannot require the beam to
+        still be broken. It also cannot latch forever, or an arm reaching in would
+        license a Reset phantom minutes later.
+        """
+        if self._beam_broken_at is None:
+            return False
+        return (dt_util.utcnow() - self._beam_broken_at) <= _VISIT_CLOSE_GRACE
 
     @callback
     def _persist_hopper_fill(self) -> None:
@@ -460,6 +487,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             hopper_fill_raw=self._hopper_fill_raw,
             drawer_last_moved=self._drawer_last_moved,
             globe_motor_fault=self._globe_motor_fault,
+            scale_loaded_since=self._scale_loaded_since,
         )
 
     @callback
@@ -514,6 +542,15 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 # protocol record; nothing derives connectivity from it.
                 pass
             elif isinstance(event, CatVisitEnded):
+                # A visit needs a BODY, not just load on the scale. Handling the
+                # robot raises 0xBC exactly like a cat does — a Reset press closed
+                # one at 235 s and another at 172 s, both under the 300 s cap, and
+                # both were published as genuine multi-minute cat visits. Bit 0
+                # (the time-of-flight sight line) is what a cat sets and a hand on
+                # the bonnet does not, so it is the discriminator.
+                if not self._beam_seen_recently():
+                    continue
+                self._beam_broken_at = None
                 # The duration closes a visit even when it was too short for a
                 # weight event, so it also stamps last_cat_visit.
                 self._last_visit_duration_s = event.duration_s
@@ -585,6 +622,17 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 # mid-visit proves presence, not an arrival.
                 previous_occupancy = self._robot.cat_detected if self._robot is not None else None
                 occupancy = parsed.state.cat_detected
+                if occupancy:
+                    self._beam_broken_at = dt_util.utcnow()
+                # The robot raises "excess weight detected" once the scale has
+                # read loaded for over 30 minutes, and shows it on the panel as a
+                # partial yellow flash. Nothing in the state document says so, but
+                # catDetect bit 1 is the input, so the condition is derivable.
+                if parsed.state.scale_loaded:
+                    if self._scale_loaded_since is None:
+                        self._scale_loaded_since = dt_util.utcnow()
+                elif parsed.state.scale_loaded is False:
+                    self._scale_loaded_since = None
                 if previous_occupancy is False and occupancy is True:
                     self._last_cat_visit = dt_util.utcnow()
                     if not self._cat_visit_seen:

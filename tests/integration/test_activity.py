@@ -9,11 +9,15 @@ and drawer entities quietly stop updating.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 
 import pytest
 from custom_components.whiskerless.const import CONF_HOPPER_SEEN
-from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.core import HomeAssistant, State
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
 
 from . import robot_online, seed_gated_sensors, setup_integration
 from .const import ACTIVITY_TOPIC
@@ -29,6 +33,15 @@ def _activity(*codes: str) -> str:
     return json.dumps({"type": "action", "data": list(codes)})
 
 
+def _occupied(state_payload: str) -> str:
+    """A state document with catDetect bit 0 set: a body in the ToF beam.
+
+    A visit needs one. Handling the robot loads the scale (bit 1) and closes a
+    0xBC exactly like a cat does, so the beam-break is what separates them.
+    """
+    return json.dumps({**json.loads(state_payload), "catDetect": 1})
+
+
 async def test_a_visit_ending_stamps_the_time_and_the_duration(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
@@ -39,6 +52,10 @@ async def test_a_visit_ending_stamps_the_time_and_the_duration(
     assert hass.states.get(VISIT_DURATION) is None
 
     with robot_online(robot):
+
+        robot.push(_occupied(state_payload))
+
+        await hass.async_block_till_done()
         robot.push(_activity(f"0xBC{30:04X}"), ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
@@ -59,6 +76,10 @@ async def test_a_hop_through_still_closes_the_visit(
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
+
+        robot.push(_occupied(state_payload))
+
+        await hass.async_block_till_done()
         robot.push(_activity("0xBC0000"), ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
@@ -157,3 +178,109 @@ async def test_a_redelivered_dispense_does_not_corroborate_itself(
     learned = mock_config_entry.options.get("learned_hopper") or {}
     assert learned.get("low") is None, "a redelivery must not corroborate its own reading"
     assert learned.get("low_candidate") == 0x03D
+
+
+async def test_a_visit_needs_a_body_not_just_weight(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Handling the robot raises 0xBC exactly like a cat does.
+
+    Reset presses closed visits at 235 s and 172 s, both under the 300 s cap, and
+    both were published as genuine multi-minute cat visits. Only the scale was
+    loaded — nothing ever broke the time-of-flight beam — so bit 0 is what
+    separates a cat from a hand on the bonnet.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    with robot_online(robot):
+        # catDetect 2: weight on the pan, beam clear. Then a plausible duration.
+        robot.push(json.dumps({**json.loads(state_payload), "catDetect": 2}))
+        await hass.async_block_till_done()
+        robot.push(_activity(f"0xBC{235:04X}"), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+
+    assert hass.states.get(VISIT_DURATION) is None, "a phantom must not create the sensor"
+    assert hass.states.get(LAST_VISIT) is None
+
+
+async def test_excess_weight_is_reported_after_thirty_minutes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The robot raises this itself and never says so in the state document.
+
+    One unit held catDetect bit 1 for 2 h 09 m after a bonnet was reseated
+    slightly off, with its clean-cycle countdown stuck the whole time and nothing
+    in Home Assistant to show for it. Whisker's threshold is 30 minutes.
+    """
+    entity = "binary_sensor.litter_robot_4_excess_weight"
+    loaded = json.dumps({**json.loads(state_payload), "catDetect": 2})
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    assert hass.states.get(entity).state == "off"
+
+    with robot_online(robot):
+        robot.push(loaded)
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off", "not yet — the clock has to run"
+
+    # Age the run rather than the reader: the sensor derives from when the scale
+    # first read loaded, so backdating that is the whole condition.
+    coordinator = mock_config_entry.runtime_data
+    coordinator._scale_loaded_since -= timedelta(minutes=31)
+    with robot_online(robot):
+        robot.push(loaded)
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "on"
+
+    # Clearing the scale clears the condition, which is what a Reset press does.
+    with robot_online(robot):
+        robot.push(state_payload)
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off"
+
+
+async def test_a_beam_break_does_not_license_a_later_phantom(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """An arm reaching in must not arm the gate indefinitely.
+
+    Otherwise the first thing to break the beam licenses every Reset phantom that
+    follows, however many minutes later, and the gate is worse than none.
+    """
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    with robot_online(robot):
+        robot.push(_occupied(state_payload))          # beam broken, no weight
+        await hass.async_block_till_done()
+        robot.push(state_payload)                     # everything clears
+        await hass.async_block_till_done()
+
+    coordinator = mock_config_entry.runtime_data
+    coordinator._beam_broken_at -= timedelta(minutes=5)
+
+    with robot_online(robot):
+        robot.push(_activity(f"0xBC{235:04X}"), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+
+    assert hass.states.get(VISIT_DURATION) is None, "a stale beam-break must not count"
+
+
+async def test_excess_weight_survives_a_reload(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The run start lives in memory, the condition lives in the robot.
+
+    A reload restarts the countdown, so without restoring, a robot that has been
+    stuck for hours reports clear for another thirty minutes — and every further
+    reload buys it another thirty.
+    """
+    entity = "binary_sensor.litter_robot_4_excess_weight"
+    loaded = json.dumps({**json.loads(state_payload), "catDetect": 2})
+    mock_config_entry.add_to_hass(hass)
+    mock_restore_cache(hass, (State(entity, "on"),))
+
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    with robot_online(robot):
+        robot.push(loaded)
+        await hass.async_block_till_done()
+
+    assert hass.states.get(entity).state == "on"

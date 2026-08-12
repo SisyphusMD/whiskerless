@@ -143,6 +143,15 @@ class Register(IntEnum):
                                      # live when a fresh bag liner bunched under
                                      # one laser: 21 % overall yet partial-full=1
     GLOBE_MOTOR_RETRACT_FAULT_STATUS = 0x4D
+    # Activity-only registers, named from a 50-hour two-robot capture. Nothing
+    # consumes these yet; naming them stops a decoder reporting them as unknown
+    # and gives future work somewhere to hang evidence.
+    CYCLE_PHASE_SECONDS = 0x3C       # per-phase elapsed seconds within a cycle
+    DRAWER_LASER_1 = 0x48            # the primary laser DFI_LEVEL_PERCENT tracks
+    DRAWER_LASER_2 = 0x49
+    DRAWER_LASER_3 = 0x4A
+    VISIT_WEIGHT_HOLD_SECONDS = 0x6F  # matches the weight-on-scale span 8/8
+    VISIT_CLOSE_KIND = 0xB9          # 1 below a 0xBC of ~19, 2 above ~23
     ROBOT_CYCLE_STATUS = 0x4E
     ROBOT_CYCLE_STATE = 0x4F
     # Hopper subsystem channel (activity only; not in the state document), and
