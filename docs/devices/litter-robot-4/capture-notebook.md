@@ -165,7 +165,7 @@ clean before the next observation:
 
 #### Also seen
 
-`0x6F` (undocumented, four sightings at visit close: 82, 177, 103, 48) · `0x71 = 1` (second
+`0x6F` (four sightings at visit close: 82, 177, 103, 48 — since added to registers.md as INFERRED visit duration) · `0x71 = 1` (second
 sighting ever) · `0x0B = 8` (not in the annunciator table) · `0xBC`/`0xB9` **only ever from
 robot 2** — robot 1 has never emitted either. This was read as "same build, so not
 firmware-gated". **That was wrong**: the ESP versions match but the MAIN BOARD versions do not
@@ -432,7 +432,8 @@ not in a strict alternation.
 
 `registers.md` rates `0x37` LOW and records the values it had seen as not cat-related;
 these low ones plainly are. It also gives `catDetect` as 0/1/2 in the state document —
-this capture repeatedly shows 3.
+this capture repeatedly shows 3. *(Both since corrected: registers.md now carries
+`0x37` as the PROVEN two-bit catDetect, values 0–3.)*
 
 **`0x48` → `DFILevelPercent` at ≈0.70, now on five independent cycles across two robots**
 — 28 → 20 (0.714), 32 → 22 (0.688), 42 → 30 (0.714) and 43 → 30 (0.698) on robot 1, and

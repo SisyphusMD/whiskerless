@@ -7,7 +7,9 @@ robot. One flat namespace: a register's number is the same whether you read it
 **R** = readable · **W** = writable (in the validated settings bank) · confidence
 is **PROVEN** (live-tested), **HIGH** (firmware-decisive), or **MED/LOW**
 (inference). Only the **W** rows are exposed for writing; everything else is
-read/telemetry.
+read/telemetry. (One stray: the safety guard's settings bank also passes `0x05`
+`isDebugModeActive` for a raw `send` — it has no table row, no command builder,
+and no recorded live validation, so treat a write there as unexplored.)
 
 **What PROVEN has to mean here.** For a writable register: a write was observed to
 change the value *and* the new value observed coming back. For a read register: the
@@ -101,7 +103,7 @@ was.
 | `0x56` | drawer bay | fires on **seating only** — 5 seats emitted, 5 removals silent, across two robots and two different drawers. The *value* encodes nothing (10, 11, 12 all seen for the same move); the emission is the signal, see below | PROVEN (as a seat event) |
 | `0x57` | hopper subsystem | activity-only, and **not usable as a link state** — positives fire on a robot with the hopper physically detached, and `-15` fires for a drawer pull as well as a full detach. Reattach emits no distinct code. Negatives seen: `-15`, `-17`, `-30`, `-31`, none reliably reproducible | LOW |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
-| `0x6F` | visit duration (probable) | Equals the weight-on-scale span to within ±3 s in **8 of 8** emissions, and is omitted on all 4 visits whose span is under 15 s. Meanwhile `0xBC` — the register named `CAT_VISIT_DURATION` — matches no span that could be constructed. The two may be measuring different things; do not swap the decode on this alone | INFERRED |
+| `0x6F` | visit duration (probable) | Equals the weight-on-scale span to within ±3 s in **8 of 8** emissions, and is omitted on all 4 visits whose span is under 15 s. Meanwhile `0xBC` — the register named `CAT_VISIT_DURATION`, which the shipped decoder publishes as *Last visit duration*, live-proven against narrated visits on the robot that emits it — matched no constructible span in *this* capture. The two may be measuring different things (they have never been seen on the same robot); do not swap either decode on this alone | INFERRED |
 | `0x09` | catWeight | raw / **100** = lb (telemetry) — see the enum note | MED |
 
 ## Enums

@@ -6,10 +6,11 @@ getting the robot back into pairing mode, and clearing the everyday faults.
 
 ## Go back to the Whisker cloud
 
-whiskerless only overwrites the robot's **trusted root CA** and **broker
-host/topics**. It never touches the factory **device certificate/key**. So
-restoring stock cloud operation is just re-onboarding through the official
-**Whisker app**:
+whiskerless only overwrites **connection details** — the trusted root CA, the
+broker host and topics, the client id, and the WiFi credentials (the six fields
+listed below, the same ones the app writes at first setup). It never touches the
+factory **device certificate/key**. So restoring stock cloud operation is just
+re-onboarding through the official **Whisker app**:
 
 1. In the Whisker app, run the normal "set up / reconnect" flow for the robot.
 2. The app rewrites the real Amazon root CA + AWS endpoints over the *same* BLE
@@ -31,18 +32,21 @@ serial printed on the robot's own label.
 
 **There is nothing to back up first, and no way to do it if there were.** The only
 per-robot secret is the factory device certificate and key, which whiskerless neither
-writes nor reads. The provisioning protocol as mapped exposes exactly one read — the
-device MAC — and no way to retrieve a certificate, host or topic at all. Whether the
-firmware offers a read we simply have not mapped is an open question.
+writes nor reads. Of the config messages mapped so far, the only one that answers
+with data is the device-id read (a 6-byte value we format as a MAC — one proto
+comment suggests it may be the serial instead; unresolved, see the backlog's #52) —
+there is no mapped way to retrieve a certificate, host or topic at all. Whether the
+firmware offers a read we simply have not mapped is an open question (#51).
 
 ## Re-enter pairing mode (to re-provision)
 
 If you need to re-run `whiskerless provision` (first time, a changed broker, or
 to recover from a bad config), put the robot back into BLE pairing mode:
 
-1. Press and hold the robot's **Connect** button until it indicates pairing mode
-   (it starts advertising over BLE again — typically a blinking light).
-2. Run `whiskerless provision …` near the robot.
+1. **Hold** the robot's **Connect** button — a short press does nothing — for a
+   few seconds, until its light starts **pulsing yellow**. That is pairing mode:
+   the robot is advertising over BLE again.
+2. Run `whiskerless provision` near the robot.
 
 You can re-provision as many times as you like; it's the same mechanism the
 Whisker app uses at onboarding.
@@ -84,7 +88,7 @@ nothing new to report yet. To pull a fresh snapshot on demand:
 - **Home Assistant:** press the **Refresh** button (a diagnostic entity on the
   device page), or wait — the integration also polls a full state every few
   minutes.
-- **CLI:** `whiskerless state …` requests and prints a full state document.
+- **CLI:** `whiskerless state` requests and prints a full state document.
 
 Make sure your listener is subscribed *before* the robot publishes a burst — the
 CLI `monitor` and the HA integration both subscribe on connect, so they catch

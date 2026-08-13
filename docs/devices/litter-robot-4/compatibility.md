@@ -13,18 +13,24 @@ exact build.
 
 | Opcode | On 1.1.65 (static RE) | On 1.1.75 (live) |
 |---|---|---|
-| `0xA3` | reset / main-board-OTA orchestrator | reset / no-op (NOT a clean cycle) |
+| `0xA3` | reset / main-board-OTA orchestrator | unresolved — NOT a clean cycle; treated as reset-class |
 | `0xA0` `0xA1` `0xA7` `0xA9` `0xAE` | reports | reports (same) |
-| settings `0x05`–`0x2B` | settings | settings (same) |
+| settings (`0x05`, `0x0E`, `0x16`–`0x2B`) | settings | settings (same) |
 
 `0xA3` was once read as the clean-cycle trigger and *looked* like one in passing —
-but a live capture proved `0x02A30000` **reboots** the robot (`odometerPowerCycles`
-ticks; `odometerCleanCycles` does not); the "cycle" seen was the automatic
-first-cycle-after-power-on. So `0xA3` is reset/OTA on both builds and whiskerless now
-refuses it (never-send). The lesson: the safe surface (reads, reports, settings) is
-consistent across versions; **action** opcodes inherited from the cloud verb map must
-be confirmed live before they're trusted. Check your firmware version with the
-version report (`0x02AE0000`, or the integration's *Refresh* + version sensors).
+what it actually does is **unresolved**. One send of `0x02A30000` was followed by
+`odometerPowerCycles` ticking (`odometerCleanCycles` did not), which reads as a
+reboot, and the "cycle" seen was the automatic first-cycle-after-power-on. But that
+is a **single trial, never replicated**, on a unit that has since rebooted, dropped
+WiFi and latched a sensor unprompted — a coincident reboot cannot be excluded (see
+the [reverse-engineering writeup](../../reverse-engineering.md)). The static brief
+places it in a flash/OTA/reset macro band, so whiskerless refuses it (never-send)
+on cost, not proof: the cycle and reset are both reachable through `0x01`, and there
+is nothing on the other side of `0xA3` worth a brick. The lesson stands either way:
+the safe surface (reads, reports, settings) is consistent across versions; **action**
+opcodes inherited from the cloud verb map must be confirmed live before they're
+trusted. Check your firmware version with the version report (`0x02AE0000`, or the
+integration's *Refresh* + version sensors).
 
 ## Weekday schedule
 

@@ -115,7 +115,7 @@ before settling.
 - **Litter level** (%) and **Litter level distance** (mm, diagnostic, disabled by default)
 - **Waste drawer level** (%)
 - **Pet weight** (lb)
-- **Last cat visit**, and **Last visit duration** (ESP 1.4.4+, enables itself)
+- **Last cat visit**, and **Last visit duration** (not every robot reports one; enables itself)
 - **Waste drawer last moved**
 - **Clean cycle count** (diagnostic)
 - **Litter calibration reference** (diagnostic)
@@ -127,6 +127,10 @@ before settling.
 - **Waste drawer full** (problem)
 - **Bonnet removed** (problem)
 - **Globe motor fault** (problem)
+- **Excess weight** (problem) — something has sat on the scale for over 30 minutes,
+  which blocks cycling; the robot shows it only on the panel
+- **Panel sleep mode** (diagnostic) — whether the panel is asleep right now; set it
+  via the weekday schedule below, the firmware refuses direct writes
 
 **Controls**
 
@@ -134,7 +138,7 @@ before settling.
 - **Clean cycle wait time** (number, 3–30 minutes)
 - **Panel brightness (bright room)** / **(dark room)** (numbers) — High/Low name the
   ambient light level, not the brightness rank
-- **Control lock**, **Panel sleep mode**, **Weekday sleep schedule** (switches)
+- **Control lock**, **Weekday sleep schedule** (switches)
 - **Panel sleep time** / **Panel wake time** (time entities)
 
 **Calibrating the litter percentage**
@@ -155,8 +159,11 @@ would report "empty" on a normal day.
 It only samples a settled robot (no cat on the scale, not mid-cycle, status
 ready), discards readings no litter surface could produce, and needs a second
 reading to confirm a new extreme. The hopper is learned the same way, except its
-floor must be hit across several separate dispenses before it counts as empty,
-which is why **Hopper level (%)** stays unknown for a while.
+floor must be hit across several separate dispenses before it counts as empty —
+which is why **Hopper level (%)** stays unknown for a while, and why **Hopper out
+of litter** stays quietly off until your robot's own floor is known (floors differ
+per unit, so a fixed threshold would cry empty on some robots while litter still
+flowed).
 
 If you want it right immediately rather than eventually, measure it yourself:
 
@@ -165,8 +172,8 @@ If you want it right immediately rather than eventually, measure it yourself:
    page) while the robot is idle.
 
 That reading becomes 90%, matching how the cloud pins "at optimal" and leaving
-headroom above for an overfill. If you ever have the globe empty, enable and
-press **Calibrate litter: empty** too — a second point replaces the assumed
+headroom above for an overfill. If you ever have the globe empty, press
+**Calibrate litter: empty** too — a second point replaces the assumed
 slope with a true two-point scale. It is genuinely optional; nobody should empty
 a litter box for a dashboard number.
 
@@ -176,11 +183,11 @@ then, and capturing that would bake in a meaningless reference.
 **LitterHopper (optional hardware)**
 
 The hopper is invisible in the local state document — every hopper fact comes
-from the activity stream — so these four entities ship **disabled** rather than
+from the activity stream — so these five entities ship **disabled** rather than
 reading unknown forever on the robots that don't have one:
 
-- **Hopper** (connected), **Hopper out of litter**, **Hopper fill (raw)**,
-  **Last hopper dispense**
+- **Hopper** (connected), **Hopper out of litter**, **Hopper level (%)**,
+  **Hopper fill (raw)**, **Last hopper dispense**
 
 **You don't need to do anything.** The first time your robot dispenses litter they
 enable themselves and come up carrying that reading. Detection is remembered, so
@@ -225,11 +232,13 @@ automatically (the robot commits those with a little latency).
 
 - **Never discover a full drawer the hard way** — alert on *Waste drawer full*,
   or on *Waste drawer level* crossing a threshold, days before it matters.
-- **Track a cat's weight without a scale.** Any visit long enough to settle the
-  scale (roughly nine seconds) reports a weight, which over time is a real weight
-  trend — often the earliest signal of several feline illnesses. Shorter
-  hop-throughs report their duration but no weight, so *Pet weight* holds its
-  previous reading; trigger on it changing rather than on a cat arriving.
+- **Track a cat's weight without a scale.** On robots that report weights, a visit
+  long enough to settle the scale reports one, which over time is a real weight
+  trend — often the earliest signal of several feline illnesses. Not every robot
+  does (one live unit has never emitted a weight across days of visits — the
+  entity enables itself on your robot's first), and short hop-throughs report no
+  weight either, so *Pet weight* holds its previous reading; trigger on it
+  changing rather than on a cat arriving.
 - **Notice a sick cat by their bathroom habits** — *Last cat visit* and *Last
   visit duration* make "hasn't gone in 18 hours" or "six visits in an hour" into
   automatable facts.

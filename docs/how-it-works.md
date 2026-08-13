@@ -25,11 +25,13 @@ connects to*.
 
 The robot runs ESP-IDF and exposes its standard **protocomm** provisioning
 service over Bluetooth — the same mechanism the Whisker app uses to onboard it.
-There's no PIN. whiskerless connects to it and rewrites two things in the robot's
-non-volatile storage:
+There's no PIN. whiskerless connects to it and rewrites the robot's connection
+details in its non-volatile storage — the same six fields the app writes at
+first setup:
 
-1. the **trusted root CA** → your CA (so the robot trusts *your* broker), and
-2. the **broker host** → your broker's address.
+1. the **trusted root CA** → your CA (so the robot trusts *your* broker),
+2. the **broker host** and its two **topic endpoints** → your broker,
+3. the **client id** (set to the serial), and the **WiFi credentials**.
 
 It deliberately does **not** touch the robot's factory client certificate/key, so
 the change is **fully reversible** — re-onboarding through the Whisker app puts
