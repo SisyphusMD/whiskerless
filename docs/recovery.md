@@ -19,6 +19,22 @@ restoring stock cloud operation is just re-onboarding through the official
 
 That's it — no flashing, nothing permanent, no fuses burned.
 
+**This round trip has been done**, not just reasoned about: a robot provisioned onto
+a local broker was re-onboarded through the Whisker app and returned to normal cloud
+operation.
+
+Provisioning writes six things, all of them the same ones the app writes at first
+setup: the client id (set to the serial), the WiFi SSID and passphrase, the broker
+host, the two topic endpoints, and the root CA. Nothing there is irreplaceable —
+Amazon's root CAs are public, the endpoint is Whisker's own, and the topics embed the
+serial printed on the robot's own label.
+
+**There is nothing to back up first, and no way to do it if there were.** The only
+per-robot secret is the factory device certificate and key, which whiskerless neither
+writes nor reads. The provisioning protocol as mapped exposes exactly one read — the
+device MAC — and no way to retrieve a certificate, host or topic at all. Whether the
+firmware offers a read we simply have not mapped is an open question.
+
 ## Re-enter pairing mode (to re-provision)
 
 If you need to re-run `whiskerless provision` (first time, a changed broker, or
