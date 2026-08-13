@@ -1,6 +1,6 @@
 """Learning each robot's own scale from what it reports over time.
 
-Two of this integration's numbers have no absolute meaning:
+Two of the numbers consumers surface have no absolute meaning:
 
 * **litter level** is a ToF *distance*, and the cloud converts it against a
   per-robot reference that the local state document does not contain.
@@ -200,6 +200,20 @@ def hopper_percent_provisional(raw: int) -> int:
     """
     low, high = HOPPER_FILL_TYPICAL_RANGE
     return max(min(round((raw - low) / (high - low) * 100), 100), 0)
+
+
+def hopper_is_empty(raw: int, learned: Learned) -> bool | None:
+    """Whether the gauge sits at this unit's confirmed empty floor.
+
+    ``None`` until the floor has been hit repeatedly — the same standard
+    :func:`hopper_percent` holds itself to, and for the same reason: floors
+    differ per unit, so a fixed threshold calls a low-reading hopper empty
+    while litter still flows. A reading at or below the confirmed floor
+    (within the corroboration band) is the flatline signature of a bare auger.
+    """
+    if learned.low is None or learned.low_hits < HOPPER_EMPTY_CONFIRMATIONS:
+        return None
+    return raw - learned.low <= HOPPER_CORROBORATION
 
 
 def hopper_percent(raw: int, learned: Learned) -> int | None:

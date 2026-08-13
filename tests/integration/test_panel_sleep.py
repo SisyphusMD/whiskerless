@@ -12,27 +12,30 @@ import json
 
 import pytest
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from . import capture_writes, robot_online, setup_integration
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
-SWITCH = "switch.litter_robot_4_panel_sleep_mode"
+SLEEP_MODE = "binary_sensor.litter_robot_4_panel_sleep_mode"
 SLEEP_TIME = "time.litter_robot_4_panel_sleep_time"
 
 
-async def test_a_refused_sleep_mode_write_names_the_real_control(
+async def test_panel_sleep_mode_is_reported_not_switched(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
-    robot = await setup_integration(hass, mock_config_entry, state_payload)
-    with robot_online(robot), pytest.raises(HomeAssistantError) as err:
-        await hass.services.async_call(
-            "switch", "turn_on", {"entity_id": SWITCH}, blocking=True
-        )
-    # Not the generic "did not commit", which sends people to the wrong setting.
-    assert err.value.translation_key == "panel_sleep_not_writable"
+    """0x1A refuses direct writes, so a switch for it could only time out.
+
+    It used to be one; every toggle burned a verify timeout and errored. The
+    fact is now a read-only sensor, and the weekday schedule entities are the
+    writable path.
+    """
+    await setup_integration(hass, mock_config_entry, state_payload)
+    assert hass.states.get("switch.litter_robot_4_panel_sleep_mode") is None
+    state = hass.states.get(SLEEP_MODE)
+    assert state is not None
+    assert state.state == "off"  # isPanelSleepMode is 0 in the fixture
 
 
 async def test_the_schedule_is_written_to_every_weekday_register(

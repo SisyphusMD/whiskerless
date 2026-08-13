@@ -98,6 +98,9 @@
       },
       "hopper_empty": {
         "name": "Hopper out of litter"
+      },
+      "panel_sleep_mode": {
+        "name": "Panel sleep mode"
       }
     },
     "select": {
@@ -113,9 +116,6 @@
     "switch": {
       "keypad_lockout": {
         "name": "Control lock"
-      },
-      "panel_sleep_mode": {
-        "name": "Panel sleep mode"
       },
       "weekday_sleep": {
         "name": "Weekday sleep schedule"
@@ -179,9 +179,6 @@
     },
     "litter_reading_unavailable": {
       "message": "No usable litter reading right now — the robot is mid-cycle. Try again once it is idle."
-    },
-    "panel_sleep_not_writable": {
-      "message": "This robot derives panel sleep mode from its weekday sleep schedule and ignores a direct write. Use the weekday sleep schedule switch instead."
     }
   }
 }

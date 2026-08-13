@@ -26,3 +26,7 @@ async def test_diagnostics(
     # Decoded state is kept; the raw firmware doc is dropped.
     assert diagnostics["state"]["waste_drawer_level"] == 35
     assert "raw" not in diagnostics["state"]
+    # The integration's own novel state — what support questions turn on.
+    assert "hopper_fill_raw" in diagnostics["derived"]
+    assert "robot" not in diagnostics["derived"], "the snapshot is already under 'state'"
+    assert diagnostics["options"] == dict(mock_config_entry.options)

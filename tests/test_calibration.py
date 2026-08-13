@@ -18,6 +18,7 @@ from whiskerless.devices.litter_robot_4.calibration import (
     LITTER_MAX_SPAN_MM,
     LITTER_PLAUSIBLE_MM,
     Learned,
+    hopper_is_empty,
     hopper_percent,
     litter_is_sampleable,
 )
@@ -131,6 +132,21 @@ def test_a_low_reading_alone_is_not_evidence_of_empty() -> None:
 def test_hopper_percent_needs_a_believable_span() -> None:
     assert hopper_percent(70, Learned(low=68, high=70)) is None, "too narrow to be real"
     assert hopper_percent(70, Learned(low=None, high=90)) is None
+
+
+def test_empty_is_unknowable_until_the_floor_is_confirmed() -> None:
+    # Floors differ per unit — one robot's stocked readings sit below another's
+    # empty flatline — so a fixed threshold would cry empty while litter flows.
+    assert hopper_is_empty(61, Learned(low=None)) is None
+    assert hopper_is_empty(61, Learned(low=61, high=92, low_hits=2)) is None
+
+
+def test_empty_is_the_flatline_at_the_confirmed_floor() -> None:
+    confirmed = Learned(low=66, high=90, low_hits=HOPPER_EMPTY_CONFIRMATIONS)
+    assert hopper_is_empty(66, confirmed) is True
+    assert hopper_is_empty(66 + HOPPER_CORROBORATION, confirmed) is True
+    assert hopper_is_empty(64, confirmed) is True, "below the floor is emptier still"
+    assert hopper_is_empty(66 + HOPPER_CORROBORATION + 1, confirmed) is False
 
 
 def test_hopper_percent_maps_the_learned_range() -> None:

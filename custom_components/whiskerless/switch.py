@@ -41,14 +41,6 @@ SWITCHES: tuple[WhiskerlessSwitchEntityDescription, ...] = (
         set_fn=lambda coordinator, on: coordinator.async_set_keypad_lockout(on),
     ),
     WhiskerlessSwitchEntityDescription(
-        key="panel_sleep_mode",
-        translation_key="panel_sleep_mode",
-        device_class=SwitchDeviceClass.SWITCH,
-        entity_category=EntityCategory.CONFIG,
-        value_fn=lambda robot: robot.panel_sleep_mode,
-        set_fn=lambda coordinator, on: coordinator.async_set_panel_sleep_mode(on),
-    ),
-    WhiskerlessSwitchEntityDescription(
         key="weekday_sleep",
         translation_key="weekday_sleep",
         device_class=SwitchDeviceClass.SWITCH,

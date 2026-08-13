@@ -7,14 +7,18 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
-from custom_components.whiskerless.const import CONF_HOPPER_SEEN, CONF_VISIT_DURATION_SEEN
+from custom_components.whiskerless.const import (
+    CONF_HOPPER_FILL_RAW,
+    CONF_HOPPER_SEEN,
+    CONF_LEARNED_HOPPER,
+    CONF_VISIT_DURATION_SEEN,
+)
 from homeassistant.components.sensor import SensorExtraStoredData
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
-    mock_restore_cache,
     mock_restore_cache_with_extra_data,
 )
 
@@ -100,7 +104,7 @@ async def test_a_timestamp_sensor_survives_a_restart(
     assert state.state == VISIT_AT.isoformat()
 
 
-async def test_a_binary_sensor_survives_a_restart(
+async def test_the_empty_alert_survives_a_restart_from_persisted_state(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     state_payload: str,
@@ -109,14 +113,24 @@ async def test_a_binary_sensor_survives_a_restart(
 
     Dispensing only happens when the litter bed is low, so a well-fed robot goes
     a long time without one and the out-of-litter alert would otherwise blank on
-    every restart.
+    every restart. It carries no restore cache: the gauge and the learned floor
+    are persisted in the entry options, so the verdict is re-derived, not
+    remembered — a restart cannot resurrect a stale answer.
     """
     # Hopper entities ship disabled and are promoted by a reload once hardware
     # reports, so the registry entry is seeded enabled here — otherwise the
-    # entity is not added during this setup and there is nothing to restore.
+    # entity is not added during this setup.
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+        mock_config_entry,
+        options={
+            **mock_config_entry.options,
+            CONF_HOPPER_SEEN: True,
+            # A gauge flatlined at a floor confirmed across three dispenses —
+            # what the coordinator persists across the restart being simulated.
+            CONF_HOPPER_FILL_RAW: 66,
+            CONF_LEARNED_HOPPER: {"low": 66, "high": 90, "low_hits": 3},
+        },
     )
     er.async_get(hass).async_get_or_create(
         "binary_sensor",
@@ -126,7 +140,6 @@ async def test_a_binary_sensor_survives_a_restart(
         suggested_object_id="litter_robot_4_hopper_out_of_litter",
         disabled_by=None,
     )
-    mock_restore_cache(hass, (State("binary_sensor.litter_robot_4_hopper_out_of_litter", "on"),))
 
     await setup_integration(hass, mock_config_entry, state_payload)
 

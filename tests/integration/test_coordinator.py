@@ -370,3 +370,166 @@ async def test_shutdown_cancels_an_in_flight_refresh(
     await coordinator.async_shutdown()
 
     assert pending.cancelled() or pending.done()
+
+
+async def test_a_firmware_update_refreshes_the_device_registry(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Device info is registered when entities are added, so an OTA landing
+    while the entry stayed loaded showed the old firmware until a reload."""
+    from homeassistant.helpers import device_registry as dr
+
+    from .const import MOCK_SERIAL
+
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    doc = json.loads(state_payload)
+    doc["espFirmware"] = "9.9.99"
+    with robot_online(robot):
+        robot.push(json.dumps(doc))
+        await hass.async_block_till_done()
+
+    device = dr.async_get(hass).async_get_device(identifiers={("whiskerless", MOCK_SERIAL)})
+    assert device is not None
+    assert device.sw_version == "9.9.99"
+
+
+async def test_an_empty_cycle_with_no_odometer_baseline_trusts_the_echo(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """No baseline means the odometer cannot confirm anything either way.
+
+    The fallback fetch used to run anyway and read as failure with the globe
+    possibly dumping; with nothing to compare against, the echo is the only
+    acknowledgement the press can have.
+    """
+    doc = json.loads(state_payload)
+    del doc["odometerEmptyCycles"]
+    robot = await setup_integration(hass, mock_config_entry, json.dumps(doc))
+    coordinator = mock_config_entry.runtime_data
+
+    with robot_online(robot), capture_writes(robot, echo=True) as sent:
+        await coordinator.async_empty_cycle()
+
+    assert sent.count("0x02010801") == 1
+
+
+async def test_an_out_of_range_night_light_mode_verifies_as_its_clamped_self(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The builder clamps 7 to auto (2); verifying against the caller's 7 would
+    report a clamped-but-applied write as a failure after three retries."""
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    with robot_online(robot), capture_writes(robot, echo=True) as sent:
+        await coordinator.async_set_night_light_mode(7)
+
+    assert sent.count("0x02180002") == 1  # written once: the verify passed
+
+
+async def test_a_message_landing_mid_unload_is_dropped(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The MQTT unsubscribe runs after the platforms unload, so a message in
+    that gap would fold state into a dying coordinator — or schedule a reload
+    of an entry being removed."""
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+    snapshot = coordinator.data.robot
+
+    mock_config_entry.mock_state(hass, ConfigEntryState.UNLOAD_IN_PROGRESS)
+    try:
+        changed = json.loads(state_payload)
+        changed["cleanCycleWaitTime"] = 12
+        with robot_online(robot):
+            robot.push(json.dumps(changed))
+            await hass.async_block_till_done()
+    finally:
+        mock_config_entry.mock_state(hass, ConfigEntryState.LOADED)
+
+    assert coordinator.data.robot is snapshot
+
+
+async def test_the_learned_litter_low_survives_dedupe_and_drives_the_percentage(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The litter learner's coordinator wiring, pinned before Phase 2 moves it.
+
+    Three claims: a state redelivery inside the dedupe window cannot corroborate
+    the candidate it just created; two independent readings promote the learned
+    fullest reading and persist it; and with no manual calibration that learned
+    low anchors the percentage at 90.
+    """
+    from custom_components.whiskerless.const import CONF_LEARNED_LITTER
+
+    # Without the firmware's own percentage, which always outranks the
+    # calibrated approximation this test pins.
+    doc = json.loads(state_payload)
+    del doc["litterLevelPercentage"]
+    payload = json.dumps(doc)
+    robot = await setup_integration(hass, mock_config_entry, payload)  # 455 mm, ready
+    coordinator = mock_config_entry.runtime_data
+
+    learned = mock_config_entry.options[CONF_LEARNED_LITTER]
+    assert learned["low"] is None and learned["low_candidate"] == 455
+
+    with robot_online(robot):
+        robot.push(payload)  # a QoS-1 redelivery, seconds later
+        await hass.async_block_till_done()
+    learned = mock_config_entry.options[CONF_LEARNED_LITTER]
+    assert learned["low"] is None, "one reading must not corroborate itself"
+
+    coordinator._last_litter_sample_at -= 31  # age past the dedupe window
+    with robot_online(robot):
+        robot.push(payload)
+        await hass.async_block_till_done()
+    assert mock_config_entry.options[CONF_LEARNED_LITTER]["low"] == 455
+
+    state = hass.states.get("sensor.litter_robot_4_litter_level")
+    assert state is not None
+    assert state.state == "90"  # the learned fullest reading anchors 90%
+
+
+async def test_two_point_calibration_yields_a_true_scale(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Both calibration buttons, pressed for real, produce the two-point scale.
+
+    Each press stores the reading the robot sends AFTER the press — not the
+    cached snapshot — and with both points stored the percentage is linear
+    between them, no assumed slope.
+    """
+    from custom_components.whiskerless.const import CONF_LITTER_EMPTY_MM, CONF_LITTER_FULL_MM
+    from homeassistant.helpers import entity_registry as er
+
+    from .const import MOCK_SERIAL
+
+    doc = json.loads(state_payload)
+    del doc["litterLevelPercentage"]  # the firmware's own percentage outranks calibration
+    payload = json.dumps(doc)
+    robot = await setup_integration(hass, mock_config_entry, payload)
+    registry = er.async_get(hass)
+    full = registry.async_get_entity_id(
+        "button", "whiskerless", f"{MOCK_SERIAL}_calibrate_litter_full"
+    )
+    empty = registry.async_get_entity_id(
+        "button", "whiskerless", f"{MOCK_SERIAL}_calibrate_litter_empty"
+    )
+    assert full is not None and empty is not None
+
+    with robot_online(robot):
+        robot.payload = json.dumps({**json.loads(payload), "litterLevel": 440})
+        await hass.services.async_call("button", "press", {"entity_id": full}, blocking=True)
+        robot.payload = json.dumps({**json.loads(payload), "litterLevel": 465})
+        await hass.services.async_call("button", "press", {"entity_id": empty}, blocking=True)
+
+    assert mock_config_entry.options[CONF_LITTER_FULL_MM] == 440
+    assert mock_config_entry.options[CONF_LITTER_EMPTY_MM] == 465
+
+    # Back at today's 455 mm, the two-point scale reads (465-455)/25 = 40%.
+    with robot_online(robot):
+        robot.push(payload)
+        await hass.async_block_till_done()
+    state = hass.states.get("sensor.litter_robot_4_litter_level")
+    assert state is not None
+    assert state.state == "40"

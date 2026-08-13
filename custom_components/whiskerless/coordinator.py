@@ -18,10 +18,11 @@ from typing import override
 
 from homeassistant.components import mqtt
 from homeassistant.components.mqtt.models import ReceiveMessage
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -40,6 +41,7 @@ from whiskerless.devices.litter_robot_4.calibration import (
     LITTER_MAX_SPAN_MM,
     LITTER_PLAUSIBLE_MM,
     Learned,
+    hopper_is_empty,
     hopper_percent,
     litter_is_sampleable,
 )
@@ -134,6 +136,9 @@ class WhiskerlessData:
     # learned value: "at the line" is a claim only a person can make.
     litter_reference_mm: int | None = None
     hopper_fill_percent: int | None = None
+    # None until this unit's empty floor is confirmed — the entity renders that
+    # as no-problem, so the alert cannot cry empty on a low-reading gauge.
+    hopper_empty: bool | None = None
     last_hopper_dispensed: datetime | None = None
     hopper_fill_raw: int | None = None
     drawer_last_moved: datetime | None = None
@@ -483,6 +488,11 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 if self._hopper_fill_raw is None
                 else hopper_percent(self._hopper_fill_raw, self._learned_hopper)
             ),
+            hopper_empty=(
+                None
+                if self._hopper_fill_raw is None
+                else hopper_is_empty(self._hopper_fill_raw, self._learned_hopper)
+            ),
             last_hopper_dispensed=self._last_hopper_dispensed,
             hopper_fill_raw=self._hopper_fill_raw,
             drawer_last_moved=self._drawer_last_moved,
@@ -611,6 +621,11 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
     @callback
     def _handle_message(self, message: ReceiveMessage) -> None:
         """Decode an inbound MQTT message and push it to entities (never blocks)."""
+        if self.config_entry.state is ConfigEntryState.UNLOAD_IN_PROGRESS:
+            # The MQTT unsubscribe runs via async_on_unload AFTER the platforms
+            # unload, so a message landing in that gap would fold state into a
+            # dying coordinator — or schedule a reload of an entry being removed.
+            return
         try:
             parsed = parse_message(message.topic, message.payload)
             if isinstance(parsed, StateMessage):
@@ -640,6 +655,16 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                         self.hass.config_entries.async_schedule_reload(
                             self.config_entry.entry_id
                         )
+                # Device info is registered when entities are added, so an OTA
+                # landing while the entry stays loaded would otherwise show the
+                # old firmware until the next reload.
+                previous_firmware = self._robot.esp_firmware if self._robot is not None else None
+                if (
+                    parsed.state.esp_firmware is not None
+                    and previous_firmware is not None
+                    and parsed.state.esp_firmware != previous_firmware
+                ):
+                    self._refresh_device_firmware(parsed.state.esp_firmware)
                 self._robot = parsed.state
                 self._learn(parsed.state)
                 self._state_event.set()
@@ -650,6 +675,13 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 self._schedule_activity_refresh()
         except Exception:  # noqa: BLE001 — a bad message must never break the subscription
             LOGGER.exception("Error handling MQTT message for %s", self.serial)
+
+    @callback
+    def _refresh_device_firmware(self, firmware: str) -> None:
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(identifiers={(DOMAIN, self.serial)})
+        if device is not None:
+            registry.async_update_device(device.id, sw_version=firmware)
 
     @callback
     def _schedule_activity_refresh(self) -> None:
@@ -742,10 +774,11 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
 
     # --- public commands the entities call -----------------------------------
     async def async_set_night_light_mode(self, mode: int) -> None:
-        expected = lr4.NIGHT_LIGHT_MODE.get(mode)
-        await self._write_and_verify(
-            commands.set_night_light_mode(mode), lambda s: s.night_light_mode == expected
-        )
+        command = commands.set_night_light_mode(mode)
+        # Against the value actually encoded: the builder clamps, and comparing
+        # with the caller's number would call a clamped-but-applied write a failure.
+        expected = lr4.NIGHT_LIGHT_MODE.get(command.value if command.value is not None else mode)
+        await self._write_and_verify(command, lambda s: s.night_light_mode == expected)
 
     async def async_set_night_light_brightness(self, percent: int) -> None:
         await self._write_and_verify(
@@ -850,10 +883,14 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         before = self.data.robot.odometer_empty_cycles
         await self._press_and_confirm(
             commands.empty_cycle(),
-            confirms=lambda s: (
-                before is not None
-                and s.odometer_empty_cycles is not None
-                and s.odometer_empty_cycles != before
+            # No baseline means the odometer cannot confirm anything — fall back
+            # to echo-only rather than fetching a state doomed to read as failure.
+            confirms=(
+                None
+                if before is None
+                else lambda s: (
+                    s.odometer_empty_cycles is not None and s.odometer_empty_cycles != before
+                )
             ),
         )
 
@@ -879,22 +916,6 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         the press never happened.
         """
         await self._press_and_confirm(commands.panel_reset())
-
-    async def async_set_panel_sleep_mode(self, enabled: bool) -> None:
-        try:
-            # 0x1A is derived from the weekday schedule, not a setting of its own, so
-            # this is attempted once rather than retried: repeating a write the
-            # firmware structurally ignores just makes the user wait three timeouts
-            # for the same answer.
-            await self._write_and_verify(
-                commands.set_panel_sleep_mode(enabled),
-                lambda s: s.panel_sleep_mode == enabled,
-                retries=1,
-            )
-        except WhiskerlessError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="panel_sleep_not_writable"
-            ) from err
 
     async def async_set_weekday_sleep_enabled(self, enabled: bool) -> None:
         await self._write_and_verify(

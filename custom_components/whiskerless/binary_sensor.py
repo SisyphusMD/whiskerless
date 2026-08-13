@@ -12,14 +12,13 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import HomeAssistant
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN, EntityCategory
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
-from whiskerless.devices.litter_robot_4 import const as lr4
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity
@@ -66,6 +65,16 @@ BINARY_SENSORS: tuple[WhiskerlessBinarySensorEntityDescription, ...] = (
         translation_key="bonnet_removed",
         device_class=BinarySensorDeviceClass.PROBLEM,
         value_fn=lambda robot: robot.is_bonnet_removed,
+    ),
+    # Was a switch. The firmware structurally refuses writes to 0x1A — it is
+    # computed from the weekday schedule — so the switch was a control that
+    # could only time out and error. The weekday switch and time entities are
+    # the writable path; this reports the outcome.
+    WhiskerlessBinarySensorEntityDescription(
+        key="panel_sleep_mode",
+        translation_key="panel_sleep_mode",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda robot: robot.panel_sleep_mode,
     ),
 )
 
@@ -157,13 +166,23 @@ class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
         return self.coordinator.data.hopper_connected
 
 
-class WhiskerlessHopperEmptySensor(_RestoringBinarySensor):
-    """Hopper out of litter, from the fill gauge (dispense phase 1).
+class WhiskerlessHopperEmptySensor(WhiskerlessEntity, BinarySensorEntity):
+    """Hopper out of litter, judged against this unit's own learned floor.
 
     The firmware never flags empty — it keeps running a normal dispense every
     cycle, delivering nothing. The gauge gives it away: it flatlines at its
-    66-70 floor when empty vs 76+ whenever litter is present (live-proven
-    across a full drain-to-refill arc). Unknown until the first dispense.
+    floor across those futile dispenses. But floors differ per unit (61 vs
+    66-70 across two robots, with stocked phase-1 readings as low as 58 seen),
+    so a fixed threshold cries empty on a low-reading unit; the alert instead
+    waits for this robot's floor to be confirmed across separate dispenses —
+    the same standard the percentage sensor beside it holds itself to.
+
+    Until the floor is learned it reports no-problem rather than unknown: with
+    no floor there is no evidence of a problem, and the first genuine empty is
+    itself what teaches the floor, so the alert comes alive a few flatlined
+    dispenses into it and is exact from then on. No restore cache: the gauge
+    and the learned floor are both persisted, so the verdict is re-derivable
+    the moment the coordinator loads.
     """
 
     _attr_translation_key = "hopper_empty"
@@ -177,10 +196,7 @@ class WhiskerlessHopperEmptySensor(_RestoringBinarySensor):
     @property
     @override
     def is_on(self) -> bool | None:
-        raw = self.coordinator.data.hopper_fill_raw
-        if raw is None:
-            return self._restored
-        return raw <= lr4.HOPPER_FILL_EMPTY_MAX
+        return bool(self.coordinator.data.hopper_empty)
 
 
 
@@ -209,6 +225,32 @@ class WhiskerlessGlobeMotorFaultSensor(_RestoringBinarySensor):
     def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.serial}_globe_motor_fault"
+        # Seeded from the startup snapshot, not the first callback: otherwise
+        # the first completed cycle after a restore only sets the baseline, and
+        # a restored fault needs a SECOND cycle to clear.
+        self._cycles_seen: int | None = coordinator.data.robot.odometer_clean_cycles
+
+    @callback
+    @override
+    def _handle_coordinator_update(self) -> None:
+        # A restored fault with no live edge otherwise has no way to ever turn
+        # off: the state field's 0 is distrusted by design, and if HA was down
+        # when the clear edge fired, the latch re-restores itself on every
+        # restart. A clean cycle completing is the escape — a fault DURING a
+        # cycle raises the 0x35 edge, which takes over above, so the odometer
+        # advancing without one is positive evidence the globe turns.
+        data = self.coordinator.data
+        cycles = data.robot.odometer_clean_cycles
+        if cycles is not None:
+            if (
+                self._restored
+                and data.globe_motor_fault is None
+                and self._cycles_seen is not None
+                and cycles > self._cycles_seen
+            ):
+                self._restored = False
+            self._cycles_seen = cycles
+        super()._handle_coordinator_update()
 
     @property
     @override
@@ -255,6 +297,27 @@ class WhiskerlessExcessWeightSensor(_RestoringBinarySensor):
     def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.serial}_excess_weight"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # The snapshot that arrived before this entity existed is an observation
+        # too: if the condition cleared while HA was down, the first refresh
+        # already says so, and no later update need repeat it before the next
+        # cat steps in — the restored answer must die here, not then.
+        if self.coordinator.data.robot.scale_loaded is False:
+            self._restored = None
+
+    @callback
+    @override
+    def _handle_coordinator_update(self) -> None:
+        # A positive "the pan is clear" retires the restored answer for good.
+        # Left standing, it would fire a false alarm at second zero of every
+        # later loaded run this session — the latch exists only to bridge a
+        # reload that lands mid-condition.
+        if self.coordinator.data.robot.scale_loaded is False:
+            self._restored = None
+        super()._handle_coordinator_update()
 
     @property
     @override

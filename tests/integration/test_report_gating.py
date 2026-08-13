@@ -395,6 +395,86 @@ async def test_an_active_globe_fault_survives_a_reload(
     assert hass.states.get(entity).state == "on"
 
 
+async def test_a_restored_fault_clears_after_a_completed_clean_cycle(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """If HA was down when the clear edge fired, the latch had no way off.
+
+    The restored answer outranks the state field by design — the field lies
+    during live faults — so without an escape it re-restores itself on every
+    restart, forever. The escape is positive evidence the globe turns: a fault
+    DURING a cycle raises the 0x35 edge (which takes over anyway), so the
+    clean-cycle odometer advancing without one means the fault is over.
+    """
+    entity = "binary_sensor.litter_robot_4_globe_motor_fault"
+    bare_config_entry.add_to_hass(hass)
+    mock_restore_cache(hass, (State(entity, "on"),))
+    doc = json.loads(state_payload)
+
+    robot = await setup_integration(hass, bare_config_entry, json.dumps(doc))
+    assert hass.states.get(entity).state == "on"
+
+    # The same odometer reading again is not a completed cycle, just a heartbeat.
+    with robot_online(robot):
+        robot.push(json.dumps(doc))
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "on"
+
+    doc["odometerCleanCycles"] += 1
+    with robot_online(robot):
+        robot.push(json.dumps(doc))
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off"
+
+
+async def test_the_first_completed_cycle_after_restore_clears_the_fault(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The baseline seeds from the startup snapshot, so the very first cycle
+    to complete after a restore is the escape — not merely the calibration
+    point for a second one."""
+    entity = "binary_sensor.litter_robot_4_globe_motor_fault"
+    bare_config_entry.add_to_hass(hass)
+    mock_restore_cache(hass, (State(entity, "on"),))
+    doc = json.loads(state_payload)
+
+    robot = await setup_integration(hass, bare_config_entry, json.dumps(doc))
+    assert hass.states.get(entity).state == "on"
+
+    doc["odometerCleanCycles"] += 1
+    with robot_online(robot):
+        robot.push(json.dumps(doc))
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off"
+
+
+async def test_a_resweep_leaves_a_user_enabled_entity_alone(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Detection sets its flag before enabling, so after the first sweep an
+    enabled entity with no flag is the user's own hand — a later revision bump
+    retires evidence they never relied on and must not revert their choice.
+    """
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={**bare_config_entry.options, CONF_DETECTION_RESET_BY: 1},
+    )
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MOCK_SERIAL}_pet_weight",
+        config_entry=bare_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_pet_weight",
+    )
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert _disabled_by(registry, "sensor", "pet_weight") is None
+
+
 async def test_a_restored_fill_gauge_keeps_a_proven_hopper(
     hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
 ) -> None:

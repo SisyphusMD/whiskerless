@@ -9,6 +9,7 @@ from custom_components.whiskerless.const import (
     CONF_HOPPER_FILL_RAW,
     CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
+    CONF_LEARNED_HOPPER,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -137,37 +138,102 @@ async def test_the_gauge_outlives_the_bootstrap(
     assert mock_config_entry.options[CONF_HOPPER_FILL_RAW] == 84
 
 
-async def test_the_empty_alert_waits_for_a_gauge(
+def _enable_empty_alert(hass: HomeAssistant, entry: MockConfigEntry, **options: object) -> None:
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_HOPPER_SEEN: True, **options}
+    )
+    er.async_get(hass).async_get_or_create(
+        "binary_sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_hopper_empty",
+        config_entry=entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper_out_of_litter",
+    )
+
+
+# The signature of a floor confirmed across separate dispenses: low_hits at the
+# HOPPER_EMPTY_CONFIRMATIONS threshold, exactly as the calibrator persists it.
+CONFIRMED_FLOOR = {"low": 66, "high": 90, "low_candidate": None, "high_candidate": None, "low_hits": 3}
+
+
+async def test_the_empty_alert_reports_ok_with_no_gauge(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     state_payload: str,
 ) -> None:
-    """A known hopper with no gauge yet must not claim to be full or empty.
+    """A known hopper with no gauge yet has no evidence of a problem.
 
     Dispensing is demand-driven, so a hopper proven months ago can have no
-    current reading; the alert falls back to whatever it restored rather than
-    inventing a level from nothing.
+    current reading; a PROBLEM sensor with nothing to go on says no-problem
+    rather than parking on unknown or inventing a level.
     """
-    mock_config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(
-        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
-    )
-    registry = er.async_get(hass)
-    registry.async_get_or_create(
-        "binary_sensor",
-        "whiskerless",
-        f"{MOCK_SERIAL}_hopper_empty",
-        config_entry=mock_config_entry,
-        disabled_by=None,
-        suggested_object_id="litter_robot_4_hopper_out_of_litter",
-    )
+    _enable_empty_alert(hass, mock_config_entry)
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
     assert mock_config_entry.runtime_data.data.hopper_fill_raw is None
     state = hass.states.get("binary_sensor.litter_robot_4_hopper_out_of_litter")
     assert state is not None
-    assert state.state == "unknown"
+    assert state.state == "off"
+
+
+async def test_the_empty_alert_waits_for_this_units_own_floor(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """A gauge at the OLD fixed threshold proves nothing without a learned floor.
+
+    Floors differ per unit — one robot's stocked phase-1 readings sit below
+    another's empty flatline — so until this robot's floor is confirmed the
+    alert stays quiet however low the number looks.
+    """
+    _enable_empty_alert(hass, mock_config_entry, **{CONF_HOPPER_FILL_RAW: 61})
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    state = hass.states.get("binary_sensor.litter_robot_4_hopper_out_of_litter")
+    assert state is not None
+    assert state.state == "off"
+
+
+async def test_the_empty_alert_fires_at_the_confirmed_floor(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """Gauge at the learned floor + confirmations = the flatline of a bare auger."""
+    _enable_empty_alert(
+        hass,
+        mock_config_entry,
+        **{CONF_HOPPER_FILL_RAW: 66, CONF_LEARNED_HOPPER: CONFIRMED_FLOOR},
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    state = hass.states.get("binary_sensor.litter_robot_4_hopper_out_of_litter")
+    assert state is not None
+    assert state.state == "on"
+
+
+async def test_the_empty_alert_clears_above_the_confirmed_floor(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    _enable_empty_alert(
+        hass,
+        mock_config_entry,
+        **{CONF_HOPPER_FILL_RAW: 84, CONF_LEARNED_HOPPER: CONFIRMED_FLOOR},
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    state = hass.states.get("binary_sensor.litter_robot_4_hopper_out_of_litter")
+    assert state is not None
+    assert state.state == "off"
 
 
 async def test_the_proving_reading_survives_the_reload(

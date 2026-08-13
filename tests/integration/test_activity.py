@@ -278,9 +278,54 @@ async def test_excess_weight_survives_a_reload(
     mock_config_entry.add_to_hass(hass)
     mock_restore_cache(hass, (State(entity, "on"),))
 
-    robot = await setup_integration(hass, mock_config_entry, state_payload)
-    with robot_online(robot):
-        robot.push(loaded)
-        await hass.async_block_till_done()
+    # Mid-condition means the scale is STILL loaded at restart — a clear first
+    # snapshot is the other scenario, where the restored answer must die.
+    robot = await setup_integration(hass, mock_config_entry, loaded)
 
     assert hass.states.get(entity).state == "on"
+    assert robot is not None
+
+
+async def test_a_clear_that_predates_the_restore_still_retires_the_latch(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The condition ended while HA was offline: the FIRST snapshot already
+    says the pan is clear, and the next update may be a fresh cat rather than
+    a repeat of the clear — the restored answer must die at restore time."""
+    entity = "binary_sensor.litter_robot_4_excess_weight"
+    loaded = json.dumps({**json.loads(state_payload), "catDetect": 2})
+    mock_config_entry.add_to_hass(hass)
+    mock_restore_cache(hass, (State(entity, "on"),))
+
+    robot = await setup_integration(hass, mock_config_entry, state_payload)  # snapshot: clear
+    with robot_online(robot):
+        robot.push(loaded)  # the very next update is a fresh load, seconds old
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off"
+
+
+async def test_a_cleared_scale_retires_the_restored_excess_answer(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A restored "on" must not outlive an observed clear.
+
+    The latch exists only to bridge a reload that lands mid-condition. Kept past
+    a positive "the pan is clear", it resurfaced under the 30-minute mark of
+    every later loaded run — alarming at second zero of an ordinary cat visit
+    for the rest of the session.
+    """
+    entity = "binary_sensor.litter_robot_4_excess_weight"
+    loaded = json.dumps({**json.loads(state_payload), "catDetect": 2})
+    mock_config_entry.add_to_hass(hass)
+    mock_restore_cache(hass, (State(entity, "on"),))
+
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    with robot_online(robot):
+        robot.push(state_payload)  # a positive "the pan is clear"
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off"
+
+    with robot_online(robot):
+        robot.push(loaded)  # a fresh load, seconds old
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off", "the stale latch must not alarm a fresh load"

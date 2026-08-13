@@ -202,8 +202,9 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
     # Seconds of settled weight (reg 0xBC). Reported even for visits too short
     # to produce a weight event, so short hop-throughs still show up here.
     # Ships disabled and enables itself on the first duration, like the hopper
-    # entities: ESP 1.1.75 has never emitted this register, so on that firmware
-    # it would otherwise be a sensor that reads unknown for the life of the robot.
+    # entities: not every robot emits this register — two on the same ESP build
+    # sit either side of it (the split tracks the main-board version) — so it
+    # would otherwise read unknown for the life of a robot that lacks it.
     WhiskerlessDataSensorEntityDescription(
         key="last_visit_duration",
         translation_key="last_visit_duration",

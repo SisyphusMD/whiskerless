@@ -264,6 +264,13 @@ def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntr
                     break
         if options.get(seen_key):
             continue
+        if swept_at >= 1 and not entry.options.get(seen_key):
+            # On a build new enough to record sightings, detection always sets
+            # the flag before enabling — so once one sweep has run, an enabled
+            # entity with no flag is the user's own hand, and a later revision
+            # bump must not revert it. The FIRST sweep cannot use this shortcut:
+            # pre-flag builds enabled entities without recording anything.
+            continue
         for domain, key in entities:
             entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{serial}_{key}")
             if entity_id is None:
