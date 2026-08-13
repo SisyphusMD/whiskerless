@@ -35,6 +35,77 @@ You get:
 - a **complete, public protocol reference** — the first published map of the LR4
   local MQTT protocol.
 
+## What using it looks like
+
+One guided session, next to the robot, and you never touch it again:
+
+```
+$ whiskerless provision
+robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
+broker IP (e.g. 192.168.1.10): 192.168.1.10
+path to your CA PEM: ~/certs/ca.crt
+WiFi SSID: MyIoT
+WiFi password for 'MyIoT':
+⠹ scanning for robots over BLE (3s)
+
+  RE-PROVISION robot at F8:B3:B7:xx:xx:xx (MAC f8:b3:b7:xx:xx:xx)
+    serial : LR4C123456
+    broker : 192.168.1.10
+    wifi   : MyIoT
+    reversible via the Whisker app
+
+Proceed? Type 'yes': yes
+  • CERT_AWS_ROOT_CERT written (1310 bytes)
+  • APPLY_CONFIG committed
+  • DEVICE_REBOOT
+reprovisioned; the robot should reconnect MQTT to 192.168.1.10
+
+  saved as LR4C123456 — later commands need no flags:
+    whiskerless state
+```
+
+(Abridged; a second robot is even shorter — every prompt offers the setup the
+saved robots already share, so pressing enter accepts it.)
+
+The robot reboots, joins *your* broker, and from then on every check and every
+button press is local:
+
+```bash
+whiskerless state          # full decoded status, on demand
+whiskerless monitor        # live telemetry as it happens
+```
+
+— and if you run Home Assistant, the robot **appears on its own** as a
+discovered device the moment it reaches the broker. Fourteen sensors, the
+buttons, and every writable setting, all local.
+
+## What you need
+
+Physical prerequisites, gathered up front — everything else is prompted for:
+
+- **The robot's serial**, printed on its label (also in the Whisker app under
+  the robot's settings). The label carries two lines that both start with
+  "LR4"; the serial is the **unhyphenated** one:
+
+  ```
+  LR4C123456      ← the serial (LR4C + six digits) — this is what you type
+  LR4-0301-00-US  ← the model number — not per-unit, not accepted
+  ```
+
+  The serial becomes the robot's MQTT identity, so it must match the label
+  exactly.
+- **An MQTT broker on your LAN with TLS** (port 8883) that you control —
+  Mosquitto in a container, the HA add-on, anything. Setup, including making
+  the certificates, is walked through in
+  [docs/setup/mqtt-broker.md](docs/setup/mqtt-broker.md) and
+  [docs/setup/certificates.md](docs/setup/certificates.md).
+- **Your CA certificate as a PEM file** — the one that signed the broker's
+  certificate. You created it during broker setup; it gets written into the
+  robot, which then trusts your broker and nothing else.
+- **The WiFi network and password** the robot should join (2.4 GHz).
+- **A computer with Bluetooth within a few meters of the robot**, for the
+  one-time provisioning. macOS, Linux, or Windows — installs below.
+
 ## How it works (30 seconds)
 
 ```
@@ -44,10 +115,10 @@ You get:
 
 The robot stores all of its cloud identity in NVS and exposes esp-idf
 **protocomm** provisioning over BLE with no PIN. whiskerless writes *your* CA into
-its root-CA slot and *your* broker IP as its host, then commits. From then on the
-robot connects to your broker over TLS and speaks plain JSON — `requestState`,
-settings writes, and a live telemetry stream. Full detail in
-[`docs/how-it-works.md`](docs/how-it-works.md).
+its root-CA slot, *your* broker as its host and topics, and your WiFi details,
+then commits. From then on the robot connects to your broker over TLS and speaks
+plain JSON — `requestState`, settings writes, and a live telemetry stream. Full
+detail in [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## Install
 
@@ -62,80 +133,173 @@ settings writes, and a live telemetry stream. Full detail in
 
 See [`docs/setup/`](docs/setup/) for the broker, certificate, and discovery details.
 
-### The "app" — no Python needed (for provisioning)
+### The provisioning CLI
 
-Re-provisioning happens over Bluetooth from a computer near the robot. Grab the
-build for your OS from the releases page —
-[Forgejo (primary)](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases)
-or [GitHub (mirror)](https://github.com/SisyphusMD/whiskerless/releases):
+Runs on the computer near the robot. Every channel ships the same tool; none of
+them needs a system Python except PyPI's.
 
-- **macOS** — download the **signed installer** for your chip
-  (`whiskerless-macos-arm64.pkg` for Apple Silicon, `whiskerless-macos-x86_64.pkg`
-  for Intel), double-click to install, then run it in any terminal — it prompts
-  for everything:
-
-  ```bash
-  whiskerless provision
-  ```
-
-  It's signed and **notarized by Apple**, so there's no "unidentified developer"
-  warning. The first time it scans, macOS asks to let your terminal use
-  Bluetooth — allow it. To update later, just download the newer `.pkg` and
-  double-click — it installs over the old one in place.
-
-- **Linux** — download `whiskerless-linux-x86_64` and run it:
-
-  ```bash
-  chmod +x ./whiskerless-linux-x86_64
-  ./whiskerless-linux-x86_64 provision
-  ```
-
-- **Windows** — no standalone binary, but the PyPI CLI works **natively** —
-  `bleak` drives Windows' built-in Bluetooth:
-
-  ```powershell
-  uvx --from 'whiskerless[ble]' whiskerless provision
-  ```
-
-  (Don't run the Linux binary under WSL: WSL can't reach the Bluetooth adapter,
-  so provisioning won't work there.)
-
-Prefer not to install anything? `uvx --from 'whiskerless[ble]' whiskerless provision`
-runs it one-shot (the `[ble]` extra brings in the Bluetooth stack that provisioning
-needs — plain `uvx whiskerless` installs the base package without it).
-
-### CLI / library (PyPI)
-
-- One-shot, no install: `uvx --from 'whiskerless[ble]' whiskerless provision`
-- CLI on your PATH: `pipx install whiskerless`
-- Library + BLE re-provisioning: `pip install 'whiskerless[ble]'`
-
-## Quickstart (CLI)
-
-Re-provision the robot onto your broker (one-time, over BLE; prompts for anything
-you omit — `--host-ip` is your broker's address):
+**Homebrew (macOS and Linux):**
 
 ```bash
-whiskerless provision --serial LR4Cxxxxxx --host-ip <broker-ip> --ca ca.crt --wifi-ssid MyIoT
+brew install sisyphusmd/tap/whiskerless
 ```
 
-Watch it:
+**macOS signed installer** — download the `.pkg` for your chip from the
+[releases](https://github.com/SisyphusMD/whiskerless/releases)
+(`whiskerless-<version>-macos-arm64.pkg` for Apple Silicon, `…-x86_64.pkg` for
+Intel) and double-click. It's signed and **notarized by Apple**, so there's no
+"unidentified developer" warning. The first time it scans, macOS asks to let
+your terminal use Bluetooth — allow it.
+
+**Debian, Ubuntu, Raspberry Pi OS (64-bit):**
 
 ```bash
-whiskerless monitor --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
+sudo apt install ./whiskerless_<version>_amd64.deb    # arm64 for a Pi
 ```
 
-Read its decoded state:
+(No 32-bit build — a Pi on 32-bit Raspberry Pi OS should use the PyPI route below.)
+
+**Fedora, RHEL:**
 
 ```bash
-whiskerless state --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
+sudo dnf install ./whiskerless-<version>.x86_64.rpm   # aarch64 for ARM
 ```
 
-Change a setting (writes, then reads back to confirm):
+**openSUSE:** the same `.rpm`, via `sudo zypper install ./whiskerless-<version>.x86_64.rpm`.
+
+**Raw Linux binary** — `whiskerless-<version>-linux-x86_64` / `…-arm64` from the
+same releases page:
 
 ```bash
-whiskerless set night-light-mode auto --serial LR4Cxxxxxx --host <broker-ip> --ca ca.crt
+chmod +x ./whiskerless-<version>-linux-x86_64
+./whiskerless-<version>-linux-x86_64 provision
 ```
+
+**Windows** — no standalone binary, but the PyPI CLI works **natively**; `bleak`
+drives Windows' built-in Bluetooth:
+
+```powershell
+uvx --from 'whiskerless[ble]' whiskerless provision
+```
+
+(Don't run the Linux binary under WSL: WSL can't reach the Bluetooth adapter,
+so provisioning won't work there.)
+
+**PyPI** — one-shot with no install, or on your PATH:
+
+```bash
+uvx --from 'whiskerless[ble]' whiskerless provision   # one-shot
+pipx install 'whiskerless[ble]'                       # CLI on PATH (provisioning included)
+pip install 'whiskerless[ble]'                        # library + BLE provisioning
+```
+
+The releases live on [Forgejo (primary)](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases)
+and the [GitHub mirror](https://github.com/SisyphusMD/whiskerless/releases) —
+same artifacts either way.
+
+## Provision the robot
+
+Put the robot in pairing mode — **hold** its **Connect** button for a few
+seconds, until the light **pulses yellow** (a short press does nothing) — then,
+near it:
+
+```bash
+whiskerless provision
+```
+
+It prompts for everything in [What you need](#what-you-need), checks each answer
+as you give it, shows exactly what it is about to write, and asks before
+touching anything. When it finishes, the robot reboots onto your broker;
+`whiskerless state` is the proof. Add `--dry-run` to watch the whole flow with
+nothing written.
+
+That's the only step that needs details. whiskerless remembers the robot, your
+broker and your CA under `~/.whiskerless`, so everything afterwards is bare.
+Provisioning a second robot? Each later `provision` offers the broker, CA and
+WiFi your saved robots already share — press enter to accept each.
+
+> **No secret is written to `~/.whiskerless`.** If your broker requires
+> authentication, supply the password per run with `WHISKERLESS_PASSWORD`
+> (preferred — `--password` lands in your shell history and in `ps`), and pass
+> `--username` with each command — provision does not collect one yet
+> ([docs/backlog.md](docs/backlog.md) #63), though `username` is a stored
+> profile field you can set once by editing the robot's `profile.json`. The WiFi passphrase is only needed while
+> provisioning and is never kept, and the robot's factory certificate and private
+> key are neither read nor written. Files are still owner-only (0600), since a
+> broker address and username are worth keeping to yourself.
+
+## Everyday use
+
+Most people live in Home Assistant afterwards — see
+[docs/setup/home-assistant.md](docs/setup/home-assistant.md) for the entities
+and what they mean. The CLI covers the everyday controls and the raw telemetry
+from a terminal (HA's derived status view — pet weight, visit history, learned
+levels — is HA's for now; closing that gap is tracked in
+[docs/backlog.md](docs/backlog.md) #55):
+
+```bash
+whiskerless state                        # full decoded status
+whiskerless monitor                      # live telemetry (ctrl-c to stop)
+whiskerless set night-light-mode auto    # writes, then reads back to confirm
+whiskerless clean-cycle                  # start a cycle (asks first)
+whiskerless robots                       # every robot saved on this machine
+whiskerless use LR4Cxxxxxx               # pick the default of several
+whiskerless state --serial LR4Cyyyyyy    # or name one per command
+```
+
+Every connection flag still exists as an override (`--host`, `--ca`, `--port`,
+…), so a one-off connection to somebody else's broker needs no saved profile at
+all. `whiskerless forget <serial>` drops the saved details; the robot keeps
+running. `whiskerless --help` lists the rest — including `read` and `send` for
+protocol work.
+
+## Upgrading
+
+- **Home Assistant**: HACS shows the update; install it and restart HA. The
+  integration pins the exact library version it was released with, so the pair
+  always upgrades together.
+- **Homebrew**: `brew upgrade whiskerless`.
+- **macOS .pkg**: download the newer `.pkg` and double-click — it installs over
+  the old one in place.
+- **.deb / .rpm**: install the newer package the same way as the first one.
+- **PyPI**: `pipx upgrade whiskerless` / `pip install -U whiskerless`.
+
+`whiskerless --version` says what is on your PATH.
+
+## Release candidates (and switching back to stable)
+
+Release candidates go out before each stable release for testing on real
+hardware:
+
+- **Homebrew**: `brew install sisyphusmd/tap/whiskerless-rc` tracks the newest
+  candidate (it conflicts with the stable formula — one or the other). When the
+  stable release lands, the rc formula is re-pointed at it, so staying on
+  `whiskerless-rc` converges to stable by itself; to switch channels explicitly,
+  `brew uninstall whiskerless-rc && brew install sisyphusmd/tap/whiskerless`.
+- **HACS**: in the integration's page, ⋮ → **Redownload** and enable showing
+  beta versions to pick a candidate; redownload again without it to go back to
+  stable.
+- **Releases page**: candidates are marked *pre-release* and never "latest".
+
+## Uninstalling
+
+The robot needs nothing installed anywhere to keep running — these only remove
+the tools:
+
+- **Home Assistant**: Settings → Devices & Services → Whiskerless → ⋮ →
+  **Delete** (per robot), then uninstall Whiskerless in HACS and restart. The
+  full walkthrough is in
+  [docs/setup/home-assistant.md](docs/setup/home-assistant.md#removing-the-integration).
+- **Homebrew**: `brew uninstall whiskerless` (or `whiskerless-rc`).
+- **macOS .pkg**: `sudo rm /usr/local/bin/whiskerless` — the installer places
+  that one file.
+- **.deb / .rpm**: `sudo apt remove whiskerless` / `sudo dnf remove whiskerless`.
+- **PyPI**: `pipx uninstall whiskerless` / `pip uninstall whiskerless`.
+
+Saved robot profiles stay in `~/.whiskerless` (they hold no secrets); delete
+that folder to remove them. To put a robot back on the Whisker cloud, re-onboard
+it in the Whisker app — the round trip is proven and documented in
+[docs/recovery.md](docs/recovery.md).
 
 ## Safety first
 
