@@ -61,6 +61,8 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | Is the `catWeight` divisor 100 for certain? | **The known-weight method does not work** — three trials gave divisors 72.4, 84.8 and 88.5, and an inert object sheds load against the globe wall. Needs a real cat, a clean tare, and a same-evening household weigh-in |
 | Why does `0x57` fire at all? | Not the hopper link: positives appear with the hopper detached, `-15` appears for a drawer pull, and reattach is silent. Negatives `-15`, `-17`, `-30`, `-31` are all unreproducible |
 | Which ToF source drives `litterLevel`? | `0x58`/`0x59`/`0x5A` are all visible individually — check which one the published figure follows |
+| Does `empty_cycle` have a `robotStatus` int of its own? | pylitterbot names it, but that vocabulary is what the cloud *presents*, computed from several fields — `paused` is the proof, since a paused cycle holds `robotStatus` 10 and shows the pause on `robotCycleState` 4. Treat those names as candidates for an unmapped int, never as a bound |
+| Which of the still-UNKNOWN registers are worth a firmware dump rather than more captures? | The dump route is already written up in [reverse-engineering.md](../../reverse-engineering.md) — an `esptool read_flash` yields the complete `pic_factory` image. elttam's LR3 teardown independently found the same `pic`-prefixed layout on the previous model, so the approach is not speculative. Worth deciding per register: most of the rows above have a cheaper physical experiment |
 | Does anything above `0x7F` exist on 1.1.75? | An accumulating null result — now two robots, 23h37m and 9m, still nothing |
 
 ## Sessions
