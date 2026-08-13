@@ -294,6 +294,14 @@ WEEKDAY_SCHEDULE_REGS: dict[str, tuple[int, int]] = {
 # robotStatus (0x34). One map for every firmware: 1.1.75 and 1.4.4 agree on every
 # value either has been observed to emit, so there is deliberately no version
 # gate here. Values are tagged with the firmware they were captured on.
+# pylitterbot's LitterBoxStatus lists names this map has no int for: `offline`,
+# `drawer_full`, `paused`, `cat_sensor_interrupted`, `cat_sensor_fault`, and
+# `empty_cycle` (which only the string form below has produced). Useful as
+# CANDIDATES for a newly observed int, and nothing stronger — that vocabulary is
+# what the cloud presents, computed from several fields, not an enumeration of
+# this register. `paused` is the proof: a paused cycle holds robotStatus 10 and
+# says so through robotCycleState 4. Do not force an unmapped int onto one of
+# these names because the list is short.
 ROBOT_STATUS: dict[int, str] = {
     4: "ready",               # live-captured, 1.1.75 + 1.4.4
     5: "bonnet_removed",      # live-captured, 1.4.4
