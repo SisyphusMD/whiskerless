@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
+import aiomqtt
+
 from . import __version__
 from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
@@ -50,14 +52,20 @@ def _read_pem(raw: str) -> str:
     """
     path = Path(raw).expanduser()
     try:
-        return path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         raise WhiskerlessError(
             f"no such file: {path} — check the path, and note that a relative path is "
             "resolved from the directory you ran this in"
         ) from None
-    except OSError as exc:
-        raise WhiskerlessError(f"could not read {path}: {exc.strerror or exc}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise WhiskerlessError(f"could not read {path}: {exc}") from exc
+    if "BEGIN CERTIFICATE" not in text:
+        # Checked here, at the prompt, not five answers later: a readable file
+        # that is not a PEM would otherwise survive this question and throw away
+        # everything typed after it — including a password typed blind.
+        raise WhiskerlessError(f"{path} is not a PEM certificate (no BEGIN CERTIFICATE in it)")
+    return text
 
 
 def _profile(args: argparse.Namespace) -> RobotProfile:
@@ -732,6 +740,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if debug:
             raise
         print(f"whiskerless: {exc}", file=sys.stderr)
+        return 1
+    # The link wraps CONNECT failures, but a broker that drops mid-session
+    # surfaces from messages()/publish() as a raw MqttError — still one line.
+    except aiomqtt.MqttError as exc:
+        if debug:
+            raise
+        print(f"whiskerless: lost the broker connection ({exc})", file=sys.stderr)
         return 1
     except OSError as exc:
         if debug:

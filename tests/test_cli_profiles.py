@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import aiomqtt
 import pytest
 
 from whiskerless.cli import _check_host, _check_ssid, _read_pem, main
@@ -343,6 +344,62 @@ def test_a_tilde_path_is_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 def test_a_missing_file_says_which_one_and_what_to_check() -> None:
     with pytest.raises(WhiskerlessError, match="no such file"):
         _read_pem("/nonexistent/nowhere.pem")
+
+
+def test_a_readable_file_that_is_not_a_pem_is_rejected_at_the_prompt(tmp_path: Path) -> None:
+    """A wrong-but-readable file used to survive this question and throw away
+    every answer typed after it — including a password typed blind."""
+    not_pem = tmp_path / "notes.txt"
+    not_pem.write_text("not a certificate")
+    with pytest.raises(WhiskerlessError, match="not a PEM certificate"):
+        _read_pem(str(not_pem))
+
+
+def test_a_binary_file_is_reported_not_a_unicode_traceback(tmp_path: Path) -> None:
+    """A DER certificate is the likely paste-o here, and it is not UTF-8."""
+    der = tmp_path / "ca.der"
+    der.write_bytes(bytes([0x30, 0x82, 0xFF, 0xFE]))
+    with pytest.raises(WhiskerlessError, match="could not read"):
+        _read_pem(str(der))
+
+
+class _DroppingLink:
+    """A link whose stream dies the way a broker drop does mid-session."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    async def __aenter__(self) -> _DroppingLink:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+    async def request_state(self) -> None:
+        return None
+
+    async def messages(self) -> Any:
+        raise aiomqtt.MqttError("Disconnected during message iteration")
+        yield  # pragma: no cover - makes this an async generator
+
+
+def test_a_broker_drop_mid_session_is_one_line_not_a_traceback(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The link wraps CONNECT failures; a drop after that surfaced raw."""
+    seed(store)
+    with patch("whiskerless.cli.LitterRobot4Link", _DroppingLink):
+        assert run("monitor", "--duration", "5") == 1
+    assert "lost the broker connection" in capsys.readouterr().err
+
+
+def test_a_broker_drop_still_traces_back_under_debug(
+    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed(store)
+    monkeypatch.setenv("WHISKERLESS_DEBUG", "1")
+    with patch("whiskerless.cli.LitterRobot4Link", _DroppingLink), pytest.raises(aiomqtt.MqttError):
+        run("monitor", "--duration", "5")
 
 
 def test_an_unreadable_file_is_reported_not_raised_raw(tmp_path: Path) -> None:
