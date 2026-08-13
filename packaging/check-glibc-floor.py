@@ -20,21 +20,58 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-_VERSION = re.compile(r"\bGLIBC_([0-9]+(?:\.[0-9]+)*)\b")
+_FAMILIES = {
+    "GLIBC": re.compile(r"\bGLIBC_([0-9]+(?:\.[0-9]+)*)\b"),
+    "GLIBCXX": re.compile(r"\bGLIBCXX_([0-9]+(?:\.[0-9]+)*)\b"),
+    "CXXABI": re.compile(r"\bCXXABI_([0-9]+(?:\.[0-9]+)*)\b"),
+}
+
+# libstdc++ symbol versions do not follow glibc numbering, so the declared glibc
+# floor implies its own ceilings: the libstdc++ that ships on the oldest distros
+# that floor promises (glibc 2.28 = the RHEL 8 / GCC 8 era). Extend this table
+# when the floor moves; an unknown floor fails loudly rather than skipping the
+# C++ check.
+_LIBSTDCXX_CEILINGS: dict[tuple[int, ...], dict[str, tuple[int, ...]]] = {
+    (2, 28): {"GLIBCXX": (3, 4, 25), "CXXABI": (1, 3, 11)},
+}
 
 
 def _version(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in value.split("."))
 
 
-def _requirements(path: Path) -> list[str]:
+def _requirements(path: Path) -> list[tuple[str, str]]:
     result = subprocess.run(
         ["readelf", "--version-info", str(path)],
         check=True,
         text=True,
         stdout=subprocess.PIPE,
     )
-    return _VERSION.findall(result.stdout)
+    return [
+        (family, value)
+        for family, pattern in _FAMILIES.items()
+        for value in pattern.findall(_needs_sections(result.stdout))
+    ]
+
+
+def _needs_sections(version_info: str) -> str:
+    """Only the "Version needs" section of ``readelf --version-info`` output.
+
+    The definition section lists what a library itself EXPORTS — a bundled
+    libstdc++ defines every GLIBCXX up to its build toolchain's — and counting
+    those as host requirements would reject a self-contained bundle that runs
+    fine on the floor.
+    """
+    keep: list[str] = []
+    capture = False
+    for line in version_info.splitlines():
+        if line.startswith("Version needs section"):
+            capture = True
+        elif line.startswith("Version") and "section" in line:
+            capture = False
+        if capture:
+            keep.append(line)
+    return "\n".join(keep)
 
 
 def _embedded_elfs(bundle: Path, destination: Path) -> list[tuple[str, Path]]:
@@ -65,7 +102,14 @@ def main() -> int:
     args = parser.parse_args()
 
     floor = _version(args.floor)
-    found: list[tuple[tuple[int, ...], str]] = []
+    if floor not in _LIBSTDCXX_CEILINGS:
+        parser.error(
+            f"no libstdc++ ceilings recorded for a GLIBC_{args.floor} floor — "
+            "extend _LIBSTDCXX_CEILINGS for the new floor"
+        )
+    ceilings: dict[str, tuple[int, ...]] = {"GLIBC": floor, **_LIBSTDCXX_CEILINGS[floor]}
+
+    found: dict[str, list[tuple[tuple[int, ...], str]]] = {family: [] for family in _FAMILIES}
     with tempfile.TemporaryDirectory() as temporary:
         destination = Path(temporary)
         candidates: list[tuple[str, Path]] = []
@@ -77,22 +121,32 @@ def main() -> int:
             candidates.extend(_embedded_elfs(artifact, destination / str(artifact_index)))
 
         for label, path in candidates:
-            found.extend((_version(value), label) for value in _requirements(path))
+            for family, value in _requirements(path):
+                found[family].append((_version(value), label))
 
-    if not found:
+    # Every ELF requires glibc, so an empty scan means the scan is broken; a
+    # bundle with no C++ objects legitimately has no GLIBCXX/CXXABI entries.
+    if not found["GLIBC"]:
         parser.error("no GLIBC requirements found in release artifacts")
-    required, label = max(found)
-    if required > floor:
-        print(
-            f"declared GLIBC_{args.floor} floor, but release artifacts require "
-            f"GLIBC_{'.'.join(map(str, required))} ({label})"
-        )
-        return 1
-    print(
-        f"glibc ABI OK: maximum requirement is GLIBC_{'.'.join(map(str, required))} "
-        f"({label}), within the declared GLIBC_{args.floor} floor"
-    )
-    return 0
+    failed = False
+    for family, entries in found.items():
+        if not entries:
+            continue
+        required, label = max(entries)
+        dotted = ".".join(map(str, required))
+        ceiling = ".".join(map(str, ceilings[family]))
+        if required > ceilings[family]:
+            print(
+                f"declared GLIBC_{args.floor} floor allows {family}_{ceiling}, but "
+                f"release artifacts require {family}_{dotted} ({label})"
+            )
+            failed = True
+        else:
+            print(
+                f"{family} ABI OK: maximum requirement is {family}_{dotted} "
+                f"({label}), within {family}_{ceiling} for the GLIBC_{args.floor} floor"
+            )
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

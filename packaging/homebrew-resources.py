@@ -29,24 +29,37 @@ import json
 import pathlib
 import subprocess
 import sys
+import tempfile
 import urllib.request
 
 PLATFORMS = ("macos", "linux")
+
+# Formula-only constraints, laid over pyproject's floors. Homebrew's
+# virtualenv_install_with_resources builds every resource from sdist with
+# --no-binary :all:, and bleak 3.x declares uv_build as its PEP 517 backend —
+# which pip then tries to build from source (pulling maturin and a Rust
+# toolchain) and fails. bleak 2.x satisfies pyproject's >=0.22 floor and uses a
+# backend Homebrew can build, so the FORMULA pins <3 while pyproject does not.
+_FORMULA_CONSTRAINTS = "bleak<3\n"
 
 
 def _closure(platform: str) -> dict[str, str]:
     """name -> pinned version for this checkout's [ble] extra, on one platform."""
     root = pathlib.Path(__file__).resolve().parent.parent
-    result = subprocess.run(
-        [
-            "uv", "pip", "compile", "--quiet", "--no-header",
-            "--python-platform", platform, "--python-version", "3.14",
-            "--extra", "ble", str(root / "pyproject.toml"),
-        ],
-        text=True,
-        capture_output=True,
-        check=True,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".txt") as constraints:
+        constraints.write(_FORMULA_CONSTRAINTS)
+        constraints.flush()
+        result = subprocess.run(
+            [
+                "uv", "pip", "compile", "--quiet", "--no-header",
+                "--python-platform", platform, "--python-version", "3.14",
+                "--extra", "ble", "--constraint", constraints.name,
+                str(root / "pyproject.toml"),
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
     found = {}
     for line in result.stdout.splitlines():
         line = line.split("#")[0].strip()

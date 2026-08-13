@@ -108,11 +108,15 @@ jobs:
               --build-arg PYTHON_SHA256="$PYTHON_SHA256" \
               --build-arg PYINSTALLER="$PYINSTALLER" \
               -f packaging/linux.Dockerfile --target export --output "type=local,dest=out-$ARCH" .
-            # nfpm.yaml reads ./dist/whiskerless; the raw release asset carries the arch in its name.
+            # nfpm.yaml reads ./dist/whiskerless; the raw release asset carries the
+            # version and arch in its name (the naming scheme is documented in
+            # packaging/README.md — x86_64/arm64, matching the macOS pair).
             rm -rf dist && mkdir dist
             cp "out-$ARCH/whiskerless" dist/whiskerless
-            # x86_64, not amd64: that is the asset name README tells people to download.
-            cp "out-$ARCH/whiskerless" "whiskerless-linux-$suffix"
+            # The tag spelling (-rc.N), not $VERSION's ~rc.N: the tilde is a
+            # deb/rpm ordering requirement, and GitHub rewrites it to a dot in
+            # filenames — the raw binary must carry the same name on every forge.
+            cp "out-$ARCH/whiskerless" "whiskerless-${raw}-linux-$suffix"
             nfpm_pkg deb "whiskerless_${VERSION}_${ARCH}.deb"
             nfpm_pkg rpm "whiskerless-${VERSION}.${rpmarch}.rpm"
           }
@@ -141,7 +145,7 @@ jobs:
           smoke_pkg linux/arm64 deb "whiskerless_${VERSION}_arm64.deb"
           smoke_pkg linux/amd64 rpm "whiskerless-${VERSION}.x86_64.rpm"
           smoke_pkg linux/arm64 rpm "whiskerless-${VERSION}.aarch64.rpm"
-          ls -l ./*.deb ./*.rpm whiskerless-linux-*
+          ls -l ./*.deb ./*.rpm whiskerless-*-linux-*
       - name: Release notes from CHANGELOG
         run: bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
       - name: Create the three releases with every Linux artifact
@@ -149,7 +153,7 @@ jobs:
           set -uo pipefail
           chmod +x packaging/forgejo-release.sh packaging/github-release.sh
           # Both raw binaries, both .debs and both .rpms. The helpers take [asset...].
-          mapfile -t ASSETS < <(ls whiskerless-linux-x86_64 whiskerless-linux-arm64 ./*.deb ./*.rpm)
+          mapfile -t ASSETS < <(ls whiskerless-*-linux-x86_64 whiskerless-*-linux-arm64 ./*.deb ./*.rpm)
           # Every target is attempted even when an earlier one fails. Run
           # fail-fast and sequentially, one unreachable host costs every target
           # after it its release, and the tag-wait poll in each helper means a
@@ -182,6 +186,25 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
+      - name: Prove the formula installs before publishing it
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          # From a pristine export, like update-tap.sh: hatchling sweeps untracked
+          # files beside the source into the sdist, which must not change what the
+          # smoke installs.
+          work="$(mktemp -d)"
+          git archive --format=tar HEAD | tar -x -C "$work"
+          python -m build --sdist --outdir "$work/dist" "$work" >/dev/null
+          # The sdist keeps its versioned filename: Homebrew derives the formula
+          # version from the URL, and a versionless file:// url is a formula
+          # Homebrew refuses before install.
+          mkdir -p formula-smoke-dist
+          cp "$work"/dist/whiskerless-*.tar.gz formula-smoke-dist/
+          docker buildx build --build-arg TEST_TAG="$GITHUB_REF_NAME" \
+            -f packaging/homebrew-smoke.Dockerfile --target result \
+            --output "type=local,dest=homebrew-smoke-result" .
+          test -f homebrew-smoke-result/homebrew-smoke-passed
       - name: Fill the formula + push to the tap
         env:
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_TAP_WRITE_PAT }}

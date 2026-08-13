@@ -2,9 +2,30 @@
 
 `launcher.py` is the PyInstaller entry point; `entitlements.plist` carries the
 hardened-runtime exceptions PyInstaller needs for notarization; `nfpm.yaml` is
-the `.deb`/`.rpm` recipe; `homebrew/` and `homebrew-cask.sh` are the Homebrew
-cask and its regenerator; `changelog-section.sh`, `forgejo-release.sh`, and
-`github-release.sh` are release helpers.
+the `.deb`/`.rpm` recipe; `homebrew/` holds the Homebrew formulas, regenerated
+by `update-tap.sh` + `homebrew-resources.py`; `changelog-section.sh`,
+`forgejo-release.sh`, and `github-release.sh` are release helpers.
+
+## Release asset naming
+
+Names this project chooses use `x86_64` / `arm64` (Apple's own vocabulary, and
+what `uname -m` prints on the machines people download from most) and carry the
+version, so a file in someone's Downloads identifies its release:
+
+    whiskerless-<version>-linux-<arch>        raw Linux binary
+    whiskerless-<version>-macos-<arch>.pkg    signed macOS installer
+    whiskerless_<version>_<arch>.deb          Debian package  (mandated form: amd64/arm64)
+    whiskerless-<version>.<arch>.rpm          RPM package     (mandated form: x86_64/aarch64)
+
+The `.deb`/`.rpm` names are their ecosystems' mandated forms — do not "unify"
+them, tooling parses them. Prereleases use `~rc.N` **inside the packages** (deb
+and rpm both sort `~` before the release, which a prerelease must, and a bare
+`-rc.N` is illegal in a deb version) and `-rc.N` everywhere else. Known and
+accepted: GitHub's asset API rewrites `~` to `.` in the uploaded FILENAME only
+(`whiskerless_0.2.0~rc.6_amd64.deb` appears there as
+`whiskerless_0.2.0.rc.6_amd64.deb`); the packages' internal versions — what
+`dpkg`/`dnf` order by — are unaffected, and Forgejo serves the canonical names.
+New artifacts follow this scheme rather than inventing another spelling.
 
 ## How a release flows
 
@@ -49,10 +70,12 @@ bundles the interpreter, so the package works on a machine that has none. That
 is the point — the audience is someone provisioning a robot from a laptop.
 
 Both are **installed and run before they are published**, on both architectures,
-by `publish.yml`'s package smoke step. The distro it installs on sits above the
-declared 2.28 glibc floor and below the build image's, which is exactly the
-window where a binary frozen against the wrong libc installs cleanly and then
-refuses to start.
+by `publish.yml`'s package smoke step. The smokes prove install-and-run; they can
+no longer prove the glibc floor dynamically — since the build moved to a
+manylinux_2_28 image, the build image *is* the floor, so no distro can sit
+between them. The floor is enforced statically instead, by
+`check-glibc-floor.py` scanning every ELF (outer and embedded) for its highest
+`GLIBC_` requirement.
 
 ### Homebrew
 

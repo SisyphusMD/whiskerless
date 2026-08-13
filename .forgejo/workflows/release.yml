@@ -124,7 +124,10 @@ jobs:
           python -m pip install -e ".[dev,ble]"
           ruff check src custom_components tests packaging
           mypy
-          pytest -q
+          # The same coverage floors ci.yml holds — without them a coverage
+          # regression could pass the release gate and only go red after the tag.
+          pytest -q --cov=whiskerless --cov-report=term-missing --cov-config=pyproject.toml --cov-fail-under=99
+          coverage report --include='*/safety.py' --fail-under=100
           python -c "import whiskerless, sys; sys.exit(0 if whiskerless.__version__ == '${VERSION}' else 1)"
 
       - name: Prove the test toolchain changed no release byte
@@ -156,7 +159,9 @@ jobs:
           mypy --strict --python-version 3.13 --namespace-packages
           --explicit-package-bases custom_components/whiskerless
       - name: Pytest (integration)
-        run: pytest tests/integration
+        run: pytest tests/integration --cov --cov-report=term-missing --cov-fail-under=99
+      - name: Coverage gate (config flow)
+        run: coverage report --include='custom_components/whiskerless/config_flow.py' --fail-under=100
 
   tag:
     name: Authorize and push the release

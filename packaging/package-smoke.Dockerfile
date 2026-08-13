@@ -2,9 +2,9 @@
 # is pointed at. The arm64 leg is the reason this is a buildx target rather than a `docker run`:
 # BuildKit's builder carries QEMU and this runner's host binfmt does not.
 #
-# The glibc floor is a promise about machines nobody here builds on, so it is proved by installing
-# on one. Ubuntu sits above the declared 2.28 and below the build image's — the exact window where
-# a binary frozen against the wrong libc installs cleanly and then refuses to start.
+# This proves install-and-run, not the glibc floor: since the build moved to a manylinux_2_28
+# image, the build image IS the declared floor and no distro can sit between them. The floor is
+# enforced statically by check-glibc-floor.py during the build instead.
 # renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
 FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS smoke
 
