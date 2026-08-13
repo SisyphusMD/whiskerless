@@ -12,6 +12,42 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 ### Added
 
+- **The CLI remembers your robots.** `provision` saves the serial, broker and CA
+  under `~/.whiskerless`, so every later command runs bare: `whiskerless state`
+  instead of `whiskerless state --serial LR4Cxxxxxx --host … --ca …`. `robots`
+  lists what a machine knows, `use` picks the default when you own more than one,
+  and `forget` drops the saved details without touching the robot. Every flag
+  still works as an override, so nothing that scripts today stops working.
+- **Another robot inherits the setup already in use** — broker, CA and WiFi network
+  are offered at each prompt, so only the serial and the WiFi password (which is
+  deliberately never stored) have to be typed. Each field is
+  judged on its own — robots that share a broker but sit on different networks are
+  still offered the broker — and where the saved robots disagree, the default
+  robot's value is offered instead, shown at the prompt (the CA, which cannot be
+  shown, is labelled with whose it is).
+- **Nothing secret is saved.** The broker password is supplied per run
+  (`WHISKERLESS_PASSWORD`, or `--password` if you don't mind shell history), the
+  WiFi passphrase is never kept, and the robot's factory certificate and key are
+  neither read nor written. Saved files are owner-only (0600) on POSIX; on
+  Windows, which has no mode bits, the user profile's own ACLs are the boundary.
+- **`whiskerless --version`**, and a bare `whiskerless` now says what the tool is
+  and which robots are set up, instead of an argparse usage error.
+- **The CLI shows signs of life.** The BLE scan — the stretch a first-time user
+  stares at with nothing moving — draws a live spinner with elapsed time (a
+  heartbeat line when piped, so logs show liveness too). `monitor` and `state`
+  gain color in a terminal, never in a pipe, with `NO_COLOR` and `TERM=dumb`
+  honored. The empty-cycle and power prompts open with a high-visibility banner,
+  so the one question that cannot be un-answered is not read at scroll speed.
+  Stdlib only — no styling dependency lands in any install channel.
+- **The README walks the whole journey**: what using it looks like before any
+  install, the physical prerequisites gathered in one place (including which
+  label line is the serial), per-platform installs including Homebrew, everyday
+  use, upgrading, the release-candidate channel, and uninstalling.
+- **A damaged profile is visible and removable.** `robots` lists an unreadable
+  profile as such instead of silently hiding it, `forget` removes one even when
+  it no longer loads, and `use` refuses to make one the default — a corrupt
+  entry was previously both invisible and impossible to clear from the CLI.
+
 - **The clean cycle and reset buttons are back**, and this time they work: they
   synthesise the same button press the panel sends. Proven on ESP 1.1.75 and 1.4.4.
 - **Empty cycle and Power buttons**, disabled by default and named `(danger)` — an
@@ -39,8 +75,46 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
   the whole time and nothing on the dashboard to explain it. Now a sensor. Pressing
   Reset zeroes the scale and clears it.
 
+### Removed
+
+- **`LitterRobot4Client` (and `WhiskerlessAuthError`, which only it raised).**
+  It had no consumers — the CLI drives `LitterRobot4Link`, and Home Assistant
+  rides HA's own MQTT — while duplicating the write-verify-retry logic a third
+  time and claiming, wrongly, to be the integration's client. If a daemon ever
+  needs a supervised push client, git history has it, and building it on the
+  derived-state library planned in the backlog will beat resurrecting it.
+
 ### Fixed
 
+- **`brew install sisyphusmd/tap/whiskerless` works again.** The formula pinned
+  bleak 3.x, whose build backend (uv_build) Homebrew cannot build from source, so
+  every install failed after the tap had already published. The formula closure
+  now pins bleak 2.x (the library itself is unaffected), and every release now
+  installs the rendered formula from the local sdist in a linuxbrew container
+  before the tap publishes — the failure that shipped (a build backend no
+  platform could build) can no longer pass silently. A macOS-only resource
+  breakage could still; the closure's platform split is small and the .pkg CI
+  covers the macOS binary itself.
+- **A mistyped path is now a sentence, not a stack trace.** `provision` answered a
+  CA path of `~/.whiskerless/ca.crt` with a `FileNotFoundError` traceback and
+  PyInstaller's "Failed to execute script" — and `~` was the reason: the path is
+  typed at a prompt inside the program, so the shell never expands it. `~` is now
+  expanded everywhere the CLI takes a path, and file and broker errors — including
+  a broker that drops mid-session — print one line and exit. (BLE-stack failures
+  during provisioning can still trace back; translating them at the library
+  boundary is backlog #64.) `--debug` (or `WHISKERLESS_DEBUG=1`) still gives the traceback
+  for a bug report.
+- **`provision` checks each answer as you give it.** The CA was read after the
+  serial, broker, SSID and WiFi password had all been collected, so a typo in the
+  third answer threw away all five — including a password typed blind. A bad answer
+  now costs one line.
+- **The serial validator no longer accepts the model number** printed beside it on
+  the same label. A wrong serial provisions cleanly and then never appears on the
+  broker, with no error to see.
+- **`--dry-run` no longer describes writes it never performed.** It printed
+  "CERT_AWS_ROOT_CERT written" and "APPLY_CONFIG committed" in the past tense, so the
+  only thing distinguishing a simulation from a real run was the final line. It now
+  says up front what is real (the connect, discovery and reads) and what is not.
 - **The hopper entities no longer disappear from a robot that has one.** An upgrade
   sweep retired hopper detections recorded from the link register, which is right —
   that register proves nothing. But it also cleared them on robots whose hopper was
@@ -110,6 +184,21 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
   as a traceback.
 - The hopper no longer drops to unknown on a link code that is not a disconnect, and
   one dispense can no longer prove an empty hopper on its own.
+- **The out-of-litter alert judges against your robot's own learned floor**, not a
+  fixed gauge threshold taken from one unit. Floors differ per robot — one unit's
+  stocked readings sit below another's empty flatline — so the fixed cutoff could
+  cry empty while litter still flowed. Until the floor is confirmed (which the
+  first genuine empty itself teaches), the alert stays quietly off.
+- **A restored "excess weight" alarm clears when the robot says the pan is clear.**
+  It used to survive the clear and re-fire at second zero of every later cat visit
+  for the rest of the session.
+- **A restored globe-motor fault can finally turn off after a missed clear.** If
+  Home Assistant was down when the fault cleared, the alarm re-restored itself on
+  every restart forever; a clean cycle completing without a fault event now clears
+  it, since a faulting cycle would have raised one.
+- **A detection re-sweep no longer disables entities you enabled yourself.**
+  Retiring old detection evidence used to revert a deliberately enabled pet-weight
+  or hopper entity on every evidence-standard revision.
 
 ### Changed
 
@@ -126,6 +215,16 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
   switches on the first time yours reports one, rather than reading unknown for the
   life of a robot that never will. This was thought to be a firmware split; it is not.
   Two robots on the same ESP build sit either side of it.
+- **The raw binaries and the macOS installer now carry the version in their
+  filename** (`whiskerless-<version>-linux-x86_64`,
+  `whiskerless-<version>-macos-arm64.pkg`) — a file sitting in Downloads now
+  says which release it came from, pairing with `--version` for the running one.
+  The naming scheme is documented in `packaging/README.md`.
+- **Breaking:** `switch.<robot>_panel_sleep_mode` is now
+  `binary_sensor.<robot>_panel_sleep_mode`. The firmware computes that register
+  from the weekday schedule and refuses direct writes, so the switch was a control
+  that could only time out and error. The weekday sleep schedule switch and the
+  sleep/wake time entities are the writable path.
 
 ## [0.1.3] - 2026-07-02
 
