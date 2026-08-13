@@ -424,6 +424,10 @@ async def test_a_restored_fill_gauge_keeps_a_proven_hopper(
 
     assert bare_config_entry.options[CONF_HOPPER_SEEN] is True
     assert _disabled_by(registry, "sensor", "hopper_fill") is None
+    # The reading crosses too, not just the flag: the coordinator reads its gauge
+    # from the option, so without this the level sensor comes back unknown while
+    # the raw gauge beside it restores a real number.
+    assert bare_config_entry.options[CONF_HOPPER_FILL_RAW] == 84
 
 
 async def test_a_restored_link_state_does_not_keep_a_hopper(

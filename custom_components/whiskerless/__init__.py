@@ -170,8 +170,8 @@ _RESTORE_SEEDABLE: frozenset[str] = frozenset(
 _HOPPER_PROOF_ENTITY: tuple[str, str] = (Platform.SENSOR, "hopper_fill")
 
 
-def _plausible_gauge(*values: object) -> bool:
-    """Whether any value looks like a real dispense fill gauge.
+def _plausible_gauge(*values: object) -> int | None:
+    """The first value that looks like a real dispense fill gauge, or None.
 
     Narrows the legacy-cache weakness described above: a genuine phase-1 gauge
     lands in the same band the calibrator trusts, while a lone register read can
@@ -180,11 +180,12 @@ def _plausible_gauge(*values: object) -> bool:
     low, high = HOPPER_PLAUSIBLE
     for value in values:
         try:
-            if low <= int(float(str(value))) <= high:
-                return True
+            gauge = int(float(str(value)))
         except (TypeError, ValueError):
             continue
-    return False
+        if low <= gauge <= high:
+            return gauge
+    return None
 
 
 def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
@@ -244,9 +245,16 @@ def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntr
                 # hide a sensor whose fact may be rare or never recur.
                 extra = stored.extra_data.as_dict() if stored.extra_data else {}
                 if seen_key == CONF_HOPPER_SEEN:
-                    if not _plausible_gauge(stored.state.state, extra.get("native_value")):
+                    gauge = _plausible_gauge(stored.state.state, extra.get("native_value"))
+                    if gauge is None:
                         continue
                     options[seen_key] = True
+                    # Carry the reading across, not just the flag. The coordinator
+                    # reads its gauge from CONF_HOPPER_FILL_RAW, and a robot that
+                    # has not dispensed since the sweep would otherwise come back
+                    # with the level sensor at unknown while the raw gauge beside
+                    # it restores a real number.
+                    options.setdefault(CONF_HOPPER_FILL_RAW, gauge)
                     break
                 if (
                     stored.state.state not in ("unknown", "unavailable")
