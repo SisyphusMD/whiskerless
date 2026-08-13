@@ -51,14 +51,37 @@ class ProvisioningConfig:
     reboot: bool = True
 
     def __post_init__(self) -> None:
-        # The serial becomes the MQTT client-id and the topic segment, so it must
-        # be the LR4 form (labels print it uppercase; normalize typed input).
-        self.serial = self.serial.strip().upper()
-        if not self.serial.startswith("LR4"):
+        self.serial = self.check_serial(self.serial)
+
+    @staticmethod
+    def check_serial(value: str) -> str:
+        """Normalize a typed serial, or explain why it cannot be one.
+
+        The serial becomes the MQTT client-id and both topic segments, so a wrong
+        value provisions cleanly and then never appears on the broker — there is
+        no error to see. It is worth rejecting early.
+
+        The shape rule is deliberately loose: only two units have ever been seen
+        here, both ``LR4C`` + six digits, which is far too small a sample to
+        insist on. Requiring some length and some digits is enough to reject the
+        model designator printed beside the serial on the same label, which is
+        the mistake this actually catches.
+        """
+        serial = value.strip().upper()
+        if not serial.startswith("LR4"):
             raise ProvisioningError(
-                f"serial {self.serial!r} is not a Litter-Robot 4 serial "
+                f"serial {serial!r} is not a Litter-Robot 4 serial "
                 "(expected LR4…, e.g. LR4C123456) — this provisioner only supports the LR4"
             )
+        # The hyphen test is what actually catches the label's other line: the
+        # designator (LR4-0301-00-US) is long enough and carries enough digits
+        # to pass the shape checks below.
+        if "-" in serial or len(serial) < 8 or sum(character.isdigit() for character in serial) < 4:
+            raise ProvisioningError(
+                f"serial {serial!r} looks like the model number, not the serial — the serial is "
+                "the longer line, LR4 followed by a letter and six digits (e.g. LR4C123456)"
+            )
+        return serial
 
     def resolved_command_topic(self) -> str:
         return self.command_topic or f"prod/LR4/{self.serial}/command"
@@ -120,10 +143,16 @@ async def provision_robot(
     result = ProvisioningResult(success=False)
 
     def step(message: str) -> None:
+        # A dry run performs no GATT writes at all, so past-tense lines
+        # ("CERT_AWS_ROOT_CERT written") would describe a robot that was never
+        # touched — and anyone who scrolls up, or whose terminal truncates, could
+        # not tell a simulation from the real thing. Only what a human reads is
+        # marked; `steps` stays clean because callers match against it.
         result.steps.append(message)
-        log.info("%s", message)
+        shown = f"[dry-run] {message}" if dry_run else message
+        log.info("%s", shown)
         if on_step:
-            on_step(message)
+            on_step(shown)
 
     async with BleakClient(address) as client:
         _assert_lr4(client)
@@ -141,7 +170,9 @@ async def provision_robot(
         result.device_mac = _format_mac(
             m.parse_device_id(await transport.request(m.EP_WHISKER, m.whisker_device_id_request()))
         )
-        step(f"device MAC: {result.device_mac}")
+        # A dry run short-circuits the GATT read, so there is genuinely nothing to
+        # report — but a bare "None" reads like the robot failed to answer.
+        step(f"device MAC: {result.device_mac or ('not read (dry-run)' if dry_run else 'unknown')}")
 
         # 1. client-id = serial (must precede the WiFi finalize).
         await _whisker(transport, m.whisker_device_id_set(config.serial), "DEVICE_ID_SET", dry_run)

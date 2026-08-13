@@ -262,6 +262,27 @@ async def test_the_topics_can_be_swapped_for_firmware_that_wants_them_the_other_
     assert "sub=prod/LR4/LR4C000001/activity" in endpoints
 
 
+async def test_a_dry_run_marks_every_line_a_human_reads() -> None:
+    """Otherwise "CERT_AWS_ROOT_CERT written" describes a robot nothing touched."""
+    shown: list[str] = []
+    with _bleak(FakeRobot()):
+        await provision_robot(
+            "AA:BB:CC:DD:EE:FF", _config(), dry_run=True, on_step=shown.append
+        )
+    assert shown, "the run must report something"
+    assert all(line.startswith("[dry-run] ") for line in shown)
+    assert any("not read (dry-run)" in line for line in shown)
+
+
+async def test_a_real_run_marks_nothing() -> None:
+    shown: list[str] = []
+    with _bleak(FakeRobot()):
+        await provision_robot(
+            "AA:BB:CC:DD:EE:FF", _config(reboot=False), on_step=shown.append
+        )
+    assert shown and not any("dry-run" in line for line in shown)
+
+
 async def test_a_whisker_endpoint_complaint_is_logged_not_fatal() -> None:
     """DEVICE_ID_SET reporting non-zero has been seen on a robot that took it anyway."""
 

@@ -7,6 +7,10 @@ installed, skip them so the standalone library tests still run.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 collect_ignore: list[str] = []
 
 try:
@@ -14,3 +18,16 @@ try:
 except ImportError:
     # Skip the whole directory (its package __init__ imports Home Assistant).
     collect_ignore = ["tests/integration"]
+
+
+@pytest.fixture(autouse=True)
+def _isolated_profile_store(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep every test out of the developer's real ``~/.whiskerless``.
+
+    The store resolves its root from the environment, so without this a test run
+    would read — and `forget` would delete — the machine's own saved robots.
+    """
+    root: Path = tmp_path_factory.mktemp("whiskerless-home")
+    monkeypatch.setenv("WHISKERLESS_HOME", str(root))
