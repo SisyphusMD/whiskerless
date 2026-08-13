@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from . import commands, const
-from .client import LitterRobot4Client
 from .codec import (
     ActivityReading,
     decode_activity_code,
@@ -46,7 +45,6 @@ __all__ = [
     "GlobeMotorFaultChanged",
     "HopperDispensed",
     "HopperLinkChanged",
-    "LitterRobot4Client",
     "LitterRobot4Link",
     "LitterRobot4State",
     "LitterRobotEvent",

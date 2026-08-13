@@ -14,7 +14,6 @@ from .exceptions import (
     ProtocolError,
     ProvisioningError,
     SafetyError,
-    WhiskerlessAuthError,
     WhiskerlessConnectionError,
     WhiskerlessError,
 )
@@ -31,7 +30,6 @@ __all__ = [
     "ProtocolError",
     "ProvisioningError",
     "SafetyError",
-    "WhiskerlessAuthError",
     "WhiskerlessConnectionError",
     "WhiskerlessError",
     "__version__",

@@ -34,13 +34,13 @@ class WhiskerlessConnectionError(WhiskerlessError):
     """Could not connect to (or lost the connection to) the robot's broker."""
 
 
-class WhiskerlessAuthError(WhiskerlessError):
-    """The broker rejected the supplied MQTT credentials."""
-
-
 class ProtocolError(WhiskerlessError):
     """A malformed or unparseable wire payload."""
 
 
 class ProvisioningError(WhiskerlessError):
     """A BLE re-provisioning step failed."""
+
+
+class ProfileError(WhiskerlessError):
+    """A stored robot profile is missing, unreadable, or ambiguous."""

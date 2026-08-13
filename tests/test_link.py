@@ -196,6 +196,34 @@ def test_the_raw_client_is_reachable_for_callers_that_need_it() -> None:
     assert _link(client).client is client
 
 
+def test_the_default_client_id_is_never_the_bare_serial() -> None:
+    """Connecting AS the serial evicts the robot from its own broker session."""
+    captured: list[MqttSettings] = []
+
+    def create(settings: MqttSettings) -> FakeClient:
+        captured.append(settings)
+        return FakeClient()
+
+    with patch("whiskerless.devices.litter_robot_4.link.create_client", side_effect=create):
+        LitterRobot4Link(MqttSettings(host="192.0.2.10", port=8883), SERIAL)
+    assert captured[0].client_id == f"whiskerless-{SERIAL}"
+    assert captured[0].client_id != SERIAL
+
+
+def test_a_caller_supplied_client_id_is_respected() -> None:
+    captured: list[MqttSettings] = []
+
+    def create(settings: MqttSettings) -> FakeClient:
+        captured.append(settings)
+        return FakeClient()
+
+    with patch("whiskerless.devices.litter_robot_4.link.create_client", side_effect=create):
+        LitterRobot4Link(
+            MqttSettings(host="192.0.2.10", port=8883, client_id="mine"), SERIAL
+        )
+    assert captured[0].client_id == "mine"
+
+
 async def test_a_read_ignores_echoes_for_other_registers() -> None:
     """The activity stream carries everything; only the asked-for one answers."""
     client = FakeClient()
@@ -210,3 +238,15 @@ async def test_a_read_that_only_ever_hears_other_registers_times_out() -> None:
     link = _link(client)
     await client._pending.put(_Message(ACTIVITY_TOPIC, activity_json(0x18, 2)))
     assert await link.read_register(0x16, timeout=0.05) is None
+
+
+async def test_a_read_survives_the_stream_ending_without_an_answer() -> None:
+    """A dropped broker connection ends the stream; that is "no echo", not a crash."""
+
+    class FiniteClient(FakeClient):
+        @property
+        async def messages(self) -> AsyncIterator[_Message]:
+            yield _Message(ACTIVITY_TOPIC, activity_json(0x18, 2))
+
+    link = _link(FiniteClient())
+    assert await link.read_register(0x16, timeout=1) is None

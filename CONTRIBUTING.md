@@ -97,8 +97,8 @@ The library is structured so a new robot drops in alongside `litter_robot_4`:
 
 1. `src/whiskerless/devices/<x>/` with the same shape:
    `const.py` (registers/opcodes/topics), `codec.py` (wire encode/decode),
-   `models.py` (typed state), `commands.py` (command catalog), `client.py`
-   (push client). Reuse the shared `mqtt.py`, `safety.py`, and `ble/`.
+   `models.py` (typed state), `commands.py` (command catalog), `link.py`
+   (connected session). Reuse the shared `mqtt.py`, `safety.py`, and `ble/`.
 2. `custom_components/whiskerless/devices/<x>.py` for device metadata
    (`DeviceInfo`), plus entity descriptions in the platform files.
 
