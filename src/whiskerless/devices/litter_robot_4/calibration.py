@@ -22,7 +22,7 @@ once the gauge has flatlined there across several separate dispenses, which is
 the signature of a genuinely empty hopper rather than a deep one.
 
 The whole risk here is learning a wrong extreme, because a bad anchor is
-permanent, silent, and skews every later reading. Three guards, in order of how
+permanent, silent, and skews every later reading. Four guards, in order of how
 much work they do:
 
 1. **Only sample a settled robot.** A cat on the scale, a running cycle, or any
@@ -34,16 +34,31 @@ much work they do:
    ``litterLevel`` read 253 mm during a captured visit against a 428-462 mm
    bed. The rotating globe mid-cycle reads 540-575 mm. Both are excluded by
    simple physics, no statistics required.
-3. **Require corroboration.** A new extreme is held as a candidate and only
+3. **Quarantine the statistically implausible** (dense signals only). A Hampel
+   identifier over a short rolling window catches what physics cannot: an
+   IN-band anomaly, like a paw or a toy a few centimetres above the bed,
+   reads like an overfull globe. Consecutive agreeing rejections still let a
+   genuine regime change (a refill) through — the world outvotes the window.
+   The hopper's per-dispense trickle is far below what any robust scale
+   estimator supports, so it relies on guard 4 and flatline runs instead.
+4. **Require corroboration.** A new extreme is held as a candidate and only
    becomes the anchor when a second, independent reading lands near it. One
    spurious sample can never move the scale on its own. A cat rarely holds the
    same pose twice within a few millimetres, whereas a litter bed sits still,
-   which is what makes this effective exactly where guard 2 runs out.
+   which is what makes this effective exactly where the other guards run out.
+
+The hopper floor is special: it is learned from **flatline runs**, in both
+directions. Every real dispense removes litter, so consecutive dispense
+readings that do not fall mean nothing is being delivered — empty at that
+level, wherever it sits, which finds a floor that moved UP (litter change,
+auger residue) as readily as one below the record. A ceiling-distance guard
+keeps maintained-top flatlines (an owner topping up after every dispense) from
+ever reading as a floor.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .models import LitterRobot4State
@@ -79,9 +94,34 @@ HOPPER_FILL_TYPICAL_RANGE = (66, 90)
 LITTER_MIN_SPAN_MM = 25
 HOPPER_MIN_SPAN = 8
 
-# Separate dispenses that must bottom out at the floor before it is believed to
-# be empty rather than merely low.
+# Separate dispenses that must flatline together before that level is believed
+# to be the floor: consecutive dispenses each remove litter, so an unchanged
+# gauge across several of them means nothing is being delivered.
 HOPPER_EMPTY_CONFIRMATIONS = 3
+
+# Hampel-identifier gate, for DENSE signals only. The litter stream delivers
+# dozens of sampleable readings a day, enough for a short rolling window; the
+# hopper's per-dispense trickle (three to eight points) is below what any
+# robust scale estimator can support, so it uses run repetition instead.
+_WINDOW = 15
+_WINDOW_WARMUP = 5
+# 1.4826 scales a MAD to a standard deviation under normality; 3.5 is the
+# customary identifier threshold. The scale floor matters more than either: a
+# litter bed legitimately flatlines, MAD collapses to zero there, and without a
+# floor every small real move would be flagged as an outlier.
+_MAD_TO_SIGMA = 1.4826
+_SCALE_FLOOR = 2.0
+_HAMPEL_THRESHOLD = 3.5
+# Plain Hampel deadlocks on a regime change: after a refill moves the bed 20 mm
+# in one step, every new reading is "an outlier" against the stale window
+# forever. Consecutive rejections that AGREE with each other are the world
+# changing, not the sensor lying, and the world wins.
+_REGIME_REJECTIONS = 3
+# A run tolerates this much downward wobble before it stops being a flatline.
+# The captured drain arc falls ~2 gauge units per delivering dispense, while an
+# empty hopper's flatline wobbles UPWARD (66-70); the fall direction is what
+# distinguishes litter flowing from litter absent.
+_RUN_FALL_TOLERANCE = 1
 
 
 @dataclass
@@ -92,10 +132,25 @@ class Learned:
     high: int | None = None
     low_candidate: int | None = None
     high_candidate: int | None = None
-    # How many separate readings have landed at the low anchor. A gauge that
-    # keeps bottoming out at the same value is at its floor; one that touched it
+    # How many flatlined readings support the low anchor. A gauge that keeps
+    # bottoming out at the same value is at its floor; one that touched it
     # once may simply have been low that day.
     low_hits: int = 0
+    # The flatline run in progress for sparse signals: consecutive readings
+    # within the corroboration band of the first. Persisted — at one dispense a
+    # day, losing two of three confirmations to a restart could cost a week.
+    run_value: int | None = None
+    run_length: int = 0
+    # Whether this run was entered by a FALL. A maintained level is flat too,
+    # but it is topped up from below rather than declined into, and only a
+    # declined-into flatline is evidence of empty.
+    run_fell: bool = False
+    # Session-only Hampel state for dense signals, deliberately NOT persisted:
+    # the window rebuilds within minutes from the litter stream, and writing
+    # the options on every accepted state document would be a write storm.
+    window: list[int] = field(default_factory=list)
+    rejects: list[int] = field(default_factory=list)
+    fresh_regime: bool = field(default=False)
 
     @classmethod
     def from_dict(cls, raw: Any) -> Learned:
@@ -107,10 +162,15 @@ class Learned:
             low_candidate=_as_int(raw.get("low_candidate")),
             high_candidate=_as_int(raw.get("high_candidate")),
             low_hits=_as_int(raw.get("low_hits")) or 0,
+            run_value=_as_int(raw.get("run_value")),
+            run_length=_as_int(raw.get("run_length")) or 0,
+            run_fell=bool(raw.get("run_fell")),
         )
 
     def as_dict(self) -> dict[str, int | None]:
-        return asdict(self)
+        data = asdict(self)
+        del data["window"], data["rejects"], data["fresh_regime"]
+        return data
 
     def span_ok(self, minimum: int) -> bool:
         return self.low is not None and self.high is not None and self.high - self.low >= minimum
@@ -123,18 +183,30 @@ class Learned:
         corroboration: int,
         max_span: int | None = None,
         count_hits: bool = False,
+        gate: bool = False,
     ) -> bool:
-        """Fold one reading in. Returns whether anything changed.
+        """Fold one reading in. Returns whether anything persisted changed.
 
         Candidates count as a change so callers can persist them: a dispense
         arrives every few cycles at best, and discarding an unconfirmed
         candidate on every restart could mean never accumulating the second
         reading that confirms it.
 
-        A value beyond a current anchor does not become the anchor; it becomes a
-        candidate, and is promoted only when a later reading lands within
+        A value beyond a current anchor does not become the anchor; it becomes
+        a candidate, and is promoted only when a later reading lands within
         ``corroboration`` of it. That is what stops a single bad sample from
         permanently redefining the scale.
+
+        ``gate`` (dense signals only) puts a Hampel identifier in front: the
+        physics band cannot catch an IN-band anomaly — a paw or a toy a few cm
+        above the bed reads like an overfull globe, and two such readings on
+        the same day would corrupt the anchor as an ordinary corroborated
+        pair. The gate quarantines anything far from the rolling median, while
+        consecutive agreeing rejections still let a genuine regime change
+        (a refill) through.
+
+        ``count_hits`` (sparse signals) learns the floor from flatline runs —
+        in both directions, see :meth:`_observe_run`.
         """
         if not bounds[0] <= value <= bounds[1]:
             return False
@@ -144,36 +216,133 @@ class Learned:
                 # Accepting this would imply the bed moved further than the
                 # globe can physically hold.
                 return False
+        if gate and not self._passes_gate(value, corroboration):
+            return False
 
-        before = (self.low, self.high, self.low_candidate, self.high_candidate, self.low_hits)
-        # Hit counting exists only to confirm a hopper floor. Litter readings sit
-        # near their low constantly, so counting them would rewrite the stored
-        # options on every heartbeat for a number nothing reads. Capped once
-        # confirmed, for the same reason.
-        if (
-            count_hits
-            and self.low is not None
-            # At or just above the floor only. A LOWER reading is evidence the
-            # floor was wrong, not confirmation of it, and counting it would let
-            # a single reading at a new low satisfy the requirement.
-            and 0 <= value - self.low <= corroboration
-            and self.low_hits < HOPPER_EMPTY_CONFIRMATIONS
-        ):
-            self.low_hits += 1
-        if self.low is None or value < self.low:
+        before = self._anchors()
+        if count_hits:
+            self._observe_run(value, corroboration)
+            self._observe_high(value, corroboration)
+        elif self.low is None or value < self.low:
             if self.low_candidate is not None and abs(value - self.low_candidate) <= corroboration:
                 self.low = max(value, self.low_candidate)
                 self.low_candidate = None
-                self.low_hits = 2 if count_hits else 0
+                self.low_hits = 0
             else:
                 self.low_candidate = value
-        elif self.high is None or value > self.high:
+        else:
+            self._observe_high(value, corroboration)
+        return before != self._anchors()
+
+    def _anchors(self) -> tuple[int | None, ...]:
+        return (
+            self.low,
+            self.high,
+            self.low_candidate,
+            self.high_candidate,
+            self.low_hits,
+            self.run_value,
+            self.run_length,
+            int(self.run_fell),
+        )
+
+    def _observe_high(self, value: int, corroboration: int) -> None:
+        if self.high is None or value > self.high:
             if self.high_candidate is not None and abs(value - self.high_candidate) <= corroboration:
                 self.high = min(value, self.high_candidate)
                 self.high_candidate = None
             else:
                 self.high_candidate = value
-        return before != (self.low, self.high, self.low_candidate, self.high_candidate, self.low_hits)
+
+    def _observe_run(self, value: int, corroboration: int) -> None:
+        """Track the flatline run, and let a confirmed one place the floor.
+
+        Every real dispense removes litter, so the gauge falls a little each
+        time litter actually flows; readings that flatline together mean
+        nothing is being delivered — the hopper is empty AT that level,
+        wherever it sits. That finds a floor ABOVE the recorded one (a litter
+        change, auger residue) exactly as it finds one below.
+
+        A DRAINING gauge is not a flatline: it falls a little per delivering
+        dispense, and a loose membership band would let three drain steps
+        confirm mid-drain. Any fall beyond the wobble tolerance breaks the run
+        (the empty flatline wobbles upward, never down).
+
+        Two guards keep a MAINTAINED level from ever reading as a floor: the
+        run must have been entered by a fall (an owner topping up after every
+        dispense re-enters from below), and it must sit well below the learned
+        ceiling — which those same maintained-top readings teach first, as an
+        ordinary corroborated pair. Until a ceiling exists, no run confirms
+        anything. An owner who deliberately re-maintains at a sharply lower
+        level can still fool this for a while; a later true drain re-anchors,
+        and no signal available here can tell those apart sooner.
+
+        The run length is capped at the confirmation count so a hopper left
+        empty for a week of futile dispenses stops changing state — and stops
+        rewriting the stored options — once the floor is settled.
+        """
+        if (
+            self.run_value is not None
+            and abs(value - self.run_value) <= corroboration
+            and value >= self.run_value - _RUN_FALL_TOLERANCE
+        ):
+            self.run_length = min(self.run_length + 1, HOPPER_EMPTY_CONFIRMATIONS)
+        else:
+            # With no prior run (a record persisted before runs existed), the
+            # stored floor is the reference — a first reading below it is the
+            # decline it looks like, or a migrated record could never deepen.
+            reference = self.run_value if self.run_value is not None else self.low
+            self.run_fell = reference is not None and value < reference
+            self.run_value = value
+            self.run_length = 1
+        if (
+            self.run_length >= HOPPER_EMPTY_CONFIRMATIONS
+            and self.run_fell
+            and self.high is not None
+            and self.run_value <= self.high - HOPPER_MIN_SPAN
+        ):
+            self.low = self.run_value
+            self.low_hits = HOPPER_EMPTY_CONFIRMATIONS
+
+    def _passes_gate(self, value: int, corroboration: int) -> bool:
+        """Hampel identifier over a short rolling window of accepted readings.
+
+        The scale floor keeps a legitimately flatlined window (MAD zero) from
+        flagging every small real move; the agreeing-rejection streak keeps a
+        regime change (a refill steps the bed 20+ mm at once) from deadlocking
+        against a stale window forever, which is plain Hampel's known failure
+        on non-stationary signals.
+        """
+        window = self.window
+        outlier = False
+        if len(window) >= _WINDOW_WARMUP:
+            ordered = sorted(window)
+            median = ordered[len(ordered) // 2]
+            deviations = sorted(abs(v - median) for v in window)
+            scale = max(deviations[len(deviations) // 2] * _MAD_TO_SIGMA, _SCALE_FLOOR)
+            outlier = abs(value - median) > _HAMPEL_THRESHOLD * scale
+        elif not self.fresh_regime and self.low is not None and self.high is not None:
+            # The window is session-only, so every restart begins in warm-up —
+            # exactly when a restored anchor is most exposed. Until the window
+            # can vote, the persisted anchors say where the bed lives; a
+            # regime flush suspends this, or the flushed readings would be
+            # re-rejected against the anchors they just outvoted.
+            margin = _HAMPEL_THRESHOLD * _SCALE_FLOOR
+            outlier = not (self.low - margin <= value <= self.high + margin)
+        if outlier:
+            if self.rejects and abs(value - self.rejects[-1]) > corroboration:
+                self.rejects.clear()
+            self.rejects.append(value)
+            if len(self.rejects) >= _REGIME_REJECTIONS:
+                window[:] = self.rejects
+                self.rejects.clear()
+                self.fresh_regime = True
+                return True
+            return False
+        window.append(value)
+        del window[:-_WINDOW]
+        self.rejects.clear()
+        return True
 
 
 def litter_is_sampleable(robot: LitterRobot4State) -> bool:

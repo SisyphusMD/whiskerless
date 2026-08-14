@@ -334,6 +334,10 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 bounds=LITTER_PLAUSIBLE_MM,
                 corroboration=LITTER_CORROBORATION_MM,
                 max_span=LITTER_MAX_SPAN_MM,
+                # Dense enough for the Hampel gate: an in-band anomaly (a paw a
+                # few cm above the bed) reads like an overfull globe, and two
+                # in one day would corrupt the anchor as an ordinary pair.
+                gate=True,
             )
         if moved:
             # Only when something actually changed. A new extreme is rare, so

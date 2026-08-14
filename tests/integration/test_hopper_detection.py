@@ -367,7 +367,8 @@ async def test_a_retained_reading_cannot_corroborate_itself(
 
     learned = mock_config_entry.options.get("learned_hopper") or {}
     assert learned.get("low") is None, "one sample must not become an anchor"
-    assert learned.get("low_candidate") == 0x03D
+    assert learned.get("run_value") == 0x03D
+    assert learned.get("run_length") == 1, "retained readings must not extend the run"
 
 
 async def test_the_level_estimates_until_the_floor_is_learned(
