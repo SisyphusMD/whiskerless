@@ -96,7 +96,7 @@ class Whiskerless < Formula
     # directly instead — it is the one thing that must survive packaging.
     python = "#{libexec}/bin/python"
     script = 'from whiskerless.safety import classify_code; print(classify_code("0x02A30000"))'
-    output = shell_output("#{python} -c #{Utils.shell_quote(script)}")
+    output = shell_output("#{python} -c #{script.shellescape}")
     assert_match(/never/i, output)
   end
 end
