@@ -13,225 +13,117 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 ### Added
 
 - **The CLI remembers your robots.** `provision` saves the serial, broker and CA
-  under `~/.whiskerless`, so every later command runs bare: `whiskerless state`
-  instead of `whiskerless state --serial LR4Cxxxxxx --host … --ca …`. `robots`
-  lists what a machine knows, `use` picks the default when you own more than one,
-  and `forget` drops the saved details without touching the robot. Every flag
-  still works as an override, so nothing that scripts today stops working.
-- **Another robot inherits the setup already in use** — broker, CA and WiFi network
-  are offered at each prompt, so only the serial and the WiFi password (which is
-  deliberately never stored) have to be typed. Each field is
-  judged on its own — robots that share a broker but sit on different networks are
-  still offered the broker — and where the saved robots disagree, the default
-  robot's value is offered instead, shown at the prompt (the CA, which cannot be
-  shown, is labelled with whose it is).
-- **Nothing secret is saved.** The broker password is supplied per run
-  (`WHISKERLESS_PASSWORD`, or `--password` if you don't mind shell history), the
-  WiFi passphrase is never kept, and the robot's factory certificate and key are
-  neither read nor written. Saved files are owner-only (0600) on POSIX; on
-  Windows, which has no mode bits, the user profile's own ACLs are the boundary.
-- **`whiskerless --version`**, and a bare `whiskerless` now says what the tool is
-  and which robots are set up, instead of an argparse usage error.
-- **The CLI shows signs of life.** The BLE scan — the stretch a first-time user
-  stares at with nothing moving — draws a live spinner with elapsed time (a
-  heartbeat line when piped, so logs show liveness too). `monitor` and `state`
-  gain color in a terminal, never in a pipe, with `NO_COLOR` and `TERM=dumb`
-  honored. The empty-cycle and power prompts open with a high-visibility banner,
-  so the one question that cannot be un-answered is not read at scroll speed.
-  Stdlib only — no styling dependency lands in any install channel.
-- **The README walks the whole journey**: what using it looks like before any
-  install, the physical prerequisites gathered in one place (including which
-  label line is the serial), per-platform installs including Homebrew, everyday
-  use, upgrading, the release-candidate channel, and uninstalling.
-- **A damaged profile is visible and removable.** `robots` lists an unreadable
-  profile as such instead of silently hiding it, `forget` removes one even when
-  it no longer loads, and `use` refuses to make one the default — a corrupt
-  entry was previously both invisible and impossible to clear from the CLI.
-
-- **The clean cycle and reset buttons are back**, and this time they work: they
-  synthesise the same button press the panel sends. Proven on ESP 1.1.75 and 1.4.4.
-- **Empty cycle and Power buttons**, disabled by default and named `(danger)` — an
-  empty cycle dumps the globe into the drawer, and Power takes the robot off the
-  network. The CLI gains `empty-cycle` and `power`, which prompt first.
-- **Pet weight actually works.** Recent rc builds doubled the reading; weights now
-  match the household scale (raw ÷ 100, the cloud's own units).
+  under `~/.whiskerless`; later commands run bare, and every flag still overrides.
+- **`robots`, `use` and `forget`** list, pick and drop saved robots — damaged
+  profiles are shown as such and can still be removed.
+- **A second robot inherits the saved setup** — each prompt offers what your robots
+  already share, so you type only the serial and the WiFi password.
+- **No secret is ever saved**: the broker password is per-run (`WHISKERLESS_PASSWORD`),
+  the WiFi passphrase is never kept, the factory certificate is never touched.
+- **`whiskerless --version`**, and a bare `whiskerless` prints an orientation
+  instead of a usage error.
+- **The CLI shows liveness and color**: a spinner on the BLE scan (heartbeat lines
+  when piped), banners on the dangerous prompts, `NO_COLOR` honored.
+- **The README covers the whole journey**: prerequisites, per-platform installs
+  including Homebrew, everyday use, upgrading, the rc channel, uninstalling.
+- **Clean cycle and Reset buttons are back, and they work** — they synthesise the
+  panel's own button press. Proven on ESP 1.1.75 and 1.4.4.
+- **Empty cycle and Power buttons**, disabled by default and named `(danger)`;
+  the CLI gains `empty-cycle` and `power`, which prompt first.
+- **Pet weight actually works** (raw ÷ 100, the cloud's own units) — recent rc
+  builds doubled the reading.
 - **LitterHopper support**: connected, fill gauge, and an out-of-litter alert the
-  firmware itself never raises. The hopper entities switch themselves on the first
-  time a hopper reports.
-- **Litter level as a percentage.** It calibrates itself over time; one button press
-  with the globe filled to the line pins it immediately.
+  firmware never raises; the entities enable themselves at the first dispense.
+- **Litter level as a percentage** — self-calibrating over time, or pinned
+  instantly by one button press with the globe filled to the line.
 - **New entities**: last cat visit, last visit duration, waste drawer last moved,
-  and panel brightness for bright and dark rooms.
-- **Activity-derived entities survive a restart** instead of reading unknown until
-  the next cat visit.
-- **New install channels**: `brew install sisyphusmd/tap/whiskerless`, `.deb` and
-  `.rpm` for amd64 and arm64, and standalone Linux binaries for both. None of them
-  need a system Python — the audience is someone provisioning a robot from a laptop
-  that has none.
-- **Excess weight detection.** The robot refuses to cycle while it thinks something
-  is sitting on the scale, raises the condition itself after 30 minutes, and shows it
-  on the panel — but says nothing about it over MQTT. One robot here sat like that for
-  over two hours after a bonnet was reseated slightly off, with its clean cycle stuck
-  the whole time and nothing on the dashboard to explain it. Now a sensor. Pressing
-  Reset zeroes the scale and clears it.
+  panel brightness for bright and dark rooms, and excess-weight detection (the
+  stuck-scale condition the robot otherwise only shows on its panel).
+- **Activity-derived entities survive a restart** instead of reading unknown
+  until the next cat visit.
+- **New install channels**: Homebrew, `.deb`/`.rpm` and standalone Linux binaries
+  for amd64 and arm64 — none of them need a system Python.
 
 ### Removed
 
-- **`LitterRobot4Client` (and `WhiskerlessAuthError`, which only it raised).**
-  It had no consumers — the CLI drives `LitterRobot4Link`, and Home Assistant
-  rides HA's own MQTT — while duplicating the write-verify-retry logic a third
-  time and claiming, wrongly, to be the integration's client. If a daemon ever
-  needs a supervised push client, git history has it, and building it on the
-  derived-state library planned in the backlog will beat resurrecting it.
+- **`LitterRobot4Client` and `WhiskerlessAuthError`** — nothing used them, and
+  the client was a third, already-drifting copy of the write-verify loop.
 
 ### Fixed
 
-- **The hopper level no longer reads unknown for days after a restart** on
-  robots whose hopper was proven before the gauge was persisted. The reading
-  lived only in the raw sensor's restore cache, and the carry that rescues it
-  ran solely inside the once-per-revision upgrade sweep — so an install already
-  at the current revision restarted into an unknown level beside a raw gauge
-  showing a real number, until the next dispense. The carry now runs at every
-  startup (and still refuses implausible cached values).
-- **`brew install sisyphusmd/tap/whiskerless` works again.** The formula pinned
-  bleak 3.x, whose build backend (uv_build) Homebrew cannot build from source, so
-  every install failed after the tap had already published. The formula closure
-  now pins bleak 2.x (the library itself is unaffected), and every release now
-  installs the rendered formula from the local sdist in a linuxbrew container
-  before the tap publishes — the failure that shipped (a build backend no
-  platform could build) can no longer pass silently. A macOS-only resource
-  breakage could still; the closure's platform split is small and the .pkg CI
-  covers the macOS binary itself.
-- **A mistyped path is now a sentence, not a stack trace.** `provision` answered a
-  CA path of `~/.whiskerless/ca.crt` with a `FileNotFoundError` traceback and
-  PyInstaller's "Failed to execute script" — and `~` was the reason: the path is
-  typed at a prompt inside the program, so the shell never expands it. `~` is now
-  expanded everywhere the CLI takes a path, and file and broker errors — including
-  a broker that drops mid-session — print one line and exit. (BLE-stack failures
-  during provisioning can still trace back; translating them at the library
-  boundary is backlog #64.) `--debug` (or `WHISKERLESS_DEBUG=1`) still gives the traceback
-  for a bug report.
-- **`provision` checks each answer as you give it.** The CA was read after the
-  serial, broker, SSID and WiFi password had all been collected, so a typo in the
-  third answer threw away all five — including a password typed blind. A bad answer
-  now costs one line.
-- **The serial validator no longer accepts the model number** printed beside it on
-  the same label. A wrong serial provisions cleanly and then never appears on the
-  broker, with no error to see.
-- **`--dry-run` no longer describes writes it never performed.** It printed
-  "CERT_AWS_ROOT_CERT written" and "APPLY_CONFIG committed" in the past tense, so the
-  only thing distinguishing a simulation from a real run was the final line. It now
-  says up front what is real (the connect, discovery and reads) and what is not.
-- **The hopper entities no longer disappear from a robot that has one.** An upgrade
-  sweep retired hopper detections recorded from the link register, which is right —
-  that register proves nothing. But it also cleared them on robots whose hopper was
-  genuinely proven, and the replacement evidence is a dispense, which only happens
-  when the litter is actually low. A well-fed robot could go weeks without one. The
-  sweep now recognises a previously recorded fill gauge as the proof it is, since
-  only a dispense can produce that number.
-- **Handling the robot no longer shows up as a cat visit.** A Reset press closes a
-  visit on the same register a cat does; two of them were published as genuine
-  four-minute and three-minute visits. A visit now needs something to have actually
-  broken the beam, which a hand on the bonnet does not.
-- **The globe motor fault sensor could sit at `off` through a real fault.** It read
-  the state document, and the state document does not carry the fault: a robot raised
-  one on its activity stream, held it for fifty minutes and cleared it, while
-  `globeMotorFaultStatus` reported no fault in every single state document it published
-  in that window. The sensor now watches both channels, and either one raising a fault
-  is a fault.
-- **The LitterHopper is now detected by watching it deliver litter.** The link
-  register `0x57` looked like the answer, but a narrated session produced healthy
-  readings from it with the hopper sitting on a bench, and its "disconnected" code
-  from merely opening the hopper's drawer to refill it — so a refill could park the
-  hopper sensor on *disconnected* with nothing on the wire to ever clear it. Nothing
-  is derived from that register any more. **Hopper** reports connected once litter
-  has actually been dispensed and never reports disconnected, because no signal for
-  that exists.
-- **A robot that dispenses but rarely reports its link no longer loses its hopper
-  telemetry.** Requiring `0x57` to corroborate a dispense discarded every fill
-  reading on such a robot and left its four hopper entities disabled indefinitely.
-- **The hopper level survives a restart.** Dispensing only happens when the litter
-  bed is actually low, so a well-fed robot can go days without one; the last gauge
-  is now remembered instead of the level reading unknown until it next runs low.
-- **Event sensors now appear only once their fact has actually been reported.** Pet
-  weight, last cat visit, and waste drawer last moved start hidden and switch on at
-  their first real report — some firmware never emits the drawer event or a weight,
-  and those sensors read unknown forever there. A one-time sweep on upgrade applies
-  the same standard to existing installs: sensors whose values were real stay, hopper
-  and visit-duration detections re-prove themselves at the next report (a robot with
-  a real hopper re-enables within one visit), and phantom entities disappear.
-- **Last cat visit now updates on every robot.** It stamps from the occupancy signal
-  itself, not only from weight events — one robot has visits but has never weighed
-  anything, and its visit sensor stayed empty.
-- **Cat detection no longer mistakes weight on the scale for a cat.** The occupancy
-  field is two bits — one for what the robot can see, one for what it can feel — and
-  a bonnet reseated slightly off held the second bit for over two hours, which the
-  robot itself reports as an "excess weight" fault. Occupancy and litter calibration
-  now use the bit that tracks the animal.
-- **Fewer unknowns while calibration settles.** The litter calibration reference
-  shows the built-in default (marked `source: default`) instead of unknown, and the
-  hopper level shows a labelled estimate until the empty floor has actually been
-  learned.
-- **The weekday sleep schedule now arms every day.** It is a per-day bitmask, not a
-  switch, and turning it on armed Sunday alone — so it looked fine if you tested on
-  a Sunday and did nothing all week.
-- **The panel sleep schedule can actually be set.** The sleep and wake time entities
-  wrote a register the firmware only computes, so they never did anything.
-- **Litter readings are suppressed while the globe is not level.** Mid-cycle the
-  sensors read the globe rather than the litter, and that was published as a level.
-- **`robotStatus` 10 is the clean cycle** on every firmware; the old map called it a
-  cat pause. The boot cycle and the filter-change wizard are mapped too — both move
-  the globe, and while unmapped their readings published as real litter levels.
-- **`whiskerless set night-light-mode auto` works.** Every spelling the command
-  accepts used to crash — and it is the command in the README quickstart.
-- **The declared Home Assistant minimum was wrong** (2025.2.0), so a user on 2025.2
-  could install this and watch it fail. It is 2025.3.0.
-- **Every settings write is verified** by reading it back, a multi-register write no
-  longer loses one of its parts, and broker failures are reported rather than raised
-  as a traceback.
-- The hopper no longer drops to unknown on a link code that is not a disconnect, and
-  one dispense can no longer prove an empty hopper on its own.
-- **The out-of-litter alert judges against your robot's own learned floor**, not a
-  fixed gauge threshold taken from one unit. Floors differ per robot — one unit's
-  stocked readings sit below another's empty flatline — so the fixed cutoff could
-  cry empty while litter still flowed. Until the floor is confirmed (which the
-  first genuine empty itself teaches), the alert stays quietly off.
-- **A restored "excess weight" alarm clears when the robot says the pan is clear.**
-  It used to survive the clear and re-fire at second zero of every later cat visit
-  for the rest of the session.
-- **A restored globe-motor fault can finally turn off after a missed clear.** If
-  Home Assistant was down when the fault cleared, the alarm re-restored itself on
-  every restart forever; a clean cycle completing without a fault event now clears
-  it, since a faulting cycle would have raised one.
+- **The hopper level no longer reads unknown for days after a restart** — a gauge
+  stranded in the restore cache is carried into the saved options at every startup.
+- **`brew install sisyphusmd/tap/whiskerless` works again** (the formula pinned a
+  bleak whose build backend Homebrew cannot build), and every release now
+  install-tests the formula before the tap publishes.
+- **A mistyped path is a sentence, not a stack trace**: `~` expands everywhere,
+  every provision answer is checked at its prompt (including that the CA really
+  is a PEM), and file or broker errors print one line — `--debug` for tracebacks.
+- **The serial validator rejects the model number** (`LR4-0301-00-US`) printed
+  beside the real serial on the label.
+- **`--dry-run` marks everything it prints**, so a simulation no longer describes
+  writes that never happened.
+- **Hopper entities no longer disappear from a robot that has one** — the upgrade
+  sweep accepts a recorded fill gauge as proof, since only a dispense produces one.
+- **Handling the robot no longer counts as a cat visit** — a visit requires the
+  beam actually broken, which a hand on the bonnet does not do.
+- **The globe motor fault sensor watches the activity stream too** — the state
+  document stayed at 0 through a real fifty-minute fault.
+- **Hopper detection means litter actually delivered** — the link register fires
+  healthy on a bench and "disconnected" on a refill, so nothing reads it anymore.
+- **A robot that dispenses but rarely reports its link keeps its hopper telemetry.**
+- **The hopper level survives a restart** — the last gauge is remembered instead
+  of reading unknown until the next dispense.
+- **Event sensors appear only once their fact has been reported** — some firmware
+  never emits a drawer event or a weight, and those sensors sat unknown forever;
+  a one-time sweep applies the same standard to existing installs.
+- **Last cat visit updates on every robot** — it stamps from occupancy, not only
+  from weight events, which one robot never sends.
+- **Cat detection no longer mistakes weight on the scale for a cat** — occupancy
+  uses the bit that tracks the animal, not the one a misseated bonnet holds.
+- **Fewer unknowns while calibration settles**: the calibration reference shows
+  the built-in default (marked so) and the hopper level a labelled estimate.
+- **The weekday sleep schedule arms every day**, not just Sunday.
+- **The panel sleep and wake times can actually be set** — they now write the
+  per-day registers instead of one the firmware only computes.
+- **Litter readings are suppressed while the globe is not level** — mid-cycle the
+  sensors see the globe, not the litter.
+- **`robotStatus` 10 is the clean cycle**, and the boot cycle and filter wizard
+  are mapped too — unmapped, their readings published as real litter levels.
+- **`whiskerless set night-light-mode auto` works** — every accepted spelling
+  used to crash.
+- **The declared Home Assistant minimum is correct** (2025.3.0, not 2025.2.0).
+- **Every settings write is verified by read-back**, multi-register writes no
+  longer lose parts, and broker failures print instead of raising.
+- The hopper no longer drops to unknown on a non-disconnect link code, and one
+  dispense cannot prove an empty hopper on its own.
+- **The out-of-litter alert judges against your robot's own learned floor** —
+  floors differ per unit, and a fixed cutoff could cry empty while litter flowed.
+- **A restored excess-weight alarm clears once the robot reports the pan clear**,
+  instead of re-firing on every later visit.
+- **A restored globe-motor fault can clear after a missed clear event** — a clean
+  cycle completing without a fault event is the proof.
 - **A detection re-sweep no longer disables entities you enabled yourself.**
-  Retiring old detection evidence used to revert a deliberately enabled pet-weight
-  or hopper entity on every evidence-standard revision.
 
 ### Changed
 
-- **Breaking:** `binary_sensor.<robot>_waste_drawer_removed` is replaced by
-  `sensor.<robot>_waste_drawer_last_moved`. The robot reports that the drawer moved
-  and never which way — nine codes turned up across removals and insertions alike.
-- **Breaking:** clean cycle wait time is a number (3–30 minutes), not a select. Move
-  automations from `select.<robot>_clean_cycle_wait_time` to
-  `number.<robot>_clean_cycle_wait_time`.
-- **Breaking (library):** `Hazard.MOTOR`, `MotorCommandError` and `allow_motor` are
-  gone. A written press is the same event as a physical one, so the robot's own
-  interlocks apply either way. Power still requires `allow_dangerous`.
-- **Last visit duration is not reported by every robot**, so it ships disabled and
-  switches on the first time yours reports one, rather than reading unknown for the
-  life of a robot that never will. This was thought to be a firmware split; it is not.
-  Two robots on the same ESP build sit either side of it.
-- **The raw binaries and the macOS installer now carry the version in their
-  filename** (`whiskerless-<version>-linux-x86_64`,
-  `whiskerless-<version>-macos-arm64.pkg`) — a file sitting in Downloads now
-  says which release it came from, pairing with `--version` for the running one.
-  The naming scheme is documented in `packaging/README.md`.
-- **Breaking:** `switch.<robot>_panel_sleep_mode` is now
-  `binary_sensor.<robot>_panel_sleep_mode`. The firmware computes that register
-  from the weekday schedule and refuses direct writes, so the switch was a control
-  that could only time out and error. The weekday sleep schedule switch and the
-  sleep/wake time entities are the writable path.
+- **Auto-calibration got a statistics upgrade**: a median-based outlier gate keeps
+  in-band anomalies (a paw reads like an overfull globe) away from the litter
+  anchors, and the hopper floor is learned from declined-into flatline runs — in
+  both directions, so a floor that moved up is found as readily as one below.
+- **Breaking:** `binary_sensor.<robot>_waste_drawer_removed` is now
+  `sensor.<robot>_waste_drawer_last_moved` — the robot never says which way it moved.
+- **Breaking:** clean cycle wait time is a number (3–30 minutes), not a select.
+- **Breaking (library):** `Hazard.MOTOR`, `MotorCommandError` and `allow_motor`
+  are gone — a written press is the same event as a physical one. Power still
+  requires `allow_dangerous`.
+- **Breaking:** `switch.<robot>_panel_sleep_mode` is now a binary sensor — the
+  firmware refuses direct writes, so the switch could only fail; the weekday
+  schedule entities are the control.
+- **Last visit duration ships disabled and enables at your robot's first report** —
+  not every robot emits it, and it is not a firmware split.
+- **Release binaries and the macOS installer carry the version in the filename**
+  (`whiskerless-<version>-linux-x86_64`); the scheme is in `packaging/README.md`.
 
 ## [0.1.3] - 2026-07-02
 
