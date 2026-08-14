@@ -82,11 +82,27 @@ def test_elapsed_reads_like_a_clock() -> None:
 
 
 # --- progress: piped ------------------------------------------------------------
+def _drain_until(capsys: pytest.CaptureFixture[str], needle: str) -> str:
+    """Accumulate captured output until ``needle`` arrives (bounded).
+
+    A fixed sleep races the thread scheduler for the display thread's first
+    wake, and lost that race on a loaded CI runner — the assertion saw start
+    and done lines with no heartbeat between them. Polling makes the test
+    about WHAT is emitted, not when the scheduler feels like it.
+    """
+    out = ""
+    deadline = time.monotonic() + 5.0
+    while needle not in out and time.monotonic() < deadline:
+        time.sleep(0.01)
+        out += capsys.readouterr().out
+    return out
+
+
 def test_piped_progress_starts_beats_and_finishes(capsys: pytest.CaptureFixture[str]) -> None:
     console = Console(tty=False, color=False)
     with console.progress("scanning"):
-        time.sleep(0.05)
-    out = capsys.readouterr().out
+        out = _drain_until(capsys, "... scanning (")
+    out += capsys.readouterr().out
     assert out.startswith("scanning ...\n")
     assert "... scanning (" in out, "a piped log needs liveness too"
     assert "scanning — done (" in out
@@ -112,8 +128,8 @@ def test_close_is_idempotent(capsys: pytest.CaptureFixture[str]) -> None:
 def test_tty_progress_redraws_one_row_in_place(capsys: pytest.CaptureFixture[str]) -> None:
     console = Console(tty=True, color=True)
     with console.progress("scanning"):
-        time.sleep(0.05)
-    out = capsys.readouterr().out
+        out = _drain_until(capsys, "\r\033[2K")
+    out += capsys.readouterr().out
     assert "\r\033[2K" in out, "the row is redrawn, not appended"
     assert "scanning" in out
     assert "— done (" in out, "the done-line closes the display"
@@ -124,9 +140,9 @@ def test_a_line_printed_mid_progress_clears_the_row_first(
 ) -> None:
     console = Console(tty=True, color=False)
     with console.progress("scanning"):
-        time.sleep(0.03)
+        out = _drain_until(capsys, "\r\033[2K")  # at least one frame has drawn
         console.banner("look out")
-    out = capsys.readouterr().out
+    out += capsys.readouterr().out
     assert "look out" in out
     assert out.index("\r\033[2K") < out.index("look out"), "the spinner row must not bleed into it"
 
@@ -146,7 +162,7 @@ def test_a_vanished_terminal_never_breaks_the_run(
             raise OSError("terminal gone")
 
     progress = console.progress("scanning").__enter__()
-    time.sleep(0.03)  # let at least one frame draw against the real stream
+    _drain_until(capsys, "\r\033[2K")  # at least one frame drew against the real stream
     monkeypatch.setattr(sys, "stdout", Vanished())
     time.sleep(0.03)  # frames now hit the dead stream; the thread must swallow
     progress.close(done=True)  # clear + done-line against the dead stream
