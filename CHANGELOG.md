@@ -86,6 +86,13 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 ### Fixed
 
+- **The hopper level no longer reads unknown for days after a restart** on
+  robots whose hopper was proven before the gauge was persisted. The reading
+  lived only in the raw sensor's restore cache, and the carry that rescues it
+  ran solely inside the once-per-revision upgrade sweep — so an install already
+  at the current revision restarted into an unknown level beside a raw gauge
+  showing a real number, until the next dispense. The carry now runs at every
+  startup (and still refuses implausible cached values).
 - **`brew install sisyphusmd/tap/whiskerless` works again.** The formula pinned
   bleak 3.x, whose build backend (uv_build) Homebrew cannot build from source, so
   every install failed after the tap had already published. The formula closure

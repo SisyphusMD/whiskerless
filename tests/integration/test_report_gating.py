@@ -588,3 +588,90 @@ async def test_an_implausible_cached_gauge_is_not_proof(
     await setup_integration(hass, bare_config_entry, state_payload)
 
     assert CONF_HOPPER_SEEN not in bare_config_entry.options
+
+
+async def test_a_restored_gauge_is_carried_at_ordinary_startup(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A hopper proven before the gauge was persisted has its reading only in
+    the raw sensor's restore cache. The sweep's carry runs once per revision
+    bump, so an install already at the current revision restarted into a level
+    sensor reading unknown beside a raw gauge showing a real number — for days,
+    until the next dispense. The carry now runs at every setup."""
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={
+            **bare_config_entry.options,
+            CONF_HOPPER_SEEN: True,
+            CONF_DETECTION_RESET_BY: DETECTION_RESET_REVISION,  # sweep will skip
+        },
+    )
+    registry = er.async_get(hass)
+    for key, object_id in (
+        ("hopper_fill", "litter_robot_4_hopper_fill_raw"),
+        ("hopper_level", "litter_robot_4_hopper_level"),
+    ):
+        registry.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            f"{MOCK_SERIAL}_{key}",
+            config_entry=bare_config_entry,
+            disabled_by=None,
+            suggested_object_id=object_id,
+        )
+    mock_restore_cache_with_extra_data(
+        hass,
+        (
+            (
+                State("sensor.litter_robot_4_hopper_fill_raw", "79"),
+                SensorExtraStoredData(79, None).as_dict(),
+            ),
+        ),
+    )
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert bare_config_entry.options[CONF_HOPPER_FILL_RAW] == 79
+    state = hass.states.get("sensor.litter_robot_4_hopper_level")
+    assert state is not None
+    assert state.state == "54", "the provisional estimate over the typical band"
+    assert state.attributes["source"] == "estimate"
+
+
+async def test_an_implausible_cached_gauge_is_not_carried(
+    hass: HomeAssistant, bare_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A cache written by a lone register read can hold anything, including 0;
+    seeding that would anchor the level to garbage. Outside the band, nothing
+    is written and the level honestly waits for a real dispense."""
+    bare_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        bare_config_entry,
+        options={
+            **bare_config_entry.options,
+            CONF_HOPPER_SEEN: True,
+            CONF_DETECTION_RESET_BY: DETECTION_RESET_REVISION,
+        },
+    )
+    er.async_get(hass).async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MOCK_SERIAL}_hopper_fill",
+        config_entry=bare_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper_fill_raw",
+    )
+    mock_restore_cache_with_extra_data(
+        hass,
+        (
+            (
+                State("sensor.litter_robot_4_hopper_fill_raw", "0"),
+                SensorExtraStoredData(0, None).as_dict(),
+            ),
+        ),
+    )
+
+    await setup_integration(hass, bare_config_entry, state_payload)
+
+    assert CONF_HOPPER_FILL_RAW not in bare_config_entry.options

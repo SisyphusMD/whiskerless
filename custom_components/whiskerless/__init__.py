@@ -188,6 +188,36 @@ def _plausible_gauge(*values: object) -> int | None:
     return None
 
 
+def _seed_missing_gauge(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
+    """Carry a restored fill gauge into the persisted option, at every setup.
+
+    Installs whose hopper was proven before the gauge was persisted have the
+    reading only in the raw sensor's restore cache — so after any restart the
+    level sensor sits unknown beside a raw gauge showing a real number, until
+    the next dispense (which can be days away). The revision sweep carries the
+    gauge across, but only when a revision bump makes it run; this is the same
+    carry for the ordinary startup. One-time in effect: once the option exists,
+    nothing here writes again.
+    """
+    if not entry.options.get(CONF_HOPPER_SEEN) or CONF_HOPPER_FILL_RAW in entry.options:
+        return
+    registry = er.async_get(hass)
+    domain, key = _HOPPER_PROOF_ENTITY
+    entity_id = registry.async_get_entity_id(
+        domain, DOMAIN, f"{entry.data[CONF_SERIAL]}_{key}"
+    )
+    stored = restore_state.async_get(hass).last_states.get(entity_id) if entity_id else None
+    if stored is None:
+        return
+    extra = stored.extra_data.as_dict() if stored.extra_data else {}
+    gauge = _plausible_gauge(stored.state.state, extra.get("native_value"))
+    if gauge is None:
+        return
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_HOPPER_FILL_RAW: gauge}
+    )
+
+
 def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
     """Upgrade sweep: every detection must be backed by real evidence.
 
@@ -372,6 +402,9 @@ def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry
 async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Set up Whiskerless from a config entry."""
     _reset_unproven_detections(hass, entry)
+    # After the sweep (which may itself seed the flag and gauge), before the
+    # coordinator reads the options.
+    _seed_missing_gauge(hass, entry)
     coordinator = WhiskerlessCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
