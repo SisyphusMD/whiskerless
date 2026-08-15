@@ -33,6 +33,7 @@ from whiskerless.devices.litter_robot_4.derive import (
     hopper_empty,
     hopper_level_percent,
     litter_scale,
+    sighting_stands,
 )
 from whiskerless.devices.litter_robot_4.protocol import ActivityMessage, StateMessage
 
@@ -375,6 +376,30 @@ def test_a_clear_pan_is_a_no_and_an_absent_bit_is_unknown() -> None:
     assert excess_weight(DerivedState(), clear, T0) is False
     silent = LitterRobot4State.from_state_doc({**IDLE, "catDetect": "unknown"})
     assert excess_weight(DerivedState(), silent, T0) is None
+
+
+# --- what a change to the standard of proof retires ----------------------------
+def test_a_sighting_stands_on_evidence_its_capability_accepts() -> None:
+    assert sighting_stands(Capability.HOPPER, Evidence.DISPENSE)
+    assert not sighting_stands(Capability.HOPPER, Evidence.CAT_WEIGHT), "a weight is not a hopper"
+
+
+def test_a_restored_duration_is_never_good_enough() -> None:
+    # Earlier builds recorded this one from evidence since proven wrong, so the
+    # restored value is itself the suspect thing.
+    assert sighting_stands(Capability.PET_WEIGHT, Evidence.RESTORED)
+    assert not sighting_stands(Capability.VISIT_DURATION, Evidence.RESTORED)
+
+
+def test_a_sighting_that_records_no_evidence_stands() -> None:
+    # The bare flag of a build that recorded nothing: already re-derived by the
+    # one-off sweeps that retired the standards known to be wrong.
+    assert sighting_stands(Capability.HOPPER, True)
+
+
+def test_evidence_from_a_newer_build_is_trusted_not_judged() -> None:
+    # A downgrade must not throw away what a later, stricter standard accepted.
+    assert sighting_stands(Capability.HOPPER, "a_kind_from_the_future")
 
 
 # --- carrying the derived state across a restart -------------------------------

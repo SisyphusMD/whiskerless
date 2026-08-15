@@ -224,7 +224,10 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             elif isinstance(effect, HopperFillChanged):
                 options[CONF_HOPPER_FILL_RAW] = effect.value
             elif isinstance(effect, CapabilitySighted):
-                options[SIGHTING_OPTIONS[effect.capability]] = True
+                # The evidence, not a bare flag: a later change to what counts
+                # as proof can then retire this sighting or leave it alone on
+                # its own merits.
+                options[SIGHTING_OPTIONS[effect.capability]] = str(effect.evidence)
                 sighted = True
             elif isinstance(effect, FirmwareChanged):
                 # Device info is registered when entities are added, so an OTA

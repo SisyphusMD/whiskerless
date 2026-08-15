@@ -9,15 +9,15 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from custom_components.whiskerless.const import (
     CONF_CAT_VISIT_SEEN,
-    CONF_DETECTION_RESET_BY,
     CONF_DRAWER_SEEN,
     CONF_PET_WEIGHT_SEEN,
-    DETECTION_RESET_REVISION,
     DOMAIN,
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotExtension
 from syrupy.assertion import SnapshotAssertion
+
+from whiskerless.devices.litter_robot_4.derive import Evidence
 
 from .const import MOCK_CONFIG, MOCK_NAME, MOCK_SERIAL
 
@@ -58,9 +58,9 @@ def state_payload() -> str:
 def mock_config_entry() -> MockConfigEntry:
     """A config entry for one robot (serial + display name).
 
-    Modelled as a mature install: the upgrade sweep already ran and the gated
-    event sensors have all reported, so tests exercising those entities see
-    them enabled. Detection and sweep tests build bare entries of their own.
+    Modelled as a mature install whose gated event sensors have all reported,
+    each sighting carrying what proved it, so tests exercising those entities
+    see them enabled. Detection tests build their own entries.
     """
     return MockConfigEntry(
         domain=DOMAIN,
@@ -68,9 +68,8 @@ def mock_config_entry() -> MockConfigEntry:
         unique_id=MOCK_SERIAL,
         data=dict(MOCK_CONFIG),
         options={
-            CONF_DETECTION_RESET_BY: DETECTION_RESET_REVISION,
-            CONF_DRAWER_SEEN: True,
-            CONF_PET_WEIGHT_SEEN: True,
-            CONF_CAT_VISIT_SEEN: True,
+            CONF_DRAWER_SEEN: str(Evidence.DRAWER_MOVED),
+            CONF_PET_WEIGHT_SEEN: str(Evidence.CAT_WEIGHT),
+            CONF_CAT_VISIT_SEEN: str(Evidence.OCCUPANCY),
         },
     )

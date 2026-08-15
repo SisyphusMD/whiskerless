@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from awesomeversion import AwesomeVersion
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -9,27 +12,22 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state
 from homeassistant.loader import async_get_integration
 
+from whiskerless.devices.litter_robot_4 import derive
 from whiskerless.devices.litter_robot_4.calibration import HOPPER_PLAUSIBLE
+from whiskerless.devices.litter_robot_4.derive import Capability, Evidence
 
 from . import binary_sensor, button, number, select, sensor, switch
 from . import time as time_platform
-from .const import (
-    CONF_CAT_VISIT_SEEN,
-    CONF_DERIVED,
-    CONF_DETECTION_RESET_BY,
-    CONF_DRAWER_SEEN,
-    CONF_HOPPER_FILL_RAW,
-    CONF_HOPPER_SEEN,
-    CONF_PET_WEIGHT_SEEN,
-    CONF_SERIAL,
-    CONF_VISIT_DURATION_SEEN,
-    DETECTION_RESET_REVISION,
-    DOMAIN,
-)
-from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
+from .const import CONF_DERIVED, CONF_HOPPER_FILL_RAW, CONF_HOPPER_SEEN, CONF_SERIAL, DOMAIN
+from .coordinator import SIGHTING_OPTIONS, WhiskerlessConfigEntry, WhiskerlessCoordinator
 
 # Option key recording which version last swept the entity registry.
 _SWEPT_BY = "retired_entities_swept_by"
+# The retired global "re-check every detection" counter, and the last revision it
+# ever reached. Read once (to see which one-off sweeps an install ran) and then
+# left pinned there, so a downgrade does not re-run them.
+_DETECTION_RESET_BY = "detection_reset_by"
+_LAST_SWEEP = 3
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -126,43 +124,30 @@ DRAWER_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "waste_drawer_
 PET_WEIGHT_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "pet_weight"),)
 CAT_VISIT_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "last_cat_visit"),)
 
-#: Every capability that ships disabled until the robot proves it has one, as
-#: (option recording the sighting, entities to switch on).
-_DETECTED: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
-    (CONF_HOPPER_SEEN, HOPPER_ENTITIES),
-    (CONF_VISIT_DURATION_SEEN, VISIT_DURATION_ENTITIES),
-    (CONF_DRAWER_SEEN, DRAWER_ENTITIES),
-    (CONF_PET_WEIGHT_SEEN, PET_WEIGHT_ENTITIES),
-    (CONF_CAT_VISIT_SEEN, CAT_VISIT_ENTITIES),
-)
+#: Every capability that ships disabled until the robot proves it has one, and
+#: the entities its sighting switches on. Which option records the sighting is
+#: the coordinator's table; what counts as proof is the library's.
+_DETECTED: dict[Capability, tuple[tuple[str, str], ...]] = {
+    Capability.HOPPER: HOPPER_ENTITIES,
+    Capability.VISIT_DURATION: VISIT_DURATION_ENTITIES,
+    Capability.DRAWER: DRAWER_ENTITIES,
+    Capability.PET_WEIGHT: PET_WEIGHT_ENTITIES,
+    Capability.CAT_VISIT: CAT_VISIT_ENTITIES,
+}
 
-#: Groups whose sighting may be seeded from a sensor's restore cache in the
-#: sweep below: a restored value there is a real past report. The
-#: visit-duration flag is deliberately NOT seedable — earlier builds recorded it
-#: from evidence since proven wrong, so the restored value is itself suspect.
-_RESTORE_SEEDABLE: frozenset[str] = frozenset(
-    {CONF_DRAWER_SEEN, CONF_PET_WEIGHT_SEEN, CONF_CAT_VISIT_SEEN}
-)
-
-#: The hopper is seedable, but only from ONE of its entities. Its sighting used
-#: to be granted by a 0x57 link report, which proves nothing — so `hopper_connected`
-#: restoring `on` is exactly the suspect evidence this sweep exists to retire. A
-#: restored fill gauge is different: that number comes from a dispense burst, which
-#: is the standard the current rule demands.
-#:
-#: Without this, clearing the flag punishes correct installs to fix incorrect ones.
-#: Dispensing is demand-driven — a robot sitting on its litter target can go weeks
-#: without one — so "re-prove it at the next dispense" can mean weeks of a real
-#: hopper's entities being missing.
-#:
-#: KNOWN WEAKNESS: a cache written by an rc older than the multi-reading gate could
-#: hold a gauge taken from a lone 0x0C, which a diagnostic READ of that register also
-#: produces. The band check below narrows it — a real gauge lands in the plausible
-#: range, a register echo need not — but it is a filter, not provenance. The durable
-#: fix is to record what proved each sighting rather than infer it; until then this
-#: trades a speculative phantom (five entities reading unknown) against an observed
-#: regression (a real hopper's entities missing for weeks).
-_HOPPER_PROOF_ENTITY: tuple[str, str] = (Platform.SENSOR, "hopper_fill")
+#: Where a re-examined sighting may find its own past reports. Only the entity
+#: whose value that capability alone can produce counts — for the hopper that is
+#: the fill gauge, not `hopper_connected`, which older builds granted from a
+#: 0x57 link report that proves nothing (a positive arrives with the hopper
+#: sitting on a bench). Whether a RESTORED sighting is good enough at all is
+#: ACCEPTED_EVIDENCE's call, not this table's.
+_RESTORE_PROOF: dict[Capability, tuple[tuple[str, str], ...]] = {
+    Capability.HOPPER: ((Platform.SENSOR, "hopper_fill"),),
+    Capability.VISIT_DURATION: VISIT_DURATION_ENTITIES,
+    Capability.DRAWER: DRAWER_ENTITIES,
+    Capability.PET_WEIGHT: PET_WEIGHT_ENTITIES,
+    Capability.CAT_VISIT: CAT_VISIT_ENTITIES,
+}
 
 
 def _plausible_gauge(*values: object) -> int | None:
@@ -189,15 +174,15 @@ def _seed_missing_gauge(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> N
     Installs whose hopper was proven before the gauge was persisted have the
     reading only in the raw sensor's restore cache — so after any restart the
     level sensor sits unknown beside a raw gauge showing a real number, until
-    the next dispense (which can be days away). The revision sweep carries the
-    gauge across, but only when a revision bump makes it run; this is the same
-    carry for the ordinary startup. One-time in effect: once the option exists,
-    nothing here writes again.
+    the next dispense (which can be days away). The re-examination above only
+    carries the gauge when it runs at all; this is the same carry for the
+    ordinary startup. One-time in effect: once the option exists, nothing here
+    writes again.
     """
     if not entry.options.get(CONF_HOPPER_SEEN) or CONF_HOPPER_FILL_RAW in entry.options:
         return
     registry = er.async_get(hass)
-    domain, key = _HOPPER_PROOF_ENTITY
+    domain, key = _RESTORE_PROOF[Capability.HOPPER][0]
     entity_id = registry.async_get_entity_id(
         domain, DOMAIN, f"{entry.data[CONF_SERIAL]}_{key}"
     )
@@ -213,89 +198,74 @@ def _seed_missing_gauge(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> N
     )
 
 
-def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
-    """Upgrade sweep: every detection must be backed by real evidence.
+def _recheck_sightings(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
+    """Re-examine any sighting the current standard of proof no longer accepts.
 
-    Runs once per revision of what counts as evidence, because that standard keeps
-    changing: the 0x0C dispense burst was retired as proof, then the 0x57 link
-    report was too. Sightings are re-derived from each group's restore cache —
-    for the hopper, from the fill gauge specifically, since only a dispense can
-    produce that number — and whatever is still unproven goes back to disabled
-    until its first real report.
+    What proves a capability has changed twice — the 0x0C dispense burst was
+    narrowed, then the 0x57 link report was retired outright — and each change
+    used to force a global re-sweep of every install, because a sighting
+    recorded only THAT it happened. That was blunt in both directions: it
+    re-examined sightings the change had nothing to say about, and it cost a
+    correct install its hopper entities for however long the robot took to
+    dispense again.
 
-    Without the revision an install that ran the earlier sweep would keep a
-    hopper it was only ever granted by a link report.
+    Now each sighting carries its evidence, so a change to ACCEPTED_EVIDENCE
+    invalidates exactly the sightings it disagrees with. One that no longer
+    stands is re-derived from that capability's own past reports before being
+    withdrawn: the restore cache first, then the persisted gauge, which outlives
+    the cache's expiry. Whatever cannot be re-derived goes back to disabled
+    until the robot proves it again.
+
+    The same past reports also RECORD a sighting that was never written down,
+    which is how an install from before sightings existed keeps entities it
+    genuinely earned. Nothing else touches a capability with no sighting: an
+    enabled entity without one is then the user's own hand, and no change to
+    the rules may revert that.
     """
-    # Ordered, not identity: a revision round-tripped through JSON need not be the
-    # same object, and a downgrade leaves a HIGHER revision stored, which must not
-    # re-run a sweep that would disable already-validated entities. The original
-    # marker was the bare `True`, which is revision 1.
-    prior = entry.options.get(CONF_DETECTION_RESET_BY)
-    swept_at = int(prior) if prior else 0
-    if swept_at >= DETECTION_RESET_REVISION:
-        return
     registry = er.async_get(hass)
-    options = dict(entry.options)
-    options.pop(CONF_HOPPER_SEEN, None)
-    # Only the first sweep doubted the visit duration. Revision 2 narrowed what
-    # counts as hopper evidence and says nothing about durations, so an install
-    # already swept keeps a duration it genuinely earned — a quiet robot might not
-    # report another for a very long time.
-    if swept_at < 1:
-        options.pop(CONF_VISIT_DURATION_SEEN, None)
     last_states = restore_state.async_get(hass).last_states
-    # From entry data, not runtime_data: this must run BEFORE the coordinator
-    # is built, so the coordinator reads the post-sweep flags and a re-proving
-    # dispense can re-sight in the same session.
+    # From entry data, not runtime_data: this runs BEFORE the coordinator is
+    # built, so the coordinator reads the post-sweep flags and a re-proving
+    # report can re-sight in the same session.
     serial = entry.data[CONF_SERIAL]
-    for seen_key, entities in _DETECTED:
-        seedable = entities if seen_key in _RESTORE_SEEDABLE else ()
-        if seen_key == CONF_HOPPER_SEEN:
-            seedable = (_HOPPER_PROOF_ENTITY,)
-            # A gauge persisted by a previous run is the same evidence, and it
-            # outlives the restore cache's expiry.
-            # Written only by builds that already had the multi-reading gate, so
-            # its provenance is sound without a band check.
-            if entry.options.get(CONF_HOPPER_FILL_RAW) is not None:
-                options[seen_key] = True
-        if not options.get(seen_key) and seedable:
-            for domain, key in seedable:
-                entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{serial}_{key}")
-                stored = last_states.get(entity_id) if entity_id else None
-                if stored is None:
-                    continue
-                # A sensor unavailable at the last shutdown still carries its
-                # real native value in the restore extra data — that is
-                # evidence too, and demoting on the rendered state alone would
-                # hide a sensor whose fact may be rare or never recur.
-                extra = stored.extra_data.as_dict() if stored.extra_data else {}
-                if seen_key == CONF_HOPPER_SEEN:
-                    gauge = _plausible_gauge(stored.state.state, extra.get("native_value"))
-                    if gauge is None:
-                        continue
-                    options[seen_key] = True
-                    # Carry the reading across, not just the flag. The coordinator
-                    # reads its gauge from CONF_HOPPER_FILL_RAW, and a robot that
-                    # has not dispensed since the sweep would otherwise come back
-                    # with the level sensor at unknown while the raw gauge beside
-                    # it restores a real number.
-                    options.setdefault(CONF_HOPPER_FILL_RAW, gauge)
-                    break
-                if (
-                    stored.state.state not in ("unknown", "unavailable")
-                    or extra.get("native_value") is not None
-                ):
-                    options[seen_key] = True
-                    break
-        if options.get(seen_key):
+    options = dict(entry.options)
+    # The retired global counter, on its last errand: it is the only record of
+    # WHICH of the one-off sweeps an install actually ran, and one that never
+    # reached the last of them still carries a hopper granted by a 0x57 link
+    # report — which proves nothing, since a positive arrives with the hopper
+    # sitting on a bench. Those unlabelled sightings are re-examined once here;
+    # the rest are labelled, and the marker goes.
+    swept_at = int(options.get(_DETECTION_RESET_BY) or 0)
+    unvalidated = {
+        capability
+        for capability, sweep in ((Capability.HOPPER, 3), (Capability.VISIT_DURATION, 1))
+        if swept_at < sweep
+    }
+    # Left behind deliberately, at the last revision that existed. Nothing here
+    # reads it again, but a downgrade would see a missing marker as "never
+    # swept" and re-run a sweep that clears a visit duration it cannot restore.
+    options[_DETECTION_RESET_BY] = max(swept_at, _LAST_SWEEP)
+    for capability, entities in _DETECTED.items():
+        seen_key = SIGHTING_OPTIONS[capability]
+        stored = options.get(seen_key)
+        if isinstance(stored, str):
+            if derive.sighting_stands(capability, stored):
+                continue
+        elif stored and capability not in unvalidated:
+            # Label it, so this migration never runs a second time.
+            options[seen_key] = str(Evidence.LEGACY)
             continue
-        if swept_at >= 1 and not entry.options.get(seen_key):
-            # On a build new enough to record sightings, detection always sets
-            # the flag before enabling — so once one sweep has run, an enabled
-            # entity with no flag is the user's own hand, and a later revision
-            # bump must not revert it. The FIRST sweep cannot use this shortcut:
-            # pre-flag builds enabled entities without recording anything.
+        # Whether a capability's own past reports are proof at all is the
+        # evidence table's call: a restored visit duration is not, because the
+        # builds that recorded one did so from evidence since proven wrong.
+        if derive.sighting_stands(capability, Evidence.RESTORED) and _reproved(
+            capability, serial, registry, last_states, options
+        ):
+            options[seen_key] = str(Evidence.RESTORED)
             continue
+        if not stored:
+            continue  # never proven, so there is nothing to withdraw
+        options.pop(seen_key, None)
         for domain, key in entities:
             entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{serial}_{key}")
             if entity_id is None:
@@ -305,8 +275,45 @@ def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntr
                 registry.async_update_entity(
                     entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
                 )
-    options[CONF_DETECTION_RESET_BY] = DETECTION_RESET_REVISION
-    hass.config_entries.async_update_entry(entry, options=options)
+    if options != dict(entry.options):
+        hass.config_entries.async_update_entry(entry, options=options)
+
+
+def _reproved(
+    capability: Capability,
+    serial: str,
+    registry: er.EntityRegistry,
+    last_states: Mapping[str, restore_state.StoredState],
+    options: dict[str, Any],
+) -> bool:
+    """Whether this capability's own past reports still prove it."""
+    if capability is Capability.HOPPER and options.get(CONF_HOPPER_FILL_RAW) is not None:
+        # Written only by builds that already had the multi-reading gate, so its
+        # provenance is sound without the band check below.
+        return True
+    for domain, key in _RESTORE_PROOF.get(capability, ()):
+        entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{serial}_{key}")
+        stored = last_states.get(entity_id) if entity_id else None
+        if stored is None:
+            continue
+        # A sensor unavailable at the last shutdown still carries its real
+        # native value in the restore extra data — that is evidence too, and
+        # demoting on the rendered state alone would hide a sensor whose fact
+        # may be rare or never recur.
+        extra = stored.extra_data.as_dict() if stored.extra_data else {}
+        if capability is Capability.HOPPER:
+            gauge = _plausible_gauge(stored.state.state, extra.get("native_value"))
+            if gauge is None:
+                continue
+            # Carry the reading across, not just the flag: the coordinator reads
+            # its gauge from the option, and a robot that has not dispensed
+            # since would otherwise come back with the level sensor at unknown
+            # while the raw gauge beside it restores a real number.
+            options.setdefault(CONF_HOPPER_FILL_RAW, gauge)
+            return True
+        if stored.state.state not in ("unknown", "unavailable") or extra.get("native_value"):
+            return True
+    return False
 
 
 def _enable_detected_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
@@ -333,8 +340,8 @@ def _enable_detected_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry
         return False
     flipped = False
     registry = er.async_get(hass)
-    for seen_key, entities in _DETECTED:
-        if not entry.options.get(seen_key):
+    for capability, entities in _DETECTED.items():
+        if not entry.options.get(SIGHTING_OPTIONS[capability]):
             continue
         for domain, key in entities:
             entity_id = registry.async_get_entity_id(
@@ -395,7 +402,7 @@ def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry
 
 async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Set up Whiskerless from a config entry."""
-    _reset_unproven_detections(hass, entry)
+    _recheck_sightings(hass, entry)
     # After the sweep (which may itself seed the flag and gauge), before the
     # coordinator reads the options.
     _seed_missing_gauge(hass, entry)

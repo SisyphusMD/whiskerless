@@ -15,6 +15,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from whiskerless.devices.litter_robot_4.derive import Evidence
+
 from . import robot_online, setup_integration
 from .const import ACTIVITY_TOPIC, MOCK_SERIAL
 
@@ -101,7 +103,7 @@ async def test_a_dispense_enables_them(
         robot.push(DISPENSE, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
-    assert mock_config_entry.options[CONF_HOPPER_SEEN] is True
+    assert mock_config_entry.options[CONF_HOPPER_SEEN] == str(Evidence.DISPENSE)
     data = mock_config_entry.runtime_data.data
     assert data.derived.hopper_fill_raw == 61
     assert data.derived.last_hopper_dispensed is not None
@@ -141,7 +143,7 @@ async def test_the_gauge_outlives_the_bootstrap(
 def _enable_empty_alert(hass: HomeAssistant, entry: MockConfigEntry, **options: object) -> None:
     entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        entry, options={**entry.options, CONF_HOPPER_SEEN: True, **options}
+        entry, options={**entry.options, CONF_HOPPER_SEEN: str(Evidence.DISPENSE), **options}
     )
     er.async_get(hass).async_get_or_create(
         "binary_sensor",
@@ -276,7 +278,7 @@ async def test_detection_is_remembered_across_restarts(
         mock_config_entry,
         options={
             **mock_config_entry.options,
-            CONF_HOPPER_SEEN: True,
+            CONF_HOPPER_SEEN: str(Evidence.DISPENSE),
             CONF_HOPPER_FILL_RAW: 84,
         },
     )
@@ -305,7 +307,7 @@ async def test_a_user_disabled_entity_is_not_re_enabled(
         disabled_by=er.RegistryEntryDisabler.USER,
     )
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: str(Evidence.DISPENSE)}
     )
 
     await setup_integration(hass, mock_config_entry, state_payload)
@@ -323,7 +325,7 @@ async def test_the_disable_new_entities_preference_wins(
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
         mock_config_entry,
-        options={**mock_config_entry.options, CONF_HOPPER_SEEN: True},
+        options={**mock_config_entry.options, CONF_HOPPER_SEEN: str(Evidence.DISPENSE)},
         pref_disable_new_entities=True,
     )
 
@@ -351,7 +353,7 @@ async def test_a_retained_reading_cannot_corroborate_itself(
     which also exercises the prior-message half of the gate."""
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: str(Evidence.DISPENSE)}
     )
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
@@ -381,7 +383,7 @@ async def test_the_level_estimates_until_the_floor_is_learned(
     """
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: str(Evidence.DISPENSE)}
     )
     registry = er.async_get(hass)
     registry.async_get_or_create(
@@ -417,7 +419,7 @@ async def test_a_confirmed_floor_turns_the_estimate_into_a_measurement(
         mock_config_entry,
         options={
             **mock_config_entry.options,
-            CONF_HOPPER_SEEN: True,
+            CONF_HOPPER_SEEN: str(Evidence.DISPENSE),
             # Floor 61 confirmed across separate dispenses, ceiling 91.
             CONF_LEARNED_HOPPER: {"low": 61, "high": 91, "low_hits": 3},
         },

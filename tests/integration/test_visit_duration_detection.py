@@ -18,6 +18,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from whiskerless.devices.litter_robot_4.derive import Evidence
+
 from . import robot_online, setup_integration
 from .const import ACTIVITY_TOPIC, MOCK_SERIAL
 
@@ -74,7 +76,7 @@ async def test_a_duration_enables_it(
         robot.push(VISIT_ENDED, ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
-    assert mock_config_entry.options[CONF_VISIT_DURATION_SEEN] is True
+    assert mock_config_entry.options[CONF_VISIT_DURATION_SEEN] == str(Evidence.VISIT_DURATION)
     assert _disabled_by(er.async_get(hass)) is None
 
 
@@ -151,7 +153,7 @@ async def test_a_zero_second_visit_still_counts_as_proof(
         robot.push(json.dumps({"type": "action", "data": ["0xBC0000"]}), ACTIVITY_TOPIC)
         await hass.async_block_till_done()
 
-    assert mock_config_entry.options[CONF_VISIT_DURATION_SEEN] is True
+    assert mock_config_entry.options[CONF_VISIT_DURATION_SEEN] == str(Evidence.VISIT_DURATION)
     assert hass.states.get(DURATION_ENTITY).state == "0"
 
 
@@ -164,7 +166,7 @@ async def test_detection_is_remembered_across_restarts(
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
         mock_config_entry,
-        options={**mock_config_entry.options, CONF_VISIT_DURATION_SEEN: True},
+        options={**mock_config_entry.options, CONF_VISIT_DURATION_SEEN: str(Evidence.VISIT_DURATION)},
     )
 
     await setup_integration(hass, mock_config_entry, state_payload)
@@ -189,7 +191,7 @@ async def test_a_user_disabled_sensor_is_not_re_enabled(
     )
     hass.config_entries.async_update_entry(
         mock_config_entry,
-        options={**mock_config_entry.options, CONF_VISIT_DURATION_SEEN: True},
+        options={**mock_config_entry.options, CONF_VISIT_DURATION_SEEN: str(Evidence.VISIT_DURATION)},
     )
 
     await setup_integration(hass, mock_config_entry, state_payload)

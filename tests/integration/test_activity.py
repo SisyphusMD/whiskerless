@@ -18,6 +18,8 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
 )
 
+from whiskerless.devices.litter_robot_4.derive import Evidence
+
 from . import restore_latching_sensor, robot_online, seed_gated_sensors, setup_integration
 from .const import ACTIVITY_TOPIC
 
@@ -162,7 +164,7 @@ async def test_a_redelivered_dispense_does_not_corroborate_itself(
     """
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: True}
+        mock_config_entry, options={**mock_config_entry.options, CONF_HOPPER_SEEN: str(Evidence.DISPENSE)}
     )
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     # The 0x57 rides along because the persisted flag alone no longer opens the

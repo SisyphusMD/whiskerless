@@ -22,6 +22,8 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
 )
 
+from whiskerless.devices.litter_robot_4.derive import Evidence
+
 from . import seed_gated_sensors, setup_integration
 from .const import ACTIVITY_TOPIC, MOCK_SERIAL
 
@@ -42,7 +44,7 @@ def _duration_reported(hass: HomeAssistant, entry: MockConfigEntry) -> None:
     """
     entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        entry, options={**entry.options, CONF_VISIT_DURATION_SEEN: True}
+        entry, options={**entry.options, CONF_VISIT_DURATION_SEEN: str(Evidence.VISIT_DURATION)}
     )
     er.async_get(hass).async_get_or_create(
         "sensor",
@@ -125,7 +127,7 @@ async def test_the_empty_alert_survives_a_restart_from_persisted_state(
         mock_config_entry,
         options={
             **mock_config_entry.options,
-            CONF_HOPPER_SEEN: True,
+            CONF_HOPPER_SEEN: str(Evidence.DISPENSE),
             # A gauge flatlined at a floor confirmed across three dispenses —
             # what the coordinator persists across the restart being simulated.
             CONF_HOPPER_FILL_RAW: 66,

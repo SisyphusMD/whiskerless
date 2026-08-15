@@ -61,6 +61,7 @@ from .models import LitterRobot4State
 from .protocol import ActivityMessage, StateMessage
 
 __all__ = [
+    "ACCEPTED_EVIDENCE",
     "EXCESS_WEIGHT_AFTER",
     "Capability",
     "CapabilitySighted",
@@ -77,6 +78,7 @@ __all__ = [
     "hopper_empty",
     "hopper_level_percent",
     "litter_scale",
+    "sighting_stands",
 ]
 
 # Two dispense reports closer together than this are the same event redelivered;
@@ -124,9 +126,54 @@ class Evidence(StrEnum):
     CAT_WEIGHT = "cat_weight"
     DRAWER_MOVED = "drawer_moved"
     OCCUPANCY = "occupancy"
-    #: Proven by a build that did not record what proved it. Whether it still
-    #: stands is exactly the question a change to the standard has to ask.
+    #: A value the capability's own reporting still held from a previous run,
+    #: recovered by a consumer rather than watched live.
+    RESTORED = "restored"
+    #: Proven by a build that did not record what proved it.
     LEGACY = "legacy"
+
+
+#: What still counts as proof of each capability. Retiring a kind from a set
+#: here is how a change to the standard of proof invalidates exactly the
+#: sightings it disagrees with — which is the reason each one records its
+#: evidence at all. LEGACY is accepted because the builds that recorded nothing
+#: had their sightings re-derived by the one-off sweeps that retired the
+#: standards already known to be wrong; a future change that doubts them again
+#: drops LEGACY from the set it concerns.
+ACCEPTED_EVIDENCE: dict[Capability, frozenset[Evidence]] = {
+    Capability.HOPPER: frozenset({Evidence.DISPENSE, Evidence.RESTORED, Evidence.LEGACY}),
+    # Deliberately NOT restorable: earlier builds recorded this from evidence
+    # since proven wrong, so a restored duration is itself the suspect thing.
+    Capability.VISIT_DURATION: frozenset({Evidence.VISIT_DURATION, Evidence.LEGACY}),
+    Capability.DRAWER: frozenset({Evidence.DRAWER_MOVED, Evidence.RESTORED, Evidence.LEGACY}),
+    Capability.PET_WEIGHT: frozenset({Evidence.CAT_WEIGHT, Evidence.RESTORED, Evidence.LEGACY}),
+    Capability.CAT_VISIT: frozenset(
+        {
+            Evidence.CAT_WEIGHT,
+            Evidence.VISIT_DURATION,
+            Evidence.OCCUPANCY,
+            Evidence.RESTORED,
+            Evidence.LEGACY,
+        }
+    ),
+}
+
+
+def sighting_stands(capability: Capability, evidence: object) -> bool:
+    """Whether a recorded sighting survives the current standard of proof.
+
+    Anything this build does not recognize is trusted rather than re-examined:
+    an unknown kind was written by a NEWER build, and a downgrade must not throw
+    away what a later, stricter standard accepted — the mistake a global
+    "re-check everything" counter made every time it moved.
+    """
+    if not isinstance(evidence, str):
+        return bool(evidence)  # the bare flag of a build that recorded no kind
+    try:
+        kind = Evidence(evidence)
+    except ValueError:
+        return True
+    return kind in ACCEPTED_EVIDENCE[capability]
 
 
 @dataclass(frozen=True, slots=True)

@@ -16,8 +16,9 @@ CONF_SERIAL = "serial"
 # on the config entry options. CONF_LITTER_FULL_MM alone anchors the percentage
 # the way the cloud does; adding CONF_LITTER_EMPTY_MM upgrades it to a true
 # two-point scale with no assumed slope.
-# Set once the hopper has reported. Durable, so the entities it enables stay
-# enabled and the readings that proved it survive the reload enabling triggers.
+# Set once the hopper has reported, and holds WHAT proved it (see the library's
+# Evidence). Durable, so the entities it enables stay enabled and a later change
+# to the standard of proof can re-examine only the sightings it disagrees with.
 CONF_HOPPER_SEEN = "hopper_seen"
 #: The last raw fill gauge, kept for good rather than dropped with the bootstrap
 #: above. Dispensing is demand-driven, so a well-fed robot can go days without
@@ -47,20 +48,6 @@ CONF_CAT_VISIT_SEEN = "cat_visit_seen"
 #: reload has settled: kept longer it would be re-applied on every startup and
 #: clobber the newer values the entities restore for themselves.
 CONF_DERIVED = "derived"
-# One-shot upgrade sweep marker: clears detections recorded by builds whose
-# evidence rules were wrong and seeds the newly gated sensors from their
-# restore cache. See _reset_unproven_detections.
-CONF_DETECTION_RESET_BY = "detection_reset_by"
-#: Bumped whenever the standard of proof behind a detection changes, so installs
-#: that already ran an earlier sweep run the new one.
-#:
-#: 2 — retired hopper sightings recorded from a 0x57 link report, which proves
-#:     nothing: a positive arrives with the hopper sitting on a bench.
-#: 3 — revision 2 was too blunt. It cleared the flag on robots whose hopper was
-#:     genuinely proven, and the replacement evidence is a dispense, which is
-#:     demand-driven — a robot sitting on its litter target can go weeks without
-#:     one. Re-runs the sweep, now seeding the flag from a restored fill gauge.
-DETECTION_RESET_REVISION = 3
 
 # Extremes learned from what the robot reports, so a user who never calibrates
 # still gets a scale. Explicit calibration overrides these.
