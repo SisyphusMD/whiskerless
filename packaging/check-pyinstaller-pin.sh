@@ -32,6 +32,12 @@
 # /proc entry is readable and merely points somewhere else, so those particular
 # relaxations do not reach this case.
 #
+# Nothing in CI runs this — a weekly job that is green 51 times a year teaches
+# people to ignore it. The standing reminder is a claude.ai scheduled watcher
+# ("PyInstaller pin watch", Mondays), which carries the same judgement rule and
+# reports to Cody directly; this script is the reasoning it was built from, and
+# what to run by hand when you want the answer now.
+#
 # When this script says a release looks promising: bump PYINSTALLER in
 # .forgejo/workflows/publish.yml, cut an rc, and watch the "Create releases +
 # Linux binary" job — the only one that runs an emulated binary. If it goes
