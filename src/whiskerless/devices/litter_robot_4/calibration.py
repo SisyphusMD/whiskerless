@@ -58,7 +58,7 @@ ever reading as a floor.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from .models import LitterRobot4State
@@ -171,6 +171,14 @@ class Learned:
         data = asdict(self)
         del data["window"], data["rejects"], data["fresh_regime"]
         return data
+
+    def copy(self) -> Learned:
+        """An independent copy, session-only window included.
+
+        ``replace`` alone would share the window and reject lists, so folding a
+        reading into the copy would reach back into the original.
+        """
+        return replace(self, window=list(self.window), rejects=list(self.rejects))
 
     def span_ok(self, minimum: int) -> bool:
         return self.low is not None and self.high is not None and self.high - self.low >= minimum
