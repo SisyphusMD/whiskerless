@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Render the brand PNGs that home-assistant/brands wants, from the SVG sources.
 #
-# The four files go to custom_integrations/whiskerless/ in a PR against that
-# repo; nothing here is used at runtime. Sizes are theirs, not ours: icons are
+# The files land in custom_components/whiskerless/brand/, which Home Assistant
+# serves at /api/brands/integration/whiskerless/<image>. Sizes are the brands
+# project's, not ours: icons are
 # exactly 256 and 512 square, and a logo's SHORTEST side must land in 128-256
 # (and 256-512 for @2x), which is why the logo is rendered wide and then
 # trimmed — the rules also require minimal empty space around the artwork.
@@ -10,7 +11,11 @@
 # Needs rsvg-convert and ImageMagick (brew install librsvg imagemagick).
 set -euo pipefail
 cd "$(dirname "$0")"
-out="${1:-dist}"
+# Shipped, not built: since Home Assistant 2026.3 a custom integration serves
+# its own brand images from inside itself, so these files live in the
+# integration and are committed. See README.md for why there is no longer a
+# pull request to home-assistant/brands.
+out="${1:-../custom_components/whiskerless/brand}"
 mkdir -p "$out"
 
 rsvg-convert -w 256 -h 256 icon.svg -o "$out/icon.png"
@@ -27,6 +32,11 @@ done
 for f in "$out"/*.png; do
     # Interlaced (progressive) and stripped of metadata, both of which the
     # brands checks prefer. Lossless: no quantisation, no colour reduction.
-    magick "$f" -strip -interlace PNG -define png:compression-level=9 "$f"
+    # exclude-chunk=time: ImageMagick stamps a tIME chunk that -strip leaves
+    # behind, so an unchanged SVG would still produce a new hash and a dirty
+    # tree every time anyone ran this. These files are committed; they have to
+    # be reproducible.
+    magick "$f" -strip -interlace PNG -define png:compression-level=9 \
+        -define png:exclude-chunk=time,date "$f"
 done
 magick identify -format '%f  %wx%h  %b\n' "$out"/*.png

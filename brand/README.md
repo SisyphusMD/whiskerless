@@ -2,10 +2,23 @@
 
 The mark, and why it is not Whisker's.
 
-`icon.svg` and `logo.svg` are the sources; `render.sh` produces the four PNGs
-that [home-assistant/brands](https://github.com/home-assistant/brands) wants
-under `custom_integrations/whiskerless/`. Nothing here ships in the package or
-the integration — Home Assistant fetches brand images from that repo by domain.
+The four SVGs here are the sources. `render.sh` produces the eight PNGs that
+ship **inside the integration**, at `custom_components/whiskerless/brand/`,
+where Home Assistant serves them from `/api/brands/integration/whiskerless/…`.
+
+**There is no pull request to [home-assistant/brands](https://github.com/home-assistant/brands),
+and there must not be one.** That was the route until HA 2026.3; it is now
+closed. The brands PR template states that pull requests adding new custom
+components are no longer accepted, its type-of-change list no longer offers the
+custom-integration option, and the repository's own README labels
+`custom_integrations/` a legacy folder, pointing at the
+[Brands Proxy API announcement](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api).
+Local images take priority over the CDN and are cached with
+stale-while-revalidate, so they survive an internet outage.
+
+The file names and sizes are unchanged from the brands rules, because the proxy
+API adopted them wholesale. Installs older than HA 2026.3 simply ignore the
+folder and show no icon, which is what they show today.
 
 ## Why an original mark
 
@@ -84,11 +97,14 @@ light teal — not white, which glares against near-black exactly as Apple warns
 ## Rendering
 
 ```bash
-./render.sh          # writes dist/
+./render.sh          # writes ../custom_components/whiskerless/brand/
 ```
 
 Needs `rsvg-convert` and ImageMagick (`brew install librsvg imagemagick`). The
 sizes are the brands repo's rules, not ours: icons exactly 256×256 and 512×512,
 a logo whose *shortest* side falls in 128–256 (256–512 for `@2x`), PNG, prefer
 transparency, and trimmed so there is minimal empty space around the artwork.
-`dist/` is generated and not committed — the PR carries the files.
+The output is COMMITTED, because it ships with the integration — so the render
+is byte-reproducible (ImageMagick's `tIME` chunk is excluded explicitly; without
+that, an unchanged SVG produced a new hash on every run and a permanently dirty
+tree).
