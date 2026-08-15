@@ -27,10 +27,25 @@ published from a tumbling globe. Also worth watching `odometerEmptyCycles`
 
 ### #15 — Analyze the rolling LR4 capture (ongoing)
 
+NEW LEAD (2026-08-15): `0x5F`-`0x63` fire only in the same second as a globe-motor
+fault raise, twice in five days, values `55/12`, `14/14`, `326/172`, `65520`
+(`0xFFF0` = -16 int16) and `0/0`. Five unmapped registers appearing only beside a
+fault look like its diagnostic payload; two samples from one fault on one robot
+is a lead, not a decode. Next fault is the test.
+
 Rolling LR4 capture analysis (pod `lr4-capture` in namespace `homeassistant`).
 
-Fourth pass 2026-08-10/11 covered 12h19m (14:18Z–02:37Z), 1346 records,
-1346/1346 JSON, 0 orphans, 0 restarts.
+Fifth pass 2026-08-15 covered the whole 5d04h (08-10 14:18Z → 08-15 18:46Z),
+535,778 lines, 1 malformed. Fourth pass 2026-08-10/11 covered 12h19m
+(14:18Z–02:37Z), 1346 records, 1346/1346 JSON, 0 orphans, 0 restarts.
+
+RETRIEVAL, corrected: the k8s-workerbig reboot on 2026-08-15 00:31Z made the
+Deployment replace the capture pod, and the old pod object was deleted with its
+log directory — so `kubectl logs` offers 17 hours and nothing earlier. (For an
+ordinary container restart inside a surviving pod, `--previous` is still the
+cheaper answer; this was not that.) LOKI HAS THE REST, earlier pods included — the working note saying Loki was
+unusable here is wrong. Query `{namespace="homeassistant", pod=~"lr4-capture.*"}`
+and page it forward (limit 5000, cursor past the newest line of each batch).
 
 METHOD RULE, learned the hard way: time everything by the payload's own
 `timestamp` and dedupe on (payload time, register, value). Passes 1–3 used MQTT
@@ -183,22 +198,23 @@ no recovery story means no, regardless of feasibility.
 Defensible interim: expose the firmware versions we already decode, document
 that updates require re-onboarding to the Whisker app, ship no install path.
 
-### #45 — Confirm 0x32 is the sleep flag and work out what 0x4C is — *blocked: live toggle / rare event*
+### #45 — Confirm 0x32 is the sleep flag — *blocked: live toggle*
 
-Both are one-capture observations (23h37m), so they live in the capture
-notebook rather than registers.md.
+`0x32` is now ten for ten across five nights (2026-08-10→15): ten sleepStatus
+edges, ten emissions, every one leading its edge by 2-3 seconds, no unmatched
+edge and no unmatched emission. Passive still — the hand toggle is what would
+make it PROVEN, and it doubles as #22's live verification.
 
-`0x32`: `0x320001` fired 5s before sleepStatus went 1, `0x320000` 5s before it
-went 0; only two emissions in the window. To confirm: toggle panel sleep by
-hand and watch whether `0x32` tracks it (doubles as #22's live verification).
+`0x4C` is NOT answered, and the five-day pass narrowed it without settling it:
+54 emissions, all with sleepStatus 1, none awake; it clears at all five wakes;
+a clean cycle follows within 3-5s at four of them. The fifth (night ending
+08-12) had seven sets, cleared normally, and no cycle — which is what "a cycle
+is owed" predicts against. The discriminating test is unchanged and still
+untried: a cycle deferred while AWAKE (bonnet lift or full drawer) with a cat
+visit inside the deferral. The only awake blocker in five days was a 7-second
+bonnet removal with no cat, which tests nothing.
 
-`0x4C`: nine `0x4C0001` emissions, every one during a cat visit while the robot
-was asleep, then `0x4C0000` at wake beside the `0x32` clear. "A cycle is owed"
-fits, but so does "a visit happened while asleep". To separate: catch a
-deferred cycle with sleep off (bonnet-removed or drawer-full hold) and see
-whether `0x4C` sets.
-
-Also unexplained: a single `0x710001` thirteen minutes before sleep began.
+Also unexplained: `0x710001`, five emissions in five days on robot 1.
 
 ### #51 — Probe whether mqtt-config / whisker-config expose a READ for certs and endpoints — *blocked: robot in pairing mode*
 

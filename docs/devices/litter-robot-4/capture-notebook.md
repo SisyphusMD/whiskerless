@@ -50,12 +50,12 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 |---|---|
 | ~~Is `catDetect` a bitfield whose bit 0 is the cat?~~ | **ANSWERED 2026-08-11.** Bit 0 = ToF sight line, bit 1 = load cell; all four values driven independently, 24 samples of perfect separation on a live cat |
 | ~~What is `catDetect` bit 1?~~ | **ANSWERED 2026-08-11.** The load cell — an inert weight sets it with the beam clear, and Whisker's "excess weight" fault is bit 1 alone. Nothing to do with the hopper |
-| Is `0x32` the sleep flag? | Two transitions in one capture, 2 s and 3 s ahead of `sleepStatus`. Toggle sleep by hand and watch it |
-| Is `0x4C` "a cycle is owed"? | It has only ever been seen while asleep, so "a visit while asleep" fits the same data — catch a deferred cycle with sleep off |
+| Is `0x32` the sleep flag? | **Ten for ten across five nights (2026-08-10→15)** — ten `sleepStatus` edges, ten emissions, each leading by 2-3 s, none unmatched either way. Passive evidence is now exhausted; toggle sleep by hand and watch it |
+| Is `0x4C` "a cycle is owed"? | Five days: 54 emissions, all while asleep, none awake; clears at all five wakes with a cycle following at four of them — but the fifth had sets, cleared normally and ran no cycle, which is what "owed" predicts against. Catch a deferred cycle with sleep OFF and a cat inside the deferral |
 | What do `0x3C` / `0x66` measure? | They repeat per cycle and now reproduce across two robots — correlate against a cycle interrupted mid-way |
 | What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`, `0x71`? | Perturb something physical and watch which one moves |
 | What are `0x0C`, `0x41`, `0x67`? | `0x0C` is **demand-driven** — robot 2 ran it while starved, stopped after a refill and has been silent for five cycles; robot 1 has never needed a dispense. Whether it needs the *hardware* is still open: run a cycle with litter scooped out of the globe and the hopper off |
-| What are `0x5F`–`0x63`? | Seen once, bracketing robot 2's `0x350001` globe-motor fault (addendum) — catch a second fault |
+| What are `0x5F`–`0x63`? | Twice, both in the same second as robot 2's `0x350001` raises and nowhere else in five days: `0x5F` 55/12, `0x60` 14/14, `0x61` 326/172, `0x62` 65520 (`0xFFF0`, -16 int16) then 62, `0x63` 0/0. Reads like a fault diagnostic payload — catch a second fault |
 | ~~What does the `0x3402C0` tick count?~~ | **ANSWERED 2026-08-11.** The clean-delay countdown — three ticks exactly 2 min apart, ending 13 s before a cycle that fired 1 s off `cleanCycleWaitTime` |
 | Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | Looked settled (`1064` automatic, `0x01=0201` commanded) until a cycle carried the button code with nobody at the machine. Needs cycles where presence is certain |
 | Is the `catWeight` divisor 100 for certain? | **The known-weight method does not work** — three trials gave divisors 72.4, 84.8 and 88.5, and an inert object sheds load against the globe wall. Needs a real cat, a clean tare, and a same-evening household weigh-in |
@@ -64,7 +64,7 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | Is `surfaceType` (TILE/CARPET/UNKNOWN) stored on the robot, or only in the account? | The cloud exposes it; none of the 69 local state fields carries it, and nobody has looked for it in the register file. If it is local it is a *writable setting* nobody has mapped — sweep the unread settings addresses, or change it in the app and watch for a register that moves |
 | Does `empty_cycle` have a `robotStatus` int of its own? | pylitterbot names it, but that vocabulary is what the cloud *presents*, computed from several fields — `paused` is the proof, since a paused cycle holds `robotStatus` 10 and shows the pause on `robotCycleState` 4. Treat those names as candidates for an unmapped int, never as a bound |
 | Which of the still-UNKNOWN registers are worth a firmware dump rather than more captures? | The dump route is already written up in [reverse-engineering.md](../../reverse-engineering.md) — an `esptool read_flash` yields the complete `pic_factory` image. elttam's LR3 teardown independently found the same `pic`-prefixed layout on the previous model, so the approach is not speculative. Worth deciding per register: most of the rows above have a cheaper physical experiment |
-| Does anything above `0x7F` exist on 1.1.75? | An accumulating null result — now two robots, 23h37m and 9m, still nothing |
+| Does anything above `0x7F` exist on 1.1.75? | Not a null result any more: robot 2 emits `0xB9` (×48) and `0xBC` (×51) across five days, and robot 1 emits neither. Both are on ESP 1.1.75, which rules the ESP build out but does not by itself name the cause: the main-board versions differ too (#19), and so does everything else about two physical robots. Ask what else separates them before crediting the board |
 
 ## Sessions
 
@@ -175,6 +175,96 @@ explanation is back on the table for every register the two disagree on. Phantom
 
 **Not done:** engineered sleep window, empty/power finales, a second seat on robot 1's
 bottom drawer, and the `0x0C` deficit experiment.
+
+### 2026-08-10→15, 5d04h — five sleep windows, from Loki
+
+2026-08-10T14:18Z → 2026-08-15T18:46Z, both robots, 535,778 log lines, 1 malformed
+payload. Timed and deduped by payload timestamp per the method rule above.
+
+| | robot 1 (`…654321`) | robot 2 (`…123456`) |
+|---|---|---|
+| telemetry messages | 6544 (3195 state) | 8495 (3675 state, 1 malformed) |
+| activity readings, deduped | 2881 | 4030 |
+| robotStatus seen | 4 ×1864, 10 ×760, 7 ×453, 25 ×114, 5 ×4 | 4 ×1544, 7 ×992, 10 ×932, 25 ×203, 5 ×2 (3673 of 3674 parsed — see below) |
+| above `0x7F` | none | `0xB9` ×48, `0xBC` ×51 |
+
+Robot 2 joins on 08-11 13:47. Command echoes (1200 in the last day alone) are counted
+separately from telemetry and excluded from the table.
+
+Two of robot 2's state messages carry no usable status: one is malformed JSON, and one
+at 08-15 13:27:32Z parses cleanly but has no `robotStatus` FIELD at all — it carries
+`DFI*`, `DisplayIntensity*`, `RTCChipId`, `USBFaultStatus` and stops. A decoder that
+assumes every state document is complete will read that as a robot with no status
+rather than as a truncated publish, which is worth knowing before trusting a single
+document over a stream.
+
+**Read it out of LOKI when the pod has been replaced.** `k8s-workerbig` rebooted at 00:31Z on 08-15, and
+the capture Deployment answered with a NEW pod; the old pod object went with it, taking
+its kubelet log directory. (`kubectl logs --previous` recovers a restarted container
+INSIDE a surviving pod — that is a different case, and not this one: the pod name
+changed.) So `kubectl logs` offers 17 hours and nothing earlier — it is the POD that vanished,
+not a limitation of the command, and for an ordinary container restart `--previous` is
+still the cheaper answer. Loki retained every
+earlier pod — the query below returns the whole five days, `lr4-capture-…-hdtsv`
+included — which corrects the working note that said Loki was unusable here:
+
+```
+{namespace="homeassistant", pod=~"lr4-capture.*"}
+```
+
+Page it with `direction=forward`, `limit=5000`, advancing the start cursor past the
+newest line of each batch.
+
+**`0x32` is the sleep flag: ten out of ten.** Five nights, ten `sleepStatus` edges, ten
+`0x32` emissions, no unmatched edge and no unmatched emission. Every one leads its edge
+by 2-3 seconds, and the schedule repeats to the second (`04:37:3x` and `12:37:3x`):
+
+| Emission | Edge it precedes | Leads |
+|---|---|---|
+| `0x320001` at 04:37:32/33/34/34/35 | `sleepStatus` 0→1 | +2s every night |
+| `0x320000` at 12:37:33/33/36/37/37 | `sleepStatus` 1→0 | +3s, +2s, +2s, +2s, +3s |
+
+This is as far as passive observation can go; the hand toggle #45 asks for is what
+would make it PROVEN.
+
+**`0x4C` is tied to the sleep window, and that is all we can say.** 54 emissions on
+robot 1, every single one with `sleepStatus` 1, none while awake in five days. It
+clears at all five wakes, and at four of those a clean cycle (`0x34000A`) follows 3-5
+seconds later. The fifth is the one that matters: the night ending 08-12 recorded seven
+sets, cleared at 12:37:33 like the others, and NO cycle ran within ten minutes. So "a
+cycle is owed" does not survive its own prediction, and the earlier reading — a visit
+happened while asleep — is not distinguished from it either.
+
+What would separate them is still the untried test: a cycle deferred while AWAKE, by a
+bonnet lift or a full drawer, with a cat visit inside the deferral. The only awake
+blocker in these five days was a bonnet removal on 08-12 at 01:27 that lasted seven
+seconds with no cat present, which tests nothing.
+
+**A globe-motor fault carries a five-register diagnostic burst.** The 08-11 fault is
+already documented (raised `0x350001` ×3 at 14:53:58-14:54:14, cleared `0x350000` at
+15:43:23, 49 minutes, with `globeMotorFaultStatus` reading 0 throughout — re-confirmed
+here by independent extraction). What is new: `0x5F`-`0x63` fire in the same second as
+the raise and nowhere else in five days.
+
+| Register | First raise (14:53:58) | Second raise (14:54:14) |
+|---|---|---|
+| `0x5F` | 55 | 12 |
+| `0x60` | 14 | 14 |
+| `0x61` | 326 | 172 |
+| `0x62` | 65520 — `0xFFF0`, i.e. -16 as int16 | 62 |
+| `0x63` | 0 | 0 |
+
+Five unmapped registers that appear only alongside a motor fault look like its
+diagnostic payload (current, position, error code), but two samples from one fault on
+one robot is a lead, not a decode.
+
+**The hopper drain and refill, in gauge readings.** Robot 2's only dispenses in five
+days fall inside a single 66-minute stretch on 08-11, 13:49 to 14:55 — the tail of the
+drain the narrated session above describes, seen from the capture rather than counted
+at the machine, so read it alongside that account rather than against it. Phase-1 went
+`60, 59, 58, 58` and then `84`. Phase 0 is `276` every time and phase 2 is `119`/`120`,
+holding the invariant-marker reading. Note the burst splits across messages: the phase-0
+marker arrives about twenty seconds before its phase-1/2 pair.
 
 ### 2026-08-10/11, 23h37m — two robots, seven clean cycles, an 8-hour sleep window
 
