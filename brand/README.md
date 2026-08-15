@@ -29,14 +29,25 @@ So: a cat over a drawer, in a teal chosen to sit nowhere near Whisker's orange,
 and deliberately **not** shaped like Home Assistant's house, which the brands
 rules ask custom integrations to avoid.
 
-**The bar under the cat is the machine.** A cat alone says "pets", not "litter
-box", and the LR4's signature is a globe over a waste drawer. Three other ways
-of referencing the robot were drawn: a porthole opening with a face inside (lost
-the cat — reads as an owl), a ring around the head (ears collide with it, mush
-at 32 px), and a full front elevation (too much for an icon). The head reads as
-the globe, the bar as the drawer, and at 32 px both survive — which is the only
-test that matters, because that is the size Home Assistant lists integrations
-at.
+**The box in front of the cat is the machine, and the overlap is why it works.**
+A cat alone says "pets", not "litter box". The first attempt put a bar under the
+head, which read as the cat's shoulders; adding a handle to that bar made it a
+bow tie. Both failed for the same reason — anything sitting directly beneath a
+head, at head width, is a body.
+
+What fixes it is occlusion. The box is drawn OVER the head so the chin
+disappears behind it, and nothing can pass in front of the body it belongs to.
+That single overlap turns one animal into two objects, one behind the other, and
+the handle then reads as a drawer pull because it is on an object that is
+plainly a container. A thin gap of tile colour around the box keeps the overlap
+reading as depth instead of a welded shape.
+
+Four other ways of referencing the machine were drawn and dropped: a full-width
+plinth (reads as a shelf), a drawer shown pulled open (reads as stacked trays),
+a panelled unit with a seam (a torso with a belt), and, in an earlier round, a
+porthole, a bare product silhouette, a curled cat and a rotation arc — all
+either lost the cat or collapsed at 32 px, which is the size Home Assistant
+lists integrations at and therefore the only test that counts.
 
 **There are no whiskers anywhere, and that was the hard call.** Six ways of
 showing their absence were drawn and rejected:
@@ -69,11 +80,6 @@ Home Assistant composites onto its own dark card rather than supplying a
 backdrop, so the equivalent here is a dark tile with the artwork inverted into
 light teal — not white, which glares against near-black exactly as Apple warns.
 `dark_icon` exists so the tile still matches its own lockup on that theme.
-
-Directions that were drawn and rejected live in `concepts/`, with what each one
-did well and where it broke — including one that plainly failed. They are kept
-so the next person to wonder "what about the globe as a porthole?" can see it
-drawn rather than re-imagine it.
 
 ## Rendering
 
