@@ -81,7 +81,7 @@ jobs:
           # renovate: datasource=docker depName=quay.io/pypa/manylinux_2_28_x86_64
           MANYLINUX_AMD64="quay.io/pypa/manylinux_2_28_x86_64:2026.08.08-1@sha256:f854c50adf7b7a325bc4794316f3758d387a41d61f9e2ebca0f26c7dc8f761d4"
           # renovate: datasource=docker depName=quay.io/pypa/manylinux_2_28_aarch64
-          MANYLINUX_ARM64="quay.io/pypa/manylinux_2_28_aarch64:2026.08.08-1@sha256:b9dd5b2d6885fae144119ac934978003bcc413087ea08f602a960257205ec246"
+          MANYLINUX_ARM64="quay.io/pypa/manylinux_2_28_aarch64:2026.08.15-1@sha256:561427136aabf3787bffb294b3515748241e0962d1527ae28bea1e076bfb9d99"
           # nfpm packages the binaries. Pinned image; its digest IS the integrity check.
           # renovate: datasource=docker depName=goreleaser/nfpm
           NFPM="goreleaser/nfpm:v2.47.0@sha256:a662cb167d7b6d3a83920c83d76b12d02b8ac5dd2c13e5c62c15270b23f6df0c"
