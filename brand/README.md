@@ -70,6 +70,11 @@ backdrop, so the equivalent here is a dark tile with the artwork inverted into
 light teal — not white, which glares against near-black exactly as Apple warns.
 `dark_icon` exists so the tile still matches its own lockup on that theme.
 
+Directions that were drawn and rejected live in `concepts/`, with what each one
+did well and where it broke — including one that plainly failed. They are kept
+so the next person to wonder "what about the globe as a porthole?" can see it
+drawn rather than re-imagine it.
+
 ## Rendering
 
 ```bash
