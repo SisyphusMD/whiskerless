@@ -246,7 +246,9 @@ async def test_a_beam_break_does_not_license_a_later_phantom(
     """An arm reaching in must not arm the gate indefinitely.
 
     Otherwise the first thing to break the beam licenses every Reset phantom that
-    follows, however many minutes later, and the gate is worse than none.
+    follows, however many minutes later, and the gate is worse than none. The
+    window covers the duration the close claims, so this one is aged past even
+    that: 10 minutes against a 235 s claim.
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
@@ -257,7 +259,7 @@ async def test_a_beam_break_does_not_license_a_later_phantom(
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
-    coordinator._derived.beam_broken_at -= timedelta(minutes=5)
+    coordinator._derived.beam_broken_at -= timedelta(minutes=10)
 
     with robot_online(robot):
         robot.push(_activity(f"0xBC{235:04X}"), ACTIVITY_TOPIC)

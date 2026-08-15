@@ -459,7 +459,7 @@ def _apply_activity(state: DerivedState, message: ActivityMessage, now: datetime
             # both were published as genuine multi-minute cat visits. Bit 0 (the
             # time-of-flight sight line) is what a cat sets and a hand on the
             # bonnet does not, so it is the discriminator.
-            if not _beam_seen_recently(state, now):
+            if not _beam_seen_recently(state, now, event.duration_s):
                 continue
             state.beam_broken_at = None
             # The duration closes a visit even when it was too short for a
@@ -490,17 +490,26 @@ def _sight(
     return [CapabilitySighted(capability, evidence)]
 
 
-def _beam_seen_recently(state: DerivedState, now: datetime) -> bool:
-    """Whether a body broke the beam recently enough to own a visit close.
+def _beam_seen_recently(state: DerivedState, now: datetime, duration_s: int) -> bool:
+    """Whether a body broke the beam recently enough to own this visit close.
 
     The close trails the departure: in a narrated visit ``catDetect`` fell to 0
     one second before ``0xBC`` arrived, so the gate cannot require the beam to
     still be broken. It also cannot latch forever, or an arm reaching in would
     license a Reset phantom minutes later.
+
+    The window has to cover the VISIT as well as that lag, because the close
+    arrives at the end of a visit while the break that matches it is stamped
+    near the start — and state documents, which are what stamp it, arrive on a
+    multi-minute cadence. A fixed grace therefore dropped every visit longer
+    than itself, silently and exactly for the cats that sit longest. The close
+    says how long it was, so it says how far back to look: a phantom claiming a
+    long visit still has to point at a real beam break that far back.
     """
     if state.beam_broken_at is None:
         return False
-    return (now - state.beam_broken_at) <= VISIT_CLOSE_GRACE
+    window = VISIT_CLOSE_GRACE + timedelta(seconds=max(duration_s, 0))
+    return (now - state.beam_broken_at) <= window
 
 
 def _learn_litter(state: DerivedState, robot: LitterRobot4State, now: datetime) -> list[Effect]:

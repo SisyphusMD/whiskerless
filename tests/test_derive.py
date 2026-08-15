@@ -254,8 +254,18 @@ def test_a_visit_close_behind_the_beam_is_the_cat_leaving() -> None:
 
 def test_an_arm_in_the_beam_does_not_license_a_close_minutes_later() -> None:
     touched = _seen(DerivedState(), _state(catDetect=1))
-    late = T0 + VISIT_CLOSE_GRACE + timedelta(seconds=1)
-    assert apply_message(touched, _activity("0xBC0EC0"), late).state.last_visit_duration_s is None
+    late = T0 + VISIT_CLOSE_GRACE + timedelta(seconds=16)  # 15 s claimed, 16 s past it
+    assert apply_message(touched, _activity("0xBC000F"), late).state.last_visit_duration_s is None
+
+
+def test_a_long_visit_closes_against_the_break_that_started_it() -> None:
+    """State documents arrive minutes apart, so the break that stamps a visit is
+    the one at its start — a window that ignored the claimed duration dropped
+    every visit longer than itself, which is the cats that sit longest."""
+    arrived = _seen(DerivedState(), _state(catDetect=1))
+    close = T0 + timedelta(seconds=240)
+    update = apply_message(arrived, _activity(f"0xBC{240:04X}"), close)
+    assert update.state.last_visit_duration_s == 240
 
 
 def test_a_globe_fault_is_a_change_and_holding_it_is_not() -> None:
