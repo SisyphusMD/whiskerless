@@ -92,6 +92,16 @@
       "allowedVersions": "/^(macos-)?15(-intel)?$/"
     },
     {
+      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because newer is BROKEN here, and nothing goes red until a release is already half-published. PyInstaller 6.22.0 added a onefile bootloader check that the parent process is the same executable, and 6.22.1 enforces it where 6.22.0 did not. The arm64 Linux binary is cross-built and self-tested under buildkit's QEMU emulator, whose emulator binary IS that different parent — so the in-image `--help`, and both arm64 package smokes, die with \"Security validation failure: parent process has different executable!\". This bump automerged as a patch and took out the v0.2.0-rc.18 Linux artifacts after PyPI and the tap had already published. Upstream documents no opt-out. Raise when the bootloader can be told its parent is an emulator, or when the runner executes arm64 natively.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "pyinstaller"
+      ],
+      "allowedVersions": "<=6.22.0"
+    },
+    {
       "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. Rocky 9 (glibc 2.34) is the .rpm smoke-test container in packaging/package-smoke-rpm.Dockerfile. It sits BELOW the build image (2.39) on purpose: PyInstaller links against the build machine's glibc, so a bundle can silently require 2.39, install cleanly anywhere and then refuse to start. Testing on Rocky 10 (also 2.39) means the binary always runs and the smoke test can never fail. Digests must keep flowing so the container stays patched, hence a range rather than disabling it.",
       "matchDatasources": [
         "docker"
