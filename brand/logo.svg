@@ -6,5 +6,5 @@
   <ellipse cx="101" cy="146" rx="12" ry="16.5" fill="#0E7C7B"/>
   <ellipse cx="155" cy="146" rx="12" ry="16.5" fill="#0E7C7B"/>
   <path d="M128 172 l11 9 -11 9 -11 -9 Z" fill="#0E7C7B"/>
-  <text x="300" y="170" font-family="Avenir Next" font-weight="600" font-size="104" fill="#0E7C7B">whiskerless</text>
+  <text x="300" y="170" font-family="Avenir Next" font-weight="600" font-size="104"><tspan fill="#7FBDBC">whisker</tspan><tspan fill="#0E7C7B">less</tspan></text>
 </svg>

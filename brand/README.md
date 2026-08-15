@@ -30,20 +30,31 @@ at 32 pixels; in a teal chosen to sit nowhere near Whisker's orange; and
 deliberately **not** shaped like Home Assistant's house, which the brands rules
 ask custom integrations to avoid.
 
-**There are no whiskers anywhere, and that was the hard call.** Three ways of
-showing their absence were drawn and rejected: severed stubs, a stub-and-gap,
-and whisker *roots* with nothing growing from them. At 32 pixels all three turn
-to grit on the lens, and at logo size a faded ghost of a whisker does not read
-as "absent" — it reads as a whisker, in a lighter colour. Absence cannot be
-drawn without drawing the thing. So the symbol has none, and the word does the
-work.
+**There are no whiskers anywhere, and that was the hard call.** Six ways of
+showing their absence were drawn and rejected:
 
-**One symbol, two lockups.** The logo is the icon plus the wordmark — the same
-tile, the same cat, the same geometry, nothing invented for the lockup. An icon
-and a logo that share a name but not a drawing are two brands wearing one label.
-`dark_logo` differs from `logo` in exactly one value, the colour of the word:
-teal type on Home Assistant's dark theme sits at about the contrast of dark grey
-on black.
+| tried | why it failed |
+|---|---|
+| severed stubs | grit on the lens at 32 px |
+| stub, gap, nothing | same, and ambiguous at full size |
+| whisker *roots*, nothing growing | mush at 32 px |
+| ghosted whiskers, faded | reads as whiskers, in a lighter colour |
+| whiskers as VOIDS cut into the cheeks (the FedEx-arrow trick) | backfires — cut into a white face they read as whiskers *drawn on* it |
+| whiskers drawn and struck through (*sous rature*) | legible at full size, noise at 32 px |
+
+Absence cannot be drawn without drawing the thing, and an icon that is unusable
+at 32 pixels is unusable. So the symbol has none, and the WORD carries it: the
+wordmark sets "whisker" in a tint and "less" at full strength, which says which
+half of the name is the point. Striking "whisker" through was drawn too and
+dropped — crossing out a company's name is a different statement from declining
+to wear its logo, and this project is making the second one.
+
+**One symbol, four files.** The logo is the icon plus the wordmark — the same
+tile, the same cat, the same geometry, verified pixel-for-pixel by cropping the
+lockup's first 256 px and comparing it to the icon. The dark pair is the same
+drawing on a brighter tile with a near-white word, because the light teal type
+on Home Assistant's dark cards sits at about the contrast of dark grey on black;
+`dark_icon` exists so the tile still matches its own lockup on that theme.
 
 ## Rendering
 
