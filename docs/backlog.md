@@ -200,21 +200,6 @@ whether `0x4C` sets.
 
 Also unexplained: a single `0x710001` thirteen minutes before sleep began.
 
-### #49 — Record WHAT proved each detection, so the sweep stops needing a global revision counter
-
-`DETECTION_RESET_REVISION` is a blunt instrument: it cannot tell which
-sightings a rule change invalidates, so every bump re-sweeps every install.
-That caused a real regression on 2026-08-12 — revision 2 retired 0x57-granted
-hoppers and took genuinely-proven ones with them; revision 3 patches it by
-seeding from a fill gauge. Better shape: store the evidence kind alongside each
-sighting (e.g. `hopper_seen_by: "dispense" | "link"`), then a rule change
-invalidates only sightings whose evidence is now unacceptable — no global bump,
-no collateral, and the sweep's intent becomes readable.
-
-*2026-08-13 review note:* do this WITH #54, not before or after — the
-per-sighting evidence payload is exactly the shape of the side-effect record
-the derive-reducer returns, and doing it HA-side first means moving it twice.
-
 ### #51 — Probe whether mqtt-config / whisker-config expose a READ for certs and endpoints — *blocked: robot in pairing mode*
 
 The mapped provisioning message set is write-only for config; the single
@@ -250,46 +235,7 @@ other (provisioning README says serial, recovery.md and the code say MAC) —
 this observation settles that too. Renaming `read_device_mac` is a library API
 break to fold into the next breaking release.
 
-### #54 — Lift derived state out of the HA coordinator into the library
-
-`coordinator.py` (918 lines) holds the LR4 derived state: cat weight, visit
-start/duration, hopper link + last dispense, learned litter/hopper scales,
-drawer last moved, globe motor fault, the beam-broken window, the scale-loaded
-window, detection sightings. CLAUDE.md's architecture says the library owns
-protocol logic and the integration stays a thin pipe; the coordinator drifted
-past that, and the cost is that the CLI cannot show anything HA shows without a
-second implementation.
-
-Target: transport-agnostic `src/whiskerless/devices/litter_robot_4/derive.py` —
-in: parsed messages + previously-learned calibration; out: derived values and
-events. Pure, no I/O, no HA imports. The library owns LOGIC; Home Assistant
-keeps owning PERSISTENCE (config entry options, the sweep, RestoreEntity).
-
-Gates: 99% both suites, safety.py and config_flow.py 100%, both mypy
-invocations. Entity-visible behaviour must not change; the integration tests
-are the contract. Unblocks #55 and any future daemon.
-
-*2026-08-13 review decisions:*
-- Design it as a REDUCER — `(DerivedState, message, now) → (DerivedState,
-  effects)` — where effects ("persist learned", "record sighting X") are
-  returned, not performed. The coordinator's reported-flags structure already
-  has this shape.
-- Unify on ONE injected wall clock. The current wall/monotonic split exists
-  only for the dedupe windows and forces the reload bridge in coordinator
-  `__init__`; going all-wall deletes the bridge and fixes the
-  monotonic-zero-at-boot sample loss.
-- Replace the field-by-field sighting bootstrap with `DerivedState`
-  to/from-dict (kills the `CONF_HOPPER_FILL_RAW` clobber).
-- The split must also claim the derivation stranded in `binary_sensor.py`
-  (excess-weight rule + threshold, globe-fault merge policy, hopper-empty
-  floor rule) and give the restored latches an input path into the reducer.
-- The press-echo watch (`_awaited_press`) is transport; it stays behind.
-- FIRST, before moving code: add the two missing contract tests — the
-  learned-LITTER coordinator wiring and the two-point calibration path have no
-  integration test today (see #60).
-- Do #49 in the same change.
-
-### #55 — Close CLI/HA equivalence (status view, panel-reset, calibrate) — *blocked on #54*
+### #55 — Close CLI/HA equivalence (status view, panel-reset, calibrate)
 
 Audited 2026-08-13 against the shipped HA surface.
 
@@ -304,7 +250,9 @@ its always-failing switch was retired), mostly derived. Add a `status` subcomman
 the same derived view via #54's derive.py; keep the raw dump for protocol work.
 
 Do NOT implement by porting coordinator logic into cli.py — that recreates the
-two-implementation problem.
+two-implementation problem. #54 landed, so `derive.py` is the shared source: a
+`status` subcommand renders `DerivedState` from one fresh document plus stored
+calibration.
 
 *2026-08-13 scope decision:* equivalence is scoped to what a one-shot can
 honestly know. `status` shows everything derivable from a fresh state document
@@ -318,20 +266,6 @@ HA's.
 ---
 
 ## Added 2026-08-13 (from the whole-repo cold review)
-
-### #56 — Close the beam-gate window that can drop real visit closes
-
-`_beam_broken_at` is stamped only by state documents showing occupancy, but the
-visit-close grace is 90 s while state documents arrive on multi-minute cadence.
-The freshness chain (activity → throttled refresh → state doc) is skipped
-entirely while the write lock is held, and a settings write holds it for up to
-~24 s of verify timeouts. A lingering visit, or one spanning a write
-transaction, silently loses `CatVisitEnded` — no duration, no visit stamp, and
-on a not-yet-sighted robot the detection itself. (The 300 s duration cap
-explicitly admits visits three times longer than the grace.) Options: stamp the
-beam from activity-stream catDetect readings too, lengthen the grace, or gate
-on "beam seen since the last close" rather than a fixed window. Fold into #54's
-reducer design if timing allows.
 
 ### #63 — provision should collect (and store) the broker username
 
@@ -354,6 +288,9 @@ its connect errors.
 
 ## Done (archive)
 
+- #54 derive.py: **done 2026-08-15** — `src/whiskerless/devices/litter_robot_4/derive.py` owns every derived fact as a pure reducer `(DerivedState, message, now) -> (state, changed, effects)`; the coordinator stores what the effects tell it to and the entities only read, the binary sensors' merge policies (globe-fault OR, excess-weight threshold, hopper-empty floor) moved with it, the dedupe windows are one wall clock (which also fixed the first reading after every boot being discarded), and five per-capability bootstrap blobs became one derived snapshot (a blob without a gauge could clobber the persisted one)
+- #49 sighting evidence: **done 2026-08-15 with #54** — each sighting records WHAT proved it (`Evidence`), and `ACCEPTED_EVIDENCE` per capability decides what a rule change retires; the global revision counter is gone, its marker pinned at 3 only so a downgrade does not re-run the old sweep. Unrecognized kinds are trusted (a newer build wrote them), unlabelled ones are re-examined once where the old sweeps never validated them
+- #56 beam gate: **done 2026-08-15 with #54** — the visit-close window is now the 90 s grace PLUS the duration the close claims, since the break that stamps a visit lands at its start and state documents arrive minutes apart. RESIDUAL: a visit that produces no state document at all (a settings write holds the lock through it) still has nothing to stamp; activity `0x37` was rejected as the stamp because its bit 0 stayed set through a 2h15m bit-1-only run, so it is not the ToF sight line
 - #1 Capture Cycle long-press (press-type verification)
 - #3 Merge PR #9's decoding, drop its filter-change button
 - #4 Document tonight's protocol findings

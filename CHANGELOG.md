@@ -104,9 +104,17 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **A restored globe-motor fault can clear after a missed clear event** — a clean
   cycle completing without a fault event is the proof.
 - **A detection re-sweep no longer disables entities you enabled yourself.**
+- **A long cat visit is no longer dropped** — the close was matched against a
+  90-second window, and the cats that sit longest fell outside it.
+- **The first litter reading after a restart is no longer discarded**, and a
+  hopper's own readings can no longer be undone by the upgrade that enabled it.
 
 ### Changed
 
+- **Detections remember what proved them**, so tightening one rule can no longer
+  cost you entities another rule had already earned.
+- **All the derived telemetry moved into the library**, which is what will let the
+  CLI show everything Home Assistant shows without a second implementation.
 - **Auto-calibration got a statistics upgrade**: a median-based outlier gate keeps
   in-band anomalies (a paw reads like an overfull globe) away from the litter
   anchors, and the hopper floor is learned from declined-into flatline runs — in
