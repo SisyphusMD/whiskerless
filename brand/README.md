@@ -30,11 +30,20 @@ at 32 pixels; in a teal chosen to sit nowhere near Whisker's orange; and
 deliberately **not** shaped like Home Assistant's house, which the brands rules
 ask custom integrations to avoid.
 
-The whiskers are the joke, and they only work where there is room for them. In
-the landscape logo they appear as ghosts — drawn, faded, plainly not there. In
-the icon they are simply absent: at 32 pixels whisker stubs turn to grit on the
-lens, and every variant that tried to show their absence read worse than the
-variant that just left them off. The name carries it from there.
+**There are no whiskers anywhere, and that was the hard call.** Three ways of
+showing their absence were drawn and rejected: severed stubs, a stub-and-gap,
+and whisker *roots* with nothing growing from them. At 32 pixels all three turn
+to grit on the lens, and at logo size a faded ghost of a whisker does not read
+as "absent" — it reads as a whisker, in a lighter colour. Absence cannot be
+drawn without drawing the thing. So the symbol has none, and the word does the
+work.
+
+**One symbol, two lockups.** The logo is the icon plus the wordmark — the same
+tile, the same cat, the same geometry, nothing invented for the lockup. An icon
+and a logo that share a name but not a drawing are two brands wearing one label.
+`dark_logo` differs from `logo` in exactly one value, the colour of the word:
+teal type on Home Assistant's dark theme sits at about the contrast of dark grey
+on black.
 
 ## Rendering
 

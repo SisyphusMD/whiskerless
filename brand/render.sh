@@ -15,9 +15,14 @@ mkdir -p "$out"
 
 rsvg-convert -w 256 -h 256 icon.svg -o "$out/icon.png"
 rsvg-convert -w 512 -h 512 icon.svg -o "$out/icon@2x.png"
-# Rendered wide, then trimmed to the artwork.
-rsvg-convert -w 900 -h 256 logo.svg | magick png:- -trim +repage "$out/logo.png"
-rsvg-convert -w 1800 -h 512 logo.svg | magick png:- -trim +repage "$out/logo@2x.png"
+# Height only: -w would scale the axes independently and squash the tile out
+# of square, quietly making the logo's symbol a different drawing from the icon's.
+rsvg-convert -h 256 logo.svg | magick png:- -trim +repage "$out/logo.png"
+rsvg-convert -h 512 logo.svg | magick png:- -trim +repage "$out/logo@2x.png"
+# Dark theme gets a lighter wordmark; the tile and cat are unchanged, so it is
+# the same lockup rather than a second design.
+rsvg-convert -h 256 dark_logo.svg | magick png:- -trim +repage "$out/dark_logo.png"
+rsvg-convert -h 512 dark_logo.svg | magick png:- -trim +repage "$out/dark_logo@2x.png"
 
 for f in "$out"/*.png; do
     # Interlaced (progressive) and stripped of metadata, both of which the
