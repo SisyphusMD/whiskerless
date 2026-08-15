@@ -1,0 +1,36 @@
+name: Watch the PyInstaller pin (weekly)
+
+# publish.yml holds PyInstaller at 6.22.0 because 6.22.1's onefile bootloader
+# refuses to run under the emulator the arm64 Linux build depends on — the whole
+# story, and the way out, is in packaging/check-pyinstaller-pin.sh.
+#
+# A pin nobody revisits outlives its reason, and nothing else here would ever
+# notice: the Renovate clamp deliberately suppresses the update PRs that would
+# otherwise be the reminder. So this asks once a week and FAILS when the answer
+# changes, because a red weekly job is a signal and a green one is silence.
+#
+# It reads PyPI and the upstream changelog. It never touches a release.
+on:
+  schedule:
+    # Mondays, a few minutes off the hour — every cron in the world fires at :00.
+    - cron: "23 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  watch:
+    name: Can the PyInstaller pin be lifted?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Ask
+        run: |
+          set -euo pipefail
+          report="$(bash packaging/check-pyinstaller-pin.sh)"
+          printf '%s\n' "$report"
+          # The script deliberately reports rather than judges, so the exit code
+          # is decided here: anything worth spending a release candidate on is
+          # worth a red run.
+          if printf '%s' "$report" | grep -q "WORTH A TRY"; then
+            echo "::error::A PyInstaller release may let the pin go — see the report above."
+            exit 1
+          fi
