@@ -70,7 +70,7 @@ jobs:
           raw="${GITHUB_REF_NAME#v}"
           VERSION="${raw/-rc./~rc.}"
           # renovate: datasource=pypi depName=pyinstaller
-          PYINSTALLER="6.22.0"
+          PYINSTALLER="6.22.1"
           # Built from source with --enable-shared inside the manylinux image: manylinux's own
           # interpreters are static (Py_ENABLE_SHARED=0) and PyInstaller cannot freeze against them.
           # Kept on the same version the sister repos bundle. The sha256 is python.org's own for
