@@ -135,29 +135,23 @@ timestamp out of the capture. Weighing the other two cats helps but does not by
 itself attribute any reading.
 
 
-### #39 — Physical-action instructions are wrong or vague ("press the Connect button")
+### #39 — Physical-action instructions — *remaining half is bench work*
 
-The CLI tells the user to do something that does not work
-(`cli.py`: "press the robot's Connect button to enter pairing mode"). A press
-does nothing — the button must be HELD (~3 seconds; confirm the duration) until
-the light pulses YELLOW. A user who follows the instruction literally concludes
-the tool is broken — which happened live on 2026-08-11.
+*2026-08-13:* the known-wrong pairing instruction was fixed everywhere (HOLD
+until the light pulses yellow).
 
-`docs/recovery.md` is closer but unverifiable: "until it indicates pairing
-mode" names neither the colour nor the behaviour.
+*2026-08-15:* the calibration instruction stopped citing a marking nobody has
+confirmed ("fill the globe to the line" → fill it the way you consider full,
+since whatever level you pick becomes 90%), and the Home Assistant guide gained
+a "how you know it worked" for the calibration press — the Litter reference
+sensor changes, and the percentage moves only on firmware that does not publish
+its own.
 
-Audit EVERY physical instruction in the CLI, docs/ and the HA integration, and
-for each state: the exact action (press vs hold, how long), what the robot does
-when it worked (light colour, behaviour, sound), and what to do if it does not.
-Known starts: the pairing-mode line, recovery.md, the filter wizard, the
-drawer, reset/power presses, and calibration ("fill the globe to the line" — to
-WHICH line?). An instruction that is confidently wrong is worse than a missing
-one.
-
-*2026-08-13 progress:* the known-wrong pairing instruction is fixed everywhere
-it appeared — the CLI and recovery.md now say HOLD until the light pulses
-yellow. What remains is the full audit (exact hold duration, the filter wizard,
-the drawer, calibration's "the line") and what-success-looks-like descriptions.
+What is left cannot be written from a desk: the exact Connect hold duration and
+what the light does, whether the globe or filter carry any marking a user could
+be told to look at, and what the robot does when a drawer is pulled and reseated.
+All four are in `docs/devices/litter-robot-4/bench-protocol.md`, to be answered
+in one trip.
 
 ### #43 — DISCUSS: how users replace the Whisker app's notifications
 
@@ -276,6 +270,8 @@ its connect errors.
 
 ## Done (archive)
 
+- #63 provision collects the username: **done 2026-08-15** — an optional prompt, offered from what the saved robots agree on, `-` to decline an inherited one, and skipped entirely when stdin is not a TTY so a fully-flagged run never hangs on an optional question. The password stays per-run and unwritten
+- #64 BLE error translation: **done 2026-08-15** — `scan`, `read_device_mac` and `provision_robot` wrap bleak at the boundary and raise `ProvisioningError` naming what was being attempted ("BLE scan failed: Bluetooth device is turned off"). The CLI cannot catch `BleakError` itself: bleak is the optional `[ble]` extra
 - #55 CLI equivalence: **done 2026-08-15** — `status` renders the derived view from one FRESH document plus stored calibration (draining anything queued first, since `calibrate` runs seconds after someone changed the globe), `panel-reset` presses Reset, and `calibrate full|empty` persists a manual reference in the profile store. One rule judges a calibration pair and both commands consult it: `calibrate` will not write a pair that cannot be a scale, `status` will not present or use one, and a stored pair that is already broken is cleared rather than allowed to veto its own repair. The 24/7-derived facts stay HA-only by design, and `status` says so rather than printing zeros
 - #54 derive.py: **done 2026-08-15** — `src/whiskerless/devices/litter_robot_4/derive.py` owns every derived fact as a pure reducer `(DerivedState, message, now) -> (state, changed, effects)`; the coordinator stores what the effects tell it to and the entities only read, the binary sensors' merge policies (globe-fault OR, excess-weight threshold, hopper-empty floor) moved with it, the dedupe windows are one wall clock (which also fixed the first reading after every boot being discarded), and five per-capability bootstrap blobs became one derived snapshot (a blob without a gauge could clobber the persisted one)
 - #49 sighting evidence: **done 2026-08-15 with #54** — each sighting records WHAT proved it (`Evidence`), and `ACCEPTED_EVIDENCE` per capability decides what a rule change retires; the global revision counter is gone, its marker pinned at 3 only so a downgrade does not re-run the old sweep. Unrecognized kinds are trusted (a newer build wrote them), unlabelled ones are re-examined once where the old sweeps never validated them

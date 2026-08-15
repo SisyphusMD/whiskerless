@@ -11,7 +11,9 @@ imported lazily so the rest of the library works without it.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +26,25 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 USER_DESC_UUID = "00002901-0000-1000-8000-00805f9b34fb"
+
+
+@contextlib.asynccontextmanager
+async def translated(action: str) -> AsyncIterator[None]:
+    """Turn a bleak failure into a ProvisioningError naming what was happening.
+
+    The CLI cannot catch `BleakError` itself: bleak is the optional `[ble]`
+    extra, so importing it unconditionally to name an exception type would make
+    every non-BLE command depend on it. Translation therefore belongs here, at
+    the boundary that already knows bleak is present — the same way the MQTT
+    link wraps its connect errors instead of letting aiomqtt's reach a user.
+    """
+    bleak = _require_bleak()
+    try:
+        yield
+    except bleak.exc.BleakError as exc:
+        # Bleak's messages are terse and context-free ("Bluetooth device is
+        # turned off"), so the action is what makes them actionable.
+        raise ProvisioningError(f"{action}: {exc}") from exc
 
 
 def _require_bleak() -> Any:
@@ -60,7 +81,8 @@ async def scan(
     target = PROV_SERVICE_UUID.lower()
     for attempt in range(1, max(1, rounds) + 1):
         log.info("scanning %.0fs for LR4 (attempt %d/%d)", timeout, attempt, rounds)
-        discovered = await bleak.BleakScanner.discover(timeout=timeout, return_adv=True)
+        async with translated("BLE scan failed"):
+            discovered = await bleak.BleakScanner.discover(timeout=timeout, return_adv=True)
         matches: list[DiscoveredRobot] = []
         for device, adv in discovered.values():
             name = adv.local_name or device.name or ""

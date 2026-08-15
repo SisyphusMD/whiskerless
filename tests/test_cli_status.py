@@ -140,7 +140,7 @@ def test_status_uses_the_calibration_a_person_measured(
     saved.save(replace(saved.load(SERIAL), litter_full_mm=446))
     assert main(["status", "--serial", SERIAL]) == 0
     out = capsys.readouterr().out
-    assert "446 mm at the line" in out
+    assert "446 mm when full" in out
     # 446 mm was declared the line, which the cloud's curve pins to 90%.
     assert "90%" in out
 
@@ -216,7 +216,7 @@ def test_status_shows_both_calibration_points_when_they_exist(
     saved.save(replace(saved.load(SERIAL), litter_full_mm=430, litter_empty_mm=486))
     assert main(["status", "--serial", SERIAL]) == 0
     out = capsys.readouterr().out
-    assert "430 mm at the line" in out and "486 mm empty" in out
+    assert "430 mm when full" in out and "486 mm when empty" in out
 
 
 def test_calibrate_reports_a_silent_robot(
@@ -364,7 +364,7 @@ def test_status_refuses_to_present_a_hand_edited_scale_as_calibration(
     out = capsys.readouterr().out
     assert "stored calibration is unusable" in out
     # And it is not quietly used to compute the percentage either.
-    assert "446 mm at the line" not in out
+    assert "446 mm when full" not in out
 
 
 def test_status_rejects_a_stored_reference_no_litter_bed_could_produce(

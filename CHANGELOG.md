@@ -20,6 +20,9 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
   already share, so you type only the serial and the WiFi password.
 - **No secret is ever saved**: the broker password is per-run (`WHISKERLESS_PASSWORD`),
   the WiFi passphrase is never kept, the factory certificate is never touched.
+- **Provisioning asks for a broker username** (optional, and offered from what your
+  other robots use) — an authenticated broker used to need `--username` on every
+  later command. The password is still per-run and never written down.
 - **`whiskerless status`** — the robot in plain terms from a single fresh reading:
   level, drawer, faults, calibration. It names what needs a listener rather than printing zeros.
 - **`whiskerless calibrate full|empty`** stores your own litter reference per robot,
@@ -60,6 +63,8 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **`brew install sisyphusmd/tap/whiskerless` works again** (the formula pinned a
   bleak whose build backend Homebrew cannot build), and every release now
   install-tests the formula before the tap publishes.
+- **A Bluetooth failure is a sentence too** — "BLE scan failed: Bluetooth device is
+  turned off" instead of a bleak traceback.
 - **A mistyped path is a sentence, not a stack trace**: `~` expands everywhere,
   every provision answer is checked at its prompt (including that the CA really
   is a PEM), and file or broker errors print one line — `--debug` for tracebacks.

@@ -167,12 +167,20 @@ flowed).
 
 If you want it right immediately rather than eventually, measure it yourself:
 
-1. Fill the globe to the line.
+1. Fill the globe the way you consider full. Nothing here knows what your
+   robot's markings look like, and it does not need to: whatever level you pick
+   becomes 90%, so pick the one you would call a fresh fill.
 2. Enable the calibration buttons — they ship disabled, because the robot
    learns its own scale and a press at the wrong moment pins the percentage to a
    wrong number for good. Device page → the two `Calibrate …` entities → enable.
-3. Press **Calibrate full** (a config button on the device
-   page) while the robot is idle.
+3. Press **Calibrate full** (a config button on the device page) with the robot
+   idle and empty — no cat in it, no cycle running.
+
+**How you know it worked:** the **Litter reference** sensor (diagnostic) changes
+to the millimetre reading it just captured. If your firmware does not publish its
+own percentage, **Litter level** moves to 90% at the same moment; on firmware that
+does, the robot's own figure keeps winning and the reference is stored for later.
+A press the robot cannot answer fails loudly rather than silently — see below.
 
 That reading becomes 90%, matching how the cloud pins "at optimal" and leaving
 headroom above for an overfill. If you ever have the globe empty, press

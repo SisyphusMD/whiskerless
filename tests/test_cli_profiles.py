@@ -852,3 +852,136 @@ def _fake_provision(*, success: bool) -> Any:
         )
 
     return _provision
+
+
+def _provision_argv(ca: Path, *extra: str) -> list[str]:
+    return [
+        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes", *extra,
+    ]
+
+
+def _provisioned(argv: list[str], answer: str | None = None) -> int:
+    patches = [
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ]
+    if answer is not None:
+        patches += [patch("sys.stdin.isatty", return_value=True),
+                    patch("builtins.input", return_value=answer)]
+    with patches[0], patches[1], patches[2]:
+        if answer is None:
+            return main(argv)
+        with patches[3], patches[4]:
+            return main(argv)
+
+
+def test_provisioning_asks_for_the_broker_username(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """An authenticated broker otherwise provisions cleanly and then fails every
+    bare command afterwards, until someone passes --username or edits the JSON."""
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+
+    assert _provisioned(_provision_argv(ca), answer="mqtt-user") == 0
+
+    assert store.load("LR4C123456").username == "mqtt-user"
+
+
+def test_an_anonymous_broker_is_expressible(store: ProfileStore, tmp_path: Path) -> None:
+    """Enter means 'nothing' when nothing was offered."""
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+
+    assert _provisioned(_provision_argv(ca), answer="") == 0
+
+    assert store.load("LR4C123456").username is None
+
+
+def test_a_second_robot_is_offered_the_login_the_others_use(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    seed(store, serial="LR4C111111", username="mqtt-user")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+
+    assert _provisioned(_provision_argv(ca), answer="") == 0
+
+    assert store.load("LR4C123456").username == "mqtt-user"
+
+
+def test_an_offered_login_can_be_declined(store: ProfileStore, tmp_path: Path) -> None:
+    """Otherwise a household's first authenticated broker would make every later
+    robot claim a login it does not use."""
+    seed(store, serial="LR4C111111", username="mqtt-user")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+
+    assert _provisioned(_provision_argv(ca), answer="-") == 0
+
+    assert store.load("LR4C123456").username is None
+
+
+def test_a_scripted_provision_is_never_stopped_by_an_optional_question(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Every other answer came from a flag; asking here would hang a script."""
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+
+    assert _provisioned(_provision_argv(ca)) == 0
+
+    assert store.load("LR4C123456").username is None
+
+
+def test_the_username_flag_skips_the_question(store: ProfileStore, tmp_path: Path) -> None:
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+
+    assert _provisioned(_provision_argv(ca, "--username", "from-a-flag")) == 0
+
+    assert store.load("LR4C123456").username == "from-a-flag"
+
+
+def test_an_optional_question_still_fails_loudly_on_a_closed_terminal() -> None:
+    """Skipping applies to a run that was never interactive. A terminal that
+    disappears mid-prompt is a different thing, and guessing an answer there
+    would write a profile nobody agreed to."""
+    from whiskerless.cli import _ask_optional
+
+    with (
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", side_effect=EOFError),
+        pytest.raises(WhiskerlessError, match="input ended"),
+    ):
+        _ask_optional("broker username", None, None)
+
+
+def test_a_scripted_run_never_adopts_another_robots_login(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Offered to a person, a shared login is a suggestion they can see and
+    decline. Taken silently in a script, it writes one broker's credentials into
+    another robot's profile and leaves it failing to connect with no sign why."""
+    seed(store, serial="LR4C111111", username="mqtt-user")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+
+    assert _provisioned(_provision_argv(ca)) == 0
+
+    assert store.load("LR4C123456").username is None
+
+
+def test_a_scripted_reprovision_keeps_the_robots_own_login(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Its own recorded value is the one thing safe to adopt unattended."""
+    seed(store, serial="LR4C123456", username="its-own")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+
+    assert _provisioned(_provision_argv(ca)) == 0
+
+    assert store.load("LR4C123456").username == "its-own"

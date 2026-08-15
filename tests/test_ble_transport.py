@@ -205,3 +205,19 @@ async def test_the_scan_retries_before_giving_up() -> None:
     with patch("bleak.BleakScanner.discover", _discover):
         assert (await scan(timeout=0, rounds=3))[0].address == "AA:01"
     assert rounds == 2
+
+
+async def test_a_bluetooth_failure_is_a_sentence_not_a_stack_trace() -> None:
+    """The CLI cannot catch BleakError itself — bleak is the optional [ble]
+    extra, so importing it just to name an exception type would put a Bluetooth
+    stack behind every non-BLE command. Translation belongs at this boundary."""
+    import bleak
+
+    async def _discover(**_: object) -> dict[str, Any]:
+        raise bleak.exc.BleakError("Bluetooth device is turned off")
+
+    with patch("bleak.BleakScanner.discover", _discover), pytest.raises(ProvisioningError) as err:
+        await scan(timeout=0, rounds=1)
+
+    assert "BLE scan failed" in str(err.value), "and it says what was being attempted"
+    assert "Bluetooth device is turned off" in str(err.value), "keeping what bleak knew"

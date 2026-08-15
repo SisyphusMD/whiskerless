@@ -146,6 +146,7 @@ class SharedSetup:
     host: str | None = None
     ca_pem: str | None = None
     wifi_ssid: str | None = None
+    username: str | None = None
 
     @classmethod
     def from_profiles(cls, profiles: Sequence[RobotProfile]) -> SharedSetup:
@@ -159,6 +160,7 @@ class SharedSetup:
             host=agreed(profile.host for profile in profiles),
             ca_pem=agreed(profile.ca_pem for profile in profiles),
             wifi_ssid=agreed(profile.wifi_ssid for profile in profiles),
+            username=agreed(profile.username for profile in profiles),
         )
 
 

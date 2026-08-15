@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from ..exceptions import ProvisioningError
 from . import messages as m
 from .messages import PROV_SERVICE_UUID
-from .transport import ProtocommBLE
+from .transport import ProtocommBLE, translated
 
 if TYPE_CHECKING:
     from bleak import BleakClient
@@ -119,7 +119,7 @@ async def read_device_mac(address: str, *, scan_timeout: float = 15.0) -> str | 
     """Read-only preflight — connect and return the robot's 6-byte MAC."""
     from bleak import BleakClient  # lazy: bleak is the [ble] extra
 
-    async with BleakClient(address) as client:
+    async with translated(f"could not read the device id at {address}"), BleakClient(address) as client:
         _assert_lr4(client)
         transport = ProtocommBLE(client)
         await transport.discover_endpoints()
@@ -154,7 +154,7 @@ async def provision_robot(
         if on_step:
             on_step(shown)
 
-    async with BleakClient(address) as client:
+    async with translated(f"BLE connection to {address} failed"), BleakClient(address) as client:
         _assert_lr4(client)
         mtu = getattr(client, "mtu_size", 0) or 0
         chunk_size = config.chunk_size or max(64, mtu - 40)

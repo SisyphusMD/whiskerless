@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import getpass
 import logging
 import os
@@ -328,9 +329,9 @@ async def _cmd_status(args: argparse.Namespace) -> int:
     elif profile.litter_full_mm is None:
         calibration = "not calibrated (using the default curve)"
     else:
-        calibration = f"{profile.litter_full_mm} mm at the line"
+        calibration = f"{profile.litter_full_mm} mm when full"
         if profile.litter_empty_mm is not None:
-            calibration += f", {profile.litter_empty_mm} mm empty"
+            calibration += f", {profile.litter_empty_mm} mm when empty"
 
     # The robot keeps reporting a level while a cat is standing in the globe, and
     # the ToF is then measuring the cat: a captured visit read 253 mm against a
@@ -513,6 +514,21 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         default=ca_default,
         default_label=_ca_label(shared, prior) if ca_default else None,
     )
+    # Optional, and the only broker field that is: an authenticated broker
+    # otherwise provisions cleanly and then fails every later bare command until
+    # someone passes --username by hand or edits profile.json. The password is
+    # deliberately NOT asked for — it is never written down (see profiles.py).
+    # This robot's OWN recorded login, if it has one: a reprovision must not lose
+    # it, and it is the only value safe to adopt without anyone looking.
+    own_username: str | None = None
+    with contextlib.suppress(ProfileError):
+        own_username = ProfileStore.from_env().load(serial).username
+    username = _ask_optional(
+        "broker username",
+        args.username,
+        own_username if own_username is not None else shared.username,
+        unattended=own_username,
+    )
     ssid = _ask(
         "WiFi SSID: ", args.wifi_ssid, _check_ssid,
         default=shared.wifi_ssid or (prior.wifi_ssid or None if prior else None),
@@ -520,6 +536,9 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # The WiFi passphrase is deliberately never stored, so it is always asked for.
     wifi_pass = args.wifi_pass if args.wifi_pass is not None else getpass.getpass(f"WiFi password for {ssid!r}: ")
 
+    # Not part of ProvisioningConfig: the robot authenticates to the broker with
+    # its own factory certificate, so this login is whiskerless's, not the
+    # robot's, and nothing about it is written over BLE.
     config = ble.ProvisioningConfig(
         serial=serial, host=host, ca_pem=ca_pem, wifi_ssid=ssid, wifi_pass=wifi_pass,
     )
@@ -559,7 +578,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
 
     # Written only after the robot accepted it, so a failed run never leaves a
     # profile claiming a robot is reachable somewhere it is not.
-    _save_profile(config, args)
+    _save_profile(config, args, username)
     return 0
 
 
@@ -584,7 +603,9 @@ def _ca_label(shared: SharedSetup, prior: RobotProfile | None) -> str:
     return f"the CA saved for {prior.display_name}" if prior else "the saved CA"
 
 
-def _save_profile(config: ProvisioningConfig, args: argparse.Namespace) -> None:
+def _save_profile(
+    config: ProvisioningConfig, args: argparse.Namespace, username: str | None
+) -> None:
     store = ProfileStore.from_env()
     try:
         prior = store.load(config.serial)
@@ -595,6 +616,7 @@ def _save_profile(config: ProvisioningConfig, args: argparse.Namespace) -> None:
             serial=Serial(config.serial),
             host=config.host,
             name=args.name or "",
+            username=username,
             ca_pem=config.ca_pem,
             wifi_ssid=config.wifi_ssid,
         )
@@ -607,6 +629,7 @@ def _save_profile(config: ProvisioningConfig, args: argparse.Namespace) -> None:
             serial=Serial(config.serial),
             host=config.host,
             name=args.name or prior.name,
+            username=username,
             ca_pem=config.ca_pem,
             wifi_ssid=config.wifi_ssid,
             password=None,
@@ -775,6 +798,41 @@ def _parse_time(value: str) -> int:
     return int(value)
 
 
+def _ask_optional(
+    prompt: str, supplied: str | None, default: str | None, *, unattended: str | None = None
+) -> str | None:
+    """Ask something the robot may legitimately not have.
+
+    Distinct from :func:`_ask`, where an empty answer means "use the default":
+    here it can also mean "there is no such thing", and the two have to be
+    expressible separately or an anonymous broker could never be described once
+    a previous robot had recorded a login.
+
+    ``unattended`` is what to use when there is nobody to ask, and it is
+    deliberately allowed to be narrower than ``default``. A value offered from
+    OTHER robots is a suggestion someone reads and accepts; taking that same
+    suggestion silently, in a script, would write another broker's login into
+    this robot's profile and leave it failing to connect with no sign why.
+    """
+    if supplied is not None:
+        return supplied or None
+    if not sys.stdin.isatty():
+        # A scripted run supplies what it wants on the command line, and an
+        # OPTIONAL question must never be the thing that makes an otherwise
+        # fully-flagged invocation hang or fail. The required questions still
+        # prompt (and still fail loudly on EOF) because there is no sane
+        # substitute for a missing serial.
+        return unattended
+    hint = f" [{default}, or '-' for none]" if default else " (enter to skip)"
+    try:
+        answer = input(f"{prompt.rstrip(': ')}{hint}: ").strip()
+    except EOFError:
+        raise WhiskerlessError("no answer given (input ended)") from None
+    if not answer:
+        return default
+    return None if answer == "-" else answer
+
+
 def _ask(
     prompt: str,
     supplied: str | None,
@@ -894,7 +952,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_calibrate.add_argument(
         "point",
         choices=("full", "empty"),
-        help="'full' with the globe filled to the line, 'empty' with it emptied",
+        help="'full' with the globe filled the way you call full, 'empty' with it emptied",
     )
     p_calibrate.add_argument("--timeout", type=float, default=10.0, help="seconds to wait")
     add_conn(p_calibrate)
@@ -966,6 +1024,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_prov.add_argument("--scan-timeout", type=float, default=15.0)
     p_prov.add_argument("--dry-run", action="store_true", help="scan/connect and print steps, write nothing")
     p_prov.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p_prov.add_argument("--username", help="broker username, if yours needs one (prompted if omitted)")
     p_prov.add_argument("--name", help="what to call this robot afterwards, e.g. 'Upstairs'")
     p_prov.set_defaults(func=_cmd_provision)
 
