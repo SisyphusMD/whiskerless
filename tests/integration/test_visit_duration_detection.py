@@ -13,10 +13,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from custom_components.whiskerless.const import (
-    CONF_VISIT_DURATION_LAST,
-    CONF_VISIT_DURATION_SEEN,
-)
+from custom_components.whiskerless.const import CONF_DERIVED, CONF_VISIT_DURATION_SEEN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -104,7 +101,7 @@ async def test_the_proving_reading_survives_the_reload(
     assert hass.states.get(DURATION_ENTITY).state == "17"
     # And then discarded, so it cannot be re-applied on every future startup and
     # override whatever the sensor itself restored.
-    assert CONF_VISIT_DURATION_LAST not in mock_config_entry.options
+    assert CONF_DERIVED not in mock_config_entry.options
 
 
 async def test_the_reload_does_not_reset_last_cat_visit(

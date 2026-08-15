@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import override
 
 from homeassistant.components.binary_sensor import (
@@ -12,21 +11,18 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN, EntityCategory
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
-from whiskerless.devices.litter_robot_4 import LitterRobot4State
+from whiskerless.devices.litter_robot_4 import LitterRobot4State, derive
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity
 
 PARALLEL_UPDATES = 0
-
-# Whisker's own threshold for "excess weight detected".
-EXCESS_WEIGHT_AFTER = timedelta(minutes=30)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -117,23 +113,13 @@ class WhiskerlessBinarySensor(WhiskerlessEntity, BinarySensorEntity):
 
 
 class _RestoringBinarySensor(WhiskerlessEntity, BinarySensorEntity, RestoreEntity):
-    """Base for sensors whose only source is an activity event.
+    """Base for verdicts that must survive a restart of Home Assistant.
 
-    The robot speaks these registers on an event and never in the state
-    document, so a restart would otherwise blank them until the next drawer
-    pull, visit or dispense — potentially days for the drawer.
+    RestoreEntity is what puts an entity's last state in the restore cache at
+    shutdown; the coordinator reads it back at setup and hands it to the
+    derivation, so the rule for when a carried verdict expires lives with the
+    rest of the protocol logic rather than in two entities.
     """
-
-    def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
-        super().__init__(coordinator)
-        self._restored: bool | None = None
-
-    @override
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        last = await self.async_get_last_state()
-        if last is not None and last.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            self._restored = last.state == STATE_ON
 
 
 class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
@@ -163,7 +149,7 @@ class WhiskerlessHopperConnectedSensor(WhiskerlessEntity, BinarySensorEntity):
     @property
     @override
     def is_on(self) -> bool | None:
-        return self.coordinator.data.hopper_connected
+        return self.coordinator.data.derived.hopper_connected
 
 
 class WhiskerlessHopperEmptySensor(WhiskerlessEntity, BinarySensorEntity):
@@ -196,7 +182,7 @@ class WhiskerlessHopperEmptySensor(WhiskerlessEntity, BinarySensorEntity):
     @property
     @override
     def is_on(self) -> bool | None:
-        return bool(self.coordinator.data.hopper_empty)
+        return bool(derive.hopper_empty(self.coordinator.data.derived))
 
 
 
@@ -225,46 +211,12 @@ class WhiskerlessGlobeMotorFaultSensor(_RestoringBinarySensor):
     def __init__(self, coordinator: WhiskerlessCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.serial}_globe_motor_fault"
-        # Seeded from the startup snapshot, not the first callback: otherwise
-        # the first completed cycle after a restore only sets the baseline, and
-        # a restored fault needs a SECOND cycle to clear.
-        self._cycles_seen: int | None = coordinator.data.robot.odometer_clean_cycles
-
-    @callback
-    @override
-    def _handle_coordinator_update(self) -> None:
-        # A restored fault with no live edge otherwise has no way to ever turn
-        # off: the state field's 0 is distrusted by design, and if HA was down
-        # when the clear edge fired, the latch re-restores itself on every
-        # restart. A clean cycle completing is the escape — a fault DURING a
-        # cycle raises the 0x35 edge, which takes over above, so the odometer
-        # advancing without one is positive evidence the globe turns.
-        data = self.coordinator.data
-        cycles = data.robot.odometer_clean_cycles
-        if cycles is not None:
-            if (
-                self._restored
-                and data.globe_motor_fault is None
-                and self._cycles_seen is not None
-                and cycles > self._cycles_seen
-            ):
-                self._restored = False
-            self._cycles_seen = cycles
-        super()._handle_coordinator_update()
 
     @property
     @override
     def is_on(self) -> bool | None:
         data = self.coordinator.data
-        from_field = data.robot.globe_motor_fault
-        from_activity = data.globe_motor_fault
-        if from_activity is not None:
-            return bool(from_activity) or bool(from_field)
-        # No edge seen this session. The field reading 0 is NOT evidence of no
-        # fault — that is the whole finding — so a restored latch outranks it.
-        if self._restored is not None:
-            return self._restored or bool(from_field)
-        return None if from_field is None else bool(from_field)
+        return derive.globe_motor_faulted(data.derived, data.robot)
 
 
 class WhiskerlessExcessWeightSensor(_RestoringBinarySensor):
@@ -298,37 +250,8 @@ class WhiskerlessExcessWeightSensor(_RestoringBinarySensor):
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.serial}_excess_weight"
 
-    @override
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        # The snapshot that arrived before this entity existed is an observation
-        # too: if the condition cleared while HA was down, the first refresh
-        # already says so, and no later update need repeat it before the next
-        # cat steps in — the restored answer must die here, not then.
-        if self.coordinator.data.robot.scale_loaded is False:
-            self._restored = None
-
-    @callback
-    @override
-    def _handle_coordinator_update(self) -> None:
-        # A positive "the pan is clear" retires the restored answer for good.
-        # Left standing, it would fire a false alarm at second zero of every
-        # later loaded run this session — the latch exists only to bridge a
-        # reload that lands mid-condition.
-        if self.coordinator.data.robot.scale_loaded is False:
-            self._restored = None
-        super()._handle_coordinator_update()
-
     @property
     @override
     def is_on(self) -> bool | None:
         data = self.coordinator.data
-        since = data.scale_loaded_since
-        if since is None:
-            # Only a positive "the pan is clear" is an off; an absent bit is unknown.
-            return False if data.robot.scale_loaded is False else None
-        if (dt_util.utcnow() - since) >= EXCESS_WEIGHT_AFTER:
-            return True
-        # Still loaded and the restored answer was yes: the condition never
-        # cleared, this process just forgot when it started.
-        return bool(self._restored)
+        return derive.excess_weight(data.derived, data.robot, dt_util.utcnow())

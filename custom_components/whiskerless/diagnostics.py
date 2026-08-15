@@ -23,8 +23,14 @@ async def async_get_config_entry_diagnostics(
     # The firmware's camelCase `raw` doc can carry identifiers that snake_case
     # redaction would miss, and it's redundant with the decoded fields — drop it.
     robot.pop("raw", None)
-    derived = asdict(coordinator.data)
-    derived.pop("robot", None)
+    derived = {
+        key: value
+        for key, value in asdict(coordinator.data).items()
+        if key not in ("robot", "derived")
+    }
+    # The library's own serializer rather than asdict(): it renders the stamps
+    # and the sighting enums as strings, which is what a diagnostics download is.
+    derived.update(coordinator.data.derived.as_dict())
     return async_redact_data(
         {
             "entry": dict(entry.data),

@@ -14,18 +14,14 @@ from whiskerless.devices.litter_robot_4.calibration import HOPPER_PLAUSIBLE
 from . import binary_sensor, button, number, select, sensor, switch
 from . import time as time_platform
 from .const import (
-    CONF_CAT_VISIT_LAST,
     CONF_CAT_VISIT_SEEN,
+    CONF_DERIVED,
     CONF_DETECTION_RESET_BY,
-    CONF_DRAWER_LAST,
     CONF_DRAWER_SEEN,
     CONF_HOPPER_FILL_RAW,
-    CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
-    CONF_PET_WEIGHT_LAST,
     CONF_PET_WEIGHT_SEEN,
     CONF_SERIAL,
-    CONF_VISIT_DURATION_LAST,
     CONF_VISIT_DURATION_SEEN,
     DETECTION_RESET_REVISION,
     DOMAIN,
@@ -131,14 +127,13 @@ PET_WEIGHT_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "pet_weigh
 CAT_VISIT_ENTITIES: tuple[tuple[str, str], ...] = ((Platform.SENSOR, "last_cat_visit"),)
 
 #: Every capability that ships disabled until the robot proves it has one, as
-#: (option recording the sighting, option holding the readings that bridge the
-#: enabling reload, entities to switch on).
-_DETECTED: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
-    (CONF_HOPPER_SEEN, CONF_HOPPER_LAST, HOPPER_ENTITIES),
-    (CONF_VISIT_DURATION_SEEN, CONF_VISIT_DURATION_LAST, VISIT_DURATION_ENTITIES),
-    (CONF_DRAWER_SEEN, CONF_DRAWER_LAST, DRAWER_ENTITIES),
-    (CONF_PET_WEIGHT_SEEN, CONF_PET_WEIGHT_LAST, PET_WEIGHT_ENTITIES),
-    (CONF_CAT_VISIT_SEEN, CONF_CAT_VISIT_LAST, CAT_VISIT_ENTITIES),
+#: (option recording the sighting, entities to switch on).
+_DETECTED: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    (CONF_HOPPER_SEEN, HOPPER_ENTITIES),
+    (CONF_VISIT_DURATION_SEEN, VISIT_DURATION_ENTITIES),
+    (CONF_DRAWER_SEEN, DRAWER_ENTITIES),
+    (CONF_PET_WEIGHT_SEEN, PET_WEIGHT_ENTITIES),
+    (CONF_CAT_VISIT_SEEN, CAT_VISIT_ENTITIES),
 )
 
 #: Groups whose sighting may be seeded from a sensor's restore cache in the
@@ -253,7 +248,7 @@ def _reset_unproven_detections(hass: HomeAssistant, entry: WhiskerlessConfigEntr
     # is built, so the coordinator reads the post-sweep flags and a re-proving
     # dispense can re-sight in the same session.
     serial = entry.data[CONF_SERIAL]
-    for seen_key, _, entities in _DETECTED:
+    for seen_key, entities in _DETECTED:
         seedable = entities if seen_key in _RESTORE_SEEDABLE else ()
         if seen_key == CONF_HOPPER_SEEN:
             seedable = (_HOPPER_PROOF_ENTITY,)
@@ -338,7 +333,7 @@ def _enable_detected_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry
         return False
     flipped = False
     registry = er.async_get(hass)
-    for seen_key, _, entities in _DETECTED:
+    for seen_key, entities in _DETECTED:
         if not entry.options.get(seen_key):
             continue
         for domain, key in entities:
@@ -386,16 +381,15 @@ def _promote_newly_default_entities(hass: HomeAssistant, entry: WhiskerlessConfi
 
 
 def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
-    """Discard the one-shot readings that bridged the enabling reload.
+    """Discard the derived snapshot that bridged the enabling reload.
 
-    They exist only so the entities have a value the instant they appear. Kept
-    beyond that they would be re-applied on every startup and clobber the newer
+    It exists only so the entities have a value the instant they appear. Kept
+    beyond that it would be re-applied on every startup and clobber the newer
     values the entities restore for themselves.
     """
-    bootstrap = {last_key for _, last_key, _ in _DETECTED}
-    if not bootstrap & entry.options.keys():
+    if CONF_DERIVED not in entry.options:
         return
-    options = {k: v for k, v in entry.options.items() if k not in bootstrap}
+    options = {k: v for k, v in entry.options.items() if k != CONF_DERIVED}
     hass.config_entries.async_update_entry(entry, options=options)
 
 

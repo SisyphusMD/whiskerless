@@ -15,9 +15,9 @@ from unittest.mock import patch
 
 from homeassistant.components import mqtt
 from homeassistant.components.mqtt.models import ReceiveMessage
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, mock_restore_cache
 
 from .const import ACTIVITY_TOPIC, MOCK_SERIAL, STATE_TOPIC
 
@@ -45,6 +45,29 @@ def seed_gated_sensors(hass: HomeAssistant, entry: MockConfigEntry) -> None:
             disabled_by=None,
             suggested_object_id=object_id,
         )
+
+
+def restore_latching_sensor(
+    hass: HomeAssistant, entry: MockConfigEntry, key: str, state: str
+) -> None:
+    """Arrange a restart for one of the latching binary sensors.
+
+    A restart hands the integration two things: the entity registry, which
+    survives, and the restore cache written from what its entities last
+    reported. The coordinator reads the second through the first, so a test
+    that seeds only the cache is not describing a restart that can happen.
+    """
+    entry.add_to_hass(hass)
+    object_id = f"litter_robot_4_{key}"
+    er.async_get(hass).async_get_or_create(
+        "binary_sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_{key}",
+        config_entry=entry,
+        disabled_by=None,
+        suggested_object_id=object_id,
+    )
+    mock_restore_cache(hass, (State(f"binary_sensor.{object_id}", state),))
 
 
 @dataclass

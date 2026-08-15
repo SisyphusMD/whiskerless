@@ -27,7 +27,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from whiskerless.devices.litter_robot_4 import LitterRobot4State
+from whiskerless.devices.litter_robot_4 import LitterRobot4State, derive
 from whiskerless.devices.litter_robot_4.calibration import hopper_percent_provisional
 from whiskerless.devices.litter_robot_4.models import (
     LITTER_DEFAULT_FULL_MM,
@@ -144,6 +144,16 @@ def _litter_percent(data: WhiskerlessData) -> StateType:
     )
 
 
+def _hopper_level(data: WhiskerlessData) -> StateType:
+    """The gauge as a percentage: measured once this unit's floor is confirmed,
+    and a display-only estimate against the typical band before that."""
+    measured = derive.hopper_level_percent(data.derived)
+    if measured is not None:
+        return measured
+    raw = data.derived.hopper_fill_raw
+    return None if raw is None else hopper_percent_provisional(raw)
+
+
 DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
     WhiskerlessDataSensorEntityDescription(
         key="litter_level",
@@ -166,7 +176,7 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         # Gated: one live 1.1.75 robot has never emitted a weight in 30 h of
         # visits, and there this would be a permanent unknown.
         entity_registry_enabled_default=False,
-        data_fn=lambda data: data.cat_weight_lb,
+        data_fn=lambda data: data.derived.cat_weight_lb,
     ),
     WhiskerlessDataSensorEntityDescription(
         key="last_cat_visit",
@@ -176,7 +186,7 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         # occupancy transition as well as weight/duration events, so it enables
         # at the first visit on every robot.
         entity_registry_enabled_default=False,
-        data_fn=lambda data: data.last_cat_visit,
+        data_fn=lambda data: data.derived.last_cat_visit,
     ),
     # Register 0x56 reports that the drawer moved but not which way, and a read
     # answers the same value in or out — so "when it was last serviced" is the
@@ -190,14 +200,14 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         # emptying there left no event — so this may never fire on some
         # firmware.
         entity_registry_enabled_default=False,
-        data_fn=lambda data: data.drawer_last_moved,
+        data_fn=lambda data: data.derived.drawer_last_moved,
     ),
     WhiskerlessDataSensorEntityDescription(
         key="last_hopper_dispensed",
         translation_key="last_hopper_dispensed",
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_registry_enabled_default=False,
-        data_fn=lambda data: data.last_hopper_dispensed,
+        data_fn=lambda data: data.derived.last_hopper_dispensed,
     ),
     # Seconds of settled weight (reg 0xBC). Reported even for visits too short
     # to produce a weight event, so short hop-throughs still show up here.
@@ -212,7 +222,7 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.MEASUREMENT,
         entity_registry_enabled_default=False,
-        data_fn=lambda data: data.last_visit_duration_s,
+        data_fn=lambda data: data.derived.last_visit_duration_s,
     ),
     # The hopper's own fill gauge (dispense phase-1 value): ~90 near a 90%
     # maintain target, declining monotonically as the hopper drains. Unitless
@@ -249,17 +259,10 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_registry_enabled_default=False,
-        data_fn=lambda data: (
-            data.hopper_fill_percent
-            if data.hopper_fill_percent is not None
-            else (
-                hopper_percent_provisional(data.hopper_fill_raw)
-                if data.hopper_fill_raw is not None
-                else None
-            )
-        ),
+        data_fn=_hopper_level,
         attributes_fn=lambda data: {
-            "source": "measured" if data.hopper_fill_percent is not None else "estimate"
+            "source": "measured" if derive.hopper_level_percent(data.derived) is not None
+            else "estimate"
         },
         # Never restored. This is unknown both when there is no reading and when
         # the learned scale is not yet trusted, and resurrecting an old
@@ -272,7 +275,7 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         translation_key="hopper_fill",
         state_class=SensorStateClass.MEASUREMENT,
         entity_registry_enabled_default=False,
-        data_fn=lambda data: data.hopper_fill_raw,
+        data_fn=lambda data: data.derived.hopper_fill_raw,
     ),
 )
 

@@ -13,16 +13,17 @@ import asyncio
 import contextlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 from typing import override
 
 from homeassistant.components import mqtt
 from homeassistant.components.mqtt.models import ReceiveMessage
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_NAME, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import restore_state
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -30,31 +31,22 @@ from whiskerless import WhiskerlessError
 from whiskerless.devices.litter_robot_4 import (
     LitterRobot4State,
     commands,
+    derive,
     every_weekday_is,
     weekday_sleep_days_match,
 )
 from whiskerless.devices.litter_robot_4 import const as lr4
-from whiskerless.devices.litter_robot_4.calibration import (
-    HOPPER_CORROBORATION,
-    HOPPER_PLAUSIBLE,
-    LITTER_CORROBORATION_MM,
-    LITTER_MAX_SPAN_MM,
-    LITTER_PLAUSIBLE_MM,
-    Learned,
-    hopper_is_empty,
-    hopper_percent,
-    litter_is_sampleable,
-)
 from whiskerless.devices.litter_robot_4.commands import Command
 from whiskerless.devices.litter_robot_4.const import command_topic, subscribe_topic
-from whiskerless.devices.litter_robot_4.events import (
-    CatVisitEnded,
-    CatWeightMeasured,
-    DrawerBayMoved,
-    GlobeMotorFaultChanged,
-    HopperDispensed,
-    HopperLinkChanged,
-    events_from_readings,
+from whiskerless.devices.litter_robot_4.derive import (
+    Capability,
+    CapabilitySighted,
+    DerivedState,
+    Effect,
+    Evidence,
+    FirmwareChanged,
+    HopperFillChanged,
+    LearnedChanged,
 )
 from whiskerless.devices.litter_robot_4.protocol import (
     ActivityMessage,
@@ -65,27 +57,33 @@ from whiskerless.devices.litter_robot_4.protocol import (
 from whiskerless.safety import assert_sendable
 
 from .const import (
-    CONF_CAT_VISIT_LAST,
     CONF_CAT_VISIT_SEEN,
-    CONF_DRAWER_LAST,
+    CONF_DERIVED,
     CONF_DRAWER_SEEN,
     CONF_HOPPER_FILL_RAW,
-    CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
     CONF_LEARNED_HOPPER,
     CONF_LEARNED_LITTER,
     CONF_LITTER_EMPTY_MM,
     CONF_LITTER_FULL_MM,
-    CONF_PET_WEIGHT_LAST,
     CONF_PET_WEIGHT_SEEN,
     CONF_SERIAL,
-    CONF_VISIT_DURATION_LAST,
     CONF_VISIT_DURATION_SEEN,
     DEFAULT_NAME,
     DOMAIN,
     HEARTBEAT_INTERVAL,
     LOGGER,
 )
+
+#: Which config-entry option records each capability's first sighting. The
+#: library decides what counts as proof; Home Assistant decides where it is kept.
+SIGHTING_OPTIONS: dict[Capability, str] = {
+    Capability.HOPPER: CONF_HOPPER_SEEN,
+    Capability.VISIT_DURATION: CONF_VISIT_DURATION_SEEN,
+    Capability.DRAWER: CONF_DRAWER_SEEN,
+    Capability.PET_WEIGHT: CONF_PET_WEIGHT_SEEN,
+    Capability.CAT_VISIT: CONF_CAT_VISIT_SEEN,
+}
 
 type WhiskerlessConfigEntry = ConfigEntry[WhiskerlessCoordinator]
 
@@ -98,36 +96,25 @@ _VERIFY_TIMEOUT = 8.0
 # overtaking the last write and reading pre-write state.
 _WRITE_GAP = 0.2
 _ACTIVITY_THROTTLE = 2.0
-# Two dispense reports closer together than this are the same event redelivered;
-# real dispenses are a cycle or more apart.
-_DISPENSE_DEDUPE = 60.0
-# State documents arrive on a multi-minute cadence, so anything closer than this
-# is a redelivery rather than an independent observation.
-_STATE_DEDUPE = 30.0
 # How long to wait for the robot to echo a panel-button press. The echo is the
 # robot's own acknowledgement that it acted, which QoS 1 cannot give — that only
 # proves the broker accepted the message.
 _PRESS_TIMEOUT = 5.0
-# How long after the beam clears a visit close still counts as that visit's. The
-# observed gap was one second; this is loose enough for a slow publish and far
-# tighter than the minutes between handling the robot and its Reset.
-_VISIT_CLOSE_GRACE = timedelta(seconds=90)
+
 
 @dataclass
 class WhiskerlessData:
     """The coordinator's data payload.
 
-    ``robot`` is the latest full-state snapshot. The remaining fields are
-    derived from the activity stream, which carries facts the state document
-    never does (per-visit cat weight, hopper dispenses, hopper link state).
+    ``robot`` is the latest full-state snapshot; ``derived`` is everything the
+    library assembled from the streams over time (per-visit cat weight, hopper
+    dispenses, the learned scales). The calibration pair rides along because it
+    lives on the config entry, which is Home Assistant's business, not the
+    library's.
     """
 
     robot: LitterRobot4State
-    cat_weight_lb: float | None = None
-    last_cat_visit: datetime | None = None
-    last_visit_duration_s: int | None = None
-    hopper_connected: bool | None = None
-    # Per-robot litter calibration, so the percentage sensor can use it.
+    derived: DerivedState
     # The pair actually used for the percentage: the user's measurements when
     # they exist, otherwise the learned extremes once they span enough to trust.
     litter_full_mm: int | None = None
@@ -135,17 +122,6 @@ class WhiskerlessData:
     # What the user measured, for the diagnostic sensor. Deliberately not the
     # learned value: "at the line" is a claim only a person can make.
     litter_reference_mm: int | None = None
-    hopper_fill_percent: int | None = None
-    # None until this unit's empty floor is confirmed — the entity renders that
-    # as no-problem, so the alert cannot cry empty on a low-reading gauge.
-    hopper_empty: bool | None = None
-    last_hopper_dispensed: datetime | None = None
-    hopper_fill_raw: int | None = None
-    drawer_last_moved: datetime | None = None
-    # From the ACTIVITY stream, not the state document — see below.
-    globe_motor_fault: int | None = None
-    # When the scale entered its current continuous loaded run, or None.
-    scale_loaded_since: datetime | None = None
 
 
 class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
@@ -169,250 +145,98 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self._io_lock = asyncio.Lock()
         self._last_activity_refresh = 0.0
         self._tasks: set[asyncio.Task[None]] = set()
-        # Activity-derived facts (never present in the state document).
-        self._cat_weight_lb: float | None = None
-        self._last_cat_visit: datetime | None = None
-        self._last_visit_duration_s: int | None = None
-        self._hopper_connected: bool | None = None
-        self._hopper_seen = bool(config_entry.options.get(CONF_HOPPER_SEEN))
-        self._visit_duration_seen = bool(config_entry.options.get(CONF_VISIT_DURATION_SEEN))
-        self._drawer_seen = bool(config_entry.options.get(CONF_DRAWER_SEEN))
-        self._pet_weight_seen = bool(config_entry.options.get(CONF_PET_WEIGHT_SEEN))
-        self._cat_visit_seen = bool(config_entry.options.get(CONF_CAT_VISIT_SEEN))
-        self._learned_litter = Learned.from_dict(config_entry.options.get(CONF_LEARNED_LITTER))
-        self._learned_hopper = Learned.from_dict(config_entry.options.get(CONF_LEARNED_HOPPER))
-        self._last_hopper_dispensed: datetime | None = None
-        self._hopper_fill_raw: int | None = config_entry.options.get(CONF_HOPPER_FILL_RAW)
+        self._derived = self._restore_derived()
+        self._press_echo = asyncio.Event()
+        self._awaited_press: int | None = None
+
+    def _restore_derived(self) -> DerivedState:
+        """Rebuild the derived state from what was stored for this robot.
+
+        Two kinds of option feed it. The DURABLE ones — the learned scales, the
+        last fill gauge, the sightings — are each written when they change and
+        always win, because they are the newest copy of themselves. The
+        bootstrap blob is a full snapshot written the moment a sighting was
+        recorded, and exists only so the entities that sighting enables have a
+        value the instant they appear: enabling one reloads the entry, which
+        builds a fresh coordinator that would otherwise discard the very
+        readings that proved the capability.
+        """
+        options = self.config_entry.options
+        stored = dict(options.get(CONF_DERIVED) or {})
+        for field, durable in (
+            ("learned_litter", CONF_LEARNED_LITTER),
+            ("learned_hopper", CONF_LEARNED_HOPPER),
+            ("hopper_fill_raw", CONF_HOPPER_FILL_RAW),
+        ):
+            if options.get(durable) is not None:
+                stored[field] = options[durable]
+        # One tolerant path in, so a hand-edited or older option can only be
+        # ignored, never break setup for the entry it belongs to.
+        derived = DerivedState.from_dict(stored)
+        derived.sightings = {
+            capability: derived.sightings.get(capability, Evidence.LEGACY)
+            for capability, seen_key in SIGHTING_OPTIONS.items()
+            if options.get(seen_key)
+        }
+        derived.globe_fault_restored = self._restored_verdict("globe_motor_fault")
+        derived.excess_weight_restored = self._restored_verdict("excess_weight")
         # A recorded sighting means this robot was watched delivering litter, and
         # there is no signal that would ever retract that. Deriving it here rather
         # than leaning on the entity's restore cache also discards any `off` left
         # behind by the old 0x57 handling, which could park the sensor on
         # "disconnected" for good after a refill.
-        if self._hopper_seen:
-            self._hopper_connected = True
-        self._last_hopper_sample_at = 0.0
-        self._last_litter_sample_at = 0.0
-        self._drawer_last_moved: datetime | None = None
-        self._globe_motor_fault: int | None = None
-        # When the ToF beam was last broken. The visit gate reads this rather than
-        # a sticky flag: an arm crossing the beam without loading the scale would
-        # otherwise arm the gate indefinitely, and the next Reset phantom would
-        # sail through it.
-        self._beam_broken_at: datetime | None = None
-        # When the scale first read loaded in the current continuous run, so the
-        # excess-weight condition can be derived. None while the pan is clear.
-        self._scale_loaded_since: datetime | None = None
-        self._press_echo = asyncio.Event()
-        self._awaited_press: int | None = None
-        # Enabling an entity reloads the entry, which builds a fresh coordinator
-        # and would otherwise discard the very readings that proved the hopper
-        # exists. They are persisted with the flag, so the newly enabled
-        # entities have a value the moment they appear.
-        last = config_entry.options.get(CONF_HOPPER_LAST) or {}
-        if last:
-            self._hopper_fill_raw = last.get("fill")
-            dispensed = last.get("dispensed")
-            self._last_hopper_dispensed = dt_util.parse_datetime(dispensed) if dispensed else None
-            # …including the deduplication window, which is otherwise the one piece
-            # of that dispense the reload drops. This coordinator is built seconds
-            # after the dispense that proved the hopper, so a QoS-1 redelivery of
-            # that same dispense would land on a fresh window, count as a second
-            # sample, and corroborate an empty floor from a single physical
-            # dispense — which is the thing corroboration exists to prevent.
-            # Wall clock, because loop.time() means nothing across a reload.
-            if self._last_hopper_dispensed is not None:
-                age = (dt_util.utcnow() - self._last_hopper_dispensed).total_seconds()
-                if 0 <= age < _DISPENSE_DEDUPE:
-                    self._last_hopper_sample_at = hass.loop.time() - age
-        # The same bridge for the visit duration, whose entity is enabled by the
-        # same reload and would otherwise wait for the next cat.
-        duration_last = config_entry.options.get(CONF_VISIT_DURATION_LAST) or {}
-        if duration_last:
-            self._last_visit_duration_s = duration_last.get("duration_s")
-            visit_at = duration_last.get("visit_at")
-            if visit_at:
-                self._last_cat_visit = dt_util.parse_datetime(visit_at)
-        # And for the other gated event sensors, enabled by the same mechanism.
-        drawer_last = config_entry.options.get(CONF_DRAWER_LAST) or {}
-        if drawer_last.get("moved_at"):
-            self._drawer_last_moved = dt_util.parse_datetime(drawer_last["moved_at"])
-        weight_last = config_entry.options.get(CONF_PET_WEIGHT_LAST) or {}
-        if weight_last.get("weight_lb") is not None:
-            self._cat_weight_lb = weight_last["weight_lb"]
-        visit_last = config_entry.options.get(CONF_CAT_VISIT_LAST) or {}
-        if visit_last.get("visit_at"):
-            self._last_cat_visit = dt_util.parse_datetime(visit_last["visit_at"])
+        if derived.sighted(Capability.HOPPER):
+            derived.hopper_connected = True
+        return derived
 
+    def _restored_verdict(self, key: str) -> bool | None:
+        """What a latching binary sensor last reported, from the restore cache.
 
-
-    @callback
-    def _learn_hopper(self, raw: int) -> None:
-        """Fold one FRESH dispense gauge reading into the hopper scale.
-
-        Deliberately driven by the dispense event rather than by state
-        documents: the last reading is retained between dispenses, so sampling
-        it on every heartbeat would let a single bad value corroborate itself
-        within seconds and become an anchor.
+        Read here rather than in the entity so the rule for when a carried
+        verdict expires can live in the library beside the rule that raised it.
+        The entities stay RestoreEntity, which is what writes the cache; this is
+        the read side, the same way the hopper gauge is seeded at setup.
         """
-        # The activity subscription is QoS 1, so one dispense can be delivered
-        # more than once, and counting a redelivery as a separate dispense would
-        # let a single low reading confirm an empty floor on its own. Redelivery
-        # is a TIME property: separate dispenses are cycles apart, redeliveries
-        # arrive within seconds. Deduplicating by value instead would discard the
-        # repeated floor readings that are the entire evidence for "empty".
-        now = self.hass.loop.time()
-        if now - self._last_hopper_sample_at < _DISPENSE_DEDUPE:
-            return
-        self._last_hopper_sample_at = now
-        if self._learned_hopper.observe(
-            raw,
-            bounds=HOPPER_PLAUSIBLE,
-            corroboration=HOPPER_CORROBORATION,
-            count_hits=True,
-        ):
-            self._persist_learned()
+        registry = er.async_get(self.hass)
+        entity_id = registry.async_get_entity_id(
+            Platform.BINARY_SENSOR, DOMAIN, f"{self.serial}_{key}"
+        )
+        stored = restore_state.async_get(self.hass).last_states.get(entity_id) if entity_id else None
+        if stored is None or stored.state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            return None
+        return stored.state.state == STATE_ON
 
     @callback
-    def _beam_seen_recently(self) -> bool:
-        """Whether a body broke the ToF beam recently enough to own a visit close.
+    def _apply_effects(self, effects: Sequence[Effect]) -> None:
+        """Store what the library says is worth keeping, in one entry write.
 
-        The close trails the departure: in a narrated visit `catDetect` fell to 0
-        one second before `0xBC` arrived, so the gate cannot require the beam to
-        still be broken. It also cannot latch forever, or an arm reaching in would
-        license a Reset phantom minutes later.
+        Enabling the entities a sighting unlocks happens in async_setup_entry,
+        after the platforms have registered them, so this only records state and
+        schedules the reload that gets us there — once per message, however many
+        sightings it proved, because each reload is a full unload/setup cycle.
         """
-        if self._beam_broken_at is None:
-            return False
-        return (dt_util.utcnow() - self._beam_broken_at) <= _VISIT_CLOSE_GRACE
-
-    @callback
-    def _persist_hopper_fill(self) -> None:
-        """Keep the latest gauge across restarts, so the level is not unknown.
-
-        Only on a change, because this writes the config entry: the gauge holds
-        still for days at a time, so in practice this is rarer than the learned
-        scales beside it.
-        """
-        self.hass.config_entries.async_update_entry(
-            self.config_entry,
-            options={**self.config_entry.options, CONF_HOPPER_FILL_RAW: self._hopper_fill_raw},
-        )
-
-    @callback
-    def _persist_learned(self) -> None:
-        self.hass.config_entries.async_update_entry(
-            self.config_entry,
-            options={
-                **self.config_entry.options,
-                CONF_LEARNED_LITTER: self._learned_litter.as_dict(),
-                CONF_LEARNED_HOPPER: self._learned_hopper.as_dict(),
-            },
-        )
-
-    @callback
-    def _learn(self, robot: LitterRobot4State) -> None:
-        """Fold this report into the learned scales, persisting real movement.
-
-        Guarded three ways: only a settled robot is sampled, values outside the
-        physically plausible band are discarded, and a new extreme has to be
-        corroborated by a second reading before it becomes an anchor. See
-        calibration.py.
-        """
-        # Same redelivery hazard as the hopper: a QoS 1 duplicate arriving
-        # seconds later would corroborate the candidate it just created, which
-        # is one reading masquerading as two.
-        now = self.hass.loop.time()
-        if now - self._last_litter_sample_at < _STATE_DEDUPE:
-            return
-        self._last_litter_sample_at = now
-
-        moved = False
-        if litter_is_sampleable(robot):
-            assert robot.litter_level_mm is not None
-            moved |= self._learned_litter.observe(
-                robot.litter_level_mm,
-                bounds=LITTER_PLAUSIBLE_MM,
-                corroboration=LITTER_CORROBORATION_MM,
-                max_span=LITTER_MAX_SPAN_MM,
-                # Dense enough for the Hampel gate: an in-band anomaly (a paw a
-                # few cm above the bed) reads like an overfull globe, and two
-                # in one day would corrupt the anchor as an ordinary pair.
-                gate=True,
-            )
-        if moved:
-            # Only when something actually changed. A new extreme is rare, so
-            # this is not the per-state-document write it might look like.
-            self._persist_learned()
-
-    @callback
-    def _record_sighting(self, seen_key: str, last_key: str, payload: dict[str, object]) -> None:
-        """Persist a first sighting, with the readings that proved it.
-
-        Deliberately only writes state here. Enabling the entities happens in
-        async_setup_entry, after the platforms have registered them, so this can
-        never race platform setup — and the CALLER schedules the reload that
-        gets us there, once per message, however many sightings it proved.
-        """
-        self.hass.config_entries.async_update_entry(
-            self.config_entry,
-            options={**self.config_entry.options, seen_key: True, last_key: payload},
-        )
-
-    @callback
-    def _record_hopper_sighting(self) -> None:
-        self._hopper_seen = True
-        dispensed = self._last_hopper_dispensed
-        self._record_sighting(
-            CONF_HOPPER_SEEN,
-            CONF_HOPPER_LAST,
-            {
-                "connected": self._hopper_connected,
-                "fill": self._hopper_fill_raw,
-                "dispensed": dispensed.isoformat() if dispensed else None,
-            },
-        )
-
-    @callback
-    def _record_visit_duration_sighting(self) -> None:
-        self._visit_duration_seen = True
-        visit = self._last_cat_visit
-        self._record_sighting(
-            CONF_VISIT_DURATION_SEEN,
-            CONF_VISIT_DURATION_LAST,
-            {
-                "duration_s": self._last_visit_duration_s,
-                # The same event stamps last_cat_visit, whose own restore cache
-                # is seconds too old to survive the reload this schedules.
-                "visit_at": visit.isoformat() if visit else None,
-            },
-        )
-
-    @callback
-    def _record_drawer_sighting(self) -> None:
-        self._drawer_seen = True
-        moved = self._drawer_last_moved
-        self._record_sighting(
-            CONF_DRAWER_SEEN,
-            CONF_DRAWER_LAST,
-            {"moved_at": moved.isoformat() if moved else None},
-        )
-
-    @callback
-    def _record_pet_weight_sighting(self) -> None:
-        self._pet_weight_seen = True
-        self._record_sighting(
-            CONF_PET_WEIGHT_SEEN, CONF_PET_WEIGHT_LAST, {"weight_lb": self._cat_weight_lb}
-        )
-
-    @callback
-    def _record_cat_visit_sighting(self) -> None:
-        self._cat_visit_seen = True
-        visit = self._last_cat_visit
-        self._record_sighting(
-            CONF_CAT_VISIT_SEEN,
-            CONF_CAT_VISIT_LAST,
-            {"visit_at": visit.isoformat() if visit else None},
-        )
+        options = dict(self.config_entry.options)
+        sighted = False
+        for effect in effects:
+            if isinstance(effect, LearnedChanged):
+                options[CONF_LEARNED_LITTER] = self._derived.learned_litter.as_dict()
+                options[CONF_LEARNED_HOPPER] = self._derived.learned_hopper.as_dict()
+            elif isinstance(effect, HopperFillChanged):
+                options[CONF_HOPPER_FILL_RAW] = effect.value
+            elif isinstance(effect, CapabilitySighted):
+                options[SIGHTING_OPTIONS[effect.capability]] = True
+                sighted = True
+            elif isinstance(effect, FirmwareChanged):
+                # Device info is registered when entities are added, so an OTA
+                # landing while the entry stays loaded would otherwise show the
+                # old firmware until the next reload.
+                self._refresh_device_firmware(effect.version)
+        if sighted:
+            options[CONF_DERIVED] = self._derived.as_dict()
+        if options != dict(self.config_entry.options):
+            self.hass.config_entries.async_update_entry(self.config_entry, options=options)
+        if sighted:
+            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
     @property
     def litter_full_mm(self) -> int | None:
@@ -463,147 +287,26 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         self.async_set_updated_data(self._build_data(robot))
 
     def _build_data(self, robot: LitterRobot4State) -> WhiskerlessData:
-        """Combine the state snapshot with the activity-derived facts."""
-        # The learned minimum is the fullest reading SEEN, a decent estimate of
-        # a full fill because that is what people fill to, so it stands in for
-        # the manual reference and anchors 90%. The learned maximum is NOT
-        # evidence the globe was ever emptied, so it is never used as the zero
-        # end: that would report "empty" at whatever level this robot happens to
-        # sit lowest, which for most robots is an ordinary day.
-        effective_full: int | None
-        effective_empty: int | None
-        if self.litter_full_mm is not None:
-            effective_full = self.litter_full_mm
-            effective_empty = self.litter_empty_mm
-        else:
-            effective_full = self._learned_litter.low
-            effective_empty = None
+        """Combine the state snapshot with everything derived so far."""
+        full_mm, empty_mm = derive.litter_scale(
+            self._derived, full_mm=self.litter_full_mm, empty_mm=self.litter_empty_mm
+        )
         return WhiskerlessData(
             robot=robot,
-            cat_weight_lb=self._cat_weight_lb,
-            last_cat_visit=self._last_cat_visit,
-            last_visit_duration_s=self._last_visit_duration_s,
-            hopper_connected=self._hopper_connected,
-            litter_full_mm=effective_full,
-            litter_empty_mm=effective_empty,
+            derived=self._derived,
+            litter_full_mm=full_mm,
+            litter_empty_mm=empty_mm,
             litter_reference_mm=self.litter_full_mm,
-            hopper_fill_percent=(
-                None
-                if self._hopper_fill_raw is None
-                else hopper_percent(self._hopper_fill_raw, self._learned_hopper)
-            ),
-            hopper_empty=(
-                None
-                if self._hopper_fill_raw is None
-                else hopper_is_empty(self._hopper_fill_raw, self._learned_hopper)
-            ),
-            last_hopper_dispensed=self._last_hopper_dispensed,
-            hopper_fill_raw=self._hopper_fill_raw,
-            drawer_last_moved=self._drawer_last_moved,
-            globe_motor_fault=self._globe_motor_fault,
-            scale_loaded_since=self._scale_loaded_since,
         )
 
     @callback
-    def _handle_activity_events(self, message: ActivityMessage) -> bool:
-        """Fold an activity message's semantic events into the derived facts."""
-        changed = False
-        duration_reported = False
-        weight_reported = False
-        drawer_reported = False
-        dispense_reported = False
-        # A press we are waiting on, echoed back: the robot confirming it acted.
+    def _watch_press_echo(self, message: ActivityMessage) -> None:
+        """A press we are waiting on, echoed back: the robot confirming it acted."""
         if self._awaited_press is not None and any(
             r.register == lr4.Register.PANEL_BUTTON and r.value == self._awaited_press
             for r in message.readings
         ):
             self._press_echo.set()
-        events = events_from_readings(message.readings)
-        # A real dispense is a burst of 2-3 phase-tagged codes in one message. A
-        # type-1 READ of 0x0C decodes to a single HopperDispensed too, and taking
-        # that as proof would let one diagnostic read grow four hopper entities on
-        # a robot that has none.
-        dispensed_here = sum(isinstance(e, HopperDispensed) for e in events) > 1
-        for event in events:
-            if isinstance(event, CatWeightMeasured):
-                self._cat_weight_lb = event.weight_lb
-                self._last_cat_visit = dt_util.utcnow()
-                weight_reported = True
-                changed = True
-            elif isinstance(event, HopperDispensed):
-                # A dispense is the only hopper evidence left. 0x57 used to gate
-                # this, on the belief that it reported the link; a narrated
-                # session disproved that in both directions, and the gate then
-                # discarded every fill sample on a robot that dispenses happily
-                # but rarely emits 0x57.
-                if not dispensed_here:
-                    continue
-                self._last_hopper_dispensed = dt_util.utcnow()
-                self._hopper_connected = True  # something delivered litter
-                if event.phase == lr4.HOPPER_DISPENSE_FILL_PHASE:
-                    if event.value != self._hopper_fill_raw:
-                        self._hopper_fill_raw = event.value
-                        self._persist_hopper_fill()
-                    self._learn_hopper(event.value)
-                dispense_reported = True
-                changed = True
-            elif isinstance(event, HopperLinkChanged):
-                # Deliberately inert. 0x57 is not a link state: positives arrive
-                # while the hopper sits on the bench, -15 fires for opening the
-                # hopper's own drawer as well as for a detach, and a reattach is
-                # silent — so acting on any of it reports a refill as a fault
-                # that never clears. The event stays in the library for the
-                # protocol record; nothing derives connectivity from it.
-                pass
-            elif isinstance(event, CatVisitEnded):
-                # A visit needs a BODY, not just load on the scale. Handling the
-                # robot raises 0xBC exactly like a cat does — a Reset press closed
-                # one at 235 s and another at 172 s, both under the 300 s cap, and
-                # both were published as genuine multi-minute cat visits. Bit 0
-                # (the time-of-flight sight line) is what a cat sets and a hand on
-                # the bonnet does not, so it is the discriminator.
-                if not self._beam_seen_recently():
-                    continue
-                self._beam_broken_at = None
-                # The duration closes a visit even when it was too short for a
-                # weight event, so it also stamps last_cat_visit.
-                self._last_visit_duration_s = event.duration_s
-                self._last_cat_visit = dt_util.utcnow()
-                duration_reported = True
-                changed = True
-            elif isinstance(event, GlobeMotorFaultChanged):
-                # The state document does not mirror this. One robot held a live
-                # globe-motor fault for 50 minutes while globeMotorFaultStatus
-                # read 0 in every state document it published, so a consumer
-                # watching only the field never learns a fault happened.
-                if event.code != self._globe_motor_fault:
-                    self._globe_motor_fault = event.code
-                    changed = True
-            elif isinstance(event, DrawerBayMoved):
-                self._drawer_last_moved = dt_util.utcnow()
-                drawer_reported = True
-                changed = True
-        sighted = False
-        if dispense_reported and not self._hopper_seen:
-            self._record_hopper_sighting()
-            sighted = True
-        if duration_reported and not self._visit_duration_seen:
-            self._record_visit_duration_sighting()
-            sighted = True
-        if weight_reported and not self._pet_weight_seen:
-            self._record_pet_weight_sighting()
-            sighted = True
-        if (weight_reported or duration_reported) and not self._cat_visit_seen:
-            self._record_cat_visit_sighting()
-            sighted = True
-        if drawer_reported and not self._drawer_seen:
-            self._record_drawer_sighting()
-            sighted = True
-        if sighted:
-            # One reload however many sightings this message proved: each
-            # scheduled reload is a full unload/setup cycle, not debounced.
-            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
-        return changed
 
 
     @override
@@ -632,49 +335,21 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             return
         try:
             parsed = parse_message(message.topic, message.payload)
+            if parsed is None:
+                return
+            if isinstance(parsed, ActivityMessage):
+                # Before the reducer, which is deliberately blind to our own
+                # traffic: the echo is transport, not a fact about the robot.
+                self._watch_press_echo(parsed)
+            update = derive.apply_message(self._derived, parsed, dt_util.utcnow())
+            self._derived = update.state
+            self._apply_effects(update.effects)
             if isinstance(parsed, StateMessage):
-                # Visits are stamped from the occupancy transition too: some
-                # robots never emit a weight or duration event, and their
-                # visits are real anyway. cat_detected is bit 0: bit-1-only
-                # runs last hours with an empty globe on hopper robots and are
-                # not visits. False -> True only — a first document arriving
-                # mid-visit proves presence, not an arrival.
-                previous_occupancy = self._robot.cat_detected if self._robot is not None else None
-                occupancy = parsed.state.cat_detected
-                if occupancy:
-                    self._beam_broken_at = dt_util.utcnow()
-                # The robot raises "excess weight detected" once the scale has
-                # read loaded for over 30 minutes, and shows it on the panel as a
-                # partial yellow flash. Nothing in the state document says so, but
-                # catDetect bit 1 is the input, so the condition is derivable.
-                if parsed.state.scale_loaded:
-                    if self._scale_loaded_since is None:
-                        self._scale_loaded_since = dt_util.utcnow()
-                elif parsed.state.scale_loaded is False:
-                    self._scale_loaded_since = None
-                if previous_occupancy is False and occupancy is True:
-                    self._last_cat_visit = dt_util.utcnow()
-                    if not self._cat_visit_seen:
-                        self._record_cat_visit_sighting()
-                        self.hass.config_entries.async_schedule_reload(
-                            self.config_entry.entry_id
-                        )
-                # Device info is registered when entities are added, so an OTA
-                # landing while the entry stays loaded would otherwise show the
-                # old firmware until the next reload.
-                previous_firmware = self._robot.esp_firmware if self._robot is not None else None
-                if (
-                    parsed.state.esp_firmware is not None
-                    and previous_firmware is not None
-                    and parsed.state.esp_firmware != previous_firmware
-                ):
-                    self._refresh_device_firmware(parsed.state.esp_firmware)
                 self._robot = parsed.state
-                self._learn(parsed.state)
                 self._state_event.set()
                 self.async_set_updated_data(self._build_data(parsed.state))
-            elif isinstance(parsed, ActivityMessage):
-                if self._handle_activity_events(parsed) and self._robot is not None:
+            else:
+                if update.changed and self._robot is not None:
                     self.async_set_updated_data(self._build_data(self._robot))
                 self._schedule_activity_refresh()
         except Exception:  # noqa: BLE001 — a bad message must never break the subscription

@@ -124,6 +124,9 @@ class Evidence(StrEnum):
     CAT_WEIGHT = "cat_weight"
     DRAWER_MOVED = "drawer_moved"
     OCCUPANCY = "occupancy"
+    #: Proven by a build that did not record what proved it. Whether it still
+    #: stands is exactly the question a change to the standard has to ask.
+    LEGACY = "legacy"
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +183,16 @@ class DerivedState:
     globe_motor_fault: int | None = None
     # When the scale entered its current continuous loaded run, or None.
     scale_loaded_since: datetime | None = None
+    # Verdicts a consumer carried across a restart, because the evidence behind
+    # them cannot be: the fault stream speaks only on edges, and the start of a
+    # loaded run lives in memory. Both are retired below by positive evidence
+    # rather than by time, since a restart inside either condition is exactly
+    # when they matter.
+    globe_fault_restored: bool | None = None
+    excess_weight_restored: bool | None = None
+    # The clean-cycle odometer as last seen, so a restored fault can be retired
+    # by a cycle that completes without raising one.
+    cycles_seen: int | None = None
     # When the time-of-flight beam was last broken. The visit gate reads this
     # rather than a sticky flag: an arm crossing the beam without loading the
     # scale would otherwise arm the gate indefinitely, and the next Reset
@@ -240,6 +253,9 @@ class DerivedState:
             drawer_last_moved=_as_datetime(raw.get("drawer_last_moved")),
             globe_motor_fault=_as_int(raw.get("globe_motor_fault")),
             scale_loaded_since=_as_datetime(raw.get("scale_loaded_since")),
+            globe_fault_restored=_as_bool(raw.get("globe_fault_restored")),
+            excess_weight_restored=_as_bool(raw.get("excess_weight_restored")),
+            cycles_seen=_as_int(raw.get("cycles_seen")),
             beam_broken_at=_as_datetime(raw.get("beam_broken_at")),
             occupied=_as_bool(raw.get("occupied")),
             esp_firmware=_as_str(raw.get("esp_firmware")),
@@ -262,6 +278,9 @@ class DerivedState:
             "drawer_last_moved": _iso(self.drawer_last_moved),
             "globe_motor_fault": self.globe_motor_fault,
             "scale_loaded_since": _iso(self.scale_loaded_since),
+            "globe_fault_restored": self.globe_fault_restored,
+            "excess_weight_restored": self.excess_weight_restored,
+            "cycles_seen": self.cycles_seen,
             "beam_broken_at": _iso(self.beam_broken_at),
             "occupied": self.occupied,
             "esp_firmware": self.esp_firmware,
@@ -315,6 +334,26 @@ def _apply_state(state: DerivedState, robot: LitterRobot4State, now: datetime) -
             state.scale_loaded_since = now
     elif robot.scale_loaded is False:
         state.scale_loaded_since = None
+        # A positive "the pan is clear" retires the carried verdict for good.
+        # Left standing it would fire a false alarm at second zero of every
+        # later loaded run: the latch exists only to bridge a restart that
+        # landed mid-condition, and the first clear snapshot ends that.
+        state.excess_weight_restored = None
+    # A restored fault with no live edge otherwise has no way to ever turn off:
+    # the state field's 0 is distrusted by design, so if the clear edge fired
+    # while the consumer was down, the latch would re-restore itself forever. A
+    # completed clean cycle is the escape — a fault DURING a cycle raises its
+    # own edge, which outranks the latch anyway, so the odometer advancing
+    # without one is positive evidence the globe turns.
+    if robot.odometer_clean_cycles is not None:
+        if (
+            state.globe_fault_restored
+            and state.globe_motor_fault is None
+            and state.cycles_seen is not None
+            and robot.odometer_clean_cycles > state.cycles_seen
+        ):
+            state.globe_fault_restored = False
+        state.cycles_seen = robot.odometer_clean_cycles
     if previous_occupancy is False and occupancy is True:
         state.last_cat_visit = now
         effects += _sight(state, Capability.CAT_VISIT, Evidence.OCCUPANCY)
@@ -506,9 +545,7 @@ def hopper_empty(state: DerivedState) -> bool | None:
     return hopper_is_empty(state.hopper_fill_raw, state.learned_hopper)
 
 
-def globe_motor_faulted(
-    state: DerivedState, robot: LitterRobot4State, *, restored: bool | None = None
-) -> bool | None:
+def globe_motor_faulted(state: DerivedState, robot: LitterRobot4State) -> bool | None:
     """Globe-motor fault, from the activity stream OR the state document.
 
     It cannot read the state document alone. One robot raised a fault on the
@@ -518,28 +555,19 @@ def globe_motor_faulted(
     itself. A consumer watching the field stayed clear throughout a real fault.
 
     Either source raising a fault is a fault; the field is kept because it is
-    the only source on firmware that does populate it. ``restored`` is a verdict
-    carried across a restart by a consumer that persists one: the activity
-    stream speaks only on the edges, so a restart inside a 50-minute fault would
-    otherwise drop the latch and let the field's cheerful 0 read as no fault.
+    the only source on firmware that does populate it.
     """
     from_field = robot.globe_motor_fault
     if state.globe_motor_fault is not None:
         return bool(state.globe_motor_fault) or bool(from_field)
     # No edge seen this session. The field reading 0 is NOT evidence of no
-    # fault — that is the whole finding — so a restored latch outranks it.
-    if restored is not None:
-        return restored or bool(from_field)
+    # fault — that is the whole finding — so a carried verdict outranks it.
+    if state.globe_fault_restored is not None:
+        return state.globe_fault_restored or bool(from_field)
     return None if from_field is None else bool(from_field)
 
 
-def excess_weight(
-    state: DerivedState,
-    robot: LitterRobot4State,
-    now: datetime,
-    *,
-    restored: bool | None = None,
-) -> bool | None:
+def excess_weight(state: DerivedState, robot: LitterRobot4State, now: datetime) -> bool | None:
     """Whether something has been sitting on the scale past Whisker's threshold.
 
     The robot raises this itself and shows it on the panel as a blue bar with a
@@ -552,16 +580,16 @@ def excess_weight(
     occupied. One unit here held bit 1 for 2 h 09 m after a bonnet was reseated
     slightly off, with its clean-cycle countdown stuck the whole time.
 
-    ``restored`` bridges a restart mid-condition, where the run start is lost:
-    still loaded and previously yes means the condition never cleared, this
-    process just forgot when it started.
+    A carried verdict bridges a restart mid-condition, where the run start is
+    lost: still loaded and previously yes means the condition never cleared,
+    this process just forgot when it started.
     """
     if state.scale_loaded_since is None:
         # Only a positive "the pan is clear" is an off; an absent bit is unknown.
         return False if robot.scale_loaded is False else None
     if (now - state.scale_loaded_since) >= EXCESS_WEIGHT_AFTER:
         return True
-    return bool(restored)
+    return bool(state.excess_weight_restored)
 
 
 def _iso(value: datetime | None) -> str | None:

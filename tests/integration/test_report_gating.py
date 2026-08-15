@@ -32,7 +32,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
 )
 
-from . import robot_online, setup_integration
+from . import restore_latching_sensor, robot_online, setup_integration
 from .const import ACTIVITY_TOPIC, MOCK_CONFIG, MOCK_NAME, MOCK_SERIAL
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
@@ -387,8 +387,7 @@ async def test_an_active_globe_fault_survives_a_reload(
     render a live fault as off.
     """
     entity = "binary_sensor.litter_robot_4_globe_motor_fault"
-    bare_config_entry.add_to_hass(hass)
-    mock_restore_cache(hass, (State(entity, "on"),))
+    restore_latching_sensor(hass, bare_config_entry, "globe_motor_fault", "on")
 
     await setup_integration(hass, bare_config_entry, state_payload)
 
@@ -407,8 +406,7 @@ async def test_a_restored_fault_clears_after_a_completed_clean_cycle(
     clean-cycle odometer advancing without one means the fault is over.
     """
     entity = "binary_sensor.litter_robot_4_globe_motor_fault"
-    bare_config_entry.add_to_hass(hass)
-    mock_restore_cache(hass, (State(entity, "on"),))
+    restore_latching_sensor(hass, bare_config_entry, "globe_motor_fault", "on")
     doc = json.loads(state_payload)
 
     robot = await setup_integration(hass, bare_config_entry, json.dumps(doc))
@@ -434,8 +432,7 @@ async def test_the_first_completed_cycle_after_restore_clears_the_fault(
     to complete after a restore is the escape — not merely the calibration
     point for a second one."""
     entity = "binary_sensor.litter_robot_4_globe_motor_fault"
-    bare_config_entry.add_to_hass(hass)
-    mock_restore_cache(hass, (State(entity, "on"),))
+    restore_latching_sensor(hass, bare_config_entry, "globe_motor_fault", "on")
     doc = json.loads(state_payload)
 
     robot = await setup_integration(hass, bare_config_entry, json.dumps(doc))

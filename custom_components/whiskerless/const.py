@@ -19,7 +19,6 @@ CONF_SERIAL = "serial"
 # Set once the hopper has reported. Durable, so the entities it enables stay
 # enabled and the readings that proved it survive the reload enabling triggers.
 CONF_HOPPER_SEEN = "hopper_seen"
-CONF_HOPPER_LAST = "hopper_last"
 #: The last raw fill gauge, kept for good rather than dropped with the bootstrap
 #: above. Dispensing is demand-driven, so a well-fed robot can go days without
 #: one — long enough that a restart would otherwise leave the level unknown
@@ -32,7 +31,6 @@ CONF_HOPPER_FILL_RAW = "hopper_fill_raw"
 # and three cat weights without a single duration, and on 1.4.4 a weight is always
 # accompanied by one — so the sensor would sit unknown forever on that firmware.
 CONF_VISIT_DURATION_SEEN = "visit_duration_seen"
-CONF_VISIT_DURATION_LAST = "visit_duration_last"
 
 # Observation sensors gate on their first real report, the same pattern as the
 # hopper: a sensor that exists before its fact has ever been emitted is a
@@ -40,11 +38,15 @@ CONF_VISIT_DURATION_LAST = "visit_duration_last"
 # 1.1.75; one 1.1.75 robot has never emitted a weight). Controls are exempt —
 # their existence is the capability, not a report.
 CONF_DRAWER_SEEN = "drawer_seen"
-CONF_DRAWER_LAST = "drawer_last"
 CONF_PET_WEIGHT_SEEN = "pet_weight_seen"
-CONF_PET_WEIGHT_LAST = "pet_weight_last"
 CONF_CAT_VISIT_SEEN = "cat_visit_seen"
-CONF_CAT_VISIT_LAST = "cat_visit_last"
+
+#: The whole derived state, snapshotted when a sighting is recorded so the
+#: entities that sighting enables have a value the moment they appear — enabling
+#: one reloads the entry, which builds a fresh coordinator. Dropped once that
+#: reload has settled: kept longer it would be re-applied on every startup and
+#: clobber the newer values the entities restore for themselves.
+CONF_DERIVED = "derived"
 # One-shot upgrade sweep marker: clears detections recorded by builds whose
 # evidence rules were wrong and seeds the newly gated sensors from their
 # restore cache. See _reset_unproven_detections.

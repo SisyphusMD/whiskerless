@@ -12,6 +12,7 @@ waited out; what is under test is the retry and give-up behaviour, not the clock
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 import custom_components.whiskerless.coordinator as coord
@@ -479,7 +480,7 @@ async def test_the_learned_litter_low_survives_dedupe_and_drives_the_percentage(
     learned = mock_config_entry.options[CONF_LEARNED_LITTER]
     assert learned["low"] is None, "one reading must not corroborate itself"
 
-    coordinator._last_litter_sample_at -= 31  # age past the dedupe window
+    coordinator._derived.last_litter_sample_at -= timedelta(seconds=31)  # past the dedupe window
     with robot_online(robot):
         robot.push(payload)
         await hass.async_block_till_done()

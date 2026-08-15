@@ -6,8 +6,8 @@ import json
 
 import pytest
 from custom_components.whiskerless.const import (
+    CONF_DERIVED,
     CONF_HOPPER_FILL_RAW,
-    CONF_HOPPER_LAST,
     CONF_HOPPER_SEEN,
     CONF_LEARNED_HOPPER,
 )
@@ -103,8 +103,8 @@ async def test_a_dispense_enables_them(
 
     assert mock_config_entry.options[CONF_HOPPER_SEEN] is True
     data = mock_config_entry.runtime_data.data
-    assert data.hopper_fill_raw == 61
-    assert data.last_hopper_dispensed is not None
+    assert data.derived.hopper_fill_raw == 61
+    assert data.derived.last_hopper_dispensed is not None
     registry = er.async_get(hass)
     for domain, key in HOPPER_ENTITIES:
         assert _disabled_by(registry, domain, key) is None, f"{key} should be enabled"
@@ -117,8 +117,8 @@ async def test_the_gauge_outlives_the_bootstrap(
 ) -> None:
     """The latest gauge is kept for good, and tracks every dispense.
 
-    CONF_HOPPER_LAST is a one-shot that is dropped once the enabling reload has
-    landed, so it cannot answer for the level after a restart. Dispensing is
+    The derived snapshot is a one-shot that is dropped once the enabling reload
+    has landed, so it cannot answer for the level after a restart. Dispensing is
     demand-driven and a well-fed robot can go days without one, which is long
     enough that the level would otherwise read unknown until it next runs low.
     """
@@ -173,7 +173,7 @@ async def test_the_empty_alert_reports_ok_with_no_gauge(
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
-    assert mock_config_entry.runtime_data.data.hopper_fill_raw is None
+    assert mock_config_entry.runtime_data.data.derived.hopper_fill_raw is None
     state = hass.states.get("binary_sensor.litter_robot_4_hopper_out_of_litter")
     assert state is not None
     assert state.state == "off"
@@ -254,11 +254,11 @@ async def test_the_proving_reading_survives_the_reload(
 
     # Served straight back by the coordinator the reload built, so the entity
     # shows a value the moment it appears rather than waiting for another cycle.
-    assert mock_config_entry.runtime_data.data.hopper_fill_raw == 0x03D
-    assert mock_config_entry.runtime_data.data.last_hopper_dispensed is not None
+    assert mock_config_entry.runtime_data.data.derived.hopper_fill_raw == 0x03D
+    assert mock_config_entry.runtime_data.data.derived.last_hopper_dispensed is not None
     # And then discarded: keeping it would re-apply this reading on every future
     # startup, overriding whatever the entities themselves restored.
-    assert CONF_HOPPER_LAST not in mock_config_entry.options
+    assert CONF_DERIVED not in mock_config_entry.options
 
 
 async def test_detection_is_remembered_across_restarts(
@@ -286,7 +286,7 @@ async def test_detection_is_remembered_across_restarts(
     registry = er.async_get(hass)
     for domain, key in HOPPER_ENTITIES:
         assert _disabled_by(registry, domain, key) is None
-    assert mock_config_entry.runtime_data.data.hopper_fill_raw == 84
+    assert mock_config_entry.runtime_data.data.derived.hopper_fill_raw == 84
 
 
 async def test_a_user_disabled_entity_is_not_re_enabled(
@@ -408,6 +408,44 @@ async def test_the_level_estimates_until_the_floor_is_learned(
     assert state.attributes["source"] == "estimate"
 
 
+async def test_a_confirmed_floor_turns_the_estimate_into_a_measurement(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Once this unit's own floor is proven the level is its own scale, not a band."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={
+            **mock_config_entry.options,
+            CONF_HOPPER_SEEN: True,
+            # Floor 61 confirmed across separate dispenses, ceiling 91.
+            CONF_LEARNED_HOPPER: {"low": 61, "high": 91, "low_hits": 3},
+        },
+    )
+    er.async_get(hass).async_get_or_create(
+        "sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_hopper_level",
+        config_entry=mock_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper_level",
+    )
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    with robot_online(robot):
+        # Gauge 76 sits halfway up a 61-91 scale.
+        robot.push(
+            json.dumps({"type": "action", "data": ["0x0C0105", "0x0C104C", "0x0C2076"]}),
+            ACTIVITY_TOPIC,
+        )
+        await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.litter_robot_4_hopper_level")
+    assert state is not None
+    assert state.state == "50"
+    assert state.attributes["source"] == "measured"
+
+
 async def test_no_0x57_code_moves_the_connected_sensor(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
@@ -448,8 +486,8 @@ async def test_a_lone_0x0c_reading_is_not_a_dispense(
 
     assert not mock_config_entry.options.get(CONF_HOPPER_SEEN)
     data = mock_config_entry.runtime_data.data
-    assert data.hopper_fill_raw is None
-    assert data.hopper_connected is None
+    assert data.derived.hopper_fill_raw is None
+    assert data.derived.hopper_connected is None
     registry = er.async_get(hass)
     for domain, key in HOPPER_ENTITIES:
         assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION

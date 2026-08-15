@@ -13,13 +13,12 @@ from datetime import timedelta
 
 import pytest
 from custom_components.whiskerless.const import CONF_HOPPER_SEEN
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
-    mock_restore_cache,
 )
 
-from . import robot_online, seed_gated_sensors, setup_integration
+from . import restore_latching_sensor, robot_online, seed_gated_sensors, setup_integration
 from .const import ACTIVITY_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
@@ -226,7 +225,7 @@ async def test_excess_weight_is_reported_after_thirty_minutes(
     # Age the run rather than the reader: the sensor derives from when the scale
     # first read loaded, so backdating that is the whole condition.
     coordinator = mock_config_entry.runtime_data
-    coordinator._scale_loaded_since -= timedelta(minutes=31)
+    coordinator._derived.scale_loaded_since -= timedelta(minutes=31)
     with robot_online(robot):
         robot.push(loaded)
         await hass.async_block_till_done()
@@ -256,7 +255,7 @@ async def test_a_beam_break_does_not_license_a_later_phantom(
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
-    coordinator._beam_broken_at -= timedelta(minutes=5)
+    coordinator._derived.beam_broken_at -= timedelta(minutes=5)
 
     with robot_online(robot):
         robot.push(_activity(f"0xBC{235:04X}"), ACTIVITY_TOPIC)
@@ -276,8 +275,7 @@ async def test_excess_weight_survives_a_reload(
     """
     entity = "binary_sensor.litter_robot_4_excess_weight"
     loaded = json.dumps({**json.loads(state_payload), "catDetect": 2})
-    mock_config_entry.add_to_hass(hass)
-    mock_restore_cache(hass, (State(entity, "on"),))
+    restore_latching_sensor(hass, mock_config_entry, "excess_weight", "on")
 
     # Mid-condition means the scale is STILL loaded at restart — a clear first
     # snapshot is the other scenario, where the restored answer must die.
@@ -295,8 +293,7 @@ async def test_a_clear_that_predates_the_restore_still_retires_the_latch(
     a repeat of the clear — the restored answer must die at restore time."""
     entity = "binary_sensor.litter_robot_4_excess_weight"
     loaded = json.dumps({**json.loads(state_payload), "catDetect": 2})
-    mock_config_entry.add_to_hass(hass)
-    mock_restore_cache(hass, (State(entity, "on"),))
+    restore_latching_sensor(hass, mock_config_entry, "excess_weight", "on")
 
     robot = await setup_integration(hass, mock_config_entry, state_payload)  # snapshot: clear
     with robot_online(robot):
@@ -317,8 +314,7 @@ async def test_a_cleared_scale_retires_the_restored_excess_answer(
     """
     entity = "binary_sensor.litter_robot_4_excess_weight"
     loaded = json.dumps({**json.loads(state_payload), "catDetect": 2})
-    mock_config_entry.add_to_hass(hass)
-    mock_restore_cache(hass, (State(entity, "on"),))
+    restore_latching_sensor(hass, mock_config_entry, "excess_weight", "on")
 
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     with robot_online(robot):

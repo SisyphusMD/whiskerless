@@ -325,8 +325,36 @@ def test_a_globe_fault_from_either_source_is_a_fault(
 ) -> None:
     doc = {**IDLE} if field_value is None else {**IDLE, "globeMotorFaultStatus": field_value}
     robot = LitterRobot4State.from_state_doc(doc)
-    state = DerivedState(globe_motor_fault=activity)
-    assert globe_motor_faulted(state, robot, restored=restored) is expected
+    state = DerivedState(globe_motor_fault=activity, globe_fault_restored=restored)
+    assert globe_motor_faulted(state, robot) is expected
+
+
+def test_a_completed_cycle_retires_a_carried_fault() -> None:
+    # Otherwise a verdict carried past the clear edge re-restores itself forever:
+    # the state field's 0 is distrusted by design, so nothing else can retire it.
+    carried = DerivedState(globe_fault_restored=True)
+    running = _seen(carried, _state(odometerCleanCycles=1200))
+    assert running.globe_fault_restored is True, "the first document only sets the baseline"
+    assert _seen(running, _state(odometerCleanCycles=1200)).globe_fault_restored is True
+    assert _seen(running, _state(odometerCleanCycles=1201)).globe_fault_restored is False
+
+
+def test_a_cycle_does_not_retire_a_fault_the_stream_itself_reported() -> None:
+    # A fault DURING a cycle raises its own edge, which outranks the carried
+    # verdict anyway — clearing on the odometer would silence a live fault.
+    live = DerivedState(globe_fault_restored=True, globe_motor_fault=1, cycles_seen=1200)
+    assert _seen(live, _state(odometerCleanCycles=1201)).globe_fault_restored is True
+
+
+def test_a_robot_that_reports_no_odometer_leaves_the_baseline_alone() -> None:
+    carried = DerivedState(globe_fault_restored=True)
+    assert _seen(carried, _state()).cycles_seen is None
+
+
+def test_a_clear_pan_retires_a_carried_excess_weight_answer() -> None:
+    # Left standing it would alarm at second zero of every later loaded run.
+    carried = DerivedState(excess_weight_restored=True)
+    assert _seen(carried, _state(catDetect=0)).excess_weight_restored is None
 
 
 def test_excess_weight_needs_the_full_thirty_minutes() -> None:
@@ -338,8 +366,8 @@ def test_excess_weight_needs_the_full_thirty_minutes() -> None:
 
 def test_a_restored_alarm_survives_the_restart_that_forgot_when_it_started() -> None:
     robot = LitterRobot4State.from_state_doc({**IDLE, "catDetect": 2})
-    state = DerivedState(scale_loaded_since=T0)
-    assert excess_weight(state, robot, T0, restored=True) is True
+    state = DerivedState(scale_loaded_since=T0, excess_weight_restored=True)
+    assert excess_weight(state, robot, T0) is True
 
 
 def test_a_clear_pan_is_a_no_and_an_absent_bit_is_unknown() -> None:
