@@ -544,9 +544,9 @@ async def test_a_restored_fill_gauge_keeps_a_proven_hopper(
         f"{MOCK_SERIAL}_hopper_fill",
         config_entry=bare_config_entry,
         disabled_by=None,
-        suggested_object_id="litter_robot_4_hopper_fill_raw",
+        suggested_object_id="litter_robot_4_hopper_reading",
     )
-    mock_restore_cache(hass, (State("sensor.litter_robot_4_hopper_fill_raw", "84"),))
+    mock_restore_cache(hass, (State("sensor.litter_robot_4_hopper_reading", "84"),))
 
     await setup_integration(hass, bare_config_entry, state_payload)
 
@@ -629,9 +629,9 @@ async def test_an_implausible_cached_gauge_is_not_proof(
         f"{MOCK_SERIAL}_hopper_fill",
         config_entry=bare_config_entry,
         disabled_by=None,
-        suggested_object_id="litter_robot_4_hopper_fill_raw",
+        suggested_object_id="litter_robot_4_hopper_reading",
     )
-    mock_restore_cache(hass, (State("sensor.litter_robot_4_hopper_fill_raw", "0"),))
+    mock_restore_cache(hass, (State("sensor.litter_robot_4_hopper_reading", "0"),))
 
     await setup_integration(hass, bare_config_entry, state_payload)
 
@@ -656,7 +656,7 @@ async def test_a_restored_gauge_is_carried_at_ordinary_startup(
     )
     registry = er.async_get(hass)
     for key, object_id in (
-        ("hopper_fill", "litter_robot_4_hopper_fill_raw"),
+        ("hopper_fill", "litter_robot_4_hopper_reading"),
         ("hopper_level", "litter_robot_4_hopper_level"),
     ):
         registry.async_get_or_create(
@@ -671,7 +671,7 @@ async def test_a_restored_gauge_is_carried_at_ordinary_startup(
         hass,
         (
             (
-                State("sensor.litter_robot_4_hopper_fill_raw", "79"),
+                State("sensor.litter_robot_4_hopper_reading", "79"),
                 SensorExtraStoredData(79, None).as_dict(),
             ),
         ),
@@ -706,13 +706,13 @@ async def test_an_implausible_cached_gauge_is_not_carried(
         f"{MOCK_SERIAL}_hopper_fill",
         config_entry=bare_config_entry,
         disabled_by=None,
-        suggested_object_id="litter_robot_4_hopper_fill_raw",
+        suggested_object_id="litter_robot_4_hopper_reading",
     )
     mock_restore_cache_with_extra_data(
         hass,
         (
             (
-                State("sensor.litter_robot_4_hopper_fill_raw", "0"),
+                State("sensor.litter_robot_4_hopper_reading", "0"),
                 SensorExtraStoredData(0, None).as_dict(),
             ),
         ),

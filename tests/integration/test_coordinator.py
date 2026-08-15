@@ -314,7 +314,7 @@ async def test_calibration_refuses_when_the_robot_will_not_answer(
         await hass.services.async_call(
             "button",
             "press",
-            {"entity_id": "button.litter_robot_4_calibrate_litter_filled_to_the_line"},
+            {"entity_id": "button.litter_robot_4_calibrate_full"},
             blocking=True,
         )
 

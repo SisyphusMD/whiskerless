@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from custom_components.whiskerless import _producible_entities
-from homeassistant.core import HomeAssistant
+from custom_components.whiskerless.const import CONF_HOPPER_SEEN
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, mock_restore_cache
+
+from whiskerless.devices.litter_robot_4.derive import Evidence
 
 from . import setup_integration
 from .const import MOCK_SERIAL
@@ -179,7 +185,7 @@ async def test_a_hand_disabled_entity_is_left_alone(
     """Someone who turned it off themselves meant it."""
     mock_config_entry.add_to_hass(hass)
     registry = er.async_get(hass)
-    chosen = registry.async_get_or_create(
+    registry.async_get_or_create(
         "button",
         "whiskerless",
         f"{MOCK_SERIAL}_calibrate_litter_empty",
@@ -189,7 +195,13 @@ async def test_a_hand_disabled_entity_is_left_alone(
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
-    entry = registry.async_get(chosen.entity_id)
+    # By unique_id, not the id captured above: 0.2.0 renames this button, and the
+    # question here is whether the USER's disable survived, not where it lives.
+    entity_id = registry.async_get_entity_id(
+        "button", "whiskerless", f"{MOCK_SERIAL}_calibrate_litter_empty"
+    )
+    assert entity_id is not None
+    entry = registry.async_get(entity_id)
     assert entry is not None
     assert entry.disabled_by is er.RegistryEntryDisabler.USER
 
@@ -222,7 +234,12 @@ async def test_the_mm_sensors_are_moved_to_millimetres_on_upgrade(
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
-    state = hass.states.get(existing.entity_id)
+    # Resolved after setup: this sensor is one of the ones 0.2.0 renames.
+    entity_id = registry.async_get_entity_id(
+        "sensor", "whiskerless", f"{MOCK_SERIAL}_litter_reference"
+    )
+    assert entity_id is not None
+    state = hass.states.get(entity_id)
     assert state is not None
     assert state.attributes["unit_of_measurement"] == "mm"
 
@@ -249,6 +266,185 @@ async def test_a_unit_the_user_picked_is_left_alone(
 
     await setup_integration(hass, mock_config_entry, state_payload)
 
-    state = hass.states.get(existing.entity_id)
+    # Resolved after setup: this sensor is one of the ones 0.2.0 renames.
+    entity_id = registry.async_get_entity_id(
+        "sensor", "whiskerless", f"{MOCK_SERIAL}_litter_reference"
+    )
+    assert entity_id is not None
+    state = hass.states.get(entity_id)
     assert state is not None
     assert state.attributes["unit_of_measurement"] == "in"
+
+
+async def test_an_entity_keeps_its_name_across_installs(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A display-name change only reaches NEW entities, so without this an install
+    from last month and one from today answer to different ids for the same button."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    existing = registry.async_get_or_create(
+        "button",
+        "whiskerless",
+        f"{MOCK_SERIAL}_start_clean_cycle",
+        config_entry=mock_config_entry,
+        suggested_object_id="litter_robot_4_start_clean_cycle",
+    )
+    assert existing.entity_id == "button.litter_robot_4_start_clean_cycle"
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    moved = registry.async_get_entity_id("button", "whiskerless", f"{MOCK_SERIAL}_start_clean_cycle")
+    assert moved == "button.litter_robot_4_clean_cycle"
+
+
+async def test_an_id_the_user_chose_is_never_moved(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Renaming an entity is how someone says what they want it called, and that
+    outranks our tidiness — every automation they wrote uses their name."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    chosen = registry.async_get_or_create(
+        "button",
+        "whiskerless",
+        f"{MOCK_SERIAL}_start_clean_cycle",
+        config_entry=mock_config_entry,
+        suggested_object_id="scoop_the_box",
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    assert registry.async_get(chosen.entity_id) is not None
+
+
+async def test_a_rename_never_lands_on_an_id_already_in_use(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Taking an occupied id would be worse than leaving the old one in place."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "button",
+        "whiskerless",
+        f"{MOCK_SERIAL}_start_clean_cycle",
+        config_entry=mock_config_entry,
+        suggested_object_id="litter_robot_4_start_clean_cycle",
+    )
+    squatter = registry.async_get_or_create(
+        "button", "other_integration", "squatter", suggested_object_id="litter_robot_4_clean_cycle"
+    )
+    assert squatter.entity_id == "button.litter_robot_4_clean_cycle"
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    assert (
+        registry.async_get_entity_id("button", "whiskerless", f"{MOCK_SERIAL}_start_clean_cycle")
+        == "button.litter_robot_4_start_clean_cycle"
+    )
+
+
+async def test_a_disambiguated_id_is_renamed_with_its_counter(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Core appends _2 when a second device shares a name. That id is just as
+    generated as the plain one, and skipping it would strand the second robot."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "button",
+        "whiskerless",
+        f"{MOCK_SERIAL}_start_clean_cycle",
+        config_entry=mock_config_entry,
+        suggested_object_id="litter_robot_4_start_clean_cycle_2",
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    assert (
+        registry.async_get_entity_id("button", "whiskerless", f"{MOCK_SERIAL}_start_clean_cycle")
+        == "button.litter_robot_4_clean_cycle_2"
+    )
+
+
+async def test_a_rename_blocked_by_a_live_entity_does_not_break_setup(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """An entity with no unique_id has a state but no registry row, and core
+    refuses the id with a ValueError that would abort the whole integration."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "button",
+        "whiskerless",
+        f"{MOCK_SERIAL}_start_clean_cycle",
+        config_entry=mock_config_entry,
+        suggested_object_id="litter_robot_4_start_clean_cycle",
+    )
+    hass.states.async_set("button.litter_robot_4_clean_cycle", "unknown")
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    assert mock_config_entry.state is ConfigEntryState.LOADED
+    assert (
+        registry.async_get_entity_id("button", "whiskerless", f"{MOCK_SERIAL}_start_clean_cycle")
+        == "button.litter_robot_4_start_clean_cycle"
+    )
+
+
+async def test_a_rename_that_fails_anyway_never_takes_setup_down(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The checks above should make this unreachable, and it stays here anyway:
+    losing every entity on this robot because a cosmetic rename raised is a far
+    worse trade than an entity keeping its old name."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "button",
+        "whiskerless",
+        f"{MOCK_SERIAL}_start_clean_cycle",
+        config_entry=mock_config_entry,
+        suggested_object_id="litter_robot_4_start_clean_cycle",
+    )
+
+    real = er.EntityRegistry.async_update_entity
+
+    def only_renames_fail(self: object, entity_id: str, **kwargs: object) -> object:
+        if "new_entity_id" in kwargs:
+            raise ValueError("taken")
+        return real(self, entity_id, **kwargs)  # type: ignore[arg-type]
+
+    with patch.object(er.EntityRegistry, "async_update_entity", only_renames_fail):
+        await setup_integration(hass, mock_config_entry, state_payload)
+
+    assert mock_config_entry.state is ConfigEntryState.LOADED
+
+
+async def test_a_renamed_entity_keeps_what_it_had_restored(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The restore cache is keyed by entity_id. Without carrying it across, the
+    hopper gauge comes back unknown — and that reading is what the detection
+    sweep accepts as proof the hardware exists."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={**mock_config_entry.options, CONF_HOPPER_SEEN: str(Evidence.DISPENSE)},
+    )
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_hopper_fill",
+        config_entry=mock_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_hopper_fill_raw",
+    )
+    mock_restore_cache(hass, (State("sensor.litter_robot_4_hopper_fill_raw", "84"),))
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    state = hass.states.get("sensor.litter_robot_4_hopper_reading")
+    assert state is not None
+    assert state.state == "84"

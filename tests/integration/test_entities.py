@@ -74,7 +74,7 @@ async def test_the_clean_cycle_button_sends_a_panel_press(
             await hass.services.async_call(
                 "button",
                 "press",
-                {"entity_id": "button.litter_robot_4_start_clean_cycle"},
+                {"entity_id": "button.litter_robot_4_clean_cycle"},
                 blocking=True,
             )
     finally:
@@ -109,7 +109,7 @@ async def test_an_unacknowledged_press_is_never_resent(
             await hass.services.async_call(
                 "button",
                 "press",
-                {"entity_id": "button.litter_robot_4_start_clean_cycle"},
+                {"entity_id": "button.litter_robot_4_clean_cycle"},
                 blocking=True,
             )
     finally:

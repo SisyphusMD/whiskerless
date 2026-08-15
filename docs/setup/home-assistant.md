@@ -118,7 +118,7 @@ before settling.
 - **Last cat visit**, and **Last visit duration** (not every robot reports one; enables itself)
 - **Waste drawer last moved**
 - **Clean cycle count** (diagnostic)
-- **Litter calibration reference** (diagnostic)
+- **Litter reference** (diagnostic)
 - **Wi-Fi signal** (dBm, diagnostic, disabled by default)
 
 **Binary sensors**
@@ -168,12 +168,15 @@ flowed).
 If you want it right immediately rather than eventually, measure it yourself:
 
 1. Fill the globe to the line.
-2. Press **Calibrate litter: filled to the line** (a config button on the device
+2. Enable the calibration buttons — they ship disabled, because the robot
+   learns its own scale and a press at the wrong moment pins the percentage to a
+   wrong number for good. Device page → the two `Calibrate …` entities → enable.
+3. Press **Calibrate full** (a config button on the device
    page) while the robot is idle.
 
 That reading becomes 90%, matching how the cloud pins "at optimal" and leaving
 headroom above for an overfill. If you ever have the globe empty, press
-**Calibrate litter: empty** too — a second point replaces the assumed
+**Calibrate empty** too — a second point replaces the assumed
 slope with a true two-point scale. It is genuinely optional; nobody should empty
 a litter box for a dashboard number.
 
@@ -187,7 +190,7 @@ from the activity stream — so these five entities ship **disabled** rather tha
 reading unknown forever on the robots that don't have one:
 
 - **Hopper** (connected), **Hopper out of litter**, **Hopper level (%)**,
-  **Hopper fill (raw)**, **Last hopper dispense**
+  **Hopper reading**, **Last hopper dispense**
 
 **You don't need to do anything.** The first time your robot dispenses litter they
 enable themselves and come up carrying that reading. Detection is remembered, so
@@ -256,7 +259,7 @@ alerts, fault alerts, weight logging, and night-light scheduling.
 
 ## What's *not* exposed
 
-**Start clean cycle** and **Reset** are available as buttons. **Empty cycle** and
+**Clean cycle** and **Reset** are available as buttons. **Empty cycle** and
 **Power** exist too but ship **disabled by default** — enable them in the entity
 settings if you want them. Both carry `(danger)` in their name: an empty cycle dumps
 the whole globe into the waste drawer, and Power *toggles*, so a robot switched off

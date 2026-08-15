@@ -401,7 +401,7 @@
     'state': 'off',
   })
 # ---
-# name: test_the_entity_surface[button.litter_robot_4_calibrate_litter_empty-entry]
+# name: test_the_entity_surface[button.litter_robot_4_calibrate_empty-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -414,7 +414,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'button',
     'entity_category': <EntityCategory.CONFIG: 'config'>,
-    'entity_id': 'button.litter_robot_4_calibrate_litter_empty',
+    'entity_id': 'button.litter_robot_4_calibrate_empty',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -422,12 +422,12 @@
     'labels': set({
     }),
     'name': None,
-    'object_id_base': 'Calibrate litter: empty',
+    'object_id_base': 'Calibrate empty',
     'options': dict({
     }),
     'original_device_class': None,
     'original_icon': None,
-    'original_name': 'Calibrate litter: empty',
+    'original_name': 'Calibrate empty',
     'platform': 'whiskerless',
     'previous_unique_id': None,
     'suggested_object_id': None,
@@ -437,7 +437,7 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_the_entity_surface[button.litter_robot_4_calibrate_litter_filled_to_the_line-entry]
+# name: test_the_entity_surface[button.litter_robot_4_calibrate_full-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
     }),
@@ -450,7 +450,7 @@
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'button',
     'entity_category': <EntityCategory.CONFIG: 'config'>,
-    'entity_id': 'button.litter_robot_4_calibrate_litter_filled_to_the_line',
+    'entity_id': 'button.litter_robot_4_calibrate_full',
     'has_entity_name': True,
     'hidden_by': None,
     'icon': None,
@@ -458,12 +458,12 @@
     'labels': set({
     }),
     'name': None,
-    'object_id_base': 'Calibrate litter: filled to the line',
+    'object_id_base': 'Calibrate full',
     'options': dict({
     }),
     'original_device_class': None,
     'original_icon': None,
-    'original_name': 'Calibrate litter: filled to the line',
+    'original_name': 'Calibrate full',
     'platform': 'whiskerless',
     'previous_unique_id': None,
     'suggested_object_id': None,
@@ -471,6 +471,55 @@
     'translation_key': 'calibrate_litter_full',
     'unique_id': 'LR4C000001_calibrate_litter_full',
     'unit_of_measurement': None,
+  })
+# ---
+# name: test_the_entity_surface[button.litter_robot_4_clean_cycle-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'button',
+    'entity_category': None,
+    'entity_id': 'button.litter_robot_4_clean_cycle',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Clean cycle',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Clean cycle',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'start_clean_cycle',
+    'unique_id': 'LR4C000001_start_clean_cycle',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_the_entity_surface[button.litter_robot_4_clean_cycle-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Litter-Robot 4 Clean cycle',
+    }),
+    'context': <ANY>,
+    'entity_id': 'button.litter_robot_4_clean_cycle',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
   })
 # ---
 # name: test_the_entity_surface[button.litter_robot_4_empty_cycle_danger-entry]
@@ -637,55 +686,6 @@
     }),
     'context': <ANY>,
     'entity_id': 'button.litter_robot_4_reset',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'unknown',
-  })
-# ---
-# name: test_the_entity_surface[button.litter_robot_4_start_clean_cycle-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'button',
-    'entity_category': None,
-    'entity_id': 'button.litter_robot_4_start_clean_cycle',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Start clean cycle',
-    'options': dict({
-    }),
-    'original_device_class': None,
-    'original_icon': None,
-    'original_name': 'Start clean cycle',
-    'platform': 'whiskerless',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'start_clean_cycle',
-    'unique_id': 'LR4C000001_start_clean_cycle',
-    'unit_of_measurement': None,
-  })
-# ---
-# name: test_the_entity_surface[button.litter_robot_4_start_clean_cycle-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      'friendly_name': 'Litter-Robot 4 Start clean cycle',
-    }),
-    'context': <ANY>,
-    'entity_id': 'button.litter_robot_4_start_clean_cycle',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
@@ -1040,44 +1040,6 @@
     'state': '1284',
   })
 # ---
-# name: test_the_entity_surface[sensor.litter_robot_4_hopper_fill_raw-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
-    'area_id': None,
-    'capabilities': dict({
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
-    }),
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
-    'domain': 'sensor',
-    'entity_category': None,
-    'entity_id': 'sensor.litter_robot_4_hopper_fill_raw',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Hopper fill (raw)',
-    'options': dict({
-    }),
-    'original_device_class': None,
-    'original_icon': None,
-    'original_name': 'Hopper fill (raw)',
-    'platform': 'whiskerless',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'hopper_fill',
-    'unique_id': 'LR4C000001_hopper_fill',
-    'unit_of_measurement': None,
-  })
-# ---
 # name: test_the_entity_surface[sensor.litter_robot_4_hopper_level-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
@@ -1114,6 +1076,44 @@
     'translation_key': 'hopper_level',
     'unique_id': 'LR4C000001_hopper_level',
     'unit_of_measurement': '%',
+  })
+# ---
+# name: test_the_entity_surface[sensor.litter_robot_4_hopper_reading-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': dict({
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.litter_robot_4_hopper_reading',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Hopper reading',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Hopper reading',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'hopper_fill',
+    'unique_id': 'LR4C000001_hopper_fill',
+    'unit_of_measurement': None,
   })
 # ---
 # name: test_the_entity_surface[sensor.litter_robot_4_last_cat_visit-entry]
@@ -1178,7 +1178,7 @@
     'device_id': <ANY>,
     'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'sensor',
-    'entity_category': None,
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
     'entity_id': 'sensor.litter_robot_4_last_hopper_dispense',
     'has_entity_name': True,
     'hidden_by': None,
@@ -1238,64 +1238,6 @@
     'translation_key': 'last_visit_duration',
     'unique_id': 'LR4C000001_last_visit_duration',
     'unit_of_measurement': <UnitOfTime.SECONDS: 's'>,
-  })
-# ---
-# name: test_the_entity_surface[sensor.litter_robot_4_litter_calibration_reference-entry]
-  EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
-    'area_id': None,
-    'capabilities': None,
-    'config_entry_id': <ANY>,
-    'config_subentry_id': <ANY>,
-    'device_class': None,
-    'device_id': <ANY>,
-    'disabled_by': None,
-    'domain': 'sensor',
-    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
-    'entity_id': 'sensor.litter_robot_4_litter_calibration_reference',
-    'has_entity_name': True,
-    'hidden_by': None,
-    'icon': None,
-    'id': <ANY>,
-    'labels': set({
-    }),
-    'name': None,
-    'object_id_base': 'Litter calibration reference',
-    'options': dict({
-      'sensor': dict({
-        'suggested_display_precision': 0,
-      }),
-      'sensor.private': dict({
-        'suggested_unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
-      }),
-    }),
-    'original_device_class': <SensorDeviceClass.DISTANCE: 'distance'>,
-    'original_icon': None,
-    'original_name': 'Litter calibration reference',
-    'platform': 'whiskerless',
-    'previous_unique_id': None,
-    'suggested_object_id': None,
-    'supported_features': 0,
-    'translation_key': 'litter_reference',
-    'unique_id': 'LR4C000001_litter_reference',
-    'unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
-  })
-# ---
-# name: test_the_entity_surface[sensor.litter_robot_4_litter_calibration_reference-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      'device_class': 'distance',
-      'friendly_name': 'Litter-Robot 4 Litter calibration reference',
-      'source': 'default',
-      'unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
-    }),
-    'context': <ANY>,
-    'entity_id': 'sensor.litter_robot_4_litter_calibration_reference',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': '440',
   })
 # ---
 # name: test_the_entity_surface[sensor.litter_robot_4_litter_level-entry]
@@ -1390,6 +1332,64 @@
     'translation_key': 'litter_level_mm',
     'unique_id': 'LR4C000001_litter_level_mm',
     'unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
+  })
+# ---
+# name: test_the_entity_surface[sensor.litter_robot_4_litter_reference-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.litter_robot_4_litter_reference',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Litter reference',
+    'options': dict({
+      'sensor': dict({
+        'suggested_display_precision': 0,
+      }),
+      'sensor.private': dict({
+        'suggested_unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
+      }),
+    }),
+    'original_device_class': <SensorDeviceClass.DISTANCE: 'distance'>,
+    'original_icon': None,
+    'original_name': 'Litter reference',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'litter_reference',
+    'unique_id': 'LR4C000001_litter_reference',
+    'unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
+  })
+# ---
+# name: test_the_entity_surface[sensor.litter_robot_4_litter_reference-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'distance',
+      'friendly_name': 'Litter-Robot 4 Litter reference',
+      'source': 'default',
+      'unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.litter_robot_4_litter_reference',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '440',
   })
 # ---
 # name: test_the_entity_surface[sensor.litter_robot_4_pet_weight-entry]

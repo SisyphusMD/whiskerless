@@ -115,6 +115,13 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 ### Changed
 
+- **Some entities were renamed**, and existing installs are moved with them:
+  *Start clean cycle* → **Clean cycle**, the two calibration buttons → **Calibrate
+  full** / **Calibrate empty**, *Hopper fill (raw)* → **Hopper reading**, *Litter
+  calibration reference* → **Litter reference**. Entity IDs you chose yourself are
+  left alone; every rename is logged, so check automations that used the old IDs.
+- **The raw hopper reading, last dispense and clean-cycle count moved to
+  Diagnostics**, leaving the sensor list to the things worth a glance.
 - **The manual calibration buttons now ship disabled.** The robot calibrates
   itself; enable them if you want to pin the scale to a measurement of your own.
 - **Litter distances read in millimetres**, not inches converted to thirteen

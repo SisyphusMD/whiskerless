@@ -17,7 +17,7 @@ from .const import STATE_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
-CALIBRATE = "button.litter_robot_4_calibrate_litter_filled_to_the_line"
+CALIBRATE = "button.litter_robot_4_calibrate_full"
 
 
 def _message(payload: str) -> ReceiveMessage:
@@ -123,7 +123,7 @@ async def test_the_reference_sensor_shows_the_press_landed(
     otherwise indistinguishable from nothing happening."""
     enable_calibration_buttons(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, state_payload)
-    before = hass.states.get("sensor.litter_robot_4_litter_calibration_reference")
+    before = hass.states.get("sensor.litter_robot_4_litter_reference")
     assert before is not None
     # Uncalibrated shows the approximation curve's anchor, labelled as such,
     # rather than an alarming unknown.
@@ -134,7 +134,7 @@ async def test_the_reference_sensor_shows_the_press_landed(
         await _press(hass, CALIBRATE)
     await hass.async_block_till_done()
 
-    after = hass.states.get("sensor.litter_robot_4_litter_calibration_reference")
+    after = hass.states.get("sensor.litter_robot_4_litter_reference")
     assert after is not None
     assert after.state == "455"
     assert after.attributes["source"] == "calibrated"

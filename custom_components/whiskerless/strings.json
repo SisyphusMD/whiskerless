@@ -68,10 +68,10 @@
         "name": "Last visit duration"
       },
       "hopper_fill": {
-        "name": "Hopper fill (raw)"
+        "name": "Hopper reading"
       },
       "litter_reference": {
-        "name": "Litter calibration reference"
+        "name": "Litter reference"
       },
       "hopper_level": {
         "name": "Hopper level"
@@ -148,10 +148,10 @@
         "name": "Refresh"
       },
       "calibrate_litter_full": {
-        "name": "Calibrate litter: filled to the line"
+        "name": "Calibrate full"
       },
       "calibrate_litter_empty": {
-        "name": "Calibrate litter: empty"
+        "name": "Calibrate empty"
       },
       "panel_reset": {
         "name": "Reset"
@@ -163,7 +163,7 @@
         "name": "Power toggle (danger)"
       },
       "start_clean_cycle": {
-        "name": "Start clean cycle"
+        "name": "Clean cycle"
       }
     }
   },

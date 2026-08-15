@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -18,7 +19,14 @@ from whiskerless.devices.litter_robot_4.derive import Capability, Evidence
 
 from . import binary_sensor, button, number, select, sensor, switch
 from . import time as time_platform
-from .const import CONF_DERIVED, CONF_HOPPER_FILL_RAW, CONF_HOPPER_SEEN, CONF_SERIAL, DOMAIN
+from .const import (
+    CONF_DERIVED,
+    CONF_HOPPER_FILL_RAW,
+    CONF_HOPPER_SEEN,
+    CONF_SERIAL,
+    DOMAIN,
+    LOGGER,
+)
 from .coordinator import SIGHTING_OPTIONS, WhiskerlessConfigEntry, WhiskerlessCoordinator
 
 # Option key recording which version last swept the entity registry.
@@ -390,6 +398,86 @@ def _promote_newly_default_entities(hass: HomeAssistant, entry: WhiskerlessConfi
             registry.async_update_entity(entity_id, disabled_by=None)
 
 
+#: Entities renamed in 0.2.0, as (domain, unique-id key, old entity-id suffix,
+#: new one). Home Assistant builds an entity_id from the display name ONCE, at
+#: creation, so a rename leaves every existing install on the old id forever —
+#: two robots set up a month apart would answer to different names for the same
+#: reading, which is worse than either name.
+_RENAMED: tuple[tuple[str, str, str, str], ...] = (
+    (Platform.BUTTON, "start_clean_cycle", "start_clean_cycle", "clean_cycle"),
+    (
+        Platform.BUTTON,
+        "calibrate_litter_full",
+        "calibrate_litter_filled_to_the_line",
+        "calibrate_full",
+    ),
+    (Platform.BUTTON, "calibrate_litter_empty", "calibrate_litter_empty", "calibrate_empty"),
+    (Platform.SENSOR, "hopper_fill", "hopper_fill_raw", "hopper_reading"),
+    (Platform.SENSOR, "litter_reference", "litter_calibration_reference", "litter_reference"),
+)
+_RENAMED_BY = "entity_ids_renamed"
+
+
+def _rename_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
+    """Move existing entities onto the new entity_ids, once.
+
+    An entity_id rename is not free: anything referring to the old one — an
+    automation, a dashboard card, a script — silently stops matching. It is done
+    anyway because the alternative is permanent divergence, with two robots set
+    up a month apart answering to different names for the same button.
+
+    Matched on the SUFFIX, and the limit of that is worth stating. The generated
+    prefix comes from the device name at the moment the entity was created, so
+    renaming a device leaves older entities carrying the old prefix and newer
+    ones the new — a real install here has both. Requiring today's generated form
+    would therefore skip precisely the oldest entities, which are the ones most
+    in need of the migration. The cost is that an id a person chose that happens
+    to END with the old suffix is indistinguishable from a generated one and will
+    be renamed. That is why every rename is logged at WARNING: a silent id change
+    is the kind of thing someone discovers weeks later, in a broken automation.
+    """
+    if entry.options.get(_RENAMED_BY):
+        return
+    registry = er.async_get(hass)
+    for domain, key, was, now in _RENAMED:
+        entity_id = registry.async_get_entity_id(
+            domain, DOMAIN, f"{entry.runtime_data.serial}_{key}"
+        )
+        if entity_id is None:
+            continue
+        object_id = entity_id.split(".", 1)[1]
+        # `…_start_clean_cycle_2` is what core generates when a second device
+        # shares a name, and it is just as generated as the plain form — the
+        # counter moves across to the new id with it.
+        match = re.fullmatch(rf"(?P<prefix>.*){re.escape(was)}(?P<counter>_\d+)?", object_id)
+        if match is None:
+            continue  # ends in something else entirely; leave it alone
+        target = f"{domain}.{match['prefix']}{now}{match['counter'] or ''}"
+        # Both registers, because an entity without a unique_id has a state but
+        # no registry row, and core rejects the rename either way — with a
+        # ValueError that would take the whole integration's setup down.
+        if target == entity_id or registry.async_get(target) or hass.states.get(target):
+            continue
+        try:
+            registry.async_update_entity(entity_id, new_entity_id=target)
+        except ValueError:
+            LOGGER.debug("Could not rename %s to %s; leaving it alone", entity_id, target)
+            continue
+        # The restore cache is keyed by entity_id, so without this the entity
+        # comes back `unknown` after the rename: a button forgets when it was
+        # last pressed, and the hopper gauge forgets a reading the detection
+        # sweep reads as proof the hardware exists.
+        cached = restore_state.async_get(hass).last_states
+        if entity_id in cached:
+            cached[target] = cached.pop(entity_id)
+        LOGGER.warning(
+            "Renamed %s to %s — update any automation or dashboard that used the old id",
+            entity_id,
+            target,
+        )
+    hass.config_entries.async_update_entry(entry, options={**entry.options, _RENAMED_BY: True})
+
+
 #: Sensors whose displayed unit the integration now states outright, and the
 #: unit it states. Both are ToF readings the protocol quotes in millimetres and
 #: the docs discuss in millimetres; on an imperial system Home Assistant was
@@ -471,6 +559,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
     _enable_detected_entities(hass, entry)
     _promote_newly_default_entities(hass, entry)
     _pin_sensor_units(hass, entry)
+    # Before the platforms are forwarded, so entities are added under the name
+    # they will keep rather than being created and immediately moved.
+    _rename_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # Again, for entries the platforms just created. If that flipped anything a
     # reload is queued, so the bootstrap readings have to survive to seed it.

@@ -212,6 +212,7 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         key="last_hopper_dispensed",
         translation_key="last_hopper_dispensed",
         device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         data_fn=lambda data: data.derived.last_hopper_dispensed,
     ),
@@ -283,6 +284,8 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         key="hopper_fill",
         translation_key="hopper_fill",
         state_class=SensorStateClass.MEASUREMENT,
+        # The raw gauge behind `hopper_level`, which is the one to read.
+        entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         data_fn=lambda data: data.derived.hopper_fill_raw,
     ),

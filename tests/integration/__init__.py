@@ -56,7 +56,7 @@ def enable_calibration_buttons(hass: HomeAssistant, entry: MockConfigEntry) -> N
     entry.add_to_hass(hass)
     registry = er.async_get(hass)
     for key, object_id in (
-        ("calibrate_litter_full", "litter_robot_4_calibrate_litter_filled_to_the_line"),
+        ("calibrate_litter_full", "litter_robot_4_calibrate_full"),
         ("calibrate_litter_empty", "litter_robot_4_calibrate_litter_empty"),
     ):
         registry.async_get_or_create(
