@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 256" width="900" height="256">
+  <path d="M44 136 L14 129" stroke="#0E7C7B" stroke-width="9" stroke-linecap="round" opacity="0.3"/>
+  <path d="M44 156 L14 156" stroke="#0E7C7B" stroke-width="9" stroke-linecap="round" opacity="0.3"/>
+  <path d="M44 176 L14 183" stroke="#0E7C7B" stroke-width="9" stroke-linecap="round" opacity="0.3"/>
+  <path d="M212 136 L242 129" stroke="#0E7C7B" stroke-width="9" stroke-linecap="round" opacity="0.3"/>
+  <path d="M212 156 L242 156" stroke="#0E7C7B" stroke-width="9" stroke-linecap="round" opacity="0.3"/>
+  <path d="M212 176 L242 183" stroke="#0E7C7B" stroke-width="9" stroke-linecap="round" opacity="0.3"/>
+  <path d="M52 62 L118 106 L60 132 Z" fill="#0E7C7B"/>
+  <path d="M204 62 L138 106 L196 132 Z" fill="#0E7C7B"/>
+  <circle cx="128" cy="156" r="76" fill="#0E7C7B"/>
+  <ellipse cx="101" cy="146" rx="12" ry="16.5" fill="#FFFFFF"/>
+  <ellipse cx="155" cy="146" rx="12" ry="16.5" fill="#FFFFFF"/>
+  <path d="M128 172 l11 9 -11 9 -11 -9 Z" fill="#FFFFFF"/>
+  <text x="300" y="184" font-family="Avenir Next" font-weight="600" font-size="104" fill="#0E7C7B">whiskerless</text>
+</svg>
