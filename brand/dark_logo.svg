@@ -1,11 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1020 256" width="1020" height="256">
   <rect width="256" height="256" rx="56" fill="#06302E"/>
-  <path d="M60 34 L118 84 L68 110 Z" fill="#4FC3C0"/>
-  <path d="M196 34 L138 84 L188 110 Z" fill="#4FC3C0"/>
-  <circle cx="128" cy="134" r="68" fill="#4FC3C0"/>
-  <ellipse cx="104" cy="126" rx="11" ry="15" fill="#06302E"/>
-  <ellipse cx="152" cy="126" rx="11" ry="15" fill="#06302E"/>
-  <path d="M128 148 l10 8 -10 8 -10 -8 Z" fill="#06302E"/>
-  <rect x="52" y="214" width="152" height="22" rx="11" fill="#4FC3C0"/>
+  <path d="M68 28 L118 74 L76 100 Z" fill="#4FC3C0"/>
+  <path d="M188 28 L138 74 L180 100 Z" fill="#4FC3C0"/>
+  <circle cx="128" cy="118" r="60" fill="#4FC3C0"/>
+  <ellipse cx="106" cy="110" rx="10.5" ry="14" fill="#06302E"/>
+  <ellipse cx="150" cy="110" rx="10.5" ry="14" fill="#06302E"/>
+  <path d="M128 131 l9.5 8 -9.5 8 -9.5 -8 Z" fill="#06302E"/>
+  <rect x="36" y="198" width="184" height="38" rx="12" fill="#4FC3C0"/>
+  <rect x="98" y="212" width="60" height="10" rx="5" fill="#06302E"/>
   <text x="300" y="170" font-family="Avenir Next" font-weight="600" font-size="104"><tspan fill="#3E8F8D">whisker</tspan><tspan fill="#6FD6D3">less</tspan></text>
 </svg>
