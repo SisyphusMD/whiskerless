@@ -13,7 +13,7 @@ sequentially (request/response style) rather than alongside a separate
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import replace
 from types import TracebackType
 
@@ -82,8 +82,13 @@ class LitterRobot4Link:
         """Ask the robot to publish its full state document."""
         await self.publish(commands.request_state())
 
-    async def messages(self) -> AsyncIterator[StateMessage | ActivityMessage]:
-        """Yield parsed state/activity events as they arrive."""
+    async def messages(self) -> AsyncGenerator[StateMessage | ActivityMessage]:
+        """Yield parsed state/activity events as they arrive.
+
+        Typed as a GENERATOR rather than an iterator so a caller that stops
+        early can close it deterministically (`contextlib.aclosing`) instead of
+        leaving it for the garbage collector.
+        """
         async for message in self._client.messages:
             parsed = parse_message(str(message.topic), message.payload)
             if parsed is not None:

@@ -20,6 +20,10 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
   already share, so you type only the serial and the WiFi password.
 - **No secret is ever saved**: the broker password is per-run (`WHISKERLESS_PASSWORD`),
   the WiFi passphrase is never kept, the factory certificate is never touched.
+- **`whiskerless status`** — the robot in plain terms from a single fresh reading:
+  level, drawer, faults, calibration. It names what needs a listener rather than printing zeros.
+- **`whiskerless calibrate full|empty`** stores your own litter reference per robot,
+  and refuses a reading that cannot be one. **`whiskerless panel-reset`** presses Reset.
 - **`whiskerless --version`**, and a bare `whiskerless` prints an orientation
   instead of a usage error.
 - **The CLI shows liveness and color**: a spinner on the BLE scan (heartbeat lines

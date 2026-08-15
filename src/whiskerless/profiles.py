@@ -45,6 +45,11 @@ _PROFILE_FILE = "profile.json"
 _CA_FILE = "ca.pem"
 _DEFAULT_FILE = "default"
 
+# A stored distance beyond this is damage, not a measurement — the robot is
+# knee-high. Kept deliberately loose: this rejects the absurd, and the device
+# module's own band is what judges a reading worth keeping.
+_MAX_DISTANCE_MM = 10_000
+
 # Deliberately narrower than any real serial: this string becomes a directory
 # name, so anything that could escape the store (separators, dots, control
 # characters) is rejected rather than sanitised. Silently rewriting a serial
@@ -95,6 +100,12 @@ class RobotProfile:
     # deliberately absent: a home WiFi secret is a bigger thing to leave on disk
     # than a broker login, and it is only ever needed during provisioning.
     wifi_ssid: str = ""
+    # What a person measured, with the globe in front of them: the ToF distance
+    # at a full fill and (optionally) with the globe empty. Deliberately not the
+    # learned scale — a one-shot CLI sees single documents and cannot learn one,
+    # and "this is what full looks like" is a claim only a human can make.
+    litter_full_mm: int | None = None
+    litter_empty_mm: int | None = None
 
     @property
     def display_name(self) -> str:
@@ -246,6 +257,8 @@ class ProfileStore:
             "username": profile.username,
             "verify_hostname": profile.verify_hostname,
             "wifi_ssid": profile.wifi_ssid,
+            "litter_full_mm": profile.litter_full_mm,
+            "litter_empty_mm": profile.litter_empty_mm,
         }
         _write_private(directory / _PROFILE_FILE, json.dumps(payload, indent=2) + "\n")
         if profile.ca_pem is not None:
@@ -300,6 +313,11 @@ class ProfileStore:
             verify_hostname=bool(raw.get("verify_hostname", True)),
             ca_pem=ca_pem,
             wifi_ssid=str(raw.get("wifi_ssid") or ""),
+            # Hand-edited garbage here loses the calibration, not the robot:
+            # an unreachable profile is a far worse outcome than an unanchored
+            # percentage, which the next `calibrate` press restores.
+            litter_full_mm=_optional_int(raw.get("litter_full_mm")),
+            litter_empty_mm=_optional_int(raw.get("litter_empty_mm")),
         )
 
     def list_profiles(self) -> tuple[RobotProfile, ...]:
@@ -387,6 +405,25 @@ class ProfileStore:
             directory.rmdir()
         if self.get_default() == parsed.value:
             (self.root / _DEFAULT_FILE).unlink(missing_ok=True)
+
+
+def _optional_int(value: object) -> int | None:
+    # bool first: it is an int to Python, and `true` in a hand-edited profile
+    # would otherwise become a 1 mm calibration.
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = int(value)
+    except (ValueError, OverflowError):
+        # OverflowError: JSON accepts 1e400, which parses to infinity, and an
+        # unusable calibration must cost the calibration — not every command
+        # that has to read this profile first.
+        return None
+    # Bounded after coercion for the same reason: JSON also accepts a
+    # thousand-digit integer, which converts happily here and then overflows
+    # inside the first float division that touches it. Nothing about a litter
+    # box is measured in kilometres.
+    return number if 0 <= number <= _MAX_DISTANCE_MM else None
 
 
 def _optional_str(value: object) -> str | None:

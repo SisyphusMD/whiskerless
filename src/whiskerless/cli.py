@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable, Sequence
+from contextlib import aclosing, suppress
 from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
@@ -26,9 +27,16 @@ from . import __version__
 from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
 from .console import Console
-from .devices.litter_robot_4 import commands, const
+from .devices.litter_robot_4 import commands, const, derive
+from .devices.litter_robot_4.calibration import (
+    LITTER_MAX_SPAN_MM,
+    LITTER_MIN_SPAN_MM,
+    LITTER_PLAUSIBLE_MM,
+    litter_is_sampleable,
+)
 from .devices.litter_robot_4.commands import Command
 from .devices.litter_robot_4.link import LitterRobot4Link
+from .devices.litter_robot_4.models import LitterRobot4State, litter_level_percent_from_mm
 from .devices.litter_robot_4.protocol import ActivityMessage, StateMessage
 from .exceptions import ProfileError, SafetyError, WhiskerlessError
 from .profiles import ProfileStore, RobotProfile, Serial, SharedSetup, merge_overrides
@@ -108,6 +116,12 @@ def _link(
     return LitterRobot4Link(
         profile.settings(client_id=args.client_id), profile.serial.value, subscribe=subscribe
     )
+
+
+# How long to spend clearing documents that arrived before we asked. Long enough
+# to empty a queue, short enough that nobody notices; a document that lands
+# during the drain simply costs one more request.
+_DRAIN_SECONDS = 0.25
 
 
 # --- command handlers --------------------------------------------------------
@@ -213,6 +227,240 @@ async def _cmd_power(args: argparse.Namespace) -> int:
     async with _link(args) as link:
         await link.publish(commands.power_toggle(), allow_dangerous=True)
     print("power press sent (the robot may now be off)")
+    return 0
+
+
+async def _fresh_state(args: argparse.Namespace, link: LitterRobot4Link) -> LitterRobot4State | None:
+    """Ask for a state document and return the first one that lands.
+
+    Every derived view here is built from ONE document, so it has to be a fresh
+    one: the alternative is describing the robot as it was whenever the last
+    message happened to arrive.
+    """
+    # Anything already queued describes the robot BEFORE we asked — the LR4
+    # pushes state on its own cadence, and `calibrate` is run seconds after
+    # someone filled or emptied the globe, so accepting a queued document would
+    # pin a permanent reference to the state that person just changed.
+    with suppress(TimeoutError):
+        async with asyncio.timeout(_DRAIN_SECONDS), aclosing(link.messages()) as queued:
+            async for _ in queued:
+                pass
+
+    await link.request_state()
+    try:
+        # aclosing, because returning from inside the loop leaves the generator
+        # suspended for the garbage collector to finalise whenever it likes.
+        async with asyncio.timeout(args.timeout), aclosing(link.messages()) as stream:
+            async for message in stream:
+                if isinstance(message, StateMessage):
+                    return message.state
+    except TimeoutError:
+        return None
+    return None
+
+
+def _calibration_problem(full_mm: int | None, empty_mm: int | None) -> str | None:
+    """Why this pair cannot be a scale, or None if it can.
+
+    One rule, consulted twice: `calibrate` refuses to WRITE a pair that fails it,
+    and `status` refuses to TRUST one — a profile is a file on disk, and a
+    hand-edited pair would otherwise be presented as a calibration while quietly
+    producing wrong percentages.
+    """
+    low, high = LITTER_PLAUSIBLE_MM
+    for label, value in (("full", full_mm), ("empty", empty_mm)):
+        if value is not None and not low <= value <= high:
+            return (
+                f"{label} reads {value} mm, outside the {low}-{high} mm a litter bed "
+                "can physically occupy"
+            )
+    if full_mm is None or empty_mm is None:
+        return None
+    span = empty_mm - full_mm
+    # Bounded at BOTH ends: an emptier globe is FARTHER away, and the globe holds
+    # only a couple of inches of litter, so the gap cannot be large either.
+    if not LITTER_MIN_SPAN_MM <= span <= LITTER_MAX_SPAN_MM:
+        return (
+            f"empty reads {empty_mm} mm and full reads {full_mm} mm. An emptier globe is "
+            f"FARTHER away, and the gap should be {LITTER_MIN_SPAN_MM}-{LITTER_MAX_SPAN_MM} mm "
+            "— the globe only holds so much litter"
+        )
+    return None
+
+
+async def _cmd_status(args: argparse.Namespace) -> int:
+    """The derived view — what Home Assistant shows, from one document.
+
+    Deliberately NOT everything HA shows. Cat weight, visit history, the learned
+    scales and the last dispense are assembled from a stream over days; a
+    one-shot command that printed them would be printing zeros. What a single
+    document plus this robot's stored calibration can honestly answer is here,
+    and the rest is named as needing a listener rather than silently missing.
+    """
+    profile = _profile(args)
+    async with _link(args, profile=profile) as link:
+        robot = await _fresh_state(args, link)
+    if robot is None:
+        print("no state document received (is the robot online?)", file=sys.stderr)
+        return 1
+
+    broken_pair = _calibration_problem(profile.litter_full_mm, profile.litter_empty_mm)
+    full_mm, empty_mm = derive.litter_scale(
+        derive.DerivedState(),
+        # A pair that cannot be a scale is not used as one: the default curve is
+        # a worse answer than a good calibration and a far better one than a
+        # broken calibration presented as fact.
+        full_mm=None if broken_pair else profile.litter_full_mm,
+        empty_mm=None if broken_pair else profile.litter_empty_mm,
+    )
+    percent = (
+        robot.litter_level
+        if robot.litter_level_reported or robot.litter_level_mm is None
+        else litter_level_percent_from_mm(robot.litter_level_mm, full_mm=full_mm, empty_mm=empty_mm)
+    )
+    if robot.litter_level_reported:
+        # The firmware published a percentage of its own, which outranks any
+        # reference we hold — calling this robot "uncalibrated" would blame the
+        # calibration for a number it had no part in.
+        calibration = "not used — this robot reports its own percentage"
+    elif broken_pair is not None:
+        calibration = f"stored calibration is unusable — {broken_pair}. Re-run `whiskerless calibrate`"
+    elif profile.litter_full_mm is None:
+        calibration = "not calibrated (using the default curve)"
+    else:
+        calibration = f"{profile.litter_full_mm} mm at the line"
+        if profile.litter_empty_mm is not None:
+            calibration += f", {profile.litter_empty_mm} mm empty"
+
+    # The robot keeps reporting a level while a cat is standing in the globe, and
+    # the ToF is then measuring the cat: a captured visit read 253 mm against a
+    # 428-462 mm bed. Home Assistant rides this out because it updates again in a
+    # minute; a one-shot is whatever moment you happened to ask in, so it says so.
+    level = "unknown" if percent is None else f"{percent}%"
+    if robot.litter_level_mm is not None and not litter_is_sampleable(robot):
+        # Only when there IS a reading and it cannot be trusted. A document that
+        # simply carries no distance is missing telemetry, not a robot with a
+        # cat in it, and saying "not settled" about a settled robot is worse
+        # than saying nothing.
+        level += " (not a clean reading — the robot is not settled and empty)"
+
+    rows: list[tuple[str, object]] = [
+        ("status", robot.robot_status),
+        ("litter level", level),
+        ("litter distance", "unknown" if robot.litter_level_mm is None else f"{robot.litter_level_mm} mm"),
+        ("calibration", calibration),
+        ("waste drawer", "unknown" if robot.waste_drawer_level is None else f"{robot.waste_drawer_level}%"),
+        ("drawer full", robot.is_dfi_full),
+        ("cat present", robot.cat_detected),
+        ("weight on the scale", robot.scale_loaded),
+        ("bonnet removed", robot.is_bonnet_removed),
+        # A ZERO here is not evidence of no fault: one robot held a live
+        # globe-motor fault for 50 minutes while this field read 0 in every
+        # state document it published. A non-zero field is still a fault, so
+        # say that and stay silent otherwise — the honest verdict needs the
+        # activity stream, which a one-shot does not have.
+        ("globe motor fault", robot.globe_motor_fault or None),
+        ("panel sleeping", robot.panel_sleep_mode),
+        ("control lock", robot.keypad_lockout),
+        ("clean cycle wait", None if robot.clean_cycle_wait_minutes is None else f"{robot.clean_cycle_wait_minutes} min"),
+        ("clean cycles", robot.odometer_clean_cycles),
+        ("firmware (ESP)", robot.esp_firmware),
+        ("Wi-Fi signal", None if robot.wifi_rssi is None else f"{robot.wifi_rssi} dBm"),
+    ]
+    print(_console.accent(profile.display_name))
+    width = max(len(label) for label, _ in rows)
+    for label, value in rows:
+        if value is None:
+            continue
+        print(f"  {_console.dim(label.ljust(width))}  {value}")
+    print()
+    print(
+        _console.dim(
+            "Cat weight, visits, motor faults and the learned scales need a listener\n"
+            "running over time — Home Assistant has them. A one-shot sees one document."
+        )
+    )
+    return 0
+
+
+async def _cmd_calibrate(args: argparse.Namespace) -> int:
+    """Record what a person can see and the robot cannot: what full looks like.
+
+    Stored per robot on this machine, beside the broker details. The reading is
+    taken from a FRESH document because the globe was just filled or emptied —
+    the last one to arrive describes the robot before that happened.
+    """
+    profile = _profile(args)
+    empty = args.point == "empty"
+    async with _link(args, profile=profile) as link:
+        robot = await _fresh_state(args, link)
+    if robot is None:
+        print("no state document received (is the robot online?)", file=sys.stderr)
+        return 1
+    if robot.litter_level_mm is None or not litter_is_sampleable(robot):
+        print(
+            "the robot is not reporting a usable litter distance right now — it "
+            f"reads {robot.robot_status}; try again once it is idle and empty",
+            file=sys.stderr,
+        )
+        return 1
+    low, high = LITTER_PLAUSIBLE_MM
+    if not low <= robot.litter_level_mm <= high:
+        # The settled-and-empty check above is about the robot's STATUS; this is
+        # about physics. A cat's back measured 253 mm in one capture, and a
+        # reference is permanent — every later percentage is read against it.
+        print(
+            f"{robot.litter_level_mm} mm is outside the range a litter bed can occupy "
+            f"({low}-{high} mm) — something is in the globe, or the sensor is confused",
+            file=sys.stderr,
+        )
+        return 1
+    # Saved against what is ON DISK, not against the profile we connected with:
+    # `--host` for a one-off connection must not rewrite the stored broker, and
+    # the merged profile carries this run's password in memory.
+    store = ProfileStore.from_env()
+    try:
+        stored = store.resolve(args.serial)
+    except ProfileError:
+        print(
+            "this robot is not saved on this machine, so there is nowhere to keep "
+            "a calibration — run `whiskerless provision` first",
+            file=sys.stderr,
+        )
+        return 1
+    # A stored pair that is already unusable must not veto its own repair: the
+    # new reading would be judged against the bad endpoint, fail, and leave the
+    # user following `status`'s advice to re-run this command forever. Starting
+    # over means starting over — the other point goes.
+    starting_over = _calibration_problem(stored.litter_full_mm, stored.litter_empty_mm) is not None
+    kept_full = None if starting_over else stored.litter_full_mm
+    kept_empty = None if starting_over else stored.litter_empty_mm
+    updated = replace(
+        stored,
+        litter_empty_mm=robot.litter_level_mm if empty else kept_empty,
+        litter_full_mm=kept_full if empty else robot.litter_level_mm,
+    )
+    # More litter means a SHORTER distance, so empty must read farther than full.
+    # Recorded the other way round — the two commands swapped, or the globe not
+    # actually emptied — the pair is an impossible scale that the percentage
+    # silently ignores while `status` goes on calling the robot calibrated.
+    problem = _calibration_problem(updated.litter_full_mm, updated.litter_empty_mm)
+    if problem is not None:
+        print(f"that pair cannot be right: {problem}. Nothing saved.", file=sys.stderr)
+        return 1
+    store.save(updated)
+    point = "empty" if empty else "full"
+    print(f"{point} reference for {profile.display_name}: {robot.litter_level_mm} mm")
+    if starting_over:
+        print("(the calibration stored before this could not be a scale, so it was cleared)")
+    return 0
+
+
+async def _cmd_panel_reset(args: argparse.Namespace) -> int:
+    """Press Reset: acknowledge a full-drawer alarm, or release a stalled cycle."""
+    async with _link(args) as link:
+        await link.publish(commands.panel_reset())
+    print("reset press sent")
     return 0
 
 
@@ -636,6 +884,25 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--username", default=None)
         p.add_argument("--password", default=None)
         p.add_argument("--client-id", default=None, help="MQTT client-id for THIS tool (not the robot)")
+
+    p_status = add_parser("status", "the derived view: what this robot is doing, in plain terms")
+    p_status.add_argument("--timeout", type=float, default=10.0, help="seconds to wait")
+    add_conn(p_status)
+    p_status.set_defaults(func=_cmd_status)
+
+    p_calibrate = add_parser("calibrate", "record what full (or empty) looks like on this robot")
+    p_calibrate.add_argument(
+        "point",
+        choices=("full", "empty"),
+        help="'full' with the globe filled to the line, 'empty' with it emptied",
+    )
+    p_calibrate.add_argument("--timeout", type=float, default=10.0, help="seconds to wait")
+    add_conn(p_calibrate)
+    p_calibrate.set_defaults(func=_cmd_calibrate)
+
+    p_reset = add_parser("panel-reset", "press Reset (acknowledge an alarm, release a cycle)")
+    add_conn(p_reset)
+    p_reset.set_defaults(func=_cmd_panel_reset)
 
     p_monitor = add_parser("monitor", "watch state + activity (read-only)")
     add_conn(p_monitor)

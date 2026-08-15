@@ -251,34 +251,6 @@ other (provisioning README says serial, recovery.md and the code say MAC) —
 this observation settles that too. Renaming `read_device_mac` is a library API
 break to fold into the next breaking release.
 
-### #55 — Close CLI/HA equivalence (status view, panel-reset, calibrate)
-
-Audited 2026-08-13 against the shipped HA surface.
-
-WRITE DIRECTION — 3 gaps of 16: `panel_reset` (builder exists, CLI never wired
-it); `calibrate_litter_empty` / `calibrate_litter_full` (they persist a
-reference reading; the profile store (#53) now gives the CLI somewhere to put
-it). Everything else already has a CLI equivalent.
-
-READ DIRECTION: `whiskerless state` prints raw firmware fields; HA presents 14
-sensors + 8 binary sensors (panel sleep mode joined as a binary sensor when
-its always-failing switch was retired), mostly derived. Add a `status` subcommand rendering
-the same derived view via #54's derive.py; keep the raw dump for protocol work.
-
-Do NOT implement by porting coordinator logic into cli.py — that recreates the
-two-implementation problem. #54 landed, so `derive.py` is the shared source: a
-`status` subcommand renders `DerivedState` from one fresh document plus stored
-calibration.
-
-*2026-08-13 scope decision:* equivalence is scoped to what a one-shot can
-honestly know. `status` shows everything derivable from a fresh state document
-plus stored calibration; the CLI persists MANUAL calibration in the profile
-store (a snapshot a human vouches for — a natural one-shot operation). The
-24/7-derived facts (cat weight, visit history, learned scales, last dispense)
-stay HA-only until a daemon exists to listen continuously; the CLI does not
-grow a parallel derived-state store, which would duplicate and disagree with
-HA's.
-
 ---
 
 ## Added 2026-08-13 (from the whole-repo cold review)
@@ -304,6 +276,7 @@ its connect errors.
 
 ## Done (archive)
 
+- #55 CLI equivalence: **done 2026-08-15** — `status` renders the derived view from one FRESH document plus stored calibration (draining anything queued first, since `calibrate` runs seconds after someone changed the globe), `panel-reset` presses Reset, and `calibrate full|empty` persists a manual reference in the profile store. One rule judges a calibration pair and both commands consult it: `calibrate` will not write a pair that cannot be a scale, `status` will not present or use one, and a stored pair that is already broken is cleared rather than allowed to veto its own repair. The 24/7-derived facts stay HA-only by design, and `status` says so rather than printing zeros
 - #54 derive.py: **done 2026-08-15** — `src/whiskerless/devices/litter_robot_4/derive.py` owns every derived fact as a pure reducer `(DerivedState, message, now) -> (state, changed, effects)`; the coordinator stores what the effects tell it to and the entities only read, the binary sensors' merge policies (globe-fault OR, excess-weight threshold, hopper-empty floor) moved with it, the dedupe windows are one wall clock (which also fixed the first reading after every boot being discarded), and five per-capability bootstrap blobs became one derived snapshot (a blob without a gauge could clobber the persisted one)
 - #49 sighting evidence: **done 2026-08-15 with #54** — each sighting records WHAT proved it (`Evidence`), and `ACCEPTED_EVIDENCE` per capability decides what a rule change retires; the global revision counter is gone, its marker pinned at 3 only so a downgrade does not re-run the old sweep. Unrecognized kinds are trusted (a newer build wrote them), unlabelled ones are re-examined once where the old sweeps never validated them
 - #56 beam gate: **done 2026-08-15 with #54** — the visit-close window is now the 90 s grace PLUS the duration the close claims, since the break that stamps a visit lands at its start and state documents arrive minutes apart. RESIDUAL: a visit that produces no state document at all (a settings write holds the lock through it) still has nothing to stamp; activity `0x37` was rejected as the stamp because its bit 0 stayed set through a 2h15m bit-1-only run, so it is not the ToF sight line
