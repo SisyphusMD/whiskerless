@@ -70,10 +70,12 @@ jobs:
           raw="${GITHUB_REF_NAME#v}"
           VERSION="${raw/-rc./~rc.}"
           # renovate: datasource=pypi depName=pyinstaller
-          # Held at 6.22.0 — see the clamp in .renovaterc.json. 6.22.1's onefile
-          # bootloader refuses to start when its parent process is a different
-          # executable, and under buildkit's emulator the parent IS a different
-          # executable, so every arm64 self-test and package smoke fails.
+          # Held at 6.22.0 — see the clamp in .renovaterc.json, and run
+          # packaging/check-pyinstaller-pin.sh to learn when it can be lifted.
+          # 6.22.1's onefile bootloader refuses to start when its parent process
+          # is a different executable, and under buildkit's emulator the parent
+          # IS a different executable, so every arm64 self-test and package
+          # smoke fails.
           PYINSTALLER="6.22.0"
           # Built from source with --enable-shared inside the manylinux image: manylinux's own
           # interpreters are static (Py_ENABLE_SHARED=0) and PyInstaller cannot freeze against them.
