@@ -104,6 +104,12 @@ SENSORS: tuple[WhiskerlessSensorEntityDescription, ...] = (
         translation_key="litter_level_mm",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
+        # Millimetres, even on an imperial system. This is a ToF reading the
+        # protocol quotes in mm, it is compared against mm anchors, and every
+        # number written about it here and in the docs is in mm — rendered as
+        # 17.5 in it stops being the value under discussion. A user who wants
+        # inches can still change it per entity.
+        suggested_unit_of_measurement=UnitOfLength.MILLIMETERS,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
@@ -236,6 +242,9 @@ DATA_SENSORS: tuple[WhiskerlessDataSensorEntityDescription, ...] = (
         translation_key="litter_reference",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
+        # Same reason as litter_level_mm: this is the mm figure the calibration
+        # buttons store and the docs quote, not a length anyone measures in inches.
+        suggested_unit_of_measurement=UnitOfLength.MILLIMETERS,
         entity_category=EntityCategory.DIAGNOSTIC,
         # An uncalibrated robot runs on the approximation curve's anchor, and
         # showing that anchor (labelled) beats reading unknown until someone

@@ -111,6 +111,10 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 ### Changed
 
+- **The manual calibration buttons now ship disabled.** The robot calibrates
+  itself; enable them if you want to pin the scale to a measurement of your own.
+- **Litter distances read in millimetres**, not inches converted to thirteen
+  decimal places — the unit the protocol and the docs use. Per-entity overrides win.
 - **Detections remember what proved them**, so tightening one rule can no longer
   cost you entities another rule had already earned.
 - **All the derived telemetry moved into the library**, which is what will let the

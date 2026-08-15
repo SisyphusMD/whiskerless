@@ -25,7 +25,13 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from whiskerless import WhiskerlessError
 
-from . import Robot, capture_writes, robot_online, setup_integration
+from . import (
+    Robot,
+    capture_writes,
+    enable_calibration_buttons,
+    robot_online,
+    setup_integration,
+)
 from .const import ACTIVITY_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
@@ -300,6 +306,7 @@ async def test_calibration_refuses_when_the_robot_will_not_answer(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
     """Calibrating on a stale reading would bake a wrong reference in permanently."""
+    enable_calibration_buttons(hass, mock_config_entry)
     await setup_integration(hass, mock_config_entry, state_payload)
 
     # Outside robot_online, so the fresh reading the button insists on never lands.
@@ -468,6 +475,7 @@ async def test_the_learned_litter_low_survives_dedupe_and_drives_the_percentage(
     doc = json.loads(state_payload)
     del doc["litterLevelPercentage"]
     payload = json.dumps(doc)
+    enable_calibration_buttons(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, payload)  # 455 mm, ready
     coordinator = mock_config_entry.runtime_data
 
@@ -508,6 +516,7 @@ async def test_two_point_calibration_yields_a_true_scale(
     doc = json.loads(state_payload)
     del doc["litterLevelPercentage"]  # the firmware's own percentage outranks calibration
     payload = json.dumps(doc)
+    enable_calibration_buttons(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, payload)
     registry = er.async_get(hass)
     full = registry.async_get_entity_id(

@@ -74,22 +74,25 @@ BUTTONS: tuple[WhiskerlessButtonEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         press_fn=lambda coordinator: coordinator.async_request_refresh(),
     ),
-    # Litter percentage has no universal curve — the cloud measures against a
-    # per-robot reference that is absent from the local state document. One
-    # press with the globe filled to the line anchors it.
+    # Both calibration buttons ship DISABLED, because the robot calibrates itself.
+    # The learned scale anchors 90% to the fullest reading it has seen, which is
+    # what people fill to, and it improves on its own; a manual reference only
+    # beats it for someone who knows their globe better than the last fortnight
+    # of readings does. Offering the buttons by default asked every user to have
+    # an opinion about a measurement they had not been told they needed to take,
+    # and a press at the wrong moment pins the scale to a wrong number for good.
     WhiskerlessButtonEntityDescription(
         key="calibrate_litter_full",
         translation_key="calibrate_litter_full",
         entity_category=EntityCategory.CONFIG,
+        entity_registry_enabled_default=False,
         press_fn=lambda coordinator: coordinator.async_calibrate_litter(empty=False),
     ),
-    # Optional second point, but visible: an empty globe happens anyway after an
-    # empty cycle or a litter change, and someone who has one in front of them
-    # should not have to go and enable an entity first to use the moment.
     WhiskerlessButtonEntityDescription(
         key="calibrate_litter_empty",
         translation_key="calibrate_litter_empty",
         entity_category=EntityCategory.CONFIG,
+        entity_registry_enabled_default=False,
         press_fn=lambda coordinator: coordinator.async_calibrate_litter(empty=True),
     ),
 )

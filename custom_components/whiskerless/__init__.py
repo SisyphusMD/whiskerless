@@ -360,10 +360,13 @@ def _enable_detected_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry
 #: the platform only affects entities created from here on: one already in the
 #: registry keeps its stored disabled_by forever, so an existing install would
 #: never see the change.
-_NOW_ENABLED_BY_DEFAULT: tuple[tuple[str, str], ...] = (
-    ("button", "calibrate_litter_empty"),
-    ("button", "refresh"),
-)
+#:
+#: The calibration buttons went the OTHER way (they now ship disabled, since the
+#: robot calibrates itself) and are deliberately absent: promoting them here
+#: would re-enable on every startup the very entities the platform now hides.
+#: Nothing demotes them either — an install where someone already calibrated
+#: keeps the buttons they have been using.
+_NOW_ENABLED_BY_DEFAULT: tuple[tuple[str, str], ...] = (("button", "refresh"),)
 
 
 def _promote_newly_default_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
@@ -385,6 +388,58 @@ def _promote_newly_default_entities(hass: HomeAssistant, entry: WhiskerlessConfi
         existing = registry.async_get(entity_id)
         if existing is not None and existing.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
             registry.async_update_entity(entity_id, disabled_by=None)
+
+
+#: Sensors whose displayed unit the integration now states outright, and the
+#: unit it states. Both are ToF readings the protocol quotes in millimetres and
+#: the docs discuss in millimetres; on an imperial system Home Assistant was
+#: rendering them as inches to thirteen decimal places, which is the same number
+#: in a form nobody here can check against anything.
+_UNIT_PINNED: tuple[tuple[str, str], ...] = (
+    (Platform.SENSOR, "litter_level_mm"),
+    (Platform.SENSOR, "litter_reference"),
+)
+_UNITS_PINNED_BY = "sensor_units_pinned"
+#: Home Assistant's own slot for what the INTEGRATION suggests, as opposed to the
+#: plain `sensor` options, which is where a user's override lives.
+_SENSOR_PRIVATE = f"{Platform.SENSOR}.private"
+
+
+def _pin_sensor_units(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
+    """Move the mm sensors to millimetres once, on installs that predate the pin.
+
+    `suggested_unit_of_measurement` only seeds an entity at FIRST registration,
+    so without this the change reaches nobody who already has the integration —
+    which is everyone it was written for.
+
+    Home Assistant separates the two parties cleanly, and so does this: a unit in
+    the `sensor` options is the USER's override and is never touched, while
+    `sensor.private` is the integration's own slot. Asking for a refresh there is
+    exactly what core does when the unit system changes — the entity re-reads our
+    suggestion on its next add and re-pins itself — so this states a preference
+    through the supported channel rather than forging a user override.
+
+    One-shot even so, recorded on the entry: someone who switches these back to
+    inches without using the per-entity override should not be argued with weekly.
+    """
+    if entry.options.get(_UNITS_PINNED_BY):
+        return
+    registry = er.async_get(hass)
+    for domain, key in _UNIT_PINNED:
+        entity_id = registry.async_get_entity_id(
+            domain, DOMAIN, f"{entry.runtime_data.serial}_{key}"
+        )
+        existing = registry.async_get(entity_id) if entity_id else None
+        if entity_id is None or existing is None:
+            continue
+        if "unit_of_measurement" in existing.options.get(Platform.SENSOR, {}):
+            continue  # the user picked a unit for this one; it is theirs
+        private = dict(existing.options.get(_SENSOR_PRIVATE, {}))
+        private["refresh_initial_entity_options"] = True
+        registry.async_update_entity_options(entity_id, _SENSOR_PRIVATE, private)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, _UNITS_PINNED_BY: True}
+    )
 
 
 def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:
@@ -415,6 +470,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
     # in this same pass rather than only after another reload.
     _enable_detected_entities(hass, entry)
     _promote_newly_default_entities(hass, entry)
+    _pin_sensor_units(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # Again, for entries the platforms just created. If that flipped anything a
     # reload is queued, so the bootstrap readings have to survive to seed it.

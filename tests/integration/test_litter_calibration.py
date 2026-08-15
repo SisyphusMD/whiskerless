@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from . import robot_online, setup_integration
+from . import enable_calibration_buttons, robot_online, setup_integration
 from .const import STATE_TOPIC
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
@@ -36,6 +36,7 @@ async def test_pressing_calibrate_stores_the_current_distance(
     state_payload: str,
 ) -> None:
     """The fixture reports 455 mm, which becomes this robot's reference."""
+    enable_calibration_buttons(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
     with robot_online(robot):
@@ -53,6 +54,7 @@ async def test_calibration_is_refused_without_a_usable_reading(
 
     Capturing then would bake a garbage reference into the config entry.
     """
+    enable_calibration_buttons(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     mid_cycle = json.dumps({**json.loads(state_payload), "robotStatus": 10, "litterLevel": 575})
 
@@ -73,6 +75,7 @@ async def test_calibration_takes_effect_immediately(
     # the derived path is the one under test.
     raw = {k: v for k, v in json.loads(state_payload).items() if k != "litterLevelPercentage"}
     derived = json.dumps(raw)
+    enable_calibration_buttons(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, derived)
     before = hass.states.get("sensor.litter_robot_4_litter_level")
     assert before is not None
@@ -97,6 +100,7 @@ async def test_a_suppressed_reading_is_not_papered_over_by_the_last_one(
     state_payload: str,
 ) -> None:
     """Mid-cycle the percentage must go unknown, not show a stale value."""
+    enable_calibration_buttons(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     assert hass.states.get("sensor.litter_robot_4_litter_level").state == "62"
 
@@ -117,6 +121,7 @@ async def test_the_reference_sensor_shows_the_press_landed(
 ) -> None:
     """A button's only state is when it was last pressed, so success is
     otherwise indistinguishable from nothing happening."""
+    enable_calibration_buttons(hass, mock_config_entry)
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     before = hass.states.get("sensor.litter_robot_4_litter_calibration_reference")
     assert before is not None

@@ -47,6 +47,28 @@ def seed_gated_sensors(hass: HomeAssistant, entry: MockConfigEntry) -> None:
         )
 
 
+def enable_calibration_buttons(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """Turn on the manual calibration buttons, as a user who wants them would.
+
+    They ship disabled because the robot calibrates itself, so a test that
+    presses one has to opt in first — which is the contract, not a workaround.
+    """
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    for key, object_id in (
+        ("calibrate_litter_full", "litter_robot_4_calibrate_litter_filled_to_the_line"),
+        ("calibrate_litter_empty", "litter_robot_4_calibrate_litter_empty"),
+    ):
+        registry.async_get_or_create(
+            "button",
+            "whiskerless",
+            f"{MOCK_SERIAL}_{key}",
+            config_entry=entry,
+            disabled_by=None,
+            suggested_object_id=object_id,
+        )
+
+
 def restore_latching_sensor(
     hass: HomeAssistant, entry: MockConfigEntry, key: str, state: str
 ) -> None:

@@ -160,7 +160,7 @@ async def test_an_entity_that_became_default_on_is_enabled_on_upgrade(
     was_disabled = registry.async_get_or_create(
         "button",
         "whiskerless",
-        f"{MOCK_SERIAL}_calibrate_litter_empty",
+        f"{MOCK_SERIAL}_refresh",
         config_entry=mock_config_entry,
         disabled_by=er.RegistryEntryDisabler.INTEGRATION,
     )
@@ -192,3 +192,63 @@ async def test_a_hand_disabled_entity_is_left_alone(
     entry = registry.async_get(chosen.entity_id)
     assert entry is not None
     assert entry.disabled_by is er.RegistryEntryDisabler.USER
+
+
+async def test_the_mm_sensors_are_moved_to_millimetres_on_upgrade(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """An install that predates the pin is showing inches, and would keep doing so.
+
+    `suggested_unit_of_measurement` only seeds an entity at FIRST registration —
+    core deliberately pins an existing entity to the unit it already had, so that
+    adding a suggestion never moves the ground under a user. Reaching the people
+    who already have the integration takes an explicit refresh.
+    """
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    existing = registry.async_get_or_create(
+        "sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_litter_reference",
+        config_entry=mock_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_litter_calibration_reference",
+    )
+    # What an imperial install looks like before the pin: core stored ITS
+    # suggestion (inches), and the user has expressed no preference.
+    registry.async_update_entity_options(
+        existing.entity_id, "sensor.private", {"suggested_unit_of_measurement": "in"}
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    state = hass.states.get(existing.entity_id)
+    assert state is not None
+    assert state.attributes["unit_of_measurement"] == "mm"
+
+
+async def test_a_unit_the_user_picked_is_left_alone(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A unit in the plain `sensor` options is the user's own override — core
+    says so explicitly — so the pin must not overwrite it with a preference of
+    ours dressed up as theirs."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    existing = registry.async_get_or_create(
+        "sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_litter_reference",
+        config_entry=mock_config_entry,
+        disabled_by=None,
+        suggested_object_id="litter_robot_4_litter_calibration_reference",
+    )
+    registry.async_update_entity_options(
+        existing.entity_id, "sensor", {"unit_of_measurement": "in"}
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    state = hass.states.get(existing.entity_id)
+    assert state is not None
+    assert state.attributes["unit_of_measurement"] == "in"

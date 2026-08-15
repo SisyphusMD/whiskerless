@@ -411,7 +411,7 @@
     'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
-    'disabled_by': None,
+    'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'button',
     'entity_category': <EntityCategory.CONFIG: 'config'>,
     'entity_id': 'button.litter_robot_4_calibrate_litter_empty',
@@ -437,19 +437,6 @@
     'unit_of_measurement': None,
   })
 # ---
-# name: test_the_entity_surface[button.litter_robot_4_calibrate_litter_empty-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      'friendly_name': 'Litter-Robot 4 Calibrate litter: empty',
-    }),
-    'context': <ANY>,
-    'entity_id': 'button.litter_robot_4_calibrate_litter_empty',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'unknown',
-  })
-# ---
 # name: test_the_entity_surface[button.litter_robot_4_calibrate_litter_filled_to_the_line-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({
@@ -460,7 +447,7 @@
     'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
-    'disabled_by': None,
+    'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
     'domain': 'button',
     'entity_category': <EntityCategory.CONFIG: 'config'>,
     'entity_id': 'button.litter_robot_4_calibrate_litter_filled_to_the_line',
@@ -484,19 +471,6 @@
     'translation_key': 'calibrate_litter_full',
     'unique_id': 'LR4C000001_calibrate_litter_full',
     'unit_of_measurement': None,
-  })
-# ---
-# name: test_the_entity_surface[button.litter_robot_4_calibrate_litter_filled_to_the_line-state]
-  StateSnapshot({
-    'attributes': ReadOnlyDict({
-      'friendly_name': 'Litter-Robot 4 Calibrate litter: filled to the line',
-    }),
-    'context': <ANY>,
-    'entity_id': 'button.litter_robot_4_calibrate_litter_filled_to_the_line',
-    'last_changed': <ANY>,
-    'last_reported': <ANY>,
-    'last_updated': <ANY>,
-    'state': 'unknown',
   })
 # ---
 # name: test_the_entity_surface[button.litter_robot_4_empty_cycle_danger-entry]
@@ -1292,6 +1266,9 @@
       'sensor': dict({
         'suggested_display_precision': 0,
       }),
+      'sensor.private': dict({
+        'suggested_unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
+      }),
     }),
     'original_device_class': <SensorDeviceClass.DISTANCE: 'distance'>,
     'original_icon': None,
@@ -1399,6 +1376,9 @@
     'name': None,
     'object_id_base': 'Litter level distance',
     'options': dict({
+      'sensor.private': dict({
+        'suggested_unit_of_measurement': <UnitOfLength.MILLIMETERS: 'mm'>,
+      }),
     }),
     'original_device_class': <SensorDeviceClass.DISTANCE: 'distance'>,
     'original_icon': None,
