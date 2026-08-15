@@ -25,10 +25,18 @@ choosing between them, and the choice between "through Whisker's servers" and
 hardware away from a company's cloud is also the last thing that should be
 dressed in that company's trademark, which implies an endorsement nobody gave.
 
-So: a cat, because the device is a litter box and a user should be able to tell
-at 32 pixels; in a teal chosen to sit nowhere near Whisker's orange; and
-deliberately **not** shaped like Home Assistant's house, which the brands rules
-ask custom integrations to avoid.
+So: a cat over a drawer, in a teal chosen to sit nowhere near Whisker's orange,
+and deliberately **not** shaped like Home Assistant's house, which the brands
+rules ask custom integrations to avoid.
+
+**The bar under the cat is the machine.** A cat alone says "pets", not "litter
+box", and the LR4's signature is a globe over a waste drawer. Three other ways
+of referencing the robot were drawn: a porthole opening with a face inside (lost
+the cat — reads as an owl), a ring around the head (ears collide with it, mush
+at 32 px), and a full front elevation (too much for an icon). The head reads as
+the globe, the bar as the drawer, and at 32 px both survive — which is the only
+test that matters, because that is the size Home Assistant lists integrations
+at.
 
 **There are no whiskers anywhere, and that was the hard call.** Six ways of
 showing their absence were drawn and rejected:
@@ -51,9 +59,15 @@ to wear its logo, and this project is making the second one.
 
 **One symbol, four files.** The logo is the icon plus the wordmark — the same
 tile, the same cat, the same geometry, verified pixel-for-pixel by cropping the
-lockup's first 256 px and comparing it to the icon. The dark pair is the same
-drawing on a brighter tile with a near-white word, because the light teal type
-on Home Assistant's dark cards sits at about the contrast of dark grey on black;
+lockup's first 256 px and comparing it to the icon. **The dark pair follows Apple's rule, after breaking it twice.** The first two
+attempts made the dark variant *brighter* than the light one, which is backwards
+and read as barely a variant at all. Apple's guidance for dark app icons is to
+drop the background so a dark backdrop shows through, and to avoid bright
+artwork in favour of a palette complementary to the light icon
+([HIG summary](https://median.co/blog/what-are-apples-ui-guidelines-for-app-icons)).
+Home Assistant composites onto its own dark card rather than supplying a
+backdrop, so the equivalent here is a dark tile with the artwork inverted into
+light teal — not white, which glares against near-black exactly as Apple warns.
 `dark_icon` exists so the tile still matches its own lockup on that theme.
 
 ## Rendering
