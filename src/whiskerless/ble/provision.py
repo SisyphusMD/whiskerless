@@ -9,7 +9,13 @@ The WiFi SetConfig+Apply finalize is load-bearing: every attempt that skipped it
 wedged the robot (the topic globals are only populated when the provisioning
 state machine finalizes). The proven order is:
 
-    DEVICE_ID_SET → WiFi SetConfig+Apply → wait → endpoints → CA → APPLY → REBOOT
+    DEVICE_ID_SET → WiFi SetConfig+Apply → verify join → endpoints → CA → APPLY → REBOOT
+
+The verify step polls the stock esp-idf GetStatus until the STA reports a
+verdict. A mistyped passphrase used to sail through the old fixed wait: the
+robot accepted everything, rebooted, and simply never appeared on any network —
+off the cloud, not on the broker, indistinguishable from a dead unit. The
+firmware names that failure (AuthError) if asked; now we ask.
 """
 
 from __future__ import annotations
@@ -32,6 +38,14 @@ log = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str], None]
 
+# GetStatus poll cadence during the WiFi join verify. An auth failure typically
+# reports within a few seconds; a successful join (through DHCP) in 3-10 s.
+WIFI_POLL_INTERVAL = 1.5
+# Grace after a confirmed join before the endpoint writes: got-IP is what
+# finalizes the provisioning state machine, and a beat of margin costs nothing
+# against racing it.
+WIFI_SETTLE = 1.0
+
 
 @dataclass(slots=True)
 class ProvisioningConfig:
@@ -46,7 +60,9 @@ class ProvisioningConfig:
     device_topic: str | None = None
     swap_topics: bool = False
     write_wifi: bool = True
-    wifi_wait: float = 12.0
+    # Ceiling on the join verify, not a fixed sleep: a confirmed join returns
+    # early, a named failure raises immediately, and only silence runs it out.
+    wifi_wait: float = 20.0
     chunk_size: int | None = None
     reboot: bool = True
 
@@ -184,9 +200,9 @@ async def provision_robot(
                 raise ProvisioningError("wifi_ssid is required (or set write_wifi=False)")
             await transport.request(m.EP_PROV_CONFIG, m.wifi_set_config(config.wifi_ssid, config.wifi_pass))
             await transport.request(m.EP_PROV_CONFIG, m.wifi_apply_config())
-            step(f"WiFi SetConfig+Apply ssid={config.wifi_ssid}; waiting {config.wifi_wait:.0f}s")
+            step(f"WiFi SetConfig+Apply ssid={config.wifi_ssid}; verifying join (≤{config.wifi_wait:.0f}s)")
             if not dry_run:
-                await asyncio.sleep(config.wifi_wait)
+                await _verify_wifi(transport, config, step)
 
         # 3. endpoints — CLOUD=subscribe(cmd), DEVICE=publish(state/activity).
         cloud_value = config.resolved_command_topic()
@@ -220,6 +236,64 @@ async def provision_robot(
     result.success = True
     result.message = f"reprovisioned; the robot should reconnect MQTT to {config.host}"
     return result
+
+
+async def _verify_wifi(
+    transport: ProtocommBLE, config: ProvisioningConfig, step: ProgressCallback
+) -> None:
+    """Poll GetStatus until the STA join resolves; fail loud on a bad password.
+
+    Raising here — before the endpoint/cert writes — leaves the robot's broker
+    config untouched, so the remedy is simply re-running provision with the
+    right credentials. Firmware that never answers GetStatus degrades to the
+    old behavior: wait out ``wifi_wait``, warn, and continue.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + config.wifi_wait
+    last: m.WifiStatus | None = None
+    while loop.time() < deadline:
+        await asyncio.sleep(WIFI_POLL_INTERVAL)
+        try:
+            response = await transport.request(m.EP_PROV_CONFIG, m.wifi_get_status())
+        except Exception as exc:  # noqa: BLE001 — a GATT hiccup must not fail a good join
+            log.debug("WiFi GetStatus request failed: %s", exc)
+            continue
+        status = m.parse_wifi_status(response)
+        if status is None:
+            continue
+        last = status
+        if status.state is m.WifiStationState.CONNECTED:
+            step(f"WiFi connected (ip={status.ip4 or '?'})")
+            await asyncio.sleep(WIFI_SETTLE)
+            return
+        if status.state is m.WifiStationState.CONNECTION_FAILED:
+            # Keyed on the optional reason so an unrecognized code (decoded to
+            # None) falls through to the default. Never narrow this to a
+            # truthiness check: AUTH_ERROR is enum value 0, so `if fail_reason`
+            # is False for the mistyped password this whole path exists to name.
+            reasons: dict[m.WifiConnectFailedReason | None, str] = {
+                m.WifiConnectFailedReason.AUTH_ERROR: (
+                    "authentication failed — almost always a mistyped WiFi password"
+                ),
+                m.WifiConnectFailedReason.NETWORK_NOT_FOUND: (
+                    f"network {config.wifi_ssid!r} not found"
+                ),
+            }
+            raise ProvisioningError(
+                f"WiFi join failed: {reasons.get(status.fail_reason, 'unknown reason')}. "
+                "The broker config has NOT been written — re-run provision with the "
+                "right credentials"
+            )
+    if last is None:
+        step(
+            f"no WiFi status after {config.wifi_wait:.0f}s (firmware may not support "
+            "GetStatus) — continuing"
+        )
+    else:
+        step(
+            f"WiFi still {last.state.name.lower()} after {config.wifi_wait:.0f}s — "
+            "continuing; verify the robot actually appears on your network"
+        )
 
 
 async def _write_cert(transport: ProtocommBLE, pem: str, chunk_size: int, dry_run: bool) -> None:

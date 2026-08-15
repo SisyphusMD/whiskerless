@@ -14,6 +14,7 @@ The endpoints:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import IntEnum
 
 from .protobuf import field_message, field_string, field_varint, read_fields
@@ -103,6 +104,38 @@ def wifi_apply_config() -> bytes:
     return field_varint(1, 4)
 
 
+def wifi_get_status() -> bytes:
+    """WiFiConfigPayload CmdGetStatus (msg=0) — ask for the STA join verdict."""
+    # msg=0 is the proto3 default and stays off the wire; the empty arm alone
+    # (field 10) selects the command.
+    return field_message(10, b"")
+
+
+class WifiStationState(IntEnum):
+    """esp-idf ``WifiStationState`` — the STA's answer to GetStatus."""
+
+    CONNECTED = 0
+    CONNECTING = 1
+    DISCONNECTED = 2
+    CONNECTION_FAILED = 3
+
+
+class WifiConnectFailedReason(IntEnum):
+    """esp-idf ``WifiConnectFailedReason`` — why a join gave up."""
+
+    AUTH_ERROR = 0
+    NETWORK_NOT_FOUND = 1
+
+
+@dataclass(frozen=True, slots=True)
+class WifiStatus:
+    """A decoded RespGetStatus from the stock WiFi provisioning endpoint."""
+
+    state: WifiStationState
+    fail_reason: WifiConnectFailedReason | None = None
+    ip4: str | None = None
+
+
 # --- response parsers --------------------------------------------------------
 def parse_status(response: bytes) -> int:
     """Top-level protocomm ``status`` (field 2); absent → Success (0)."""
@@ -110,6 +143,43 @@ def parse_status(response: bytes) -> int:
         return 0
     values = read_fields(response).get(2)
     return int(values[0]) if values and isinstance(values[0], int) else 0
+
+
+def parse_wifi_status(response: bytes) -> WifiStatus | None:
+    """Decode a prov-config RespGetStatus (arm 11); ``None`` if it isn't one.
+
+    The verdict lives in the response's oneof: ``connected`` (field 11, carries
+    the STA's IP) or ``fail_reason`` (field 10 — emitted even for its zero value
+    AuthError, because oneof presence is explicit). ``sta_state`` (field 2)
+    alone cannot prove success: its zero value *is* Connected, which proto3
+    omits, so an empty status is ambiguous — with neither oneof arm present,
+    only the explicit intermediate states (connecting/disconnected/failed) are
+    reported and anything else reads as "no verdict yet".
+    """
+    if not response:
+        return None
+    arm = read_fields(response).get(11)
+    if not arm or not isinstance(arm[0], bytes):
+        return None
+    fields = read_fields(arm[0])
+    connected = fields.get(11)
+    if connected and isinstance(connected[0], bytes):
+        ip_values = read_fields(connected[0]).get(1)
+        ip4 = None
+        if ip_values and isinstance(ip_values[0], bytes):
+            ip4 = ip_values[0].decode("utf-8", "replace") or None
+        return WifiStatus(WifiStationState.CONNECTED, ip4=ip4)
+    fail = fields.get(10)
+    if fail and isinstance(fail[0], int):
+        try:
+            reason: WifiConnectFailedReason | None = WifiConnectFailedReason(fail[0])
+        except ValueError:
+            reason = None
+        return WifiStatus(WifiStationState.CONNECTION_FAILED, fail_reason=reason)
+    sta = fields.get(2)
+    if sta and isinstance(sta[0], int) and sta[0] in (1, 2, 3):
+        return WifiStatus(WifiStationState(sta[0]))
+    return None
 
 
 def parse_device_id(response: bytes) -> bytes | None:

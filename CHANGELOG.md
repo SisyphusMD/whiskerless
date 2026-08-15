@@ -23,6 +23,12 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 - **Provisioning asks for a broker username** (optional, and offered from what your
   other robots use) — an authenticated broker used to need `--username` on every
   later command. The password is still per-run and never written down.
+- **Provisioning verifies the WiFi join.** A mistyped passphrase used to sail
+  through silently — the robot accepted everything, rebooted, and simply never
+  appeared on any network. The robot itself names that failure if asked, so
+  provisioning now polls the join status and stops with "mistyped WiFi
+  password" *before* touching the broker config; a confirmed join prints the
+  robot's IP and moves on early. Firmware that stays silent gets the old wait.
 - **`whiskerless status`** — the robot in plain terms from a single fresh reading:
   level, drawer, faults, calibration. It names what needs a listener rather than printing zeros.
 - **`whiskerless calibrate full|empty`** stores your own litter reference per robot,
