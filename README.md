@@ -4,6 +4,8 @@
   <img src="https://raw.githubusercontent.com/SisyphusMD/whiskerless/main/custom_components/whiskerless/brand/logo.png" alt="whiskerless" width="420">
 </picture>
 
+<br>
+
 **Un-cloud your Whisker devices.** Fully-local MQTT control and telemetry for the
 Whisker **Litter-Robot 4** — no cloud account, no internet round-trip, no
 third-party servers. Your robot talks to *your* broker, and that's it.

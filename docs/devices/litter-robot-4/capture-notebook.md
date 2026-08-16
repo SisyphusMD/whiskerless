@@ -181,7 +181,7 @@ bottom drawer, and the `0x0C` deficit experiment.
 2026-08-10T14:18Z → 2026-08-15T18:46Z, both robots, 535,778 log lines, 1 malformed
 payload. Timed and deduped by payload timestamp per the method rule above.
 
-| | robot 1 (`…654321`) | robot 2 (`…123456`) |
+| | robot 1 | robot 2 |
 |---|---|---|
 | telemetry messages | 6544 (3195 state) | 8495 (3675 state, 1 malformed) |
 | activity readings, deduped | 2881 | 4030 |
@@ -271,9 +271,9 @@ marker arrives about twenty seconds before its phase-1/2 pair.
 One continuous capture, no pod restarts. 2336 records reassembled with zero orphan lines
 and zero unparsed payloads.
 
-- **Robot 1** `LR4C654321`, ESP 1.1.75, LitterHopper attached — the whole 23h37m. 2066
+- **Robot 1** (the owner's first unit), ESP 1.1.75, LitterHopper attached — the whole 23h37m. 2066
   records: 658 state, 715 activity (604 after dedupe), 693 command. Six clean cycles.
-- **Robot 2** `LR4C123456`, ESP 1.1.75, LitterHopper attached — the last **9m34s**, from the moment
+- **Robot 2** (the owner's second unit), ESP 1.1.75, LitterHopper attached — the last **9m34s**, from the moment
   BLE provisioning put it on this broker. 270 records: 73 state, 124 activity (103 after
   dedupe), 73 command. One commanded cycle and one cat visit.
 

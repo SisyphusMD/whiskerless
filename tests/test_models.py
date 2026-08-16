@@ -122,7 +122,7 @@ def test_unparsable_firmware_still_decodes() -> None:
     assert state.robot_status == "clean_cycle"
 
 
-# Real payloads, trimmed from a narrated capture on LR4C654321 (ESP 1.1.75):
+# Real payloads, trimmed from a narrated capture on robot 1 (ESP 1.1.75):
 # the owner pressed Cycle, the robot ran a full cycle, and both docs below are
 # verbatim field subsets of what landed on the broker.
 CAPTURE_1175_CYCLING = {
