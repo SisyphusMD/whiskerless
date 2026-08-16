@@ -24,7 +24,8 @@ from typing import cast
 
 import aiomqtt
 
-from . import __version__
+from . import __version__, secrets
+from .ble.messages import WifiNetwork as DiscoveredNetwork
 from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
 from .console import Console
@@ -95,7 +96,7 @@ def _profile(args: argparse.Namespace) -> RobotProfile:
                 ) from None
             raise
         saved = RobotProfile(serial=Serial(args.serial), host=args.host)
-    return merge_overrides(
+    profile = merge_overrides(
         saved,
         host=args.host,
         port=args.port,
@@ -105,6 +106,27 @@ def _profile(args: argparse.Namespace) -> RobotProfile:
         verify_hostname=None if args.insecure is None else not args.insecure,
         ca_pem=None if args.ca is None else _read_pem(args.ca),
     )
+    # A broker that needs a login should come from the keychain, and ASK when it
+    # is not there. Requiring an environment variable to run an ordinary command
+    # is a chore invented by the tool, and the workaround people reach for is
+    # --password, which is the one place the secret genuinely leaks (shell
+    # history, `ps`).
+    #
+    # Only when a username is configured — an anonymous broker must never be made
+    # to look like it wants a login. The keychain is read whether or not this is a
+    # terminal, so an unattended run works once the password has been stored; only
+    # the fallback PROMPT is gated on a tty, so a cron job with nothing stored
+    # fails on the broker's own rejection instead of hanging on a prompt nobody
+    # can see.
+    if profile.username and not profile.password:
+        key = secrets.broker_key(profile.username, profile.host, profile.port)
+        password = (
+            _ask_secret(key, f"broker password for {profile.username!r}: ")
+            if sys.stdin.isatty()
+            else secrets.get(key)
+        )
+        profile = replace(profile, password=password or None)
+    return profile
 
 
 def _link(
@@ -229,6 +251,27 @@ async def _cmd_power(args: argparse.Namespace) -> int:
     async with _link(args) as link:
         await link.publish(commands.power_toggle(), allow_dangerous=True)
     print("power press sent (the robot may now be off)")
+    return 0
+
+
+async def _cmd_wifi_toggle(args: argparse.Namespace) -> int:
+    # Same shape as `power`, and for the same reason: this can end with the robot
+    # off the network. --yes does not skip the prompt, and the guard still has to
+    # be opted past explicitly.
+    _console.banner("CONNECT TOGGLES WIFI — switched off, the robot leaves the network")
+    if not _confirm(
+        "Press Connect? This TOGGLES the robot's WiFi. If it turns OFF the robot "
+        "vanishes from your broker and from Home Assistant, and only someone "
+        "standing at the machine can press Connect again. Type 'yes': "
+    ):
+        print("aborted", file=sys.stderr)
+        return 1
+    async with _link(args) as link:
+        await link.publish(commands.wifi_toggle(), allow_dangerous=True)
+    # Deliberately not "sent and confirmed": if the WiFi went off, the robot was
+    # gone before it could acknowledge anything, and saying otherwise would claim
+    # a fact the transport cannot carry.
+    print("connect press sent (if the WiFi is now off, the robot has left the network)")
     return 0
 
 
@@ -530,12 +573,20 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         own_username if own_username is not None else shared.username,
         unattended=own_username,
     )
-    ssid = _ask(
-        "WiFi SSID: ", args.wifi_ssid, _check_ssid,
-        default=shared.wifi_ssid or (prior.wifi_ssid or None if prior else None),
+    # Deliberately NOT asked here when there is a human to ask later. The robot
+    # can list the networks IT can see, and asking before the BLE link is open
+    # means asking someone to name a network from memory — which is how a robot
+    # ends up provisioned onto an SSID it cannot reach, or a 5 GHz-only one it
+    # cannot see, with nothing to show for it but a robot that never appears.
+    ssid = (
+        _ask(
+            "WiFi SSID: ", args.wifi_ssid, _check_ssid,
+            default=shared.wifi_ssid or (prior.wifi_ssid or None if prior else None),
+        )
+        if args.wifi_ssid or not sys.stdin.isatty()
+        else ""
     )
-    # The WiFi passphrase is deliberately never stored, so it is always asked for.
-    wifi_pass = args.wifi_pass if args.wifi_pass is not None else getpass.getpass(f"WiFi password for {ssid!r}: ")
+    wifi_pass = args.wifi_pass or ""
 
     # Not part of ProvisioningConfig: the robot authenticates to the broker with
     # its own factory certificate, so this login is whiskerless's, not the
@@ -600,7 +651,8 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         print(f"  {_console.dim(f'{written:>2}')} {_console.dim('▸')} {message}")
 
     result = await ble.provision_robot(
-        target.address, config, dry_run=args.dry_run, on_step=_step
+        target.address, config, dry_run=args.dry_run, on_step=_step,
+        choose_network=_choose_network,
     )
     print()
     if args.dry_run:
@@ -615,6 +667,41 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # profile claiming a robot is reachable somewhere it is not.
     _save_profile(config, args, username)
     return 0
+
+
+async def _choose_network(networks: Sequence[DiscoveredNetwork]) -> tuple[str, str]:
+    """Pick from what the ROBOT can see, then take that network's passphrase.
+
+    Sorted strongest-first, because signal at the robot is the one thing the
+    person provisioning cannot judge from where they are standing.
+    """
+    if not networks:
+        # Hidden SSIDs are real and the robot joins them fine; it just cannot
+        # list them. Falling back to typing beats refusing.
+        print("  the robot saw no networks — type the name instead")
+        ssid = _ask("WiFi SSID: ", None, _check_ssid)
+        return ssid, _ask_secret(secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: ")
+
+    print("\n  networks the robot can see, strongest first:\n")
+    for index, network in enumerate(networks):
+        lock = "*" if network.secured else " "
+        bars = _console.dim(("|" * network.bars).ljust(4))
+        print(f"   {_console.dim(f'{index:>2}')}  {network.ssid:<32s} {lock} {bars} "
+              f"{_console.dim(f'ch {network.channel}')}")
+    print(f"   {_console.dim(' -')}  {_console.dim('not listed (hidden network)')}\n")
+
+    while True:
+        try:
+            answer = input(f"select [0-{len(networks) - 1}, or -]: ").strip()
+        except EOFError:
+            raise WhiskerlessError("no network chosen (input ended)") from None
+        if answer == "-":
+            ssid = _ask("WiFi SSID: ", None, _check_ssid)
+            break
+        if answer.isdigit() and 0 <= int(answer) < len(networks):
+            ssid = networks[int(answer)].ssid
+            break
+    return ssid, _ask_secret(secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: ")
 
 
 def _prior_setup() -> tuple[RobotProfile | None, SharedSetup]:
@@ -718,14 +805,50 @@ async def _cmd_adopt(args: argparse.Namespace) -> int:
     that reason: a typo here produces a profile that talks to a topic no robot
     publishes, with no error to see — so the command says what it wrote and how
     to check it, rather than implying the robot was found.
+
+    It asks the same way `provision` does when it is short of an answer. Someone
+    reaching for `adopt` is usually meeting the tool for the first time, and a
+    command that answers a bare invocation with argparse's "the following
+    arguments are required" teaches them nothing about which arguments those are.
     """
     store = ProfileStore.from_env()
+    if not sys.stdin.isatty() and not (args.serial and args.host):
+        # Failing on the missing FLAGS, not on the EOF of a prompt nobody could
+        # ever have answered.
+        raise WhiskerlessError(
+            "adopt needs --serial and --host when there is nobody to ask "
+            "(run it in a terminal to be prompted instead)"
+        )
+    known, shared = _prior_setup()
+    if known is not None and not (args.serial and args.host and args.ca):
+        print("  press enter at any prompt to accept the setup already in use here\n")
     # The SAME check the provision prompt uses, not the store's shape rule: the
     # store only enforces filesystem-safe characters, which happily accepts the
     # model designator (LR4-0301-00-US) printed on the label beside the serial.
     # That is the exact mistake this command would otherwise persist forever.
-    serial = Serial(ProvisioningConfig.check_serial(args.serial))
-    ca_pem = _read_pem(args.ca) if args.ca else None
+    serial = Serial(
+        _ask(
+            "robot serial (the unhyphenated LR4C… line on the label, e.g. LR4C123456 — "
+            "NOT the LR4-…-US model number): ",
+            args.serial,
+            ProvisioningConfig.check_serial,
+        )
+    )
+    host = _ask(
+        "broker IP (e.g. 192.168.1.10): ", args.host, _check_host,
+        default=shared.host or (known.host if known else None),
+    )
+    ca_default = shared.ca_pem or (known.ca_pem if known else None)
+    ca_pem = _ask(
+        "path to your CA PEM: ", args.ca, _read_pem,
+        default=ca_default,
+        default_label=_ca_label(shared, known) if ca_default else None,
+        allow_skip=True,
+    ) or None
+    username = _ask_optional(
+        "broker username", args.username, shared.username, unattended=args.username
+    )
+    name = _ask_optional("what to call this robot, e.g. 'Upstairs'", args.name, None)
     try:
         # Re-running adopt to correct one field must not silently drop the rest.
         # A saved robot may already carry a name, a username, a non-default port
@@ -734,20 +857,20 @@ async def _cmd_adopt(args: argparse.Namespace) -> int:
     except ProfileError:
         profile = RobotProfile(
             serial=serial,
-            host=_check_host(args.host),
+            host=host,
             port=args.port or DEFAULT_TLS_PORT,
-            name=args.name or "",
-            username=args.username,
+            name=name or "",
+            username=username,
             ca_pem=ca_pem,
         )
     else:
         profile = replace(
             prior,
             serial=serial,
-            host=_check_host(args.host),
+            host=host,
             port=args.port or prior.port,
-            name=args.name or prior.name,
-            username=args.username or prior.username,
+            name=name or prior.name,
+            username=username or prior.username,
             ca_pem=ca_pem or prior.ca_pem,
             password=None,
         )
@@ -774,8 +897,10 @@ async def _cmd_use(args: argparse.Namespace) -> int:
 
 async def _cmd_forget(args: argparse.Namespace) -> int:
     store = ProfileStore.from_env()
+    doomed: RobotProfile | None = None
     try:
-        name = store.resolve(args.robot).display_name
+        doomed = store.resolve(args.robot)
+        name = doomed.display_name
     except ProfileError:
         # A profile too corrupt to load is precisely the one `forget` must
         # still be able to remove.
@@ -789,8 +914,34 @@ async def _cmd_forget(args: argparse.Namespace) -> int:
         print("aborted", file=sys.stderr)
         return 1
     store.forget(args.robot)
+    for key in _orphaned_secrets(doomed, store.list_profiles()):
+        if secrets.forget(key):
+            print(_console.dim(f"  removed {key} from your keychain"))
     print(f"forgot {name}")
     return 0
+
+
+def _orphaned_secrets(gone: RobotProfile | None, remaining: Sequence[RobotProfile]) -> list[str]:
+    """Keychain entries that no longer belong to any robot on this machine.
+
+    Secrets are shared on purpose — one broker password per login, one passphrase
+    per SSID — so forgetting a robot must not take the password its sibling on the
+    same broker is still using. Only entries nothing else refers to are removed,
+    which is also why an unreadable profile (``gone is None``) removes nothing:
+    the safe failure is a stale keychain entry, not a working robot that suddenly
+    prompts for a password nobody remembers.
+    """
+    if gone is None:
+        return []
+    orphaned = []
+    if gone.username and not any(
+        p.username == gone.username and p.host == gone.host and p.port == gone.port
+        for p in remaining
+    ):
+        orphaned.append(secrets.broker_key(gone.username, gone.host, gone.port))
+    if gone.wifi_ssid and not any(p.wifi_ssid == gone.wifi_ssid for p in remaining):
+        orphaned.append(secrets.wifi_key(gone.wifi_ssid))
+    return orphaned
 
 
 def _print_orientation() -> None:
@@ -932,6 +1083,7 @@ def _ask(
     *,
     default: str | None = None,
     default_label: str | None = None,
+    allow_skip: bool = False,
 ) -> str:
     """Return a validated answer, re-asking until it passes.
 
@@ -944,11 +1096,21 @@ def _ask(
     may not even be in the same form as typed input (the CA is contents, not a
     path). ``default_label`` is what to show when the value itself would not be
     readable in a prompt.
+
+    ``allow_skip`` lets enter mean "there is none" rather than "use the default",
+    for the one field that is genuinely optional — a broker on a CA the system
+    already trusts. It only applies when there is no default to accept, and with
+    nobody to ask it skips outright: an OPTIONAL question must never be the thing
+    that makes an otherwise fully-flagged invocation fail.
     """
     if supplied is not None:
         return check(supplied)
+    if allow_skip and not sys.stdin.isatty():
+        return ""
     if default is not None:
         prompt = f"{prompt.rstrip(': ')} [{default_label or default}]: "
+    elif allow_skip:
+        prompt = f"{prompt.rstrip(': ')} (enter to skip): "
     while True:
         try:
             answer = input(prompt).strip()
@@ -956,6 +1118,8 @@ def _ask(
             raise WhiskerlessError("no answer given (input ended)") from None
         if not answer and default is not None:
             return default
+        if not answer and allow_skip:
+            return ""
         try:
             return check(answer)
         except WhiskerlessError as exc:
@@ -981,6 +1145,31 @@ def _confirm(prompt: str) -> bool:
         return input(prompt).strip().lower() == "yes"
     except EOFError:
         return False
+
+
+def _ask_secret(key: str, prompt: str) -> str:
+    """A password, from the keychain if it is there and from the human if not.
+
+    The keychain copy is used without asking — that is the entire point of having
+    put it there — but it is only ever *written* on an explicit yes. Adding an
+    entry to somebody's keychain is a change to their machine that outlives this
+    program, so it is not something to do as a side effect of them answering a
+    question they had to answer anyway.
+    """
+    stored = secrets.get(key)
+    if stored:
+        return stored
+    typed = getpass.getpass(prompt)
+    if typed and secrets.available() and sys.stdin.isatty():
+        try:
+            answer = input("  remember this in your keychain? [Y/n]: ").strip().lower()
+        except EOFError:
+            answer = "n"
+        if answer in ("", "y", "yes") and secrets.put(key, typed):
+            print(_console.dim(
+                f"  stored as {secrets.SERVICE} / {key} — `whiskerless forget` clears it"
+            ))
+    return typed
 
 
 def _pick_robot(robots: Sequence[DiscoveredRobot], address: str | None) -> DiscoveredRobot:
@@ -1098,6 +1287,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_empty.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_empty.set_defaults(func=_cmd_empty_cycle)
 
+    p_wifi = add_parser("wifi-toggle", "toggle the robot's WiFi (it may not come back)")
+    add_conn(p_wifi)
+    p_wifi.set_defaults(func=_cmd_wifi_toggle)
+
     p_power = add_parser("power", "toggle robot power (it may not come back)")
     add_conn(p_power)
     p_power.set_defaults(func=_cmd_power)
@@ -1126,8 +1319,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_adopt = add_parser(
         "adopt", "save a robot that is already provisioned, without re-provisioning it"
     )
-    p_adopt.add_argument("--serial", required=True, help="the robot's serial, e.g. LR4C123456")
-    p_adopt.add_argument("--host", required=True, help="broker host/IP the robot publishes to")
+    # Not `required`: a bare `whiskerless adopt` prompts, the way `provision`
+    # does. argparse's "the following arguments are required" is the worst answer
+    # available to someone meeting the command for the first time.
+    p_adopt.add_argument("--serial", help="the robot's serial, e.g. LR4C123456")
+    p_adopt.add_argument("--host", help="broker host/IP the robot publishes to")
     p_adopt.add_argument("--ca", help="path to the broker CA PEM")
     p_adopt.add_argument("--port", type=int, default=None)
     p_adopt.add_argument("--username", default=None, help="broker username, if yours needs one")

@@ -12,16 +12,15 @@ needs no special handling downstream.
 
 Layout under ``~/.whiskerless`` (override with ``WHISKERLESS_HOME``)::
 
-    robots/<serial>/profile.json   0600 — broker, optional credentials
+    robots/<serial>/profile.json   0600 — format version, broker, optional login
     robots/<serial>/ca.pem         0600 — the CA that signed the broker
     default                        0600 — serial used when none is given
 
-**No secret is ever written here.** The broker password is held in memory for the
-run and supplied each time (``WHISKERLESS_PASSWORD`` or ``--password``); the WiFi
-passphrase is only needed while provisioning and is never kept; the robot's
-factory certificate and private key are neither read nor written by whiskerless
-at all. Files are still 0600 and directories 0700, because a broker address and
-username are worth keeping to yourself.
+**No secret is ever written here.** Passwords live in the OS keychain
+(:mod:`whiskerless.secrets`) or nowhere; the robot's factory certificate and
+private key are neither read nor written by whiskerless at all. Files are still
+0600 and directories 0700, because a broker address and username are worth
+keeping to yourself.
 """
 
 from __future__ import annotations
@@ -31,9 +30,10 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from .exceptions import ProfileError
 from .mqtt import DEFAULT_TLS_PORT, MqttSettings
@@ -44,6 +44,62 @@ DEFAULT_SUBDIR = ".whiskerless"
 _PROFILE_FILE = "profile.json"
 _CA_FILE = "ca.pem"
 _DEFAULT_FILE = "default"
+
+#: Format version of ``profile.json``. Bump it ONLY together with an entry in
+#: :data:`_MIGRATIONS` that reshapes the previous version into this one.
+#:
+#: It exists because the alternative is guessing. A file with no version can be
+#: read wrongly in silence — a renamed field reads as absent, and absent has a
+#: default, so a robot loses its calibration or its port and nothing says so.
+#: Stamping the shape turns that into a question with an answer.
+PROFILE_VERSION = 1
+
+#: How to get from one stored version to the next: ``{from_version: upgrade}``.
+#: Each function takes the raw mapping at ``from_version`` and returns it at
+#: ``from_version + 1``, so a profile several versions old is walked forward one
+#: step at a time and no migration ever needs to know the whole history.
+#:
+#: Empty today, and correctly so: version 1 is the first shape there is. The
+#: machinery ships ahead of its first user because the moment it is needed is the
+#: moment a format has ALREADY changed, and by then the profiles in the field
+#: were written by something that could not stamp them.
+_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+
+
+def _migrated(raw: dict[str, Any], serial: str) -> dict[str, Any]:
+    """Walk a stored profile forward to :data:`PROFILE_VERSION`.
+
+    A profile written before versioning existed has no ``version`` key and is
+    read as 1 — which is exactly what it is, since nothing about the shape
+    changed when the stamp was added.
+
+    A profile from the FUTURE is refused rather than read optimistically. An
+    unknown field is invisible to this reader, so a best-effort load quietly
+    discards whatever the newer version added and then saves the truncated result
+    back over it — the one failure mode that destroys data while appearing to
+    work.
+    """
+    version = raw.get("version", 1)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ProfileError(
+            f"the profile for {serial} has an unusable format version ({version!r})"
+        )
+    if version > PROFILE_VERSION:
+        raise ProfileError(
+            f"the profile for {serial} was written by a newer whiskerless "
+            f"(format {version}; this one reads {PROFILE_VERSION}) — upgrade whiskerless, "
+            f"or move that robot's folder aside and re-run `whiskerless adopt`"
+        )
+    while version < PROFILE_VERSION:
+        upgrade = _MIGRATIONS.get(version)
+        if upgrade is None:
+            raise ProfileError(
+                f"the profile for {serial} is format {version} and there is no way to "
+                f"read it forward — re-run `whiskerless adopt` for this robot"
+            )
+        raw = upgrade(dict(raw))
+        version += 1
+    return raw
 
 # A stored distance beyond this is damage, not a measurement — the robot is
 # knee-high. Kept deliberately loose: this rejects the absurd, and the device
@@ -88,10 +144,10 @@ class RobotProfile:
     port: int = DEFAULT_TLS_PORT
     name: str = ""
     username: str | None = None
-    # Held in memory to reach the broker, never written. There is nowhere on disk
-    # to put a secret that is meaningfully safer than the file it would sit in,
-    # and 0600 plaintext is not "stored securely" however it is described — so it
-    # is supplied per run instead, from WHISKERLESS_PASSWORD or --password.
+    # Held in memory to reach the broker, never written HERE. A 0600 file beside
+    # the config is not "stored securely" however it is described — it follows
+    # people into backups and dotfile sync without ever looking like a secret.
+    # The keychain is the one place that genuinely is different; see secrets.py.
     password: str | None = None
     verify_hostname: bool = True
     ca_pem: str | None = None
@@ -251,6 +307,9 @@ class ProfileStore:
             ancestor.mkdir(exist_ok=True)
             ancestor.chmod(0o700)
         payload = {
+            # First key on purpose: a human opening this file to fix something
+            # should meet the format stamp before the values it governs.
+            "version": PROFILE_VERSION,
             "serial": profile.serial.value,
             "serial_verified": profile.serial.verified,
             "host": profile.host,
@@ -284,6 +343,7 @@ class ProfileStore:
             raise ProfileError(f"could not read the profile for {parsed.value}: {exc}") from exc
         if not isinstance(raw, dict):
             raise ProfileError(f"the profile for {parsed.value} is not a JSON object")
+        raw = _migrated(raw, parsed.value)
 
         ca_path = self._dir(parsed) / _CA_FILE
         try:

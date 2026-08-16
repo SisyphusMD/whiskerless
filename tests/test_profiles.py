@@ -8,10 +8,12 @@ from pathlib import Path
 
 import pytest
 
+from whiskerless import profiles
 from whiskerless.exceptions import ProfileError
 from whiskerless.mqtt import DEFAULT_TLS_PORT
 from whiskerless.profiles import (
     HOME_ENV,
+    PROFILE_VERSION,
     ProfileStore,
     RobotProfile,
     Serial,
@@ -102,6 +104,90 @@ def test_save_then_load_round_trips(store: ProfileStore) -> None:
     original = make(name="Upstairs", port=1883, username="u")
     store.save(original)
     assert store.load("LR4C123456") == original
+
+
+# --- format version and migration ---------------------------------------------
+def _stored(store: ProfileStore, serial: str = "LR4C123456") -> Path:
+    return store.robots_dir / serial / "profile.json"
+
+
+def test_a_saved_profile_stamps_its_format(store: ProfileStore) -> None:
+    store.save(make())
+    assert json.loads(_stored(store).read_text())["version"] == PROFILE_VERSION
+
+
+def test_a_profile_written_before_versioning_still_loads(store: ProfileStore) -> None:
+    """Nothing about the shape changed when the stamp was added, so an unstamped
+    file IS version 1 — refusing it would strand every profile in the field."""
+    store.save(make(name="Upstairs"))
+    raw = json.loads(_stored(store).read_text())
+    del raw["version"]
+    _stored(store).write_text(json.dumps(raw))
+    assert store.load("LR4C123456").name == "Upstairs"
+
+
+def test_a_profile_from_the_future_is_refused_not_guessed_at(store: ProfileStore) -> None:
+    """A best-effort read discards whatever the newer version added and then saves
+    the truncated result back over it — destroying data while appearing to work."""
+    store.save(make())
+    raw = json.loads(_stored(store).read_text())
+    raw["version"] = PROFILE_VERSION + 1
+    _stored(store).write_text(json.dumps(raw))
+    with pytest.raises(ProfileError, match="newer whiskerless"):
+        store.load("LR4C123456")
+
+
+@pytest.mark.parametrize("version", ["1", 0, -1, True, None, 1.5])
+def test_an_unusable_format_version_is_damage(store: ProfileStore, version: object) -> None:
+    store.save(make())
+    raw = json.loads(_stored(store).read_text())
+    raw["version"] = version
+    _stored(store).write_text(json.dumps(raw))
+    with pytest.raises(ProfileError, match="format version"):
+        store.load("LR4C123456")
+
+
+def test_a_future_profile_is_shown_as_damaged_and_can_still_be_forgotten(
+    store: ProfileStore,
+) -> None:
+    """An entry a user cannot see is one they can never repair or remove."""
+    store.save(make())
+    raw = json.loads(_stored(store).read_text())
+    raw["version"] = PROFILE_VERSION + 1
+    _stored(store).write_text(json.dumps(raw))
+    assert store.list_profiles() == ()
+    assert [name for name, _ in store.damaged()] == ["LR4C123456"]
+    store.forget("LR4C123456")
+    assert store.damaged() == ()
+
+
+def test_an_older_profile_is_walked_forward_one_step_at_a_time(
+    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The table ships empty because version 1 is the first shape there is, so the
+    walk is exercised against a synthetic v1 -> v2 -> v3 to prove it composes."""
+    store.save(make(name="Upstairs"))
+    monkeypatch.setattr(profiles, "PROFILE_VERSION", 3)
+    monkeypatch.setattr(
+        profiles,
+        "_MIGRATIONS",
+        {
+            1: lambda raw: {**raw, "version": 2, "name": raw["name"] + " (v2)"},
+            2: lambda raw: {**raw, "version": 3, "name": raw["name"] + " (v3)"},
+        },
+    )
+    assert store.load("LR4C123456").name == "Upstairs (v2) (v3)"
+
+
+def test_a_version_with_no_migration_is_damage_rather_than_a_wrong_read(
+    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bumped PROFILE_VERSION with no entry beside it is a bug, and it must show
+    up as one profile that will not load — never as one that loads wrongly."""
+    store.save(make())
+    monkeypatch.setattr(profiles, "PROFILE_VERSION", 2)
+    with pytest.raises(ProfileError, match="no way to read it forward"):
+        store.load("LR4C123456")
 
 
 def test_a_password_is_never_written_to_disk(store: ProfileStore) -> None:
