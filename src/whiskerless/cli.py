@@ -549,33 +549,67 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     with _console.progress("scanning for robots over BLE"):
         robots = await ble.scan(timeout=args.scan_timeout, address=args.address)
     if not robots:
-        # HOLD, not press: a short press does nothing, which reads as "the tool
-        # is broken" — that exact misunderstanding happened live.
+        # HOLD, not tap. A tap toggles the robot's WiFi off (light goes white),
+        # which looks like a dead robot and is the worse failure of the two.
         print(
-            "no LR4 found advertising — HOLD the robot's Connect button a few seconds, "
-            "until its light pulses yellow (that is pairing mode), then rerun",
+            "no LR4 found advertising — HOLD the robot's Connect button for about three "
+            "seconds, until its light BLINKS YELLOW (that is pairing mode), then rerun.\n"
+            "Hold it, do not tap it: a short press toggles the robot's WiFi off instead.",
             file=sys.stderr,
         )
         return 1
     target = _pick_robot(robots, args.address)
 
     mac = await ble.read_device_mac(target.address)
-    print(f"\n  RE-PROVISION robot at {target.address} (MAC {mac})\n"
-          f"    serial : {config.serial}\n    broker : {host}\n    wifi   : {ssid}\n"
-          f"    reversible via the Whisker app\n")
+    # The one screen a first-time user reads carefully, so the values THEY typed
+    # are the ones highlighted — a wrong serial or broker here is the mistake
+    # that provisions cleanly and then never appears anywhere.
+    print()
+    _console.banner("RE-PROVISION — this re-points the robot away from Whisker's cloud")
+    # Firmware that will not answer the device-id read leaves this unset; a
+    # literal "MAC None" beside the address is worse than no MAC at all.
+    mac_note = _console.dim(f"(MAC {mac})") if mac else ""
+    print(f"    robot   {_console.accent(target.address)} {mac_note}".rstrip())
+    print(f"    serial  {_console.accent(config.serial)}")
+    print(f"    broker  {_console.accent(host)}")
+    print(f"    wifi    {_console.accent(ssid)}")
+    print(_console.dim("    reversible — re-onboard the robot in the Whisker app\n"))
     if args.dry_run:
-        print("  DRY RUN — the BLE connect, endpoint discovery and reads below are real;\n"
-              "  nothing is written to the robot.\n")
+        print(_console.dim(
+            "  DRY RUN — the BLE connect, endpoint discovery and reads below are real;\n"
+            "  nothing is written to the robot.\n"
+        ))
     if not args.yes and not _confirm("Proceed? Type 'yes': "):
         print("aborted", file=sys.stderr)
         return 1
 
-    result = await ble.provision_robot(target.address, config, dry_run=args.dry_run, on_step=lambda s: print(f"  • {s}"))
-    print(result.message)
+    # Numbered rather than bulleted: provisioning is a SEQUENCE whose order is
+    # load-bearing, and when one fails the useful question is which.
+    #
+    # The marker is deliberately NEUTRAL, not a tick. These callbacks carry no
+    # status — some announce work about to happen ("verifying join") and some
+    # warn ("WiFi still connecting") — so a success mark would put a green tick
+    # immediately above a failure, and it would do it precisely when someone is
+    # reading the sequence to find out what went wrong. Success is the closing
+    # line's job, because only that knows.
+    written = 0
+
+    def _step(message: str) -> None:
+        nonlocal written
+        written += 1
+        print(f"  {_console.dim(f'{written:>2}')} {_console.dim('▸')} {message}")
+
+    result = await ble.provision_robot(
+        target.address, config, dry_run=args.dry_run, on_step=_step
+    )
+    print()
     if args.dry_run:
+        print(result.message)
         return 0
     if not result.success:
+        print(result.message, file=sys.stderr)
         return 1
+    print(_console.accent(result.message))
 
     # Written only after the robot accepted it, so a failed run never leaves a
     # profile claiming a robot is reachable somewhere it is not.

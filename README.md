@@ -46,20 +46,28 @@ $ whiskerless provision
 robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
 broker IP (e.g. 192.168.1.10): 192.168.1.10
 path to your CA PEM: ~/certs/ca.crt
+broker username (enter to skip):
 WiFi SSID: MyIoT
 WiFi password for 'MyIoT':
 ⠹ scanning for robots over BLE (3s)
 
-  RE-PROVISION robot at F8:B3:B7:xx:xx:xx (MAC f8:b3:b7:xx:xx:xx)
-    serial : LR4C123456
-    broker : 192.168.1.10
-    wifi   : MyIoT
-    reversible via the Whisker app
+  RE-PROVISION — this re-points the robot away from Whisker's cloud
+    robot   F8:B3:B7:xx:xx:xx (MAC f8:b3:b7:xx:xx:xx)
+    serial  LR4C123456
+    broker  192.168.1.10
+    wifi    MyIoT
+    reversible — re-onboard the robot in the Whisker app
 
 Proceed? Type 'yes': yes
-  • CERT_AWS_ROOT_CERT written (1310 bytes)
-  • APPLY_CONFIG committed
-  • DEVICE_REBOOT
+   1 ▸ connected (MTU=500, cert chunk=460)
+   2 ▸ DEVICE_ID_SET LR4C123456
+   3 ▸ WiFi SetConfig+Apply ssid=MyIoT; verifying join (≤20s)
+   4 ▸ WiFi connected (ip=192.168.1.42)
+   5 ▸ endpoints: host=192.168.1.10 sub=prod/LR4/LR4C123456/command
+   6 ▸ CERT_AWS_ROOT_CERT written (1310 bytes)
+   7 ▸ APPLY_CONFIG committed
+   8 ▸ DEVICE_REBOOT
+
 reprovisioned; the robot should reconnect MQTT to 192.168.1.10
 
   saved as LR4C123456 — later commands need no flags:
