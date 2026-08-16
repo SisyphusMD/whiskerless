@@ -150,7 +150,7 @@ class Register(IntEnum):
     DRAWER_LASER_1 = 0x48            # the primary laser DFI_LEVEL_PERCENT tracks
     DRAWER_LASER_2 = 0x49
     DRAWER_LASER_3 = 0x4A
-    VISIT_WEIGHT_HOLD_SECONDS = 0x6F  # matches the weight-on-scale span 8/8
+    VISIT_WEIGHT_HOLD_SECONDS = 0x6F  # matches the weight-on-scale span 9/9
     VISIT_CLOSE_KIND = 0xB9          # 1 below a 0xBC of ~19, 2 above ~23
     ROBOT_CYCLE_STATUS = 0x4E
     ROBOT_CYCLE_STATE = 0x4F

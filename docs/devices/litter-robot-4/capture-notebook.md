@@ -52,11 +52,11 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | ~~What is `catDetect` bit 1?~~ | **ANSWERED 2026-08-11.** The load cell — an inert weight sets it with the beam clear, and Whisker's "excess weight" fault is bit 1 alone. Nothing to do with the hopper |
 | Is `0x32` the sleep flag? | **Ten for ten across five nights (2026-08-10→15)** — ten `sleepStatus` edges, ten emissions, each leading by 2-3 s, none unmatched either way. Passive evidence is now exhausted; toggle sleep by hand and watch it |
 | Is `0x4C` "a cycle is owed"? | Five days: 54 emissions, all while asleep, none awake; clears at all five wakes with a cycle following at four of them — but the fifth had sets, cleared normally and ran no cycle, which is what "owed" predicts against. Catch a deferred cycle with sleep OFF and a cat inside the deferral |
-| What do `0x3C` / `0x66` measure? | They repeat per cycle and now reproduce across two robots — correlate against a cycle interrupted mid-way |
+| What do `0x3C` / `0x66` measure? | They repeat per cycle, reproduce across two robots, and climb **monotonically within one cycle**, stepping together at each `0x4F000C` (2026-08-15: `0x3C` 566→773→1079→1288, `0x66` 8442→12355→16577→20615) — position or step counters. Correlate against a cycle interrupted mid-way |
 | What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`, `0x71`? | Perturb something physical and watch which one moves |
 | What are `0x0C`, `0x41`, `0x67`? | `0x0C` is **demand-driven** — robot 2 ran it while starved, stopped after a refill and has been silent for five cycles; robot 1 has never needed a dispense. Whether it needs the *hardware* is still open: run a cycle with litter scooped out of the globe and the hopper off |
 | What are `0x5F`–`0x63`? | Twice, both in the same second as robot 2's `0x350001` raises and nowhere else in five days: `0x5F` 55/12, `0x60` 14/14, `0x61` 326/172, `0x62` 65520 (`0xFFF0`, -16 int16) then 62, `0x63` 0/0. Reads like a fault diagnostic payload — catch a second fault |
-| ~~What does the `0x3402C0` tick count?~~ | **ANSWERED 2026-08-11.** The clean-delay countdown — three ticks exactly 2 min apart, ending 13 s before a cycle that fired 1 s off `cleanCycleWaitTime` |
+| ~~What does the `0x3402C0` tick count?~~ | **ANSWERED 2026-08-11, narrowed 2026-08-15.** It marks the clean delay: repeating ticks 2 min apart ahead of an automatic cycle. It does **not** count anything down — the value is constant (`0x02C0` = 704) — and neither the tick count nor the gap to the cycle is fixed: three ticks ending 13 s before the cycle on 08-11, two ticks ending 92 s before it on 08-15. The 2-minute spacing is the only part that has held |
 | Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | Looked settled (`1064` automatic, `0x01=0201` commanded) until a cycle carried the button code with nobody at the machine. Needs cycles where presence is certain |
 | Is the `catWeight` divisor 100 for certain? | **The known-weight method does not work** — three trials gave divisors 72.4, 84.8 and 88.5, and an inert object sheds load against the globe wall. Needs a real cat, a clean tare, and a same-evening household weigh-in |
 | Why does `0x57` fire at all? | Not the hopper link: positives appear with the hopper detached, `-15` appears for a drawer pull, and reattach is silent. Negatives `-15`, `-17`, `-30`, `-31` are all unreproducible |
@@ -67,6 +67,60 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | Does anything above `0x7F` exist on 1.1.75? | Not a null result any more: robot 2 emits `0xB9` (×48) and `0xBC` (×51) across five days, and robot 1 emits neither. Both are on ESP 1.1.75, which rules the ESP build out but does not by itself name the cause: the main-board versions differ too (#19), and so does everything else about two physical robots. Ask what else separates them before crediting the board |
 
 ## Sessions
+
+### 2026-08-15→16, 8h55m — one visit end to end, and `0x6F` meets `0xBC`
+
+2026-08-15T18:00Z → 2026-08-16T02:55Z, both robots. 30,162 log lines → 1121
+records, **0 malformed**, 263 activity events deduped by payload timestamp. Read
+straight from the live pod (25 h old, 0 restarts), which the rule above prefers
+over the Loki export whenever the pod has survived.
+
+**Parser note, and it costs an hour if you miss it:** `kubectl logs --timestamps`
+prefixes *every* line, continuations included. A state payload is
+pretty-printed, so joining its lines without stripping that prefix from each one
+produces JSON that cannot parse — 710 of 1121 records, in the first attempt here,
+which looks exactly like a robot publishing malformed documents.
+
+**A whole visit, and the first time `0x6F` and `0xBC` appear together.**
+
+```
+23:28:59  0x370011   ToF 0x58=350 0x59=243 0x5A=279
+23:29:00  0x0B0009
+23:29:40  0x370010
+23:29:41  0x370020
+23:29:43  0x0902C3   catWeight 707 -> 7.07 lb
+23:29:43  0x570013   0x6F0029 (41)   0xB90001 (1)   0xBC000A (10)
+23:33:10  0x3402C0
+23:35:10  0x3402C0
+23:36:42  0x34000A + 0x341064        clean cycle, automatic pre-marker
+23:38:54  0x340004                   idle
+```
+
+- **They co-emit.** `registers.md` said the two had never been seen on the same
+  robot; they were, in the same second. That line is corrected.
+- **`0x6F` is exact.** The `0x37` `0x11`→`0x10` span is 23:28:59→23:29:40 = 41 s
+  and `0x6F0029` = 41. Ninth of nine.
+- **`0xBC` = 10 is not a rival reading.** The shipped decode is seconds of
+  *settled* weight, so 10 s of settled weight inside a 41 s occupancy fits both.
+  `0xB9` came in as `1`, matching its documented `<19 → 1` threshold. Nothing in
+  the library needs changing; this corroborates it.
+- **`catWeight` 707 → 7.07 lb** under the documented `/100` — the first believable
+  figure the divisor has produced, against 72.4/84.8/88.5 from dead weights. One
+  live sample, so still not the answer #23 wants.
+
+**The clean-delay marker does not tick the way the 08-11 session described.**
+That pass recorded three ticks 2 min apart ending 13 s before the cycle. Here
+there were **two**, 2 min apart, with the cycle **92 s** after the last — and both
+carried the *same* value (`0x02C0` = 704), so it repeats rather than counts down.
+The decode survives; those specifics do not generalise.
+
+**`0x3C` and `0x66` climb monotonically through a cycle and reset per cycle** —
+`0x3C` 566 → 773 → 1079 → 1288, `0x66` 8442 → 12355 → 16577 → 20615, stepping
+together at each `0x4F000C`. Consistent with position/step counters.
+
+**No `0x35` fault in nine hours**, so the `0x5F`–`0x63` burst got no second test —
+and none of those five fired either, which is at least consistent with them being
+fault-only. The next fault is still the experiment.
 
 ### 2026-08-11 evening — narrated experiment night, both robots
 
