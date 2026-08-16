@@ -232,6 +232,19 @@ WiFi your saved robots already share — press enter to accept each.
 > key are neither read nor written. Files are still owner-only (0600), since a
 > broker address and username are worth keeping to yourself.
 
+**Already provisioned, before this version existed?** Nothing is saved for those
+robots, and re-provisioning purely to write a file would touch the robot for no
+reason. Tell whiskerless about one instead:
+
+```bash
+whiskerless adopt --serial LR4C123456 --host 192.168.1.10 \
+  --ca ~/certs/ca.crt --name Upstairs
+```
+
+Nothing is contacted — it writes the same profile `provision` would. Confirm with
+`whiskerless state`, since a mistyped serial produces a robot that never answers
+and says nothing about why.
+
 ## Everyday use
 
 Most people live in Home Assistant afterwards — see

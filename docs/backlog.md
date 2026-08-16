@@ -291,7 +291,7 @@ its connect errors.
 
 ## Added 2026-08-16 (from the bench night)
 
-### #67 — Adopt an existing robot into the profile store without re-provisioning
+### #67 — Adopt an existing robot into the profile store — **DONE 2026-08-16**
 
 The profile store only writes on a **successful `provision`**, so anyone whose robots
 were set up before it existed has no profiles and gets none by upgrading. They pass
@@ -300,10 +300,12 @@ re-provisioning is the one step that touches the robot's stored config. The owne
 this on his own robots during the bench night, which is how it surfaced; the README
 meanwhile sells "later commands run bare" as though it applies to everyone.
 
-Wanted: a flags-only path that writes a profile and goes nowhere near BLE — either a
-dedicated `adopt`, or letting `use --serial … --host … --ca …` create rather than only
-select. It must refuse to invent a profile for a robot it cannot verify, or it becomes
-a way to typo a serial into permanence.
+**Shipped as `whiskerless adopt`** — flags only, no BLE, no broker. It validates the
+serial's shape and that the CA is a PEM, records the serial as UNVERIFIED (because
+nothing confirmed it), does not steal the default from an existing robot, and prints
+`whiskerless state` as the way to check. It cannot do better than shape-checking
+offline: a typo becomes the client-id and both topic segments, and the robot that
+never answers looks identical to one that is merely asleep.
 
 ### #68 — The hopper gauge under-reports
 

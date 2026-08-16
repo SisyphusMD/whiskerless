@@ -112,6 +112,74 @@ def test_robots_does_not_nag_about_a_confirmed_serial(
     assert "unconfirmed" not in capsys.readouterr().out
 
 
+# --- adopt --------------------------------------------------------------------
+def test_adopt_saves_a_robot_that_was_never_provisioned_here(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The store only fills on a successful provision, so a robot set up before it
+    existed has no profile — and re-provisioning to get one would touch the robot."""
+    ca = tmp_path / "ca.crt"
+    ca.write_text(CA)
+
+    assert run("adopt", "--serial", "LR4C654321", "--host", "192.0.2.20",
+               "--ca", str(ca), "--name", "Upstairs") == 0
+
+    saved = store.load("LR4C654321")
+    assert saved.host == "192.0.2.20"
+    assert saved.name == "Upstairs"
+    assert saved.ca_pem == CA
+    assert saved.serial.verified is False, "nobody confirmed this serial; a typo is invisible"
+    assert "whiskerless state" in capsys.readouterr().out, "and it says how to check"
+
+
+def test_adopt_becomes_the_default_when_it_is_the_only_robot(store: ProfileStore) -> None:
+    assert run("adopt", "--serial", "LR4C654321", "--host", "192.0.2.20") == 0
+    assert store.get_default() == "LR4C654321"
+
+
+def test_adopt_does_not_steal_the_default_from_an_existing_robot(store: ProfileStore) -> None:
+    seed(store, "LR4C123456")
+    store.set_default("LR4C123456")
+    assert run("adopt", "--serial", "LR4C654321", "--host", "192.0.2.20") == 0
+    assert store.get_default() == "LR4C123456"
+
+
+def test_adopt_refuses_a_serial_that_cannot_be_one(store: ProfileStore) -> None:
+    """A typo becomes the MQTT client-id and both topics, so it fails silently
+    forever. The shape check is the only guard available without the robot."""
+    assert run("adopt", "--serial", "nope!", "--host", "192.0.2.20") == 1
+
+
+def test_adopt_refuses_the_model_number_from_the_same_label(store: ProfileStore) -> None:
+    """The label carries LR4C123456 and LR4-0301-00-US side by side, and the
+    store's own shape rule accepts the second one. Adoption has to apply the
+    provisioner's check, or it writes the one value guaranteed never to work."""
+    assert run("adopt", "--serial", "LR4-0301-00-US", "--host", "192.0.2.20") == 1
+
+
+def test_adopt_again_does_not_wipe_what_it_was_not_given(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Correcting the host must not cost the CA, the name, or the litter
+    reference someone measured with the globe in front of them."""
+    seed(store, "LR4C123456", name="Upstairs", username="mqtt", litter_full_mm=140)
+
+    assert run("adopt", "--serial", "LR4C123456", "--host", "192.0.2.99") == 0
+
+    saved = store.load("LR4C123456")
+    assert saved.host == "192.0.2.99", "the field given is updated"
+    assert saved.name == "Upstairs"
+    assert saved.username == "mqtt"
+    assert saved.ca_pem == CA
+    assert saved.litter_full_mm == 140
+
+
+def test_adopt_refuses_a_ca_that_is_not_a_pem(store: ProfileStore, tmp_path: Path) -> None:
+    junk = tmp_path / "not-a-ca.txt"
+    junk.write_text("this is not a certificate")
+    assert run("adopt", "--serial", "LR4C654321", "--host", "192.0.2.20", "--ca", str(junk)) == 1
+
+
 def test_use_marks_the_default(store: ProfileStore, capsys: pytest.CaptureFixture[str]) -> None:
     seed(store, "LR4C123456", name="Upstairs")
     seed(store, "LR4C654321")

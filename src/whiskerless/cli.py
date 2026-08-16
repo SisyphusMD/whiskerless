@@ -40,6 +40,7 @@ from .devices.litter_robot_4.link import LitterRobot4Link
 from .devices.litter_robot_4.models import LitterRobot4State, litter_level_percent_from_mm
 from .devices.litter_robot_4.protocol import ActivityMessage, StateMessage
 from .exceptions import ProfileError, SafetyError, WhiskerlessError
+from .mqtt import DEFAULT_TLS_PORT
 from .profiles import ProfileStore, RobotProfile, Serial, SharedSetup, merge_overrides
 from .safety import classify_code
 
@@ -670,6 +671,63 @@ async def _cmd_robots(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _cmd_adopt(args: argparse.Namespace) -> int:
+    """Save a profile for a robot that is ALREADY provisioned, without touching it.
+
+    The store only fills itself on a successful `provision`, so anyone whose
+    robots predate it has no profiles and gets none by upgrading — they either
+    pass `--serial/--host/--ca` forever or re-provision purely to write a file,
+    and re-provisioning is the one step that changes the robot. This writes the
+    same profile from flags and goes nowhere near BLE or the broker.
+
+    It cannot verify any of it. The serial is recorded as UNVERIFIED for exactly
+    that reason: a typo here produces a profile that talks to a topic no robot
+    publishes, with no error to see — so the command says what it wrote and how
+    to check it, rather than implying the robot was found.
+    """
+    store = ProfileStore.from_env()
+    # The SAME check the provision prompt uses, not the store's shape rule: the
+    # store only enforces filesystem-safe characters, which happily accepts the
+    # model designator (LR4-0301-00-US) printed on the label beside the serial.
+    # That is the exact mistake this command would otherwise persist forever.
+    serial = Serial(ProvisioningConfig.check_serial(args.serial))
+    ca_pem = _read_pem(args.ca) if args.ca else None
+    try:
+        # Re-running adopt to correct one field must not silently drop the rest.
+        # A saved robot may already carry a name, a username, a non-default port
+        # and the litter calibration someone measured at the machine.
+        prior = store.load(serial.value)
+    except ProfileError:
+        profile = RobotProfile(
+            serial=serial,
+            host=_check_host(args.host),
+            port=args.port or DEFAULT_TLS_PORT,
+            name=args.name or "",
+            username=args.username,
+            ca_pem=ca_pem,
+        )
+    else:
+        profile = replace(
+            prior,
+            serial=serial,
+            host=_check_host(args.host),
+            port=args.port or prior.port,
+            name=args.name or prior.name,
+            username=args.username or prior.username,
+            ca_pem=ca_pem or prior.ca_pem,
+            password=None,
+        )
+    store.save(profile)
+    if store.get_default() is None:
+        store.set_default(serial.value)
+    print(
+        f"saved {profile.display_name} — later commands need no flags.\n"
+        f"Nothing was contacted, so confirm it is right:\n"
+        f"    whiskerless state"
+    )
+    return 0
+
+
 async def _cmd_use(args: argparse.Namespace) -> int:
     store = ProfileStore.from_env()
     # Resolved before it becomes the default: pointing every future bare
@@ -1030,6 +1088,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_robots = add_parser("robots", "list the robots set up on this machine")
     p_robots.set_defaults(func=_cmd_robots)
+
+    p_adopt = add_parser(
+        "adopt", "save a robot that is already provisioned, without re-provisioning it"
+    )
+    p_adopt.add_argument("--serial", required=True, help="the robot's serial, e.g. LR4C123456")
+    p_adopt.add_argument("--host", required=True, help="broker host/IP the robot publishes to")
+    p_adopt.add_argument("--ca", help="path to the broker CA PEM")
+    p_adopt.add_argument("--port", type=int, default=None)
+    p_adopt.add_argument("--username", default=None, help="broker username, if yours needs one")
+    p_adopt.add_argument("--name", help="what to call this robot, e.g. 'Upstairs'")
+    p_adopt.set_defaults(func=_cmd_adopt)
 
     p_use = add_parser("use", "choose which robot commands act on by default")
     p_use.add_argument("robot", help="serial of a robot from `whiskerless robots`")
