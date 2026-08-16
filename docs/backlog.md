@@ -332,6 +332,124 @@ leave a workstation with no route, and that `cannot reach broker at …:8883 (ti
 is that boundary rather than a fault. What is still open is the error message itself,
 which reports the timeout without suggesting the likely cause.
 
+### #70 — Write our own client identity to the robot, and drop the anonymous listener
+
+`CERT_DEVICE_CERT` (2) and `CERT_DEVICE_KEY` (3) are writable slots on the same
+`mqtt-config` CERT_WRITE mechanism whiskerless already uses to install the root CA. The
+robot's factory identity is therefore replaceable, not merely unreadable — we have
+simply never written to those slots.
+
+**Confirmed in the firmware, 2026-08-16, on both 1.1.65 and 1.1.75.** These are not
+schema-only enum values. Inside the provisioning component — identified by its
+`WIFI:PROV` log tag — six NVS keys sit in one uniform switch whose arms are 24 bytes
+apart and byte-identical in shape, every one calling the same store helper:
+
+| NVS key | `l32r` site (1.1.65) | shared call |
+|---|---|---|
+| `cloud_topic` | `0x400e5b2c` | `0x40145774` |
+| `device_topic` | `0x400e5b45` | `0x40145774` |
+| `aws_cert` | `0x400e5b5d` | `0x40145774` |
+| `device_cert` | `0x400e5b75` | `0x40145774` |
+| `device_key` | `0x400e5b8d` | `0x40145774` |
+| `client_id` | `0x400e5bbe` | `0x40145774` |
+
+Four of those six — the two topics, the CA and the client id — are values whiskerless
+demonstrably persists on every successful re-provision, which is what makes a robot come
+up on a local broker at all. That is what identifies `0x40145774` as the store path
+rather than a reader. The device cert and key ride the same call, and nothing in the
+switch whitelists type 1. The structure reproduces on 1.1.75 at `0x400e60ed` /
+`0x6105` / `0x611d` → `0x40147684`.
+
+Images from [huntergregal/litterrobot_firmware](https://github.com/huntergregal/litterrobot_firmware)
+(`litterrobot4/ESP/`). **Still unsettled:** whether the helper commits on receipt or on
+APPLY_CONFIG — that needs `0x40145774` disassembled, and radare2's Xtensa support is not
+reliable enough to trust here (it decodes a known pointer table as instructions). The
+enclosing function (`entry` at `0x400e586c`) has no direct callers, consistent with a
+protocomm handler reached through a registration table.
+
+#### What it would and would not buy
+
+The firmware pins down the whole design space, so it is worth writing down what is
+actually on the table before anyone spends a robot on it.
+
+The robot's connection has three authentication surfaces, and only one is negotiable:
+
+| surface | mechanism | status |
+|---|---|---|
+| robot verifies the broker | `aws_cert`, `MBEDTLS_SSL_VERIFY_REQUIRED` + `mbedtls_ssl_set_hostname` | **mandatory**, no skip path in the firmware |
+| robot proves itself over TLS | `device_cert` + `device_key`, `mbedtls_ssl_conf_own_cert` | **always presented**; whether the broker *checks* it is the broker's choice |
+| robot proves itself over MQTT | username / password | **does not exist** — not in the schema, the NVS keys, or the image |
+
+So a rewrite **cannot** make the CA optional, cannot offer username/password (alone or
+alongside), and cannot move the port. Those are firmware facts, not policy.
+
+What it *would* buy is one thing, and it is a security gain rather than a simplification:
+the robot's listener could stop being anonymous. With a client certificate signed by the
+user's own CA, a broker can run `require_certificate true` with `use_identity_as_username
+true`, authenticate each robot as a named client, and write ACLs per robot instead of per
+topic pattern. The `per_listener_settings` two-listener split exists *only* because the
+robot cannot authenticate, so it would collapse to one listener. It would also retire the
+project's one hard requirement — that a user be able to run an anonymous listener at all.
+
+The cost is the reversibility claim, permanently, plus an extra per-robot certificate to
+issue during setup. That is *more* setup, not less. If it is ever done it belongs as
+opt-in hardening for people who want it, never as the default path.
+
+If it worked, the whole anonymous-listener requirement goes away. The robot would present
+a certificate signed by the user's own CA, so the broker could run `require_certificate
+true` with `use_identity_as_username true`, authenticate the robot as a named client, and
+apply ACLs by identity instead of by topic pattern. That is a strictly better broker
+posture than "one listener that accepts anyone".
+
+Two reasons it has not been done, and the first is the serious one:
+
+- **It spends the reversibility claim.** The Whisker cloud round trip works precisely
+  because the factory identity is untouched: re-onboarding in the app restores stock
+  operation without a single stored secret (see [recovery.md](recovery.md)). Overwrite the
+  device cert and key and the robot can no longer authenticate to AWS at all — a robot
+  that fails to re-onboard is a much worse outcome than a broker listener that accepts
+  anonymous clients on an IoT VLAN.
+- **It cannot be backed up over the air, which is byte-verified rather than assumed.**
+  `mqtt-config` implements exactly six message types — CERT_WRITE, ENDPOINT_WRITE and
+  APPLY_CONFIG, request and response each — and `whisker-config` six more, of which the
+  only *read* returns the device id (a MAC). There is no read verb for any certificate on
+  either endpoint. Since both schemas were recovered by decoding the firmware's
+  protobuf-c descriptor tables, that is the complete message set, not the part we happen
+  to have found. So over BLE, a half-written key or a rejected pair leaves the robot with
+  no valid identity for the cloud *or* the new broker.
+
+  **ANSWERED 2026-08-16: the app rewrites the identity on every onboarding**, so no
+  backup is needed. A decoded capture of the official iOS app shows it writing all
+  three certificate slots — root CA (1188 B), device certificate (1484 B) and device
+  private key (1702 B) — to a robot that already had a valid identity, then applying
+  and rebooting. Full record in
+  [devices/litter-robot-4/provisioning/app-onboarding-capture.md](devices/litter-robot-4/provisioning/app-onboarding-capture.md).
+  **Recovery from a bad identity write is therefore "re-onboard in the Whisker app",
+  with no teardown and no dump.** That was the sole blocker on this item.
+
+  **There is also a backup path, though it is no longer needed:** An `esptool read_flash` of the
+  ESP32 yields the NVS partition and with it `device_cert` and `device_key` — the same
+  dump already wanted for `pic_factory` (see
+  [reverse-engineering.md](reverse-engineering.md), contributor path 3). It is
+  non-destructive and it needs physical access to the board's UART, i.e. opening the
+  robot. Anyone who dumps first can restore afterwards, which turns this entire item from
+  a one-way door into an ordinary reversible change — and removes the dependency on
+  whether Whisker's app rewrites the identity. **Dump first is therefore the recommended
+  order for anyone attempting this**, and it is strictly better evidence than the app
+  capture below, which can only ever observe one session.
+
+**How it was settled.** The capture described above was taken and decoded on
+2026-08-16; the method, the full frame sequence and the byte counts are in
+[devices/litter-robot-4/provisioning/app-onboarding-capture.md](devices/litter-robot-4/provisioning/app-onboarding-capture.md).
+The remaining unknown is narrow: whether the firmware commits each CERT_WRITE on
+receipt or only on APPLY_CONFIG. The app stages all 46 chunks before a single apply,
+which is consistent with commit-on-apply but does not prove the firmware requires it.
+That only matters if someone wants a staged-but-unapplied bench probe; it does not
+gate the feature, because recovery no longer depends on it.
+
+Until then the anonymous listener stands, and [setup/mqtt-broker.md](setup/mqtt-broker.md)
+says why.
+
 ---
 
 ## After 0.2.0 (the durable plan)

@@ -159,12 +159,14 @@ whiskerless classifies every command before it can reach the wire
   [reverse-engineering.md](../../reverse-engineering.md); there is nothing to gain by
   sending any of them, and a plausible flash or OTA on the other side.
 - **Dangerous (override required):** any untraced opcode, control-band register, or
-  calibration register — and `0x02010101`, the Power press. Anything unrecognised
-  defaults to "refuse unless you really mean it" because its effect is untested, not
-  because a write is known to reach the register directly. See
-  [protocol.md](protocol.md). Power is the one *known* command in this class: every
-  other action can be undone over the same MQTT connection that started it, while a
-  robot powered off has left the network entirely.
+  calibration register — and two known panel presses, `0x02010101` (Power) and
+  `0x02011001` (Connect/WiFi). Anything unrecognised defaults to "refuse unless you
+  really mean it" because its effect is untested, not because a write is known to
+  reach the register directly. See [protocol.md](protocol.md). Power and Connect are
+  the *known* commands in this class, and they are there for the opposite reason:
+  every safe action can be undone over the same MQTT connection that started it,
+  while a robot that is powered off — or has had its radio switched off — has left
+  the network entirely.
 - **Safe:** reads, the report macros (value 0), the settings above, and the routine
   panel presses (`0x0201` cycle, `0x0401` reset, `0x0801` empty).
 
@@ -177,10 +179,10 @@ because every caller passed the flag unconditionally.
 
 ## What's still missing
 
-**The two captured writes need one live trial each.** `0x02010801` (empty) and
-`0x02010101` (power) are shipped disabled, and both remain inferences until somebody
-sends them. Each costs something to test — a litter refill, or a walk to the robot —
-which is why neither is a default.
+**The empty cycle still needs one live trial.** `0x02010801` is shipped disabled and
+remains an inference until somebody sends it; it costs a litter refill to find out.
+Power and Connect have since been written (2026-08-16) and are shipped disabled for
+cost rather than for doubt — both can end with the robot off the network.
 
 **The filter-change wizard is unreachable**, and this is a finding rather than a gap:
 its chord is a long press, the write path declines those, and unlike lockout or the

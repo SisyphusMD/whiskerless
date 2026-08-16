@@ -297,12 +297,15 @@ alerts, fault alerts, weight logging, and night-light scheduling.
 
 ## What's *not* exposed
 
-**Clean cycle** and **Reset** are available as buttons. **Empty cycle** and
-**Power** exist too but ship **disabled by default** — enable them in the entity
-settings if you want them. Both carry `(danger)` in their name: an empty cycle dumps
-the whole globe into the waste drawer, and Power *toggles*, so a robot switched off
-this way leaves the network and only a physical press brings it back. Home Assistant
-has no confirmation prompt for a button press, so treat them accordingly.
+**Clean cycle** and **Reset** are available as buttons. **Empty cycle**, **Power
+toggle** and **WiFi toggle** exist too but ship **disabled by default** — enable
+them in the entity settings if you want them. All three carry `(danger)` in their
+name. An empty cycle dumps the whole globe into the waste drawer. Power *toggles*,
+so a robot switched off this way leaves the network and only a physical press
+brings it back — and WiFi (the panel's Connect button) does the same thing faster,
+taking the robot off your broker and out of Home Assistant in under a second, with
+the panel light turning white. Home Assistant has no confirmation prompt for a
+button press, so treat them accordingly.
 
 **The filter-change wizard cannot be started remotely.** Its panel chord is a long
 press, and the robot performs short presses over MQTT while declining long ones. Use
