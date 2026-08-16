@@ -162,6 +162,9 @@
       "power_toggle": {
         "name": "Power toggle (danger)"
       },
+      "wifi_toggle": {
+        "name": "WiFi toggle (danger)"
+      },
       "start_clean_cycle": {
         "name": "Clean cycle"
       }

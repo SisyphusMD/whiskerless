@@ -2,11 +2,12 @@
 
 Every action here is a synthesised panel button press on register `0x01`: the
 write reproduces the exact code the panel emits, so the robot cannot tell it
-from a finger. Clean cycle and reset are live-proven on ESP 1.1.75; empty and
-power are captured from physical presses but have never been written, and both
-ship disabled because their cost is high and their proof is thinner.
+from a finger. Clean cycle, reset and power are live-proven; empty is captured
+from a physical press but has never been written. Empty, power and WiFi ship
+disabled, because their cost is high — a litter refill for the first, and for the
+other two a robot that has left the network.
 
-Both are immediate: Home Assistant has no entity-level confirmation prompt, so
+They are immediate: Home Assistant has no entity-level confirmation prompt, so
 being disabled by default is the only barrier an integration can put in front of
 a destructive action.
 
@@ -57,13 +58,21 @@ BUTTONS: tuple[WhiskerlessButtonEntityDescription, ...] = (
         entity_registry_enabled_default=False,
         press_fn=lambda coordinator: coordinator.async_empty_cycle(),
     ),
-    # Disabled by default, and the only entity whose failure mode is a walk to
-    # the machine: Power toggles, and a robot switched off is off the network.
+    # Disabled by default. These two are the entities whose failure mode is a walk
+    # to the machine: both toggle, and both can leave the robot off the network —
+    # switched off, or with its WiFi off — where this integration cannot see it,
+    # let alone undo it.
     WhiskerlessButtonEntityDescription(
         key="power_toggle",
         translation_key="power_toggle",
         entity_registry_enabled_default=False,
         press_fn=lambda coordinator: coordinator.async_power_toggle(),
+    ),
+    WhiskerlessButtonEntityDescription(
+        key="wifi_toggle",
+        translation_key="wifi_toggle",
+        entity_registry_enabled_default=False,
+        press_fn=lambda coordinator: coordinator.async_wifi_toggle(),
     ),
     # Enabled: it is a read-only requestState publish, and it is what the
     # troubleshooting docs tell you to press when a robot has gone quiet — being

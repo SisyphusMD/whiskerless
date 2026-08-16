@@ -99,10 +99,12 @@ PANEL_BUTTON_NEVER: frozenset[int] = frozenset(
 #: proven, so it is labelled rather than gated. That it empties the globe into the
 #: drawer is a reason not to wire it to an automation, not a reason to refuse it.
 PANEL_BUTTON_SAFE: frozenset[int] = frozenset({0x0201, 0x0401, 0x0801})
-#: Every other button value stays DANGEROUS. Power (0x0101) is captured and
-#: deliberately left out: it toggles, so firing it can leave the robot switched
-#: off and unreachable. That is the one panel button whose cost is losing control
-#: of the device rather than moving litter around.
+#: Every other button value stays DANGEROUS. Two are deliberately left out even
+#: though both are known-good writes: Power (0x0101) and Connect (0x1001). Both
+#: toggle, and both can end with the robot off the network — powered down, or
+#: with its WiFi switched off — where nothing over MQTT reaches it and only
+#: someone at the machine can undo it. Those are the two panel buttons whose cost
+#: is losing control of the device rather than moving litter around.
 #:
 #: Long presses cannot be synthesised at all — the firmware performs press type
 #: 01 and silently declines 02 — so the hold-only chords never reach here.

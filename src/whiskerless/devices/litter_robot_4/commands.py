@@ -188,12 +188,13 @@ def empty_cycle() -> Command:
 def power_toggle() -> Command:
     """Press the panel Power button, which TOGGLES the robot on or off.
 
-    Classified DANGEROUS, and the only panel button that is: every other action
-    here can be undone from the same MQTT connection that started it, while a
-    robot powered off this way leaves the network and can only be brought back
-    by someone pressing Power on the machine. Callers must opt in explicitly.
+    Classified DANGEROUS: every safe action here can be undone from the same MQTT
+    connection that started it, while a robot powered off this way leaves the
+    network and can only be brought back by someone pressing Power on the
+    machine. Callers must opt in explicitly.
 
-    Captured from a physical press; the written form has not been live-tested.
+    PROVEN as a write, and shown to be the same event as a physical press in the
+    same capture: both emitted `0x010101`.
     """
     return _cmd(
         encode_write(const.Register.PANEL_BUTTON, const.PANEL_BUTTON_POWER),
@@ -201,6 +202,31 @@ def power_toggle() -> Command:
         at_most_once=True,
         register=const.Register.PANEL_BUTTON,
         value=const.PANEL_BUTTON_POWER,
+    )
+
+
+def wifi_toggle() -> Command:
+    """Press the panel Connect button, which TOGGLES the robot's WiFi.
+
+    Classified DANGEROUS on the same terms as :func:`power_toggle`, and for the
+    same reason: a robot with its WiFi off has left the network, so nothing over
+    MQTT reaches it and only a physical press brings it back. What it costs is
+    control of the device, not litter.
+
+    The write is proven only by DISAPPEARANCE — the robot went quiet 0.8 s after
+    it was published, with the panel light white — and no stronger proof exists,
+    because the press destroys the transport that would carry the echo.
+
+    Do not confuse it with the three-second HOLD on the same button, which is
+    onboarding mode: that value is refused outright, and long presses cannot be
+    synthesised at all.
+    """
+    return _cmd(
+        encode_write(const.Register.PANEL_BUTTON, const.PANEL_BUTTON_CONNECT),
+        "wifiToggle",
+        at_most_once=True,
+        register=const.Register.PANEL_BUTTON,
+        value=const.PANEL_BUTTON_CONNECT,
     )
 
 

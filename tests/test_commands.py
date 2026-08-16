@@ -94,15 +94,14 @@ def test_enabling_the_sleep_schedule_arms_every_day() -> None:
 
 
 def test_the_destructive_presses_encode_the_captured_codes() -> None:
-    """Both are captured from physical presses and never written.
-
-    Wrong bits here are expensive in a way the other commands are not: 0x0C02 is
-    a factory reset and 0x1402 simulates a plug pull, and both are one or two
-    bits from these.
-    """
+    """Wrong bits here are expensive in a way the other commands are not: 0x0C02
+    is a factory reset and 0x1402 simulates a plug pull, and both are one or two
+    bits from these — Connect especially, which differs from the plug-pull chord
+    only in the Reset bit and the press type."""
     assert commands.empty_cycle().code == "0x02010801"
     assert commands.power_toggle().code == "0x02010101"
-    for command in (commands.empty_cycle(), commands.power_toggle()):
+    assert commands.wifi_toggle().code == "0x02011001"
+    for command in (commands.empty_cycle(), commands.power_toggle(), commands.wifi_toggle()):
         assert command.at_most_once, "an edge-triggered press must never be retried"
 
 

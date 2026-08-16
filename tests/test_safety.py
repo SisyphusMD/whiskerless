@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from whiskerless.devices.litter_robot_4 import commands
+from whiskerless.devices.litter_robot_4.commands import Command
 from whiskerless.exceptions import DangerousCommandError, NeverSendError, ProtocolError
 from whiskerless.safety import Hazard, assert_sendable, classify_code
 
@@ -70,19 +73,22 @@ class TestPanelButton:
         """
         assert assert_sendable(build().code) is Hazard.SAFE  # type: ignore[operator]
 
-    def test_power_is_the_one_press_that_still_needs_an_opt_in(self) -> None:
-        """Every other action can be undone from the same connection; this cannot.
+    @pytest.mark.parametrize("build", [commands.power_toggle, commands.wifi_toggle])
+    def test_the_two_presses_that_can_end_the_connection_need_an_opt_in(
+        self, build: Callable[[], Command]
+    ) -> None:
+        """Every safe action can be undone from the same connection; these cannot.
 
-        Power toggles, and a robot switched off has left the network, so nothing
-        over MQTT can switch it back on.
+        Both toggle, and both can leave the robot off the network — powered down,
+        or with its WiFi switched off — where nothing over MQTT reaches it.
         """
-        code = commands.power_toggle().code
+        code = build().code
         assert classify_code(code) is Hazard.DANGEROUS
         with pytest.raises(DangerousCommandError):
             assert_sendable(code)
         assert assert_sendable(code, allow_dangerous=True) is Hazard.DANGEROUS
 
-    @pytest.mark.parametrize("value", [0x1001, 0x0000, 0x0601, 0x0201 | 0x0800])
+    @pytest.mark.parametrize("value", [0x0000, 0x0601, 0x0201 | 0x0800])
     def test_unrecognised_button_values_stay_refused(self, value: int) -> None:
         """Classification is by VALUE: an unlisted combination is still untested."""
         code = f"0x0201{value:04X}"

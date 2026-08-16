@@ -579,16 +579,28 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
     async def async_power_toggle(self) -> None:
         """Press Power, which toggles the robot on or off.
 
-        The only command here that opts past the safety guard, and the only one
-        that can end with the robot unreachable: powered off, it leaves the
-        network, and nothing on this connection can bring it back. The entity is
-        disabled by default for the same reason.
+        One of two commands here that opt past the safety guard, and for the same
+        reason: powered off, the robot leaves the network, and nothing on this
+        connection can bring it back. The entity is disabled by default to match.
 
         No state fallback. If the press turned the robot OFF then silence is the
         expected outcome, so asking for fresh state and getting nothing would
         prove nothing either way.
         """
         await self._press_and_confirm(commands.power_toggle(), allow_dangerous=True)
+
+    async def async_wifi_toggle(self) -> None:
+        """Press Connect, which toggles the robot's WiFi.
+
+        Deliberately NOT confirmed, unlike every other press here. A successful
+        WiFi-off takes down the transport that would carry the echo — the robot
+        went quiet 0.8 s after the write in the capture that proved it — so
+        waiting for an acknowledgement would report every *successful* press as a
+        failure, and invite the user to press again and toggle the radio back on.
+        Silence is the expected outcome, so the publish is the whole operation.
+        """
+        async with self._io_lock:
+            await self._publish(commands.wifi_toggle(), allow_dangerous=True)
 
     async def async_panel_reset(self) -> None:
         """Press Reset: acknowledge a full alarm, or release a stalled cycle.

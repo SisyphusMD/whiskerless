@@ -222,11 +222,22 @@ PANEL_BUTTON_RESET = 0x0401
 # same press type, so it is expected to work — but expected is not proven, and
 # the cost of being wrong is a globe that dumps its litter into the drawer.
 PANEL_BUTTON_EMPTY = 0x0801
-# Power TOGGLES: one press turned a running robot off, the next turned it back on
-# and it immediately ran a boot cycle. Captured, never written. A robot switched
-# off this way cannot be switched back on over MQTT, because it is no longer on
-# the network — that is the one panel button whose cost is a walk to the machine.
+# Power TOGGLES: one press turns a running robot off, the next turns it back on.
+# PROVEN as a write and shown equivalent to a finger in the same capture — the
+# write emitted 0x010101 and so did the physical press that restored the robot
+# 143 seconds later. A robot switched off this way cannot be switched back on
+# over MQTT, because it is no longer on the network.
 PANEL_BUTTON_POWER = 0x0101
+# Connect TOGGLES the robot's WiFi. The write lands (the robot was gone 0.8 s
+# later, panel light white) but can never be ECHOED the way the others were: the
+# press destroys the transport that would report it, in both directions. So this
+# is proven by disappearance, not by a register read, and there is no way to make
+# it stronger. Recovery is a physical press — nothing over MQTT reaches a robot
+# that is off the network.
+#
+# A LONG Connect press is onboarding mode and is refused outright (see safety.py);
+# only this short one is reachable, and long presses cannot be written at all.
+PANEL_BUTTON_CONNECT = 0x1001
 
 
 # HOPPER_LINK (0x57) value historically read as "hopper disconnected" (int16 -15).

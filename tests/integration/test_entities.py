@@ -138,17 +138,17 @@ async def test_every_cycling_status_is_representable(
 async def test_the_destructive_buttons_ship_disabled(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
-    """Empty and Power must never be one stray tap away.
+    """Empty, Power and WiFi must never be one stray tap away.
 
     Home Assistant has no entity-level confirmation prompt, so disabled-by-default
     is the only barrier the integration itself can put in front of them: an empty
-    cycle costs a litter refill, and Power can leave the robot off the network
-    until someone walks over to it.
+    cycle costs a litter refill, and Power and WiFi can both leave the robot off
+    the network until someone walks over to it.
     """
     await setup_integration(hass, mock_config_entry, state_payload)
     registry = er.async_get(hass)
 
-    for key in ("start_empty_cycle", "power_toggle"):
+    for key in ("start_empty_cycle", "power_toggle", "wifi_toggle"):
         entity_id = registry.async_get_entity_id("button", "whiskerless", f"{MOCK_SERIAL}_{key}")
         assert entity_id is not None, f"{key} should still be registered"
         entry = registry.async_get(entity_id)

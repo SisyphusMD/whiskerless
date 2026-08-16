@@ -128,6 +128,34 @@ def test_power_confirmed_at_the_prompt_opts_past_the_guard() -> None:
     assert FakeLink.published == [("0x02010101", True)]
 
 
+def test_wifi_toggle_does_not_accept_a_yes_flag_either() -> None:
+    """Same reason as power: a robot with its WiFi off has left the network, so
+    there is no undo over MQTT and no scripting it."""
+    with pytest.raises(SystemExit) as exit_code:
+        _run("wifi-toggle", *BASE, "--yes")
+    assert exit_code.value.code == 2
+    assert FakeLink.published == []
+
+
+def test_wifi_toggle_confirmed_at_the_prompt_opts_past_the_guard() -> None:
+    assert _run("wifi-toggle", *BASE, answer="yes") == 0
+    assert FakeLink.published == [("0x02011001", True)]
+
+
+def test_wifi_toggle_declined_sends_nothing() -> None:
+    assert _run("wifi-toggle", *BASE, answer="no") == 1
+    assert FakeLink.published == []
+
+
+def test_wifi_toggle_never_claims_the_press_was_confirmed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """If the WiFi went off the robot was gone before it could acknowledge
+    anything, so claiming otherwise states a fact the transport cannot carry."""
+    assert _run("wifi-toggle", *BASE, answer="yes") == 0
+    assert "left the network" in capsys.readouterr().out
+
+
 def test_a_prompt_with_no_one_there_is_a_refusal() -> None:
     """Piped stdin raises EOFError; defaulting to yes would run on a cron job."""
     with patch("builtins.input", side_effect=EOFError):

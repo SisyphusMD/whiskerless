@@ -692,6 +692,42 @@
     'state': 'unknown',
   })
 # ---
+# name: test_the_entity_surface[button.litter_robot_4_wifi_toggle_danger-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
+    'domain': 'button',
+    'entity_category': None,
+    'entity_id': 'button.litter_robot_4_wifi_toggle_danger',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'WiFi toggle (danger)',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'WiFi toggle (danger)',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'wifi_toggle',
+    'unique_id': 'LR4C000001_wifi_toggle',
+    'unit_of_measurement': None,
+  })
+# ---
 # name: test_the_entity_surface[number.litter_robot_4_clean_cycle_wait_time-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({

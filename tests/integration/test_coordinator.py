@@ -198,7 +198,11 @@ async def test_unloading_takes_the_entities_with_it(
 
 @pytest.mark.parametrize(
     ("method", "expected"),
-    [("async_panel_reset", "0x02010401"), ("async_power_toggle", "0x02010101")],
+    [
+        ("async_panel_reset", "0x02010401"),
+        ("async_power_toggle", "0x02010101"),
+        ("async_wifi_toggle", "0x02011001"),
+    ],
 )
 async def test_a_press_with_no_lasting_trace_is_confirmed_by_its_echo(
     hass: HomeAssistant,
@@ -207,10 +211,11 @@ async def test_a_press_with_no_lasting_trace_is_confirmed_by_its_echo(
     method: str,
     expected: str,
 ) -> None:
-    """Reset from idle and Power leave nothing in the state document to check.
+    """Reset from idle, Power and WiFi leave nothing in the state document.
 
-    Reset only acknowledges an alarm, and a robot powered off has left the
-    network, so the echo is the only acknowledgement either one can produce.
+    Reset only acknowledges an alarm, and a robot that is powered off or off the
+    WiFi has left the network, so the echo is the only acknowledgement any of
+    them can produce.
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     coordinator = mock_config_entry.runtime_data
@@ -543,3 +548,18 @@ async def test_two_point_calibration_yields_a_true_scale(
     state = hass.states.get("sensor.litter_robot_4_litter_level")
     assert state is not None
     assert state.state == "40"
+
+
+async def test_the_wifi_toggle_never_waits_for_an_echo_it_cannot_get(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A successful WiFi-off takes down the transport that would carry the echo.
+    Waiting for one would report every success as a failure and invite a second
+    press, which toggles the radio straight back on."""
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    with robot_online(robot), capture_writes(robot) as sent:   # no echo, deliberately
+        await coordinator.async_wifi_toggle()
+
+    assert sent.count("0x02011001") == 1
