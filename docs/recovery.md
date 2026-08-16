@@ -43,9 +43,11 @@ firmware offers a read we simply have not mapped is an open question (#51).
 If you need to re-run `whiskerless provision` (first time, a changed broker, or
 to recover from a bad config), put the robot back into BLE pairing mode:
 
-1. **Hold** the robot's **Connect** button — a short press does nothing — for a
-   few seconds, until its light starts **pulsing yellow**. That is pairing mode:
-   the robot is advertising over BLE again.
+1. **Hold** the robot's **Connect** button for about three seconds, until its
+   light starts **blinking yellow**. That is pairing mode: the robot is
+   advertising over BLE again. **Hold it, do not tap it** — a short press
+   toggles WiFi off instead (the light goes white and the robot leaves the
+   broker); another short press brings it back.
 2. Run `whiskerless provision` near the robot.
 
 You can re-provision as many times as you like; it's the same mechanism the

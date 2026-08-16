@@ -11,11 +11,17 @@ Statuses: **open** (nothing started), **blocked** (says on what), **discuss**
 
 ## Open
 
-### #13 — Confirm the empty and power writes on hardware — *blocked: hardware press*
+### #13 — Confirm the empty and power writes on hardware — *POWER DONE 2026-08-16; empty still blocked (costs a litter refill)*
 
-Enable the disabled-by-default buttons and press each once. Empty: `0x02010801`,
-costs a litter refill. Power: `0x02010101`, toggles, needs a physical press to
-undo. Both are currently inferences from captured emissions.
+**Power: DONE 2026-08-16.** `0x02010101` was published to a live robot; it emitted
+`0x010101` and powered off, publishing for ~38 s on the way down. The physical press
+that brought it back emitted `0x010101` **again**, so a written press and a finger are
+the same event in both directions. Remaining half is the empty cycle only.
+
+**Only the empty cycle is left.** Enable the disabled-by-default *Empty cycle*
+button and press it once: `0x02010801`, costs a litter refill. Do NOT repeat the
+power test — it is done, and running it again only takes the robot off the network
+and needs someone standing there to undo it.
 
 ### #14 — Capture robotStatus during the empty-cycle confirmation — *blocked: same press as #13*
 
@@ -99,7 +105,15 @@ The dropout does not reproduce under ordinary conditions and is not a steady
 background rate. Next time it fires, grab the wall-clock time and correlate
 against the capture rather than trying to provoke it.
 
-### #22 — Verify the panel sleep/wake write path live — *blocked: hardware session*
+### #22 — Verify the panel sleep/wake write path live — *premise corrected 2026-08-16: the panel cannot set a TIME at all*
+
+**The original premise is void.** This asked whether a schedule change made *at the
+panel* shows up the same way. It cannot: an LR4 has five buttons and no screen, so the
+panel can only toggle an 8-hour window on and off — it has no way to enter a time. What
+was observed 2026-08-16 is that the panel DOES write `0x1B`/`0x1C` (as "now + 8 h") and
+sets `weekdaySleepModeEnabled` to `0x7F`, and that exiting clears them to 0/0 rather
+than restoring the previous schedule. What remains untested is our own write path
+against the per-weekday registers, which is an integration test, not a bench one.
 
 The weekday sleep schedule writes a per-day bitmask (`0x1D`) and the panel
 sleep/wake times are read-only mirrors of today's weekday pair. The
@@ -135,7 +149,7 @@ timestamp out of the capture. Weighing the other two cats helps but does not by
 itself attribute any reading.
 
 
-### #39 — Physical-action instructions — *remaining half is bench work*
+### #39 — Physical-action instructions — **DONE 2026-08-16**
 
 *2026-08-13:* the known-wrong pairing instruction was fixed everywhere (HOLD
 until the light pulses yellow).
@@ -192,12 +206,16 @@ no recovery story means no, regardless of feasibility.
 Defensible interim: expose the firmware versions we already decode, document
 that updates require re-onboarding to the Whisker app, ship no install path.
 
-### #45 — Confirm 0x32 is the sleep flag — *blocked: live toggle*
+### #45 — Confirm 0x32 is the sleep flag — **DONE 2026-08-16, PROVEN on both robots**
 
-`0x32` is now ten for ten across five nights (2026-08-10→15): ten sleepStatus
-edges, ten emissions, every one leading its edge by 2-3 seconds, no unmatched
-edge and no unmatched emission. Passive still — the hand toggle is what would
-make it PROVEN, and it doubles as #22's live verification.
+**Done 2026-08-16.** Sleep mode is a hold on **Cycle**; an LR4 has no menu. On
+BOTH robots the hold emitted `0x010202` and drove `0x320001`, and a second hold
+drove `0x320000` — each 31+ minutes clear of the scheduled boundary, which is what
+the five nights of ten-for-ten schedule matches could never establish. `0x1A`,
+`0x1B` and `0x1C` moved with it, the window was exactly 8 hours on both, and
+`weekdaySleepModeEnabled` went to `0x7F`. Detail in the capture notebook.
+
+What remains under this number is `0x4C` only:
 
 `0x4C` is NOT answered, and the five-day pass narrowed it without settling it:
 54 emissions, all with sleepStatus 1, none awake; it clears at all five wakes;
@@ -222,13 +240,16 @@ make a pre-provisioning snapshot possible and would reveal Whisker's own AWS
 endpoint hostname — the one value blocking a self-contained
 `whiskerless restore-cloud` that does not depend on the Whisker app.
 
-### #52 — Use the device-id read to verify (or supply) the serial — *partly bench work (step 2b); AUTO-FILL still blocked on an untouched LR4*
+### #52 — Use the device-id read to verify (or supply) the serial — **CLOSED 2026-08-16: answered, not viable**
 
-`provision` already reads the device id over BLE before writing anything, and
-`_format_mac` already handles a non-MAC response: 6 bytes becomes a hex MAC,
-anything else is decoded as UTF-8. So if the factory device id is the serial
-string, `read_device_mac` returns it today — under a misleading name, printed
-as "(MAC …)", never compared against what the user typed.
+**Answered 2026-08-16: the read returns a MAC** (`b4:8a:0a:8a:c9:28`), not the
+serial. Both halves of this task rested on it being the serial, so both are dead —
+there is nothing to verify `--serial` against and nothing to auto-fill it from.
+The docs contradiction is settled in the same stroke: the provisioning README said
+serial, `recovery.md` and the code said MAC, and the code was right.
+
+Kept for the reasoning, since "read the device id" is an obvious idea that will
+occur to someone again:
 
 Two changes, in value order: (1) VERIFY — refuse to proceed when a
 serial-shaped read disagrees with `--serial` (a typo or wrong-unit pick
@@ -265,6 +286,47 @@ CLI cannot catch it by type — `bleak` is the optional `[ble]` extra and must n
 be imported unconditionally — so wrap the bleak entry points in `ble/` and raise
 `ProvisioningError` with the original message, exactly as the MQTT link wraps
 its connect errors.
+
+---
+
+## Added 2026-08-16 (from the bench night)
+
+### #67 — Adopt an existing robot into the profile store without re-provisioning
+
+The profile store only writes on a **successful `provision`**, so anyone whose robots
+were set up before it existed has no profiles and gets none by upgrading. They pass
+`--serial/--host/--ca` forever, or re-provision purely to populate a file — and
+re-provisioning is the one step that touches the robot's stored config. The owner hit
+this on his own robots during the bench night, which is how it surfaced; the README
+meanwhile sells "later commands run bare" as though it applies to everyone.
+
+Wanted: a flags-only path that writes a profile and goes nowhere near BLE — either a
+dedicated `adopt`, or letting `use --serial … --host … --ca …` create rather than only
+select. It must refuse to invent a profile for a robot it cannot verify, or it becomes
+a way to typo a serial into permanence.
+
+### #68 — The hopper gauge under-reports
+
+Ground truth 2026-08-16: a hopper photographed **mostly full** was published as roughly
+**half**. The waste drawer (78 % reported, ~78 % observed) and the globe litter level
+(~445 raw, ~67 % observed) were both accurate in the same session, so this is specific
+to the hopper scale rather than a decode error. Likely the learned floor/ceiling rather
+than `0x0C` itself. Needs a second narrated fill — ideally a full hopper photographed at
+a known time, then a drain — to say whether the span or the floor is wrong.
+
+### #69 — The CLI assumes the operator's machine can reach the broker
+
+`whiskerless state`, `monitor`, `set` and `send` all open an MQTT connection, so they
+only work from a host with a route to the broker. In the setup this project
+recommends — robots on an isolated IoT VLAN, broker exposed there — a normal
+workstation often has no such route, and the owner's does not: `cannot reach broker at
+…:8883 (timed out)` from the same Mac that provisions over BLE perfectly well.
+
+Nothing is broken, but the README's "everyday use" section reads as though the CLI is
+always available, and a user who hits that timeout will reasonably file it as a bug.
+Wanted: docs that say plainly the CLI needs broker reachability, name Home Assistant as
+the control surface when it does not, and stop implying otherwise. Possibly also a
+clearer error naming the likely cause.
 
 ---
 

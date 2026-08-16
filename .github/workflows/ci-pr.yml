@@ -84,6 +84,14 @@ jobs:
         # guide, the compatibility notes and the examples directory.
         run: python3 packaging/check-doc-links.py .
 
+      - name: Cited external sources still resolve
+        # Only the pages we relied ON as evidence — Whisker's control-panel
+        # article behind docs/devices/litter-robot-4/control-panel.md, and the
+        # brands announcement behind shipping our own images. If one moves, the
+        # claim it supports has no way back to its source. Retries inside, so a
+        # vendor's transient 5xx does not fail the build.
+        run: bash packaging/check-external-links.sh
+
   dependency-floors:
     name: Test the dependency floors the package advertises
     if: ${{ github.server_url == 'https://github.com' }}

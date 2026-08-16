@@ -93,6 +93,15 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
 
 ### Fixed
 
+- **Provisioning stops scanning the moment it finds your robot.** It used to run
+  the whole `--scan-timeout` even after the robot answered — and since a robot
+  only advertises while you hold Connect, that *spent* the pairing window instead
+  of using it. One bench attempt found the robot and then failed to connect,
+  because it had gone quiet by the time the scan ended.
+- **The WiFi check no longer reports `0.0.0.0` as your robot's address.** The
+  robot says "connected" the instant it associates, before DHCP hands out a
+  lease, so the join is confirmed but the address is not yet known — and printing
+  the unset one claimed a fact it did not have.
 - **Pet weight is right again** (raw ÷ 100, the cloud's own units) — recent rc
   builds doubled the reading.
 - **The weekday sleep schedule arms every day**, not just Sunday, and **the panel
@@ -147,6 +156,18 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   longer lose parts, and broker failures print instead of raising.
 - **Fewer unknowns while calibration settles**: the calibration reference shows the
   built-in default (marked as such) and the hopper level a labelled estimate.
+- **"A short press does nothing" was wrong, and dangerous.** A short press of the
+  robot's **Connect** button toggles its WiFi *off* — the light bar turns white
+  and the robot vanishes from your broker, looking for all the world like a dead
+  unit. The README and the recovery guide both told you it was harmless. Hold
+  Connect for pairing mode; tap it only to put the radio back.
+- **The status a robot reports while powering down is no longer labelled
+  "powering up"**, now that each half of a power cycle has been captured on its
+  own rather than together.
+- **The waste-drawer register no longer claims to know direction.** A brief rule
+  ("it speaks on a seat and stays silent on a removal") held on one robot and
+  failed on the other; whiskerless still reports only *when* the drawer last
+  moved, which is all the hardware supports.
 - **The declared Home Assistant minimum is correct** (2025.3.0, not 2025.2.0).
 
 ### Changed

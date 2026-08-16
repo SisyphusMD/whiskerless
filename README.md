@@ -201,9 +201,12 @@ same artifacts either way.
 
 ## Provision the robot
 
-Put the robot in pairing mode — **hold** its **Connect** button for a few
-seconds, until the light **pulses yellow** (a short press does nothing) — then,
-near it:
+Put the robot in pairing mode — **hold** its **Connect** button for about three
+seconds, until the light **blinks yellow** — then, near it:
+
+> ⚠️ **Hold it, do not tap it.** A *short* press toggles the robot's WiFi off.
+> The light turns white and the robot vanishes from your broker, which looks
+> exactly like a dead unit. Press Connect once more to bring it back.
 
 ```bash
 whiskerless provision
@@ -336,10 +339,12 @@ cloud has no long-press command either; it reaches those settings by writing
 registers, which is what whiskerless already does for panel lockout, the night light,
 the cycle delay and the sleep schedule.
 
-**Empty and Power ship disabled by default.** Their codes are captured from physical
-presses but nobody has written one yet, and both are expensive to get wrong: an empty
-cycle costs a litter refill, and Power can leave the robot off the network. Enable
-them deliberately or use the CLI, which prompts.
+**Empty and Power ship disabled by default.** Power is now proven — written to a live
+robot, which powered off and emitted the same code a finger does — but it still ships
+disabled, because a robot switched off has left the network and only someone standing
+at it can bring it back. Empty's code is captured from a physical press and has still
+never been written; it costs a litter refill to try. Enable them deliberately or use the
+CLI, which prompts.
 
 See the
 [reverse-engineering writeup](docs/reverse-engineering.md#the-action-commands-how-the-panel-button-register-solved-all-of-them).

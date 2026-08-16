@@ -46,9 +46,24 @@ robot emits for a button synthesises that press. Live-proven on ESP 1.1.75 on
 | Clean cycle | `0x02010201` | runs a full cycle | written, 3 trials |
 | Panel reset | `0x02010401` | acknowledges a full alarm; aborts/resumes a paused cycle | written, 3 trials |
 | Empty cycle | `0x02010801` | dumps the whole globe into the drawer, then parks | emission captured, **write untested** |
-| Power | `0x02010101` | **toggles** the robot on or off | emission captured, **write untested** |
+| Power | `0x02010101` | **toggles** the robot on or off | **written 2026-08-16**, robot powered off |
+| WiFi | `0x02011001` | **toggles** the radio; light turns white | **written 2026-08-16**, robot left the broker in 0.8 s |
 
-The last two are shipped as disabled-by-default buttons. Their codes come from
+**Power is proven both ways.** The write produced `0x010101` on the activity stream —
+the identical code the panel emits — and the physical press that brought the robot back
+produced `0x010101` again, 143 seconds later. Written press and finger are the same
+event, demonstrated in both directions in one capture. The shutdown is not instant: the
+robot published for ~38 s after the write, walking `robotStatus` 1 → 3 with
+`unitPowerStatus` (`0x31`) falling to 0, then came up 2 → 4.
+
+**Connect (`0x02011001`) can never be verified the way the others were.** The write
+performed — the robot went silent 0.8 s later and the panel light turned white — but no
+echo escaped, because the press takes down the transport that would report it. The same
+holds for a physical press: it happens while the radio is off and nothing replays
+afterwards. `0x011001` may be permanently unobservable over MQTT in either direction, so
+"the robot vanished" is the only evidence this button can ever produce.
+
+The empty cycle is still shipped as a disabled-by-default button. Its code comes from
 watching `0x01` during a physical press, which is solid, but nobody has yet written
 one — and this project's own history says a captured emission is not a proven write.
 

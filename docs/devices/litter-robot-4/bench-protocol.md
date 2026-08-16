@@ -1,4 +1,4 @@
-# At the robot: what to do while you are standing there
+# At the robot: what is left to do
 
 Written to be followed at the machine, in order, with a phone or laptop in hand.
 Every step exists because something in this repo is currently **guessed**, and
@@ -9,130 +9,107 @@ Before you start: note the wall-clock time and the robot you are at. The rolling
 capture is already running (`lr4-capture` in namespace `homeassistant`), and its
 history is read out of Loki afterwards, so nothing needs arming.
 
----
+> **Two chords are never to be pressed.** **Reset + Empty** held is a factory
+> reset — it wipes the broker config and costs a full re-provision. **Reset +
+> Connect** held simulates a plug pull. Both are refused in software for the same
+> reason; the panel has no such guard.
 
-## 1. Panel sleep, by hand — closes #45 and #22 (2 minutes)
-
-The only thing standing between `0x32` and PROVEN. Ten emissions across five
-nights have matched ten `sleepStatus` edges, each leading by 2-3 seconds, but
-every one of them was the SCHEDULE firing on its own. Nobody has ever watched
-the register while a person caused the change, and the whole point of the
-schedule test is that it cannot separate "tracks sleep" from "tracks the clock".
-
-1. Note the time. On the panel, put the robot into sleep mode by hand.
-2. Wait ~30 s. Note the time again, and wake it by hand.
-3. Tell me both times.
-
-**What answers it:** a `0x320001` within a few seconds of your sleep press and a
-`0x320000` within a few seconds of your wake press, neither of them near a
-scheduled boundary. That is the register following a human rather than a clock.
-
-**Same trip, #22:** while you are in the panel menus, set the sleep *time* by
-hand to something you will recognise (say 03:33), then tell me. The integration
-writes the per-day registers and verifies them by read-back; what has never been
-checked is that a change made at the PANEL shows up the same way.
+The 2026-08-16 session closed #45, #52 and most of #39 — see the
+[capture notebook](capture-notebook.md) for what it found. What follows is what
+that session did **not** answer.
 
 ---
 
-## 2. The Connect hold, timed — closes half of #39 (1 minute)
+## 1. The four untested hold chords (5 minutes, free)
 
-Every document here says "hold for a few seconds, until the light pulses
-yellow". Nobody has timed it, and "a few seconds" is the instruction a user
-follows before deciding the tool is broken.
+The best value left. Each is a documented panel function that maps to a register
+we already publish, so a mismatch is a live bug rather than a curiosity. Hold for
+three seconds, note the time, then hold again to undo.
 
-1. Start counting, press and hold **Connect**.
-2. Say when the light changes, and what it does — colour, pulse or steady.
-3. Release. Does it stay in pairing mode, and for how long before it gives up?
+| Hold | Should move | What it would settle |
+|---|---|---|
+| **Reset** | `0x18` nightLightMode, `0x3B` LED | auto night light is a mode we expose; nobody has watched the panel set it |
+| **Empty** | `0x16` cleanCycleWaitTime | we ship this as a 3–30 number; if the panel steps it differently our range is wrong |
+| **Cycle + Reset** | `0x17` isKeypadLockout | panel lockout is a switch we expose |
+| **Empty + Connect** | `0x38` isUSBPowerOn | `0x38` is documented as "mains present, not USB" and misnamed — this is the test that says so |
 
-**What answers it:** a number to put in the README and `docs/recovery.md`, plus
-the exact appearance to expect. Then press Connect *briefly* once and confirm the
-documented "a short press does nothing" is still true.
+Tell me the time of each hold. If one of these moves a register that is *not* in
+its row, that is the finding.
 
----
+**Power + Cycle** (Aux1) is the fifth chord and has no expected register at all —
+worth a hold purely to see whether it names one of `0x04`, `0x06`, `0x50`, `0x72`
+or `0x7B`, the five that so far appear only during a power cycle.
 
-## 2b. While it is still in pairing mode — advances #52, does not close it (1 minute)
+## 2. Interrupt a cycle (2 minutes, free)
 
-**Prepare the command BEFORE pressing Connect.** `provision` prompts for the
-serial, broker, CA, username and WiFi answers *before* it scans, and the pairing
-window is short — spend it typing and the robot stops advertising mid-answer.
-Pass every answer as a flag so it goes straight to the scan, then press Connect
-and run it:
+`0x3C` and `0x66` climb monotonically through a clean cycle and reset each time,
+which looks like position or step counters. The watchlist's stated test is a
+cycle that does not finish.
 
-```bash
-whiskerless provision --dry-run --yes \
-  --serial LR4Cxxxxxx --host-ip <broker-ip> --ca ~/certs/ca.crt \
-  --wifi-ssid <ssid> --wifi-pass '<passphrase>' --username <broker-user>
-```
+1. Start a clean cycle (panel Cycle press or the HA button). Note the time.
+2. Part-way through, **lift the bonnet** — the interlock stops the globe.
+3. Note the time. Reseat, press Reset if it asks, note that time too.
 
-Every one of those is prompted when omitted, `--username` included, so leaving
-any of them off puts a prompt between you and the scan. Drop `--username` only if
-you are willing to press enter once.
+**What answers it:** whether `0x3C`/`0x66` freeze, reset, or keep climbing. A
+counter that resets on interruption is a step index; one that holds is a position.
 
-Read the `(MAC …)` line back to me. Nothing is written — the dry run does the BLE
-connect, the endpoint discovery and the reads, then stops.
+## 3. Which ToF drives litterLevel (2 minutes, free)
 
-**What this can settle:** the docs contradict each other about what
-`read_device_mac` returns (the provisioning README says serial, `recovery.md` and
-the code say MAC). `read_device_mac` renders 6 bytes as a hex MAC and anything
-else as UTF-8, so one reading says which of those our robots answer with, and
-whether the value printed as "(MAC …)" is misnamed.
+`0x58`, `0x59` and `0x5A` are all visible individually and nobody knows which one
+the published figure follows.
 
-**What it cannot settle, and why #52 stays open.** `provision` writes
-`DEVICE_ID_SET <serial>` as its *first* step, and both robots here have been
-provisioned — so whatever comes back is what whiskerless previously stored, not
-the factory value. That makes it useless for the auto-fill half of #52, which
-needs the id an *untouched* LR4 reports. Verifying a typed `--serial` against the
-read is still worth having, but only as a re-provisioning check.
+1. With the bonnet open, **scoop a hollow in the litter on one side only**. Note
+   the time and which side.
+2. Level it again a minute later. Note the time.
 
-**Not tonight (#51):** probing whether the config endpoints answer *reads* needs
-a message-type sweep script that does not exist yet. Worth writing before the
-next pairing window — a read would expose Whisker's own AWS endpoint hostname,
-the one value still blocking a self-contained `restore-cloud`.
+**What answers it:** whichever of the three moves with `litterLevel` is the source.
+A hollow on one side should move one sensor and not the others.
 
-## 3. The globe's fill markings — the rest of #39 (1 minute)
+## 4. Does the hopper dispense need the hardware? (5 minutes)
 
-`calibrate full` used to tell people to "fill the globe to the line". No one here
-has confirmed such a line exists, so the wording now avoids it. Look inside the
-globe: is there a moulded line, a MAX marking, anything? Tell me what you see
-(a photo is ideal). If there is one, the instruction can name it; if there is
-not, the current wording stands and stops implying a marking that is not there.
+`0x0C` is demand-driven — one robot ran it while starved and stopped after a
+refill. Whether it needs the *hopper* or just the demand is open.
 
-While the bonnet is off, the same for the **filter**: is there a mark, a date
-tab, or anything a user could be told to look at?
+1. **Detach the hopper.** Scoop the globe well below the fill line. Note the time.
+2. Run a clean cycle. Note the time.
 
----
+**What answers it:** if `0x0C` fires with no hopper attached, it is a demand
+signal; if it stays silent, it needs the hardware.
 
-## 4. The waste drawer — the last of #39 (1 minute)
+## 5. The expensive ones
 
-Three rounds of narrated pulls have failed to separate removal from insertion
-(`0x56` codes 10, 11, 13-17 and 28 all appear for both). That question is
-parked. What is still worth knowing is what a USER should be told:
-
-1. Pull the drawer fully out. Note the time.
-2. Does the panel show anything? Does the robot refuse to cycle?
-3. Push it back until it seats. Note the time, and whether seating it took a
-   deliberate push or clicked on its own.
-
-**What answers it:** the "what the robot does when it worked" line that
-`docs/setup/home-assistant.md` currently cannot write for the drawer.
-
----
-
-## 5. Optional, and only if you feel like it
-
-**#13 — the empty cycle.** Costs a full litter refill, which is why it has never
-been run. If you are changing the litter anyway, this is the moment: press
-**Empty cycle (danger)** in Home Assistant (it ships disabled; enable it first)
-and note the time. It confirms the captured `0x02010801` and — with the capture
-running — finally shows which `robotStatus` integer an empty cycle reports, which
-is #14 and the reason `empty_cycle` currently has no local int.
+**#13 / #14 — the empty cycle.** Costs a full litter refill, which is why it has
+never been run. If you are changing the litter anyway, this is the moment: press
+**Empty cycle (danger)** in Home Assistant (it ships disabled; enable it first) and
+note the time. It confirms the captured `0x02010801` — the last unproven write on
+the panel button register — and finally shows which `robotStatus` integer an empty
+cycle reports, which is #14 and the reason `empty_cycle` has no local int.
 
 **#23 — the cat weights.** If the other two cats can be weighed on a bathroom
-scale the same evening, the `catWeight` divisor question becomes answerable. The
-known-weight method has already failed three times (divisors 72.4, 84.8, 88.5,
-because an inert object sheds load against the globe wall), so it needs real
-cats and a same-evening household weigh-in.
+scale the same evening, the `catWeight` divisor becomes answerable. The
+known-weight method has failed three times (divisors 72.4, 84.8, 88.5, because an
+inert object sheds load against the globe wall), so it needs real cats and a
+same-evening household weigh-in. A single live reading on 2026-08-16 gave 707 →
+7.07 lb under the shipped ÷100, which is at least a believable cat.
 
-**Not on the list, deliberately:** the Power button. It toggles, and a robot
-switched off leaves the network — nothing over MQTT brings it back. There is
-nothing to learn from it that is worth a trip downstairs to undo.
+## 6. Standing invitation
+
+**A cycle deferred while AWAKE**, by a bonnet lift or a full drawer, with a cat
+visit inside the deferral. That is the one test that separates `0x4C` = "a cycle
+is owed" from "a visit happened while asleep", and it cannot be scheduled — it
+needs a cat to cooperate. If you ever notice one, note the time.
+
+---
+
+## What no longer needs doing
+
+- **Panel sleep by hand** — closed 2026-08-16, `0x32` PROVEN on both robots.
+- **Connect hold timing** — ~3 seconds to blinking yellow, confirmed.
+- **The globe fill line** — it exists; photographed.
+- **The filter** — flat carbon pad, no date tab, no mark, no indicator.
+- **The device id read** — returns a MAC, so #52's auto-fill was never viable.
+- **The drawer** — pulls and seats captured on both robots; the seat-only
+  asymmetry is dead, and the robot does not refuse to cycle with the drawer out.
+- **Power** — written and proven, both directions.
+- **Connect short press** — written and proven; it toggles WiFi and turns the
+  light white. Do not repeat it casually.

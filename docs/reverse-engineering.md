@@ -80,9 +80,11 @@ experiment), and discarding the claim that an unrecognised write reaches an
 arbitrary PIC register (which had made the cheap test look reckless).
 
 Empty (`0x0801`) and Power (`0x0101`) followed the same way, by watching the register
-during a physical press — free, and the whole job. Neither has been *written* yet, so
-both ship disabled by default; a captured emission is not a proven write, which is a
-distinction this project has had to relearn more than once. The waste-drawer reset is
+during a physical press — free, and the whole job. **Power was written on 2026-08-16**
+and behaved: the robot powered off and emitted `0x010101`, the same code the restoring
+physical press emitted. Empty has still never been written. Both ship disabled by
+default anyway; a captured emission is not a proven write, which is a distinction this
+project has had to relearn more than once. The waste-drawer reset is
 not separate: a Reset press performs it when the full flag is set.
 
 **What the register cannot do is hold a button.** Writing press type `02` produces no

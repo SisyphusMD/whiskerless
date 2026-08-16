@@ -56,9 +56,9 @@ correct the mapping.
 | `shortResetPress` (panel reset) | **solved** — `0x02010401`, three live trials |
 | reset waste drawer | **solved** — it is what a Reset press does when the full flag is set; not a separate command. The old "the pending-flag register is read-only, so this is impossible" note was solving the wrong problem: you write the button, not `0x41` |
 | `emptyCycle` | **captured, write untested** — a physical Empty press emits `0x010801`, so `0x02010801` is the code to write. Shipped as a disabled-by-default button; nobody has sent it yet |
-| `powerOn` / `powerOff` | **captured, write untested** — a Power press emits `0x010101` and TOGGLES. Shipped disabled and behind `allow_dangerous`: a robot powered off this way has left the network |
+| `powerOn` / `powerOff` | **PROVEN 2026-08-16** — `0x02010101` written to a live robot powered it off, emitting `0x010101`; the physical press that restored it emitted the same code again. It TOGGLES. Still shipped disabled and behind `allow_dangerous`, because a robot powered off this way has left the network and only someone at the machine can bring it back |
 | filter-change wizard | **unreachable** — the panel chord is a *long* press, and the write path declines press type `02` |
-| waste-drawer position | **partly solved** — `0x56` fires on a seat and stays silent on a removal, so direction is readable from whether it speaks; absolute position still is not. See the [register map](registers.md#the-drawer-bay-0x56-reports-seating-not-position) |
+| waste-drawer position | **unsolved** — `0x56` says a drawer moved and nothing more. The seat-only asymmetry that briefly looked like direction broke on 2026-08-16, when one robot emitted the *same* code for a pull and a seat. Neither the value nor the presence of a message carries direction, and absolute position is not readable at all. See the [register map](registers.md#the-drawer-bay-0x56-reports-that-the-drawer-moved-and-nothing-else) |
 
 Static analysis never recovered these because it was looking in the wrong place: the
 dispatch it wanted lives in a bootloader region absent from every public OTA image,

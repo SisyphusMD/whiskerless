@@ -68,6 +68,99 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 
 ## Sessions
 
+### 2026-08-16 — the narrated bench night: five proven writes, two robots
+
+The first session where the panel was *driven by hand* and by MQTT in the same
+window, with both robots exercised. Every time below is the owner's, called out as
+it happened and matched against the payload timestamps.
+
+**`0x32` is the sleep flag. PROVEN, on both robots.** Sleep mode is a hold on
+**Cycle** (`0x0202`) — there is no menu on an LR4 and no way to set a sleep *time*
+at the panel at all, which is why five nights of passive schedule-matching could
+never separate "tracks sleep" from "tracks the clock":
+
+| | downstairs 04:05–04:06Z | upstairs 04:46–04:47Z |
+|---|---|---|
+| hold emits | `0x010202` | `0x010202` |
+| `0x1A` isPanelSleepMode | 0 → 1 → 0 | 0 → 1 → 0 |
+| `0x1B` / `0x1C` | 1264 / 304 (21:04 → 05:04) | 1306 / 346 (21:46 → 05:46) |
+| **`0x32`** | **`0001` then `0000`** | **`0001` then `0000`** |
+
+Both 31+ minutes clear of the 04:37Z scheduled boundary, and the window is exactly
+8 hours on each — the manual's "default 8-hour sleep mode", in register values.
+`weekdaySleepModeEnabled` went 0 → **127** (`0x7F`) → 0 in the state document while
+never appearing on the activity stream, which is worth knowing before trusting one
+surface over the other. Exiting panel sleep **clears** the times to 0/0 rather than
+restoring the previous schedule.
+
+**A hold is emitted even though a hold cannot be written.** `0x010202` on the
+activity stream is the first long-press emission ever captured. The firmware
+performs written type `01` and declines `02` — but it *reports* the hold a finger
+makes, which is how the chord map above became checkable at all.
+
+**Power: written, proven, and equivalent to a finger.** `0x02010101` published at
+05:02:10Z; the robot emitted `0x010101`, then published for a further ~38 s before
+going quiet. The physical press that brought it back at 05:04:33Z emitted
+`0x010101` **again** — the same code, from a write and from a finger, 143 seconds
+apart. That is the project's central claim about `0x01` demonstrated in both
+directions in one capture.
+
+The shutdown and the boot split the old `robotStatus` walk. An earlier capture saw
+`1 → 3 → 2 → 13` across an off *and* an on and could not say which half was which.
+Run separately:
+
+| | sequence | `0x31` unitPowerStatus |
+|---|---|---|
+| power **down** | `0x340001` → `0x340003` | 1 → **0** |
+| power **up** | `0x340002` → ready (4) | 0 → **1** |
+
+So **1 and 3 are the down-stroke, 2 is the up-stroke**, and `0x31` moves after all —
+it had been LOW precisely because a mains→battery swap leaves it alone. `13` did not
+appear on this boot, so the boot cycle is not guaranteed.
+
+**The shutdown emits five registers nothing else does** — `0x04`, `0x06`, `0x50`,
+`0x72`, `0x7B`, with `0x50` reading the same 148 on both edges. Recorded in
+[registers.md](registers.md#answering-but-unidentified); the same shape of find as
+the `0x5F`–`0x63` fault burst.
+
+**Connect toggles WiFi, and can never be proven the way the others were.**
+`0x02011001` published at 05:06:54.0Z; the robot's last message was 05:06:54.778Z —
+gone in **0.8 seconds**, panel light **white**. No echo escaped, and none can: the
+press destroys the transport that would report it, in both directions. Our own docs
+said "a short press does nothing" in three places. They were wrong, and the failure
+mode they invited — a robot that vanishes and looks dead — is exactly what a user
+would report as a whiskerless bug.
+
+**The drawer breaks its own rule.** Downstairs was silent on the pull and spoke on
+the seat (`0x560017`); upstairs emitted `0x56000A` **both ways**, an hour later. The
+seat-only asymmetry is dead. `0x57` rode along on both pulls with a negative code,
+and those differ per unit too: **−30** downstairs, **−215** upstairs.
+
+**Ground truth against reported levels**, from photographs taken at the machine:
+
+| Signal | Robot said | Eye said | Verdict |
+|---|---|---|---|
+| waste drawer | `DFILevelPercent` 78 | ~78 % | accurate |
+| globe litter | `litterLevel` ~445 | ~67 % | accurate |
+| hopper | ~half | mostly full | **under-reports** |
+
+The hopper gauge is the only one out, and it is a learned-scale problem rather than
+a decode problem. The globe **does** have a moulded fill line, which the docs had
+stopped claiming for want of evidence; the filter has no date tab, mark or indicator
+of any kind, and no register reports its state.
+
+**The device id read returns a MAC**, `b4:8a:0a:8a:c9:28` — not the serial. That
+closes #52 as answered-and-not-viable: `--serial` can never be auto-filled from it.
+The dry run also enumerated the live endpoint surface for #51 — `mqtt-config`,
+`proto-ver`, `prov-config`, `prov-scan`, `prov-session`, `whisker-config` — with
+`MTU=500, cert chunk=460`.
+
+**Two things this session cost, both now fixed in code.** The BLE scan ran its full
+window even after finding the robot, which *spends* the pairing window rather than
+using it — one attempt found the robot and then failed to connect because it had
+gone quiet. And the WiFi join verification printed `ip=0.0.0.0`, because the robot
+answers CONNECTED as soon as the STA associates, before DHCP returns.
+
 ### 2026-08-15→16, 8h55m — one visit end to end, and `0x6F` meets `0xBC`
 
 2026-08-15T18:00Z → 2026-08-16T02:55Z, both robots. 30,162 log lines → 1121

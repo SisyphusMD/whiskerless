@@ -83,9 +83,9 @@ was.
 | Reg | Field | Meaning | Conf |
 |---|---|---|---|
 | `0x07` | unitPowerType | **`0` = mains, `1` = battery** — proven by pulling AC and restoring it | PROVEN |
-| `0x31` | unitPowerStatus | `1` on a running robot; unchanged across a mains→battery→mains transition | LOW |
+| `0x31` | unitPowerStatus | **`1` powered, `0` powering down.** Unchanged across a mains→battery→mains transition, which is what kept it LOW for so long — but a panel power cycle moves it: `0x310000` two seconds after a written power-off, `0x310001` two seconds after the physical press that brought it back (2026-08-16, 1.1.75) | PROVEN |
 | `0x38` | isUSBPowerOn | **mains present, not USB** — went 1→0 with AC out and back, with the hopper untouched throughout. The LR4 has no user USB power; the field is misnamed | PROVEN |
-| `0x32` | sleepStatus | `1` while inside the panel sleep window, `0` outside — tracks the clock, not just the enable bit. The *field* is live-proven (both boundary transitions captured against the schedule); the register number rests on the brief plus five nights of captures in which ten `0x32` emissions matched ten `sleepStatus` edges, each 2-3 s ahead, with none unmatched either way — still passive, so a hand toggle is what would promote the register itself | PROVEN (field) |
+| `0x32` | sleepStatus | `1` inside the panel sleep window, `0` outside. **PROVEN by hand 2026-08-16 on BOTH robots**: holding Cycle (the panel's own sleep chord, `0x0202`) drove `0x320001` within a second on each, and a second hold drove `0x320000` — 31 minutes clear of the scheduled boundary, so it is following the sleep state and not the clock. Five nights of ten-for-ten schedule matches could never have separated those two. | PROVEN |
 | `0x34` | robotStatus **on the state doc only** | On the ACTIVITY stream this register is overloaded: 67 of 208 emissions are not enum members — `0x02C0` is the clean-delay tick and `0x_064`/`0x_065` are pre-cycle markers. It also never carries `25`, though 140 state documents do. Decoding activity `0x34` through the enum yields `unknown_704` for a third of it | PROVEN (field) / see note (activity) |
 | `0x35` | globe motor fault | **The state field does not mirror it.** A live fault (`0x350001` ×3, cleared 50 min later by `0x350000`) arrived only on the activity stream, in messages whose envelope is `type: "fault"`, while `globeMotorFaultStatus` read 0 in all 1198 of that robot's state documents — six of them sampled mid-fault. Read the activity stream, not the field | PROVEN (activity) / CONTRADICTED (field) |
 | `0x37` | catDetect | **a two-bit field, not a boolean** — bit 0 = time-of-flight sight line, bit 1 = load cell. `1` an arm in the beam, `2` an inert weight on the pan, `3` a cat, `0` idle; both bits driven independently in one narrated session. Activity carries 16/17/32/33 (the low bit tracking bit 0), plus 256, and 512/1024 on bonnet open/close | PROVEN |
@@ -100,7 +100,7 @@ was.
 | `0x4D` | globeMotorRetractFaultStatus | fault enum | HIGH |
 | `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
 | `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum. Like `0x34`, the activity stream carries values outside the enum (5 seen, all on one robot, all in interrupted cycles) | PROVEN (field) |
-| `0x56` | drawer bay | fires on **seating only** — 5 seats emitted, 5 removals silent, across two robots and two different drawers. The *value* encodes nothing (10, 11, 12 all seen for the same move); the emission is the signal, see below | PROVEN (as a seat event) |
+| `0x56` | drawer bay | fires when a drawer MOVES, in either direction. A seat-only asymmetry held for 5 seats and 5 removals on one robot and broke on the first test of the other, which emitted the same code for a pull and a seat. Neither the value nor the presence of a message carries direction | PROVEN (movement) / direction NOT recoverable |
 | `0x57` | hopper subsystem | activity-only, and **not usable as a link state** — positives fire on a robot with the hopper physically detached, and `-15` fires for a drawer pull as well as a full detach. Reattach emits no distinct code. Negatives seen: `-15`, `-17`, `-30`, `-31`, none reliably reproducible | LOW |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
 | `0x6F` | visit duration (probable) | Equals the weight-on-scale span to within ±3 s in **9 of 9** emissions — the ninth exact: `0x6F0029` = 41 against a 41 s `0x37` `0x11`→`0x10` span on 2026-08-15 — and is omitted on all 4 visits whose span is under 15 s. **`0x6F` and `0xBC` do co-emit**, on one robot in the same second (2026-08-15T23:29:43Z: `0x6F` 41, `0xBC` 10), which retires the earlier note that they had never appeared together. They are not rival decodes of one quantity: the shipped reading of `0xBC` is seconds of *settled* weight, and 10 s of settled weight inside a 41 s occupancy is consistent with both. `0xB9` arrived as `1` in the same second, matching its own `<19 → 1` rule. Still do not swap either decode | INFERRED |
@@ -153,28 +153,43 @@ named but their exact integers aren't all pinned yet.
   unexplained reading, not the units. A narrated visit — known cat, noted time,
   raw read off the wire — is still what would close this for good.
 
-## The drawer bay (`0x56`) reports seating, not position
+## The drawer bay (`0x56`) reports that the drawer moved, and nothing else
 
 **What is solid:** `0x56` is silent unless a drawer moves, and the state document's DFI
 fields never flag a pulled drawer, so this register is the only drawer-service signal
 there is.
 
-**Direction is recoverable — from whether the register speaks, not from what it says.**
-A narrated 2026-08-11 session on two robots and two different drawers gave 5 seatings
-and 5 removals: **every seating emitted, every removal was silent.** The values across
-those seatings were 10, 11 and 12 for the same physical move, so the number carries
-nothing.
+**Direction is NOT recoverable. The seat-only asymmetry broke on 2026-08-16.**
+A narrated 2026-08-11 session on two robots gave 5 seatings and 5 removals where every
+seating emitted and every removal was silent, which read as a usable rule. A narrated
+session on 2026-08-16 broke it — **on the same two robots, an hour apart**:
+
+| Robot | Pull | Seat |
+|---|---|---|
+| downstairs, 04:08–04:10 | *silent* | `0x560017` |
+| upstairs, 04:47:25–04:47:33 | `0x56000A` ×2 | `0x56000A` ×2 |
+
+The upstairs unit emitted the **same code in both directions**, so "whether it speaks"
+carries no more direction than the value does. Do not restore the asymmetry: it held
+for five observations on one unit and failed on the first test of the other. The values
+across seatings were 10, 11, 12 and 23 for the same physical move, so the number
+carries nothing either.
+
+`0x57` came along for both pulls with a negative code, and those differ per unit too —
+**−30 downstairs, −215 upstairs** — which is one more reason not to read a fleet-wide
+rule out of one robot.
 
 That also explains why three earlier rounds failed. They read direction out of the
 *value*, pooling 10, 11, 13, 14, 15, 16, 17 and 28 from both directions, and three
 successive attempts to name a removal code each held until the next capture contradicted
 them (`{10}`, then `{10, 11}`, then a per-unit theory that was wrong). A direct type-1
-read answers ~78 whether the drawer is in **or** out, so absolute position is still not
-recoverable — only the seat event.
+read answers ~78 whether the drawer is in **or** out, so absolute position is not
+recoverable either.
 
-whiskerless still exposes *when the drawer last moved* and claims nothing about where it
-is; the seat-only asymmetry is five observations old and has not yet earned a behaviour
-change.
+whiskerless exposes *when the drawer last moved* and claims nothing about where it is,
+which is exactly as much as the register supports. The seat-only asymmetry was never
+built on, and 2026-08-16 is why: it survived five observations on one robot and died on
+the first test of the second.
 
 **What would actually settle it.** Not more pulls — a *timestamped, narrated* sequence
 recorded against a running capture, where every transition is called out as it
@@ -230,6 +245,26 @@ different state fields, so it stays unassigned rather than guessed.
 configuration. `0x50` read 129 during a power-source switch and 146 later, and it is
 the only register that appeared in the mains→battery transition burst — a battery
 reading is the obvious guess and is not yet evidence.
+
+**A power cycle emits a burst nothing else does.** Powering the robot down (written
+`0x02010101`) and back up (physical press) on 2026-08-16, 1.1.75, produced five
+registers that appear at no other time — the same shape of find as the `0x5F`–`0x63`
+globe-fault burst in the [capture notebook](capture-notebook.md):
+
+| Register | Down-stroke | Up-stroke |
+|---|---|---|
+| `0x04` | `0x040001`, 29 s after the rest | — |
+| `0x06` | `0x060001` | — |
+| `0x50` | `0x500094` (148) | `0x500094` (148) |
+| `0x72` | `0x720000` | — |
+| `0x7B` | `0x7B0003` | — |
+
+`0x04`, `0x06` and `0x72` are new to this document. `0x50` reading the **same** 148 on
+both edges argues against a battery level, which would not be identical either side of
+a shutdown, and for a power-state or source code. `0x04` arriving 29 seconds after the
+rest of the down-stroke is its own puzzle — everything else lands within seven seconds.
+
+One capture, one robot, one direction each for four of the five. A lead, not a decode.
 
 A further 33 answer but read zero, which says nothing about their meaning.
 
