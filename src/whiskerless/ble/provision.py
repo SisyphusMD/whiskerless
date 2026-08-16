@@ -263,7 +263,13 @@ async def _verify_wifi(
             continue
         last = status
         if status.state is m.WifiStationState.CONNECTED:
-            step(f"WiFi connected (ip={status.ip4 or '?'})")
+            # The robot answers CONNECTED as soon as the STA associates, which is
+            # BEFORE DHCP returns — a live re-provision printed `ip=0.0.0.0`.
+            # That is the unset address, not a lease, and printing it claims a
+            # fact the robot has not got yet. The join is still confirmed; only
+            # the address is unknown.
+            leased = status.ip4 if status.ip4 not in (None, "", "0.0.0.0") else None
+            step(f"WiFi connected (ip={leased})" if leased else "WiFi connected (no IP lease yet)")
             await asyncio.sleep(WIFI_SETTLE)
             return
         if status.state is m.WifiStationState.CONNECTION_FAILED:

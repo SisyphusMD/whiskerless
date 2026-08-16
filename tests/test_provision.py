@@ -159,6 +159,40 @@ def test_verify_wifi_returns_on_connected(monkeypatch: pytest.MonkeyPatch) -> No
     assert all(endpoint == EP_PROV_CONFIG for endpoint, _ in transport.requests)
 
 
+def test_verify_wifi_does_not_report_the_unset_address_as_a_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The robot answers CONNECTED as soon as the STA associates, before DHCP
+    returns — a live re-provision printed `ip=0.0.0.0`. The join is confirmed,
+    the address is not, and the step line must not claim otherwise."""
+    connected_no_lease = _resp_get_status(
+        field_message(11, field_string(1, "0.0.0.0") + field_varint(5, 6))
+    )
+    steps = _run_verify(_FakeTransport([connected_no_lease]), monkeypatch)
+    assert any("WiFi connected" in s for s in steps), "the join is still confirmed"
+    assert not any("0.0.0.0" in s for s in steps), "but the unset address is not a lease"
+
+
+def test_verify_wifi_rides_out_a_gatt_hiccup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One failed GetStatus is a radio hiccup, not a failed join. Treating it as
+    fatal would abort a provision that was working, at the step immediately
+    before the broker config is written."""
+
+    class Flaky(_FakeTransport):
+        def __init__(self) -> None:
+            super().__init__([CONNECTED])
+            self._first = True
+
+        async def request(self, endpoint: str, payload: bytes) -> bytes:
+            if self._first:
+                self._first = False
+                raise OSError("characteristic read failed")
+            return await super().request(endpoint, payload)
+
+    steps = _run_verify(Flaky(), monkeypatch)
+    assert any("WiFi connected" in s for s in steps), "the join is still confirmed"
+
+
 def test_verify_wifi_raises_on_auth_error(monkeypatch: pytest.MonkeyPatch) -> None:
     transport = _FakeTransport([CONNECTING, AUTH_ERROR])
     with pytest.raises(ProvisioningError, match="mistyped WiFi password"):

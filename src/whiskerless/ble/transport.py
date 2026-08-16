@@ -11,6 +11,7 @@ imported lazily so the rest of the library works without it.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator
@@ -71,29 +72,67 @@ async def scan(
     timeout: float = 15.0,
     rounds: int = 3,
     address: str | None = None,
+    settle: float = 1.5,
 ) -> list[DiscoveredRobot]:
     """Scan for advertising LR4s, matched by protocomm service UUID (or name).
 
-    The LR4 advertises sporadically at low RSSI, so the scan retries a few
-    rounds. If ``address`` is given, only that device is returned (when seen).
+    ``timeout`` is a CEILING, not a duration: the scan returns as soon as a
+    robot answers. This is not just about feeling quick — a robot only
+    advertises while it is in pairing mode, and a scan that always runs its
+    window out spends the pairing window rather than using it. A bench session
+    lost a window exactly that way, discovering the robot and then failing to
+    connect because it had stopped advertising by the time the scan ended.
+
+    ``settle`` keeps listening for a beat after the first answer, so a second
+    robot advertising in the same window is still offered rather than silently
+    losing a race to whichever replied first.
+
+    The LR4 advertises sporadically at low RSSI, so an empty round is retried.
+    If ``address`` is given, only that device is returned (when seen).
     """
     bleak = _require_bleak()
     target = PROV_SERVICE_UUID.lower()
     for attempt in range(1, max(1, rounds) + 1):
-        log.info("scanning %.0fs for LR4 (attempt %d/%d)", timeout, attempt, rounds)
-        async with translated("BLE scan failed"):
-            discovered = await bleak.BleakScanner.discover(timeout=timeout, return_adv=True)
-        matches: list[DiscoveredRobot] = []
-        for device, adv in discovered.values():
+        log.info("scanning up to %.0fs for LR4 (attempt %d/%d)", timeout, attempt, rounds)
+        found: dict[str, DiscoveredRobot] = {}
+        answered = asyncio.Event()
+
+        # Both per-round objects are bound as defaults: the callback outlives the
+        # loop iteration that made it, and a late advertisement must not land in
+        # the NEXT round's results.
+        def _detected(
+            device: Any,
+            adv: Any,
+            _found: dict[str, DiscoveredRobot] = found,
+            _answered: asyncio.Event = answered,
+        ) -> None:
             name = adv.local_name or device.name or ""
             uuids = [u.lower() for u in (adv.service_uuids or [])]
-            if address and device.address.lower() == address.lower():
-                return [DiscoveredRobot(device.address, name or "?", adv.rssi)]
-            if target in uuids or name == ADVERTISER_NAME:
-                matches.append(DiscoveredRobot(device.address, name or "?", adv.rssi))
-        if matches:
-            matches.sort(key=lambda r: r.rssi or -999, reverse=True)
-            return matches
+            if address is not None:
+                if device.address.lower() != address.lower():
+                    return
+            elif target not in uuids and name != ADVERTISER_NAME:
+                return
+            _found[device.address] = DiscoveredRobot(device.address, name or "?", adv.rssi)
+            _answered.set()
+
+        async with translated("BLE scan failed"):
+            scanner = bleak.BleakScanner(detection_callback=_detected)
+            await scanner.start()
+            try:
+                if not answered.is_set():
+                    await asyncio.wait_for(answered.wait(), timeout)
+                # Only worth settling when there is something else to collect.
+                # An address-targeted scan can match exactly one device, so
+                # waiting would spend the pairing window it exists to save.
+                if settle > 0 and address is None:
+                    await asyncio.sleep(settle)
+            except TimeoutError:
+                pass
+            finally:
+                await scanner.stop()
+        if found:
+            return sorted(found.values(), key=lambda r: r.rssi or -999, reverse=True)
     return []
 
 

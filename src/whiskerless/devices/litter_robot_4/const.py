@@ -310,16 +310,21 @@ ROBOT_STATUS: dict[int, str] = {
     # reading an undisturbed litter bed the whole time.
     7: "cat_sensor_timing",   # countdown / weight-hold, red panel light (1.4.4 + 1.1.75)
     10: "clean_cycle",        # live-captured, 1.1.75 + 1.4.4
-    # Power-up, captured end to end on 1.1.75 across a panel Power off/on:
-    # robotStatus walks 1 -> 3 -> 2 -> 13, odometerPowerCycles ticking in the same
-    # burst. Which of 1/2/3 means what is unresolved, so all three share a slug.
+    # The earlier capture walked 1 -> 3 -> 2 -> 13 across a panel Power off AND
+    # on, which could not say which half was which, so all three shared a slug.
+    # 2026-08-16 ran the halves separately on 1.1.75 — a written 0x02010101 to
+    # power down, a physical press to power up — and they split cleanly:
+    #   down: 0x340001 then 0x340003, unitPowerStatus (0x31) 1 -> 0
+    #   up:   0x340002 then ready (4), unitPowerStatus 0 -> 1
+    # So 1 and 3 are the down-stroke and 2 is the up-stroke. 13 did not appear on
+    # that boot, which is why it keeps its own slug rather than joining 2.
     #
     # 13 is the automatic cycle a robot runs on boot — NOT the ordinary clean
     # cycle (10). It belongs in CLEANING_STATUSES because the globe is turning:
     # unmapped, the ToF readings taken mid-rotation publish as a real litter level.
-    1: "powering_up",
+    1: "powering_down",
     2: "powering_up",
-    3: "powering_up",
+    3: "powering_down",
     13: "power_up_cycle",     # live-captured, 1.1.75
     # The filter-change wizard, held for the whole wizard: the park rotation, the
     # indefinite wait, and the Reset-triggered ride home. Captured end to end on

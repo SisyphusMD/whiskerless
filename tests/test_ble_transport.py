@@ -11,7 +11,7 @@ Whether the robot on the bench agrees is a bench question, not a test one.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
@@ -137,24 +137,47 @@ class FakeAdv:
         self.rssi = rssi
 
 
-def _scanner(result: dict[str, tuple[FakeDevice, FakeAdv]]) -> Any:
-    async def _discover(**_: object) -> dict[str, tuple[FakeDevice, FakeAdv]]:
-        return result
+class FakeScanner:
+    """A BleakScanner that hands its advertisements to the detection callback.
 
-    return patch("bleak.BleakScanner.discover", _discover)
+    The real scan now returns on the first answer instead of running its window
+    out, so the fake has to deliver detections the same way — through the
+    callback at ``start()`` — rather than returning a dict at the end.
+    """
+
+    result: ClassVar[dict[str, tuple[FakeDevice, FakeAdv]]] = {}
+    starts = 0
+
+    def __init__(self, detection_callback: Any = None, **_: object) -> None:
+        self._cb = detection_callback
+
+    async def start(self) -> None:
+        type(self).starts += 1
+        for device, adv in self.result.values():
+            if self._cb is not None:
+                self._cb(device, adv)
+
+    async def stop(self) -> None:
+        return None
+
+
+def _scanner(result: dict[str, tuple[FakeDevice, FakeAdv]]) -> Any:
+    FakeScanner.result = result
+    FakeScanner.starts = 0
+    return patch("bleak.BleakScanner", FakeScanner)
 
 
 async def test_a_robot_is_matched_by_its_protocomm_service_uuid() -> None:
     """The advertised name is intermittent; the service UUID is not."""
     found = {"a": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID.upper()]))}
     with _scanner(found):
-        assert await scan(timeout=0, rounds=1) == [DiscoveredRobot("AA:01", "?", -60)]
+        assert await scan(timeout=0, rounds=1, settle=0) == [DiscoveredRobot("AA:01", "?", -60)]
 
 
 async def test_a_robot_is_also_matched_by_the_advertised_name() -> None:
     found = {"a": (FakeDevice("AA:01"), FakeAdv(local_name=ADVERTISER_NAME))}
     with _scanner(found):
-        assert (await scan(timeout=0, rounds=1))[0].address == "AA:01"
+        assert (await scan(timeout=0, rounds=1, settle=0))[0].address == "AA:01"
 
 
 async def test_results_are_ordered_by_signal_so_the_nearest_is_first() -> None:
@@ -164,20 +187,20 @@ async def test_results_are_ordered_by_signal_so_the_nearest_is_first() -> None:
         "near": (FakeDevice("AA:02"), FakeAdv(uuids=[PROV_SERVICE_UUID], rssi=-40)),
     }
     with _scanner(found):
-        assert [r.address for r in await scan(timeout=0, rounds=1)] == ["AA:02", "AA:01"]
+        assert [r.address for r in await scan(timeout=0, rounds=1, settle=0)] == ["AA:02", "AA:01"]
 
 
 async def test_an_explicit_address_returns_that_robot_even_unmatched() -> None:
     """Firmware that advertises neither marker still has to be reachable."""
     found = {"a": (FakeDevice("AA:01"), FakeAdv())}
     with _scanner(found):
-        assert (await scan(timeout=0, rounds=1, address="aa:01"))[0].address == "AA:01"
+        assert (await scan(timeout=0, rounds=1, address="aa:01", settle=0))[0].address == "AA:01"
 
 
 async def test_nothing_advertising_is_an_empty_list_not_an_error() -> None:
     """The LR4 advertises sporadically, so an empty round is ordinary."""
     with _scanner({}):
-        assert await scan(timeout=0, rounds=2) == []
+        assert await scan(timeout=0, rounds=2, settle=0) == []
 
 
 async def test_a_characteristic_without_a_name_descriptor_is_skipped() -> None:
@@ -193,18 +216,73 @@ async def test_a_characteristic_without_a_name_descriptor_is_skipped() -> None:
 
 async def test_the_scan_retries_before_giving_up() -> None:
     """The LR4 advertises sporadically; one empty round proves nothing."""
-    rounds = 0
 
-    async def _discover(**_: object) -> dict[str, Any]:
-        nonlocal rounds
-        rounds += 1
-        if rounds < 2:
-            return {}
-        return {"a": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID]))}
+    class Retrying(FakeScanner):
+        async def start(self) -> None:
+            type(self).starts += 1
+            if type(self).starts < 2:
+                return
+            self._cb(FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID]))
 
-    with patch("bleak.BleakScanner.discover", _discover):
-        assert (await scan(timeout=0, rounds=3))[0].address == "AA:01"
-    assert rounds == 2
+    Retrying.starts = 0
+    with patch("bleak.BleakScanner", Retrying):
+        assert (await scan(timeout=0, rounds=3, settle=0))[0].address == "AA:01"
+    assert Retrying.starts == 2
+
+
+async def test_the_scan_stops_at_the_first_answer_instead_of_running_the_window_out() -> None:
+    """A robot only advertises while someone holds Connect. A scan that always
+    waits its full timeout SPENDS that window — a bench session lost one exactly
+    that way, finding the robot and then failing to connect because it had gone
+    quiet by the time the scan ended."""
+    found = {"a": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID]))}
+    with _scanner(found):
+        # A timeout of an hour must not be waited on when the robot answers now.
+        assert (await scan(timeout=3600, rounds=1, settle=0))[0].address == "AA:01"
+
+
+async def test_a_device_that_is_not_an_lr4_is_ignored() -> None:
+    """A house is full of advertising Bluetooth; only protocomm answers count."""
+    found = {"tv": (FakeDevice("BB:02", "Living Room TV"), FakeAdv(uuids=["1234"]))}
+    with _scanner(found):
+        assert await scan(timeout=0, rounds=1, settle=0) == []
+
+
+async def test_an_address_targeted_scan_does_not_wait_to_settle() -> None:
+    """Only one device can match an address, so there is nothing to wait for —
+    and this is the mode most likely to be running against a pairing window."""
+    import asyncio
+
+    found = {"a": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID]))}
+    with _scanner(found):
+        # A settle of half a minute must not be honoured; if it is, this times out.
+        robots = await asyncio.wait_for(
+            scan(timeout=0, rounds=1, address="aa:01", settle=30), timeout=2
+        )
+    assert [r.address for r in robots] == ["AA:01"]
+
+
+async def test_an_explicit_address_ignores_every_other_robot() -> None:
+    """--address exists to pick ONE robot out of several in range."""
+    found = {
+        "other": (FakeDevice("BB:02"), FakeAdv(uuids=[PROV_SERVICE_UUID], rssi=-40)),
+        "wanted": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID], rssi=-90)),
+    }
+    with _scanner(found):
+        robots = await scan(timeout=0, rounds=1, address="aa:01", settle=0)
+    assert [r.address for r in robots] == ["AA:01"], "the nearer robot must not win"
+
+
+async def test_the_settle_window_still_collects_a_second_robot() -> None:
+    """Returning on the FIRST answer would let whichever robot replied first win
+    a race, and a house with two of them would silently only be offered one."""
+    found = {
+        "a": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID], rssi=-90)),
+        "b": (FakeDevice("AA:02"), FakeAdv(uuids=[PROV_SERVICE_UUID], rssi=-40)),
+    }
+    with _scanner(found):
+        robots = await scan(timeout=0, rounds=1, settle=0.01)
+    assert [r.address for r in robots] == ["AA:02", "AA:01"]
 
 
 async def test_a_bluetooth_failure_is_a_sentence_not_a_stack_trace() -> None:
@@ -213,11 +291,12 @@ async def test_a_bluetooth_failure_is_a_sentence_not_a_stack_trace() -> None:
     stack behind every non-BLE command. Translation belongs at this boundary."""
     import bleak
 
-    async def _discover(**_: object) -> dict[str, Any]:
-        raise bleak.exc.BleakError("Bluetooth device is turned off")
+    class Broken(FakeScanner):
+        async def start(self) -> None:
+            raise bleak.exc.BleakError("Bluetooth device is turned off")
 
-    with patch("bleak.BleakScanner.discover", _discover), pytest.raises(ProvisioningError) as err:
-        await scan(timeout=0, rounds=1)
+    with patch("bleak.BleakScanner", Broken), pytest.raises(ProvisioningError) as err:
+        await scan(timeout=0, rounds=1, settle=0)
 
     assert "BLE scan failed" in str(err.value), "and it says what was being attempted"
     assert "Bluetooth device is turned off" in str(err.value), "keeping what bleak knew"
