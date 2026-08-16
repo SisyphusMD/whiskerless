@@ -1,5 +1,10 @@
 <img src="https://raw.githubusercontent.com/SisyphusMD/whiskerless/main/brand/banner.png" alt="whiskerless" width="470">
 
+[![PyPI](https://img.shields.io/pypi/v/whiskerless?color=4c1)](https://pypi.org/project/whiskerless/)
+[![Python](https://img.shields.io/pypi/pyversions/whiskerless)](https://pypi.org/project/whiskerless/)
+[![HACS custom](https://img.shields.io/badge/HACS-custom-41BDF5)](https://github.com/SisyphusMD/whiskerless#home-assistant-hacs)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/SisyphusMD/whiskerless/blob/main/LICENSE)
+
 <br>
 
 **Un-cloud your Whisker devices.** Fully-local MQTT control and telemetry for the
@@ -10,9 +15,9 @@ third-party servers. Your robot talks to *your* broker, and that's it.
 
 > **Status: beta.** The local protocol was recovered by reverse-engineering and
 > validated against a real robot. Re-provisioning, telemetry, and settings are
-> proven on hardware, and the panel actions (clean cycle, reset, empty, power) were
-> recovered in August 2026 — see [What's *not* here](#whats-not-here) for what is
-> still open.
+> proven on hardware, and the panel actions (clean cycle, reset, empty, power,
+> WiFi) were recovered in August 2026 — see [What's *not* here](#whats-not-here)
+> for what is still open.
 
 <!-- A screenshot/GIF of the Home Assistant device page goes here once captured. -->
 
@@ -49,6 +54,8 @@ path to your CA PEM: ~/certs/ca.crt
 broker username (enter to skip):
 WiFi SSID: MyIoT
 WiFi password for 'MyIoT':
+  remember this in your keychain? [Y/n]:
+  stored as whiskerless / wifi:MyIoT — `whiskerless forget` clears it
 ⠹ scanning for robots over BLE (3s)
 
   RE-PROVISION — this re-points the robot away from Whisker's cloud
@@ -231,18 +238,44 @@ broker and your CA under `~/.whiskerless`, so everything afterwards is bare.
 Provisioning a second robot? Each later `provision` offers the broker, CA and
 WiFi your saved robots already share — press enter to accept each.
 
-> **No secret is written to `~/.whiskerless`.** If your broker requires
-> authentication, supply the password per run with `WHISKERLESS_PASSWORD`
-> (preferred — `--password` lands in your shell history and in `ps`).
-> `provision` asks for the broker username and saves it with the robot, so later
-> commands need no `--username`; the flag still overrides it. The WiFi passphrase is only needed while
-> provisioning and is never kept, and the robot's factory certificate and private
-> key are neither read nor written. Files are still owner-only (0600), since a
-> broker address and username are worth keeping to yourself.
+> **The robot never logs in, and whiskerless might.** The Litter-Robot has no
+> field for a broker username or password — it was built for AWS IoT, which
+> authenticates by certificate — so the listener it connects to has to be
+> anonymous. Any credentials here are **whiskerless's own**, for the separate
+> authenticated listener your other clients use;
+> [docs/setup/mqtt-broker.md](docs/setup/mqtt-broker.md) sets up both on one
+> broker. On the minimal single-listener setup there is no login at all, and
+> whiskerless never asks for one: the prompt appears only if a username is
+> configured.
+>
+> **No secret is written to `~/.whiskerless`.** Passwords go in your OS keychain
+> or nowhere. When there is a login, whiskerless asks for the password the first
+> time and offers to remember it — say yes and no command needs it again, say no
+> and it asks each run. The WiFi passphrase works the same
+> way, keyed by network, so re-provisioning a second robot onto the same WiFi
+> doesn't ask twice. `provision` also saves the broker *username* with the robot,
+> so later commands need no `--username`; the flag still overrides it. The
+> robot's factory certificate and private key are neither read nor written.
+> Files are still owner-only (0600), since a broker address and username are
+> worth keeping to yourself.
+>
+> `whiskerless forget <robot>` clears the keychain entries no other saved robot
+> is still using. `WHISKERLESS_NO_KEYRING=1` turns storage off entirely, and
+> `WHISKERLESS_PASSWORD` / `--password` still work for scripts — though a flag
+> lands in your shell history and in `ps`, so prefer the env var of the two.
+> On Linux the keychain needs `pip install 'whiskerless[keyring]'`; everywhere
+> else it is built in. Without it, whiskerless simply asks every time.
 
 **Already provisioned, before this version existed?** Nothing is saved for those
 robots, and re-provisioning purely to write a file would touch the robot for no
 reason. Tell whiskerless about one instead:
+
+```bash
+whiskerless adopt
+```
+
+It asks the same questions `provision` does — and offers the same answers from
+robots you already have — or take them all as flags if you prefer:
 
 ```bash
 whiskerless adopt --serial LR4C123456 --host 192.168.1.10 \
@@ -348,8 +381,9 @@ or, in the worst case, brick a control board. So it guards every send:
 - **The destructive panel combos are refused too** — factory reset, plug pull and
   onboarding mode are all one write away from the clean cycle, so `0x01` is
   whitelisted by *value*, not opened as a register.
-- **Power needs an explicit opt-in**, because a robot switched off has left the
-  network and nothing over MQTT can switch it back on.
+- **Power and WiFi need an explicit opt-in**, because a robot that is switched off,
+  or has had its radio switched off, has left the network — and nothing over MQTT
+  reaches it there.
 - **Untraced / control-band / calibration writes** are refused unless you
   override them on purpose.
 
@@ -370,12 +404,15 @@ cloud has no long-press command either; it reaches those settings by writing
 registers, which is what whiskerless already does for panel lockout, the night light,
 the cycle delay and the sleep schedule.
 
-**Empty and Power ship disabled by default.** Power is now proven — written to a live
-robot, which powered off and emitted the same code a finger does — but it still ships
-disabled, because a robot switched off has left the network and only someone standing
-at it can bring it back. Empty's code is captured from a physical press and has still
-never been written; it costs a litter refill to try. Enable them deliberately or use the
-CLI, which prompts.
+**Empty, Power and WiFi ship disabled by default.** Power is now proven — written to
+a live robot, which powered off and emitted the same code a finger does — but it
+still ships disabled, because a robot switched off has left the network and only
+someone standing at it can bring it back. **WiFi** (the panel's Connect button) ends
+the same way and gets there in under a second: the robot was gone 0.8 s after the
+write, panel light white. Empty's code is captured from a physical press and has
+still never been written; it costs a litter refill to try. Enable them deliberately
+or use the CLI (`empty-cycle`, `power`, `wifi-toggle`), which prompts — and for the
+two that can end the connection, `--yes` does not exist.
 
 See the
 [reverse-engineering writeup](docs/reverse-engineering.md#the-action-commands-how-the-panel-button-register-solved-all-of-them).
@@ -408,6 +445,6 @@ BLE provisioning, and safety guard. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[MIT](LICENSE). Not affiliated with or endorsed by Whisker. "Litter-Robot" is a
+[MIT](https://github.com/SisyphusMD/whiskerless/blob/main/LICENSE). Not affiliated with or endorsed by Whisker. "Litter-Robot" is a
 trademark of its respective owner; this project is independent and interoperates
 with hardware you own.

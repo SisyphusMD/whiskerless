@@ -48,7 +48,12 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             indent=2,
         )
     )
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "download whiskerless-<version>-linux-x86_64 or whiskerless_<version>_amd64.deb\n"
+    )
     monkeypatch.setattr(stamp, "ROOT", tmp_path)
+    monkeypatch.setattr(stamp, "README", readme)
     monkeypatch.setattr(stamp, "PYPROJECT", pyproject)
     monkeypatch.setattr(stamp, "INIT", init)
     monkeypatch.setattr(stamp, "MANIFEST", manifest)

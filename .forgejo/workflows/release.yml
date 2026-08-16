@@ -100,9 +100,11 @@ jobs:
         id: intent
         run: |
           set -euo pipefail
-          # The release edit is exactly these four files and nothing else. Hashing the patch here,
+          # The release edit is exactly these five files and nothing else. Hashing the patch here,
           # before any third-party tool is installed, is what the tag job reproduces byte-for-byte.
-          printf '%s\n' CHANGELOG.md custom_components/whiskerless/manifest.json pyproject.toml \
+          # README.md is stable-only: the stamper leaves it alone for an rc, because the download
+          # filenames it carries must name the release people are told to install.
+          printf '%s\n' CHANGELOG.md README.md custom_components/whiskerless/manifest.json pyproject.toml \
             src/whiskerless/__init__.py | sort > "$RUNNER_TEMP/expected-release-paths"
           git diff --name-only | sort > "$RUNNER_TEMP/actual-release-paths"
           diff -u "$RUNNER_TEMP/expected-release-paths" "$RUNNER_TEMP/actual-release-paths"
@@ -199,7 +201,7 @@ jobs:
           mv CHANGELOG.md.new CHANGELOG.md
           python3 packaging/stamp-version.py "$version"
           python3 packaging/stamp-version.py "$version" --check
-          printf '%s\n' CHANGELOG.md custom_components/whiskerless/manifest.json pyproject.toml \
+          printf '%s\n' CHANGELOG.md README.md custom_components/whiskerless/manifest.json pyproject.toml \
             src/whiskerless/__init__.py | sort > "$RUNNER_TEMP/expected-release-paths"
           git diff --name-only | sort > "$RUNNER_TEMP/actual-release-paths"
           diff -u "$RUNNER_TEMP/expected-release-paths" "$RUNNER_TEMP/actual-release-paths"
@@ -217,7 +219,7 @@ jobs:
           set -euo pipefail
           git config user.name "forgejo-actions[bot]"
           git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
-          git add CHANGELOG.md pyproject.toml src/whiskerless/__init__.py \
+          git add CHANGELOG.md README.md pyproject.toml src/whiskerless/__init__.py \
             custom_components/whiskerless/manifest.json
           git commit -m "release: ${VERSION}"
           python3 packaging/stamp-version.py "$VERSION" --check

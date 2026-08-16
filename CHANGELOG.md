@@ -44,10 +44,13 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
 - **Clean cycle and Reset buttons, and they actually work.** Proven on ESP 1.1.75
   and 1.4.4. This is the project's first recovered action command; the old "no
   action commands exist" framing is dead.
-- **Empty cycle and Power**, shipped disabled and named `(danger)` — an empty
-  cycle costs a litter refill, and a robot switched off has left the network, so
-  nothing over MQTT can switch it back on. The CLI gains `empty-cycle` and
-  `power`, which prompt first.
+- **Empty cycle, Power and WiFi**, shipped disabled and named `(danger)` — an
+  empty cycle costs a litter refill, and a robot that is switched off, or has had
+  its WiFi switched off, has left the network, so nothing over MQTT brings it
+  back. WiFi is the panel's **Connect** button: it took the robot off the broker
+  in 0.8 seconds, panel light white, and only a physical press undoes it. The CLI
+  gains `empty-cycle`, `power` and `wifi-toggle`; all three prompt first, and the
+  two that can end the connection have no `--yes`.
 - **Provisioning verifies the WiFi join.** A mistyped passphrase used to sail
   through silently — the robot accepted everything, rebooted, and simply never
   appeared on any network, which is indistinguishable from a dead unit. The robot
@@ -61,15 +64,31 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   shown as such and can still be removed.
 - **`whiskerless adopt`** tells the CLI about a robot you provisioned before the
   profile store existed, so it stops needing `--serial/--host/--ca` on every
-  command. It writes the same profile `provision` would and contacts nothing —
-  which also means it cannot check the serial, so confirm with `whiskerless state`.
+  command. Run it bare and it asks, the way `provision` does, offering the broker
+  and CA your other robots already use; flags still work for scripts. It writes
+  the same profile `provision` would and contacts nothing — which also means it
+  cannot check the serial, so confirm with `whiskerless state`.
+- **Saved profiles carry a format version**, so a future change to the file can be
+  migrated rather than guessed at. Files written before this reload unchanged — the
+  shape did not change when the stamp was added. A profile written by a *newer*
+  whiskerless is refused with a message saying so, instead of being read
+  optimistically and saved back with whatever it did not understand dropped.
 - **A second robot inherits the saved setup** — each prompt offers what your
   robots already share, so you type only the serial and the WiFi password.
-- **No secret is ever saved.** The broker password is per-run
-  (`WHISKERLESS_PASSWORD`), the WiFi passphrase is never kept, and the robot's
-  factory certificate is never touched. `provision` does now ask for the broker
-  *username* (optional, offered from what your other robots use), so an
-  authenticated broker no longer needs `--username` on every later command.
+- **Passwords go in your OS keychain, or nowhere.** Nothing secret is written to
+  `~/.whiskerless`, and needing an environment variable to run an ordinary command
+  was a chore the tool invented — the workaround people reached for was
+  `--password`, the one place the secret genuinely leaks. The CLI now asks once,
+  offers to remember, and never asks again. The WiFi passphrase is stored the same
+  way, keyed by network rather than by robot, so provisioning a second robot onto
+  the same WiFi doesn't ask twice; `forget` clears the entries no other saved robot
+  is still using. `WHISKERLESS_NO_KEYRING=1` opts out, and `WHISKERLESS_PASSWORD`
+  and `--password` still work for scripts. Baseline on macOS and Windows; on Linux
+  it is the `keyring` extra, because there it drags in a compiled stack to reach a
+  Secret Service a headless box does not run — without it, whiskerless asks every
+  time, exactly as before. `provision` also now asks for the broker *username*
+  (optional, offered from what your other robots use), so an authenticated broker
+  no longer needs `--username` on every later command.
 - **Litter level as a percentage** — self-calibrating over time, or pinned
   instantly by one button press with the globe filled the way you consider full.
 - **LitterHopper support**: connected, fill gauge, and an out-of-litter alert the
