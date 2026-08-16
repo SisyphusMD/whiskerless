@@ -58,7 +58,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Shellcheck
-        # The release path is five shell scripts that only run during a release, so
+        # The release path is shell scripts that only run during a release, so
         # a mistake in one surfaces while cutting it rather than in review. ruff
         # already covers packaging's Python; this covers the rest.
         #

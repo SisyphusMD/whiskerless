@@ -260,3 +260,25 @@ jobs:
           chmod +x packaging/forgejo-release.sh
           packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
             "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md *.pkg
+
+  prune-rcs:
+    name: Prune the candidates this release supersedes
+    # Last, not after `releases`: the sweep deletes a candidate only once its
+    # stable exists on all three hosts, and nas-pkg is what finishes the set.
+    # Run any earlier and this release would find its own stable half-published
+    # and keep every rc, turning the automatic pass into a silent no-op.
+    needs: nas-pkg
+    # An rc publishes through this same workflow, and its own stable does not
+    # exist yet, so the sweep would enumerate every host to print zero. Skip it
+    # rather than pay for the round trip.
+    if: ${{ !contains(github.ref_name, '-rc.') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prune
+        env:
+          DRY_RUN: "false"
+          FORGEJO_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+          NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}
+          GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
+        run: bash packaging/prune-rcs.sh
