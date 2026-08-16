@@ -50,6 +50,8 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
   until the next cat visit.
 - **New install channels**: Homebrew, `.deb`/`.rpm` and standalone Linux binaries
   for amd64 and arm64 — none of them need a system Python.
+- **The integration has an icon and a logo**, shipped inside it and served by
+  Home Assistant 2026.3+; older versions simply show what they show today.
 
 ### Removed
 
