@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -37,6 +37,9 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str], None]
+#: Given the networks the robot can see, return the (ssid, passphrase) to use.
+#: Async because the human is in the loop and the BLE link stays open meanwhile.
+NetworkChooser = Callable[[list["m.WifiNetwork"]], Awaitable[tuple[str, str]]]
 
 # GetStatus poll cadence during the WiFi join verify. An auth failure typically
 # reports within a few seconds; a successful join (through DHCP) in 3-10 s.
@@ -45,6 +48,57 @@ WIFI_POLL_INTERVAL = 1.5
 # finalizes the provisioning state machine, and a beat of margin costs nothing
 # against racing it.
 WIFI_SETTLE = 1.0
+
+
+#: How many scan results to ask for per request. The app uses four; the robot
+#: answers a larger page happily, but there is no reason to diverge from the
+#: number Whisker's own client has always used against this firmware.
+SCAN_PAGE = 4
+#: Ceiling on waiting for the robot's WiFi scan to finish. The app's own scan
+#: took ~4 s here; this is slack, not a target.
+SCAN_TIMEOUT = 30.0
+
+
+async def scan_networks(transport: ProtocommBLE) -> list[m.WifiNetwork]:
+    """Ask the ROBOT which networks it can see, strongest first.
+
+    This is the robot's radio, not the laptop's, and that is the whole point: it
+    is the only way to find out what the robot can actually reach from where it
+    stands. A laptop three rooms away sees a different world, and the failure it
+    hides — provisioning onto an SSID the robot cannot join, or a 5 GHz-only one
+    it cannot see at all — looks exactly like a dead robot afterwards.
+
+    Duplicate SSIDs are collapsed to their strongest sighting: a mesh network
+    answers once per AP, and a list with the same name six times is not a choice.
+    """
+    # The start is BLOCKING: its response arrives only once the robot has finished
+    # sweeping the band, so it is inside the timeout, not before it. Deadlining
+    # only the poll loop would leave a stalled firmware hanging in that first read.
+    count = 0
+    try:
+        async with asyncio.timeout(SCAN_TIMEOUT):
+            await transport.request(m.EP_PROV_SCAN, m.wifi_scan_start())
+            while True:
+                status = m.parse_scan_status(
+                    await transport.request(m.EP_PROV_SCAN, m.wifi_scan_status())
+                )
+                if status and status[0]:
+                    count = status[1]
+                    break
+                await asyncio.sleep(0.5)
+    except TimeoutError:
+        raise ProvisioningError("the robot's WiFi scan did not finish in time") from None
+
+    best: dict[str, m.WifiNetwork] = {}
+    for start in range(0, count, SCAN_PAGE):
+        page = m.parse_scan_results(
+            await transport.request(m.EP_PROV_SCAN, m.wifi_scan_result(start, SCAN_PAGE))
+        )
+        for network in page:
+            seen = best.get(network.ssid)
+            if seen is None or network.rssi > seen.rssi:
+                best[network.ssid] = network
+    return sorted(best.values(), key=lambda n: n.rssi, reverse=True)
 
 
 @dataclass(slots=True)
@@ -149,8 +203,15 @@ async def provision_robot(
     *,
     dry_run: bool = False,
     on_step: ProgressCallback | None = None,
+    choose_network: NetworkChooser | None = None,
 ) -> ProvisioningResult:
-    """Re-provision the robot at BLE ``address`` onto your broker."""
+    """Re-provision the robot at BLE ``address`` onto your broker.
+
+    ``choose_network`` is consulted only when no SSID was supplied. It runs while
+    the BLE link is open, between the device-id read and the first write, so the
+    robot is still untouched if the caller backs out — and the networks it is
+    offered are the ones the robot itself can see.
+    """
     from bleak import BleakClient  # lazy: bleak is the [ble] extra
 
     if "BEGIN CERTIFICATE" not in config.ca_pem:
@@ -189,6 +250,19 @@ async def provision_robot(
         # A dry run short-circuits the GATT read, so there is genuinely nothing to
         # report — but a bare "None" reads like the robot failed to answer.
         step(f"device MAC: {result.device_mac or ('not read (dry-run)' if dry_run else 'unknown')}")
+
+        if config.write_wifi and not config.wifi_ssid and choose_network is not None:
+            # A dry run answers every request with b"", so driving the scan
+            # through it would poll until SCAN_TIMEOUT and fail the rehearsal.
+            # An empty list is honest there: the chooser falls back to asking.
+            if dry_run:
+                networks: list[m.WifiNetwork] = []
+            else:
+                step("asking the robot which networks it can see")
+                networks = await scan_networks(transport)
+            config.wifi_ssid, config.wifi_pass = await choose_network(networks)
+            if not config.wifi_ssid:
+                raise ProvisioningError("no WiFi network chosen")
 
         # 1. client-id = serial (must precede the WiFi finalize).
         await _whisker(transport, m.whisker_device_id_set(config.serial), "DEVICE_ID_SET", dry_run)

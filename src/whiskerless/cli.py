@@ -578,15 +578,21 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # means asking someone to name a network from memory — which is how a robot
     # ends up provisioned onto an SSID it cannot reach, or a 5 GHz-only one it
     # cannot see, with nothing to show for it but a robot that never appears.
+    # Two independent unknowns. A named network still needs its passphrase asked
+    # for here — the chooser never runs in that case — and a passphrase supplied
+    # on the command line must survive the chooser rather than be overwritten by it.
+    ask_now = bool(args.wifi_ssid) or not sys.stdin.isatty()
     ssid = (
         _ask(
             "WiFi SSID: ", args.wifi_ssid, _check_ssid,
             default=shared.wifi_ssid or (prior.wifi_ssid or None if prior else None),
         )
-        if args.wifi_ssid or not sys.stdin.isatty()
+        if ask_now
         else ""
     )
     wifi_pass = args.wifi_pass or ""
+    if ssid and not wifi_pass and sys.stdin.isatty():
+        wifi_pass = _ask_secret(secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: ")
 
     # Not part of ProvisioningConfig: the robot authenticates to the broker with
     # its own factory certificate, so this login is whiskerless's, not the
@@ -652,7 +658,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
 
     result = await ble.provision_robot(
         target.address, config, dry_run=args.dry_run, on_step=_step,
-        choose_network=_choose_network,
+        choose_network=lambda networks: _choose_network(networks, wifi_pass),
     )
     print()
     if args.dry_run:
@@ -669,7 +675,9 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _choose_network(networks: Sequence[DiscoveredNetwork]) -> tuple[str, str]:
+async def _choose_network(
+    networks: Sequence[DiscoveredNetwork], supplied_pass: str = ""
+) -> tuple[str, str]:
     """Pick from what the ROBOT can see, then take that network's passphrase.
 
     Sorted strongest-first, because signal at the robot is the one thing the
@@ -680,13 +688,15 @@ async def _choose_network(networks: Sequence[DiscoveredNetwork]) -> tuple[str, s
         # list them. Falling back to typing beats refusing.
         print("  the robot saw no networks — type the name instead")
         ssid = _ask("WiFi SSID: ", None, _check_ssid)
-        return ssid, _ask_secret(secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: ")
+        return ssid, supplied_pass or _ask_secret(
+            secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: "
+        )
 
     print("\n  networks the robot can see, strongest first:\n")
     for index, network in enumerate(networks):
         lock = "*" if network.secured else " "
         bars = _console.dim(("|" * network.bars).ljust(4))
-        print(f"   {_console.dim(f'{index:>2}')}  {network.ssid:<32s} {lock} {bars} "
+        print(f"   {_console.dim(f'{index:>2}')}  {network.display:<32s} {lock} {bars} "
               f"{_console.dim(f'ch {network.channel}')}")
     print(f"   {_console.dim(' -')}  {_console.dim('not listed (hidden network)')}\n")
 
@@ -701,7 +711,9 @@ async def _choose_network(networks: Sequence[DiscoveredNetwork]) -> tuple[str, s
         if answer.isdigit() and 0 <= int(answer) < len(networks):
             ssid = networks[int(answer)].ssid
             break
-    return ssid, _ask_secret(secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: ")
+    return ssid, supplied_pass or _ask_secret(
+        secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: "
+    )
 
 
 def _prior_setup() -> tuple[RobotProfile | None, SharedSetup]:

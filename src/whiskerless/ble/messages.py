@@ -111,6 +111,70 @@ def wifi_get_status() -> bytes:
     return field_message(10, b"")
 
 
+# --- prov-scan (stock esp-idf wifi_scan.proto) -------------------------------
+# Confirmed against a captured Whisker-app onboarding: the app scans this way and
+# pages the results four at a time. See
+# docs/devices/litter-robot-4/provisioning/app-onboarding-capture.md.
+def wifi_scan_start(
+    *, blocking: bool = True, passive: bool = False,
+    group_channels: int = 5, period_ms: int = 120,
+) -> bytes:
+    """WiFiScanPayload CmdScanStart (msg=0) — make the ROBOT scan.
+
+    The defaults are the app's own: scan in groups of 5 channels, 120 ms each.
+    Whisker picked them against this hardware, and a scan that is too brisk
+    simply misses networks, so they are worth copying rather than improving on.
+    """
+    inner = (
+        field_varint(1, int(blocking))
+        + field_varint(2, int(passive))
+        + field_varint(3, group_channels)
+        + field_varint(4, period_ms)
+    )
+    return field_message(10, inner)
+
+
+def wifi_scan_status() -> bytes:
+    """WiFiScanPayload CmdScanStatus (msg=2) — has the scan finished?"""
+    return field_varint(1, 2) + field_message(12, b"")
+
+
+def wifi_scan_result(start_index: int, count: int) -> bytes:
+    """WiFiScanPayload CmdScanResult (msg=4) — fetch one page of results."""
+    inner = field_varint(1, start_index) + field_varint(2, count)
+    return field_varint(1, 4) + field_message(14, inner)
+
+
+@dataclass(frozen=True, slots=True)
+class WifiNetwork:
+    """One access point the robot can see."""
+
+    ssid: str
+    channel: int
+    rssi: int
+    #: True when the AP advertises any authentication (auth mode != OPEN).
+    secured: bool
+
+    @property
+    def display(self) -> str:
+        """The SSID with control characters escaped, for printing.
+
+        An SSID is arbitrary bytes chosen by whoever runs the access point, and
+        valid UTF-8 can still carry newlines and ANSI escapes. Printed raw into a
+        chooser list, a nearby AP could forge rows or drive the terminal. The real
+        SSID is what gets provisioned; this is only what a human is shown.
+        """
+        return "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in self.ssid)
+
+    @property
+    def bars(self) -> int:
+        """RSSI as 1-4 bars, for showing a list a human can choose from."""
+        for floor, bars in ((-60, 4), (-70, 3), (-80, 2)):
+            if self.rssi >= floor:
+                return bars
+        return 1
+
+
 class WifiStationState(IntEnum):
     """esp-idf ``WifiStationState`` — the STA's answer to GetStatus."""
 
@@ -180,6 +244,70 @@ def parse_wifi_status(response: bytes) -> WifiStatus | None:
     if sta and isinstance(sta[0], int) and sta[0] in (1, 2, 3):
         return WifiStatus(WifiStationState(sta[0]))
     return None
+
+
+def parse_scan_status(response: bytes) -> tuple[bool, int] | None:
+    """Decode RespScanStatus (arm 13) into ``(finished, result_count)``."""
+    if not response:
+        return None
+    arm = read_fields(response).get(13)
+    if not arm or not isinstance(arm[0], bytes):
+        return None
+    fields = read_fields(arm[0])
+    finished = fields.get(1)
+    count = fields.get(2)
+    return (
+        bool(finished[0]) if finished and isinstance(finished[0], int) else False,
+        int(count[0]) if count and isinstance(count[0], int) else 0,
+    )
+
+
+def parse_scan_results(response: bytes) -> list[WifiNetwork]:
+    """Decode one RespScanResult page (arm 15) into networks.
+
+    Entries with an unreadable or empty SSID are dropped rather than surfaced: a
+    hidden network cannot be chosen from a list by name anyway, and the field is
+    raw bytes that need not be valid UTF-8.
+    """
+    if not response:
+        return []
+    arm = read_fields(response).get(15)
+    if not arm or not isinstance(arm[0], bytes):
+        return []
+    found = []
+    for entry in read_fields(arm[0]).get(1, []):
+        if not isinstance(entry, bytes):
+            continue
+        fields = read_fields(entry)
+        raw = fields.get(1)
+        if not raw or not isinstance(raw[0], bytes):
+            continue
+        try:
+            ssid = raw[0].decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        if not ssid:
+            continue
+        channel = fields.get(2)
+        rssi = fields.get(3)
+        auth = fields.get(5)
+        # RSSI is an int32 sign-extended into a varint, so a negative arrives as
+        # a huge unsigned value; fold it back rather than reporting +18446744073709551565 dBm.
+        raw_rssi = int(rssi[0]) if rssi and isinstance(rssi[0], int) else 0
+        if raw_rssi >= 1 << 63:
+            raw_rssi -= 1 << 64
+        found.append(
+            WifiNetwork(
+                ssid=ssid,
+                channel=int(channel[0]) if channel and isinstance(channel[0], int) else 0,
+                rssi=raw_rssi,
+                # proto3 omits the zero default, and auth mode 0 IS "open" — so an
+                # absent field means an open network, not an unknown one. Defaulting
+                # to secured would put a lock beside every open AP in the list.
+                secured=bool(auth[0]) if auth and isinstance(auth[0], int) else False,
+            )
+        )
+    return found
 
 
 def parse_device_id(response: bytes) -> bytes | None:

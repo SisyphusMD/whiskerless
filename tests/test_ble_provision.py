@@ -12,6 +12,7 @@ says the sequence is the one that was captured, and that the refusals refuse.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import patch
 
@@ -293,3 +294,275 @@ async def test_a_whisker_endpoint_complaint_is_logged_not_fatal() -> None:
     with _bleak(Grumbling()):
         result = await provision_robot("AA:BB:CC:DD:EE:FF", _config(reboot=False))
     assert result.success is True
+
+
+# --- prov-scan: asking the robot what it can see ------------------------------
+def test_scan_results_fold_a_sign_extended_rssi() -> None:
+    """RSSI is an int32 sign-extended into a varint, so -51 arrives as 2**64-51.
+    Reported raw it is a signal strength of eighteen quintillion dBm."""
+    from whiskerless.ble import messages as m
+    from whiskerless.ble.protobuf import field_message, field_string, field_varint
+
+    entry = field_string(1, "MyIoT") + field_varint(2, 6) + field_varint(3, (1 << 64) - 51)
+    payload = field_message(15, field_message(1, entry))
+    (network,) = m.parse_scan_results(payload)
+    assert (network.ssid, network.channel, network.rssi) == ("MyIoT", 6, -51)
+
+
+def test_scan_results_drop_entries_with_no_usable_name() -> None:
+    """A hidden network cannot be picked from a list by name, and the SSID field
+    is raw bytes that need not be valid UTF-8."""
+    from whiskerless.ble import messages as m
+    from whiskerless.ble.protobuf import field_message, field_string, field_varint
+
+    good = field_string(1, "MyIoT") + field_varint(3, (1 << 64) - 40)
+    hidden = field_string(1, "") + field_varint(3, (1 << 64) - 50)
+    payload = field_message(15, field_message(1, good) + field_message(1, hidden))
+    assert [n.ssid for n in m.parse_scan_results(payload)] == ["MyIoT"]
+
+
+class _ScanTransport:
+    """Answers the prov-scan conversation: start, status, then paged results."""
+
+    def __init__(self, networks: list[tuple[str, int]], *, finish_after: int = 1) -> None:
+        self.networks = networks
+        self.finish_after = finish_after
+        self.polls = 0
+        self.pages: list[tuple[int, int]] = []
+
+    async def request(self, endpoint: str, payload: bytes) -> bytes:
+        from whiskerless.ble.protobuf import field_message, field_string, field_varint, read_fields
+
+        fields = read_fields(payload)
+        if 12 in fields:                                   # CmdScanStatus
+            self.polls += 1
+            done = self.polls >= self.finish_after
+            inner = field_varint(1, int(done)) + field_varint(2, len(self.networks))
+            return field_message(13, inner)
+        if 14 in fields:                                   # CmdScanResult
+            arm = read_fields(fields[14][0])
+            # proto3 implicit presence: a zero start_index is omitted on the
+            # wire, and protobuf-c reads the missing field back as 0 — so the
+            # double has to default the same way the firmware does.
+            start = int(arm[1][0]) if 1 in arm else 0
+            count = int(arm[2][0]) if 2 in arm else 0
+            self.pages.append((start, count))
+            body = b""
+            for ssid, rssi in self.networks[start:start + count]:
+                body += field_message(
+                    1, field_string(1, ssid) + field_varint(2, 6)
+                    + field_varint(3, (1 << 64) + rssi)
+                )
+            return field_message(15, body)
+        return b""                                          # CmdScanStart
+
+
+async def test_the_scan_is_paged_and_sorted_strongest_first() -> None:
+    from whiskerless.ble.provision import SCAN_PAGE, scan_networks
+
+    transport = _ScanTransport([("far", -80), ("near", -35), ("mid", -60), ("x", -70), ("y", -75)])
+    found = await scan_networks(transport)  # type: ignore[arg-type]
+    assert [n.ssid for n in found] == ["near", "mid", "x", "y", "far"]
+    assert transport.pages == [(0, SCAN_PAGE), (4, SCAN_PAGE)], "results are fetched in pages"
+
+
+async def test_a_mesh_network_appears_once_at_its_strongest() -> None:
+    """One SSID per access point would list the same name six times, which is not
+    a choice anyone can make."""
+    from whiskerless.ble.provision import scan_networks
+
+    transport = _ScanTransport([("Mesh", -70), ("Mesh", -41), ("Other", -60), ("Mesh", -85)])
+    found = await scan_networks(transport)  # type: ignore[arg-type]
+    assert [(n.ssid, n.rssi) for n in found] == [("Mesh", -41), ("Other", -60)]
+
+
+async def test_a_scan_that_never_finishes_gives_up() -> None:
+    from whiskerless.ble import provision as prov
+    from whiskerless.exceptions import ProvisioningError
+
+    transport = _ScanTransport([("MyIoT", -40)], finish_after=10_000)
+    with patch.object(prov, "SCAN_TIMEOUT", 0.0), pytest.raises(ProvisioningError, match="did not finish"):
+        await prov.scan_networks(transport)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("rssi", "bars"), [(-40, 4), (-60, 4), (-65, 3), (-75, 2), (-95, 1)]
+)
+def test_signal_becomes_bars_a_person_can_read(rssi: int, bars: int) -> None:
+    assert m.WifiNetwork(ssid="x", channel=1, rssi=rssi, secured=True).bars == bars
+
+
+@pytest.mark.parametrize("payload", [b"", b"\x08\x01", m.wifi_scan_status()])
+def test_a_reply_that_is_not_a_scan_status_reads_as_none(payload: bytes) -> None:
+    """Anything but the RespScanStatus arm means "no verdict", never a fake one."""
+    assert m.parse_scan_status(payload) is None
+
+
+@pytest.mark.parametrize("payload", [b"", b"\x08\x01"])
+def test_a_reply_that_is_not_a_scan_result_reads_as_empty(payload: bytes) -> None:
+    assert m.parse_scan_results(payload) == []
+
+
+def test_scan_results_skip_an_ssid_that_is_not_utf8() -> None:
+    from whiskerless.ble.protobuf import WIRE_LEN, _tag, encode_varint, field_message
+
+    bad = _tag(1, WIRE_LEN) + encode_varint(2) + b"\xff\xfe"
+    assert m.parse_scan_results(field_message(15, field_message(1, bad))) == []
+
+
+def test_scan_status_without_a_count_still_reads() -> None:
+    """proto3 omits a zero result_count, and a finished-but-empty scan is real."""
+    from whiskerless.ble.protobuf import field_message, field_varint
+
+    payload = field_message(13, field_varint(1, 1))
+    assert m.parse_scan_status(payload) == (True, 0)
+
+
+async def test_the_scan_is_polled_until_the_robot_says_it_finished() -> None:
+    """The first status almost always says "still scanning" — the poll loop is
+    the normal path, not an edge case."""
+    from whiskerless.ble.provision import scan_networks
+
+    transport = _ScanTransport([("MyIoT", -42)], finish_after=3)
+    found = await scan_networks(transport)  # type: ignore[arg-type]
+    assert [n.ssid for n in found] == ["MyIoT"]
+    assert transport.polls == 3
+
+
+def test_an_unknown_failure_reason_is_reported_without_a_name() -> None:
+    """The enum has two members; firmware is free to invent a third, and an
+    unrecognised number must not take the whole status decode down."""
+    from whiskerless.ble.protobuf import field_message, field_varint
+
+    payload = field_message(11, field_message(11, b"") if False else field_varint(10, 99))
+    status = m.parse_wifi_status(payload)
+    assert status is not None
+    assert status.state is m.WifiStationState.CONNECTION_FAILED
+    assert status.fail_reason is None
+
+
+def test_scan_results_skip_an_entry_that_is_not_a_message() -> None:
+    """A varint where a sub-message belongs is malformed, not fatal."""
+    from whiskerless.ble.protobuf import field_message, field_varint
+
+    assert m.parse_scan_results(field_message(15, field_varint(1, 7))) == []
+
+
+def test_scan_results_skip_an_explicitly_empty_ssid() -> None:
+    """proto3 omits an empty string, but a peer may still send the field with a
+    zero length — a network with no name cannot be offered in a list."""
+    from whiskerless.ble.protobuf import WIRE_LEN, _tag, encode_varint, field_message
+
+    empty = _tag(1, WIRE_LEN) + encode_varint(0)
+    assert m.parse_scan_results(field_message(15, field_message(1, empty))) == []
+
+
+async def test_provisioning_asks_the_robot_for_networks_when_no_ssid_was_given() -> None:
+    """The chooser runs on the open BLE link, between the device-id read and the
+    first write, so a robot whose owner backs out is still untouched."""
+    robot = FakeRobot()
+    offered: list[list[m.WifiNetwork]] = []
+
+    async def chooser(networks: list[m.WifiNetwork]) -> tuple[str, str]:
+        offered.append(networks)
+        return "PickedFromList", "pw"
+
+    async def fake_scan(_transport: Any) -> list[m.WifiNetwork]:
+        return [m.WifiNetwork(ssid="Seen", channel=1, rssi=-40, secured=True)]
+
+    with _bleak(robot), patch("whiskerless.ble.provision.scan_networks", fake_scan):
+        result = await provision_robot(
+            "AA:BB", _config(wifi_ssid="", wifi_pass=""), choose_network=chooser
+        )
+    assert result.success
+    assert offered, "the robot was asked what it can see"
+    assert any(b"PickedFromList" in payload for _ep, payload in robot.requests)
+
+
+async def test_provisioning_stops_when_no_network_is_chosen() -> None:
+    """Backing out of the list must not fall through to provisioning a blank SSID."""
+    robot = FakeRobot()
+
+    async def chooser(_networks: list[m.WifiNetwork]) -> tuple[str, str]:
+        return "", ""
+
+    async def fake_scan(_transport: Any) -> list[m.WifiNetwork]:
+        return []
+
+    with (
+        _bleak(robot),
+        patch("whiskerless.ble.provision.scan_networks", fake_scan),
+        pytest.raises(ProvisioningError, match="no WiFi network chosen"),
+    ):
+        await provision_robot(
+            "AA:BB", _config(wifi_ssid="", wifi_pass=""), choose_network=chooser
+        )
+
+
+async def test_a_supplied_ssid_skips_the_network_list_entirely() -> None:
+    """A scripted run named its network; asking the robot would be a round trip
+    nobody needs and a prompt nobody can answer."""
+    robot = FakeRobot()
+    called = False
+
+    async def chooser(_networks: list[m.WifiNetwork]) -> tuple[str, str]:
+        nonlocal called
+        called = True
+        return "x", "y"
+
+    with _bleak(robot):
+        assert (await provision_robot("AA:BB", _config(), choose_network=chooser)).success
+    assert not called
+
+
+async def test_a_dry_run_does_not_drive_the_network_scan() -> None:
+    """A dry run answers every request with b"", so scanning through it would poll
+    until the timeout and fail the rehearsal it is supposed to be."""
+    robot = FakeRobot()
+    asked: list[list[m.WifiNetwork]] = []
+
+    async def chooser(networks: list[m.WifiNetwork]) -> tuple[str, str]:
+        asked.append(networks)
+        return "Typed", "pw"
+
+    with _bleak(robot):
+        result = await provision_robot(
+            "AA:BB", _config(wifi_ssid="", wifi_pass=""), dry_run=True, choose_network=chooser
+        )
+    assert result.message == "dry-run: no bytes written"
+    assert asked == [[]], "the chooser is offered nothing and falls back to typing"
+
+
+def test_an_open_network_is_not_shown_with_a_lock() -> None:
+    """Auth mode 0 IS open, and proto3 omits a zero default — so an absent auth
+    field means an open network, not an unknown one."""
+    from whiskerless.ble.protobuf import field_message, field_string, field_varint
+
+    open_ap = field_string(1, "Cafe") + field_varint(3, (1 << 64) - 55)
+    wpa = field_string(1, "Home") + field_varint(3, (1 << 64) - 45) + field_varint(5, 3)
+    found = m.parse_scan_results(
+        field_message(15, field_message(1, open_ap) + field_message(1, wpa))
+    )
+    assert {n.ssid: n.secured for n in found} == {"Cafe": False, "Home": True}
+
+
+def test_an_ssid_with_terminal_escapes_is_escaped_for_display() -> None:
+    """An SSID is bytes chosen by whoever runs the AP; valid UTF-8 still carries
+    newlines and ANSI escapes, and the chooser prints these into a terminal."""
+    hostile = m.WifiNetwork(ssid="Guest\x1b[31m\nEvil", channel=1, rssi=-40, secured=True)
+    assert hostile.display == "Guest\\x1bs[31m\\x0aEvil".replace("s[", "[")
+    assert hostile.ssid == "Guest\x1b[31m\nEvil", "the real SSID is what gets provisioned"
+
+
+async def test_a_scan_that_stalls_on_the_blocking_start_is_bounded() -> None:
+    """wifi_scan_start blocks until the sweep finishes, so the timeout has to
+    cover it — deadlining only the poll loop leaves a stalled read unbounded."""
+    from whiskerless.ble import provision as prov
+
+    class _Stalls:
+        async def request(self, endpoint: str, payload: bytes) -> bytes:
+            await asyncio.sleep(3600)
+            return b""
+
+    with patch.object(prov, "SCAN_TIMEOUT", 0.05), pytest.raises(ProvisioningError, match="did not finish"):
+        await prov.scan_networks(_Stalls())  # type: ignore[arg-type]

@@ -1433,3 +1433,40 @@ def test_the_list_is_shown_strongest_first(capsys: pytest.CaptureFixture[str]) -
         _run_async(_choose_network(_networks()))
     out = capsys.readouterr().out
     assert out.index("Near") < out.index("Far")
+
+
+def test_a_named_network_still_gets_its_passphrase_asked_for(
+    store: ProfileStore, keychain: dict[str, str]
+) -> None:
+    """--wifi-ssid skips the chooser, so the passphrase prompt has to happen up
+    front or the robot is provisioned with an empty one."""
+    seed(store, "LR4C654321", wifi_ssid="MyIoT")
+    answers = iter([""] * 4)  # broker, CA, username, then "remember?"
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _prompt="": next(answers)),
+        patch("whiskerless.cli.getpass.getpass", return_value="typed-pw"),
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ):
+        assert main(["provision", "--serial", "LR4C123456", "--wifi-ssid", "MyIoT", "--yes"]) == 0
+    assert keychain == {"wifi:MyIoT": "typed-pw"}
+
+
+def test_a_supplied_passphrase_survives_the_network_chooser(keychain: dict[str, str]) -> None:
+    """--wifi-pass with no SSID still needs the list, but must not be overwritten."""
+    from whiskerless.ble.messages import WifiNetwork
+    from whiskerless.cli import _choose_network
+
+    networks = [WifiNetwork(ssid="Near", channel=1, rssi=-40, secured=True)]
+
+    def _explode(_prompt: str) -> str:
+        raise AssertionError("prompted for a passphrase that was given on the command line")
+
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _prompt="": "0"),
+        patch("whiskerless.cli.getpass.getpass", _explode),
+    ):
+        assert _run_async(_choose_network(networks, "from-a-flag")) == ("Near", "from-a-flag")
