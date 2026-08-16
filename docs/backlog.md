@@ -210,7 +210,7 @@ bonnet removal with no cat, which tests nothing.
 
 Also unexplained: `0x710001`, five emissions in five days on robot 1.
 
-### #51 — Probe whether mqtt-config / whisker-config expose a READ for certs and endpoints — *blocked: robot in pairing mode*
+### #51 — Probe whether mqtt-config / whisker-config expose a READ for certs and endpoints — *bench work: needs a probe script written first, then a pairing window*
 
 The mapped provisioning message set is write-only for config; the single
 exception is `whisker_device_id_request`, which proves the whisker-config
@@ -222,7 +222,7 @@ make a pre-provisioning snapshot possible and would reveal Whisker's own AWS
 endpoint hostname — the one value blocking a self-contained
 `whiskerless restore-cloud` that does not depend on the Whisker app.
 
-### #52 — Use the device-id read to verify (or supply) the serial — *blocked: one observation*
+### #52 — Use the device-id read to verify (or supply) the serial — *partly bench work (step 2b); AUTO-FILL still blocked on an untouched LR4*
 
 `provision` already reads the device id over BLE before writing anything, and
 `_format_mac` already handles a non-MAC response: 6 bytes becomes a hex MAC,
@@ -265,6 +265,46 @@ CLI cannot catch it by type — `bleak` is the optional `[ble]` extra and must n
 be imported unconditionally — so wrap the bleak entry points in `ble/` and raise
 `ProvisioningError` with the original message, exactly as the MQTT link wraps
 its connect errors.
+
+---
+
+## After 0.2.0 (the durable plan)
+
+Nothing here blocks the 0.2.0 release. Each item is deliberately *not* being
+rushed into it, with the reason recorded so it is not re-litigated every cut.
+
+**Design conversations owed, both deferred to a later version:**
+
+- **#43 — replacing the Whisker app's notifications.** Local MQTT gives events,
+  not push. Whatever we recommend becomes the answer everyone copies, so it
+  wants a designed answer rather than an automation snippet dashed off.
+- **#44 — could we ever offer firmware updates?** Collides head-on with the
+  safety invariant: `0xA3`/`0xA4` are refused unconditionally and there is no
+  override flag. The likely honest outcome is a documented *no* with the
+  reasoning, which is still worth writing down properly.
+
+**#66 — a Windows standalone binary.** Windows works today via PyPI
+(`uvx --from 'whiskerless[ble]' whiskerless provision`) and `bleak` drives the built-in adapter, so
+this is packaging convenience, not capability. It needs a Windows runner and a
+code-signing story neither of which exists yet; until then the PyPI route is
+documented in the README and is genuinely fine.
+
+**Waiting on the world, not on us:**
+
+- **#19** — needs Brent to answer what differs between two LR4s whose main-board
+  firmware differs.
+- **#21** — the state-request dropout has to recur inside a capture window
+  before there is anything to look at.
+- **#65** — not a task at all: HACS ships the fix or it does not. Re-check when
+  they release, and change nothing here meanwhile.
+
+**Standing activities, not release units:**
+
+- **#15** is ongoing by design — six passes so far, each correcting the one
+  before. Its *findings* ship continuously in
+  `docs/devices/litter-robot-4/`; there is no version it "goes into".
+- **#20** is the teardown of the capture pod, gated on #15/#16/#21 closing. It
+  cannot close before the questions it exists to answer do.
 
 ---
 

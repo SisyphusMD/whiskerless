@@ -50,6 +50,45 @@ documented "a short press does nothing" is still true.
 
 ---
 
+## 2b. While it is still in pairing mode — advances #52, does not close it (1 minute)
+
+**Prepare the command BEFORE pressing Connect.** `provision` prompts for the
+serial, broker, CA, username and WiFi answers *before* it scans, and the pairing
+window is short — spend it typing and the robot stops advertising mid-answer.
+Pass every answer as a flag so it goes straight to the scan, then press Connect
+and run it:
+
+```bash
+whiskerless provision --dry-run --yes \
+  --serial LR4Cxxxxxx --host-ip <broker-ip> --ca ~/certs/ca.crt \
+  --wifi-ssid <ssid> --wifi-pass '<passphrase>' --username <broker-user>
+```
+
+Every one of those is prompted when omitted, `--username` included, so leaving
+any of them off puts a prompt between you and the scan. Drop `--username` only if
+you are willing to press enter once.
+
+Read the `(MAC …)` line back to me. Nothing is written — the dry run does the BLE
+connect, the endpoint discovery and the reads, then stops.
+
+**What this can settle:** the docs contradict each other about what
+`read_device_mac` returns (the provisioning README says serial, `recovery.md` and
+the code say MAC). `read_device_mac` renders 6 bytes as a hex MAC and anything
+else as UTF-8, so one reading says which of those our robots answer with, and
+whether the value printed as "(MAC …)" is misnamed.
+
+**What it cannot settle, and why #52 stays open.** `provision` writes
+`DEVICE_ID_SET <serial>` as its *first* step, and both robots here have been
+provisioned — so whatever comes back is what whiskerless previously stored, not
+the factory value. That makes it useless for the auto-fill half of #52, which
+needs the id an *untouched* LR4 reports. Verifying a typed `--serial` against the
+read is still worth having, but only as a re-provisioning check.
+
+**Not tonight (#51):** probing whether the config endpoints answer *reads* needs
+a message-type sweep script that does not exist yet. Worth writing before the
+next pairing window — a read would expose Whisker's own AWS endpoint hostname,
+the one value still blocking a self-contained `restore-cloud`.
+
 ## 3. The globe's fill markings — the rest of #39 (1 minute)
 
 `calibrate full` used to tell people to "fill the globe to the line". No one here
