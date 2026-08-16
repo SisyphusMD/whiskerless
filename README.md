@@ -253,6 +253,16 @@ and what they mean. The CLI covers the same ground from a terminal — the
 everyday controls, the raw telemetry, and the derived view of what the robot is
 actually doing:
 
+> **Anything that talks to the robot needs a route to your broker.** Provisioning
+> is Bluetooth, and `robots`, `use`, `forget` and `adopt` only touch files on your
+> machine — but `state`, `monitor`, `set`, `status` and the buttons all open an
+> MQTT connection. If your robots live on an isolated IoT VLAN, your everyday
+> machine may have no way in. A `cannot reach broker at …:8883 (timed out)` is
+> most often that boundary rather than a whiskerless fault — though a wrong host
+> or port, a stopped broker or a firewall look identical from here, so check those
+> too. Home Assistant is already on that network, which is why it stays the
+> control surface for most people.
+
 ```bash
 whiskerless status                       # the robot in plain terms, one reading
 whiskerless state                        # full decoded status

@@ -316,7 +316,7 @@ to the hopper scale rather than a decode error. Likely the learned floor/ceiling
 than `0x0C` itself. Needs a second narrated fill — ideally a full hopper photographed at
 a known time, then a drain — to say whether the span or the floor is wrong.
 
-### #69 — The CLI assumes the operator's machine can reach the broker
+### #69 — The CLI assumes the operator's machine can reach the broker — *docs done 2026-08-16*
 
 `whiskerless state`, `monitor`, `set` and `send` all open an MQTT connection, so they
 only work from a host with a route to the broker. In the setup this project
@@ -326,9 +326,11 @@ workstation often has no such route, and the owner's does not: `cannot reach bro
 
 Nothing is broken, but the README's "everyday use" section reads as though the CLI is
 always available, and a user who hits that timeout will reasonably file it as a bug.
-Wanted: docs that say plainly the CLI needs broker reachability, name Home Assistant as
-the control surface when it does not, and stop implying otherwise. Possibly also a
-clearer error naming the likely cause.
+**The README now says so** — a note at the head of "Everyday use" explains that
+provisioning is Bluetooth and everything else is MQTT, that an isolated IoT VLAN can
+leave a workstation with no route, and that `cannot reach broker at …:8883 (timed out)`
+is that boundary rather than a fault. What is still open is the error message itself,
+which reports the timeout without suggesting the likely cause.
 
 ---
 
