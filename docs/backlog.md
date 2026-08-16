@@ -268,6 +268,28 @@ its connect errors.
 
 ---
 
+## Added 2026-08-15
+
+### #65 — Re-check the HACS icon once hacs/integration#5223 ships — *blocked: upstream*
+
+The integration's own brand images work: Home Assistant 2026.3+ serves them from
+`custom_components/whiskerless/brand/` at `/api/brands/integration/whiskerless/…`
+and the icon renders on the integration card and its device page (verified live
+on 2026.8.2, rc.21). HACS's own panel still shows *icon not available*, because
+its frontend calls an outdated `brandsUrl` pointing at the public brands CDN
+instead of the local proxy — [hacs/integration#5223](https://github.com/hacs/integration/issues/5223),
+with [#5171](https://github.com/hacs/integration/issues/5171) as the dashboard
+twin. Both were open on 2026-08-15.
+
+Nothing to build: shipping the images inline is the current official guidance and
+we already follow it. This exists so the symptom is not re-diagnosed as ours a
+third time. When HACS releases the fix, confirm the icon appears in its panel and
+close this. Do **not** work around it by adding the integration to
+`home-assistant/brands` — that repository stopped accepting custom integrations
+at HA 2026.3.
+
+---
+
 ## Done (archive)
 
 - #63 provision collects the username: **done 2026-08-15** — an optional prompt, offered from what the saved robots agree on, `-` to decline an inherited one, and skipped entirely when stdin is not a TTY so a fully-flagged run never hangs on an optional question. The password stays per-run and unwritten

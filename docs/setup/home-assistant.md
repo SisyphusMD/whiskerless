@@ -64,6 +64,36 @@ you don't want.
 > event-driven, so it may take a couple of minutes (or trigger it by using the
 > robot). Whiskerless asks the robot for a full state the moment it's added.
 
+## The other card: "Discovered — Whisker"
+
+Alongside the Whiskerless card you will probably see a second one for
+**Whisker**, offering to set up Home Assistant's own `litterrobot` integration —
+the cloud one. **Click Ignore, once.**
+
+Do *not* click through it. That integration is the cloud round-trip this project
+exists to remove: adding it signs back into Whisker's servers, and if you have
+just deleted it, it puts it straight back.
+
+It is not caused by Whiskerless, and it is not a sign anything is wrong. Home
+Assistant's discovery matches the robot's **DHCP hostname**, which the LR4
+announces as `Litter-Robot4`, so the card appears for anyone who owns one —
+including a brand-new install that has never had the cloud integration. Renaming
+the client in your router does not help: the hostname is what the robot
+announces, not what your router labels it.
+
+Two things make it confusing:
+
+- **It can appear the day you remove the cloud integration**, which makes it look
+  like a consequence. It isn't. Discovery is suppressed while the `litterrobot`
+  integration already owns *any* config entry, so your cloud entry was quietly
+  swallowing it the whole time. Delete that entry and the card surfaces.
+- **It comes back on every restart** until you act, because the match is
+  re-evaluated each time Home Assistant learns the robot's hostname.
+
+**Ignore** is the real fix rather than a dismissal: it writes an *ignored* config
+entry, and since the suppression above triggers on the handler owning any entry
+at all, that one click restores exactly the silence you had before — permanently.
+
 ## Naming, and renaming later
 
 The name you choose when adding the robot becomes the **device name**, and the
