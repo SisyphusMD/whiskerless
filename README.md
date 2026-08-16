@@ -1,4 +1,8 @@
-# whiskerless
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="https://raw.githubusercontent.com/SisyphusMD/whiskerless/main/custom_components/whiskerless/brand/dark_logo.png">
+  <img src="https://raw.githubusercontent.com/SisyphusMD/whiskerless/main/custom_components/whiskerless/brand/logo.png" alt="whiskerless" width="420">
+</picture>
 
 **Un-cloud your Whisker devices.** Fully-local MQTT control and telemetry for the
 Whisker **Litter-Robot 4** — no cloud account, no internet round-trip, no
