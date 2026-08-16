@@ -93,15 +93,13 @@ def test_settings_never_default_the_client_id_to_the_serial() -> None:
     assert make().settings(client_id="whiskerless-cli").client_id == "whiskerless-cli"
 
 
-def test_settings_carry_credentials_and_hostname_policy() -> None:
-    settings = make(username="u", password="p", verify_hostname=False).settings()
-    assert (settings.username, settings.password) == ("u", "p")
-    assert settings.verify_hostname is False
+def test_settings_carry_the_hostname_policy() -> None:
+    assert make(verify_hostname=False).settings().verify_hostname is False
 
 
 # --- save / load --------------------------------------------------------------
 def test_save_then_load_round_trips(store: ProfileStore) -> None:
-    original = make(name="Upstairs", port=1883, username="u")
+    original = make(name="Upstairs", port=1883)
     store.save(original)
     assert store.load("LR4C123456") == original
 
@@ -190,18 +188,6 @@ def test_a_version_with_no_migration_is_damage_rather_than_a_wrong_read(
         store.load("LR4C123456")
 
 
-def test_a_password_is_never_written_to_disk(store: ProfileStore) -> None:
-    """0600 plaintext is not "stored securely" however it is described."""
-    store.save(make(username="u", password="hunter2"))
-    on_disk = (store.robots_dir / "LR4C123456").rglob("*")
-    assert not any("hunter2" in p.read_text(encoding="utf-8") for p in on_disk if p.is_file())
-
-
-def test_a_password_does_not_survive_a_reload(store: ProfileStore) -> None:
-    store.save(make(password="hunter2"))
-    assert store.load("LR4C123456").password is None
-
-
 def test_load_accepts_a_differently_cased_serial(store: ProfileStore) -> None:
     store.save(make())
     assert store.load("lr4c123456").serial.value == "LR4C123456"
@@ -263,11 +249,6 @@ def test_a_profile_saved_without_a_ca_loads_with_none(store: ProfileStore) -> No
     assert store.load("LR4C123456").ca_pem is None
 
 
-def test_a_blank_username_loads_as_none(store: ProfileStore) -> None:
-    store.save(make(username=""))
-    assert store.load("LR4C123456").username is None
-
-
 def test_defaults_apply_when_optional_keys_are_absent(store: ProfileStore) -> None:
     directory = store.robots_dir / "LR4C123456"
     directory.mkdir(parents=True)
@@ -297,7 +278,7 @@ def test_saving_twice_replaces_rather_than_appends(store: ProfileStore) -> None:
 # --- permissions --------------------------------------------------------------
 def test_stored_files_are_owner_only(store: ProfileStore) -> None:
     """These hold broker credentials in the clear."""
-    store.save(make(password="hunter2"))
+    store.save(make())
     directory = store.robots_dir / "LR4C123456"
     assert stat.S_IMODE(directory.stat().st_mode) == 0o700
     for name in ("profile.json", "ca.pem"):
@@ -604,16 +585,9 @@ def test_every_field_can_be_overridden() -> None:
         make(),
         host="h2",
         port=1883,
-        username="u2",
-        password="p2",
         verify_hostname=False,
         ca_pem="other",
     )
-    assert (merged.host, merged.port, merged.username, merged.password) == (
-        "h2",
-        1883,
-        "u2",
-        "p2",
-    )
+    assert (merged.host, merged.port) == ("h2", 1883)
     assert merged.verify_hostname is False
     assert merged.ca_pem == "other"

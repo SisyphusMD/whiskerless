@@ -171,14 +171,13 @@ def test_adopt_again_does_not_wipe_what_it_was_not_given(
 ) -> None:
     """Correcting the host must not cost the CA, the name, or the litter
     reference someone measured with the globe in front of them."""
-    seed(store, "LR4C123456", name="Upstairs", username="mqtt", litter_full_mm=140)
+    seed(store, "LR4C123456", name="Upstairs", litter_full_mm=140)
 
     assert run("adopt", "--serial", "LR4C123456", "--host", "192.0.2.99") == 0
 
     saved = store.load("LR4C123456")
     assert saved.host == "192.0.2.99", "the field given is updated"
     assert saved.name == "Upstairs"
-    assert saved.username == "mqtt"
     assert saved.ca_pem == CA
     assert saved.litter_full_mm == 140
 
@@ -207,18 +206,18 @@ def test_adopt_with_no_arguments_asks(store: ProfileStore, tmp_path: Path) -> No
     ca = tmp_path / "ca.crt"
     ca.write_text(CA)
     # serial, broker, CA, username (skip), name
-    code, prompts = _adopt_answering(["LR4C654321", "192.0.2.20", str(ca), "", "Upstairs"])
+    # serial, broker, CA, name — there is no broker-username question any more
+    code, prompts = _adopt_answering(["LR4C654321", "192.0.2.20", str(ca), "Upstairs"])
     assert code == 0
     saved = store.load("LR4C654321")
     assert (saved.host, saved.name, saved.ca_pem) == ("192.0.2.20", "Upstairs", CA)
-    assert saved.username is None
     assert any("serial" in prompt for prompt in prompts)
 
 
 def test_adopt_re_asks_a_serial_that_cannot_be_one(store: ProfileStore) -> None:
     """The model number is printed on the label beside the serial, and adopting it
     writes the one value guaranteed never to work."""
-    code, _ = _adopt_answering(["LR4-0301-00-US", "LR4C654321", "192.0.2.20", "", "", ""])
+    code, _ = _adopt_answering(["LR4-0301-00-US", "LR4C654321", "192.0.2.20", "", ""])
     assert code == 0
     assert store.load("LR4C654321").host == "192.0.2.20"
 
@@ -228,7 +227,7 @@ def test_adopt_offers_the_setup_already_in_use(
 ) -> None:
     seed(store, "LR4C123456", host="192.0.2.10", name="Downstairs")
     # serial, then enter for broker and CA, then skip username and name.
-    code, prompts = _adopt_answering(["LR4C654321", "", "", "", ""])
+    code, prompts = _adopt_answering(["LR4C654321", "", "", ""])
     assert code == 0
     saved = store.load("LR4C654321")
     assert saved.host == "192.0.2.10"
@@ -240,7 +239,7 @@ def test_adopt_offers_the_setup_already_in_use(
 
 def test_adopt_can_skip_the_ca(store: ProfileStore) -> None:
     """A broker on a certificate the system already trusts needs none."""
-    code, prompts = _adopt_answering(["LR4C654321", "192.0.2.20", "", "", ""])
+    code, prompts = _adopt_answering(["LR4C654321", "192.0.2.20", "", ""])
     assert code == 0
     assert store.load("LR4C654321").ca_pem is None
     assert any("enter to skip" in prompt for prompt in prompts if "CA" in prompt)
@@ -293,40 +292,6 @@ def test_forget_says_the_robot_keeps_running(store: ProfileStore) -> None:
     with patch("builtins.input", return_value="no") as ask:
         main(["forget", "LR4C123456"])
     assert "the robot keeps running" in ask.call_args.args[0]
-
-
-def test_forget_clears_the_secrets_only_that_robot_used(
-    store: ProfileStore, keychain: dict[str, str]
-) -> None:
-    seed(store, username="mqtt-user", wifi_ssid="Casa")
-    keychain.update({"broker:mqtt-user@192.0.2.10:8883": "hunter2", "wifi:Casa": "passphrase"})
-    assert run("forget", "LR4C123456", "--yes") == 0
-    assert keychain == {}
-
-
-def test_forget_keeps_a_secret_a_sibling_robot_still_uses(
-    store: ProfileStore, keychain: dict[str, str]
-) -> None:
-    """Secrets are shared on purpose — one password per broker login, one
-    passphrase per network — so forgetting one robot must not lock out the other
-    one behind the same broker."""
-    seed(store, "LR4C123456", username="mqtt-user", wifi_ssid="Casa")
-    seed(store, "LR4C654321", username="mqtt-user", wifi_ssid="Casa")
-    keychain.update({"broker:mqtt-user@192.0.2.10:8883": "hunter2", "wifi:Casa": "passphrase"})
-    assert run("forget", "LR4C123456", "--yes") == 0
-    assert keychain == {"broker:mqtt-user@192.0.2.10:8883": "hunter2", "wifi:Casa": "passphrase"}
-
-
-def test_forget_of_a_damaged_profile_leaves_the_keychain_alone(
-    store: ProfileStore, keychain: dict[str, str]
-) -> None:
-    """Nothing readable says which secrets were this robot's, and the safe failure
-    is a stale entry rather than a working robot that suddenly prompts."""
-    seed(store, username="mqtt-user", wifi_ssid="Casa")
-    keychain.update({"broker:mqtt-user@192.0.2.10:8883": "hunter2", "wifi:Casa": "passphrase"})
-    (store.robots_dir / "LR4C123456" / "profile.json").write_text("{bad", encoding="utf-8")
-    assert run("forget", "LR4C123456", "--yes") == 0
-    assert keychain == {"broker:mqtt-user@192.0.2.10:8883": "hunter2", "wifi:Casa": "passphrase"}
 
 
 def test_robots_shows_a_damaged_profile(
@@ -428,11 +393,10 @@ def test_a_host_without_a_serial_says_what_is_missing(
 
 # --- flags override, but only where given -------------------------------------
 def test_a_flag_overrides_just_its_own_field(store: ProfileStore) -> None:
-    seed(store, username="saved-user")
+    seed(store)
     captured: dict[str, Any] = {}
     assert _run_state(captured, "--host", "10.0.0.9") == 0
     assert captured["settings"].host == "10.0.0.9"
-    assert captured["settings"].username == "saved-user"
     assert captured["settings"].ca_cert_data == CA
 
 
@@ -460,176 +424,6 @@ def test_a_ca_flag_is_read_and_replaces_the_saved_one(
     captured: dict[str, Any] = {}
     assert _run_state(captured, "--ca", str(other)) == 0
     assert "other" in (captured["settings"].ca_cert_data or "")
-
-
-def test_the_password_can_come_from_the_environment(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A --password lands in shell history and in `ps`; an env var does not."""
-    seed(store)
-    monkeypatch.setenv("WHISKERLESS_PASSWORD", "hunter2")
-    captured: dict[str, Any] = {}
-    assert _run_state(captured) == 0
-    assert captured["settings"].password == "hunter2"
-
-
-def test_an_explicit_password_flag_still_wins(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seed(store)
-    monkeypatch.setenv("WHISKERLESS_PASSWORD", "from-env")
-    captured: dict[str, Any] = {}
-    assert _run_state(captured, "--password", "from-flag") == 0
-    assert captured["settings"].password == "from-flag"
-
-
-def test_a_broker_that_needs_a_login_asks_for_it(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Requiring an env var to run an ordinary command is a chore the tool
-    invented, and the workaround people reach for is --password — the one place
-    the secret actually leaks."""
-    seed(store, username="mqtt-user")
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("whiskerless.cli.getpass.getpass", lambda _prompt: "typed-at-the-prompt")
-    captured: dict[str, Any] = {}
-    assert _run_state(captured) == 0
-    assert captured["settings"].password == "typed-at-the-prompt"
-
-
-def test_a_stored_broker_password_is_used_without_asking(
-    store: ProfileStore, keychain: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The whole point of having put it in the keychain."""
-    seed(store, username="mqtt-user")
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: True)
-    keychain["broker:mqtt-user@192.0.2.10:8883"] = "from-the-keychain"
-
-    def _explode(_prompt: str) -> str:
-        raise AssertionError("prompted for a password that was already stored")
-
-    monkeypatch.setattr("whiskerless.cli.getpass.getpass", _explode)
-    captured: dict[str, Any] = {}
-    assert _run_state(captured) == 0
-    assert captured["settings"].password == "from-the-keychain"
-
-
-def test_a_stored_password_makes_an_unattended_run_work(
-    store: ProfileStore, keychain: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Reading the keychain is not gated on a terminal — only the fallback prompt
-    is. Otherwise storing the password would fix the interactive case and leave
-    cron exactly as broken as before."""
-    seed(store, username="mqtt-user")
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: False)
-    keychain["broker:mqtt-user@192.0.2.10:8883"] = "from-the-keychain"
-    captured: dict[str, Any] = {}
-    assert _run_state(captured) == 0
-    assert captured["settings"].password == "from-the-keychain"
-
-
-def test_a_typed_password_is_offered_to_the_keychain(
-    store: ProfileStore, keychain: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seed(store, username="mqtt-user")
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("whiskerless.cli.getpass.getpass", lambda _prompt: "typed-once")
-    captured: dict[str, Any] = {}
-    with patch("builtins.input", return_value=""):  # enter accepts the default
-        assert _run_state(captured) == 0
-    assert captured["settings"].password == "typed-once"
-    assert keychain == {"broker:mqtt-user@192.0.2.10:8883": "typed-once"}
-
-
-def test_declining_to_remember_stores_nothing(
-    store: ProfileStore, keychain: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Adding an entry to somebody's keychain outlives this program, so it is not
-    a side effect of answering a question they had to answer anyway."""
-    seed(store, username="mqtt-user")
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("whiskerless.cli.getpass.getpass", lambda _prompt: "typed-once")
-    captured: dict[str, Any] = {}
-    with patch("builtins.input", return_value="n"):
-        assert _run_state(captured) == 0
-    assert captured["settings"].password == "typed-once"
-    assert keychain == {}
-
-
-def test_no_keychain_still_prompts_and_connects(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Linux without the extra, a headless box, WHISKERLESS_NO_KEYRING — the
-    command behaves exactly as it did before there was any storage."""
-    seed(store, username="mqtt-user")
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("whiskerless.cli.getpass.getpass", lambda _prompt: "typed-once")
-
-    def _explode(_prompt: str) -> str:
-        raise AssertionError("offered to remember a secret with nowhere to put it")
-
-    monkeypatch.setattr("builtins.input", _explode)
-    captured: dict[str, Any] = {}
-    assert _run_state(captured) == 0
-    assert captured["settings"].password == "typed-once"
-
-
-def test_input_ending_at_the_offer_stores_nothing(
-    store: ProfileStore, keychain: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Silence is not consent: an EOF means nobody answered, and the command still
-    has a password to connect with."""
-    seed(store, username="mqtt-user")
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("whiskerless.cli.getpass.getpass", lambda _prompt: "typed-once")
-    captured: dict[str, Any] = {}
-    with patch("builtins.input", side_effect=EOFError):
-        assert _run_state(captured) == 0
-    assert captured["settings"].password == "typed-once"
-    assert keychain == {}
-
-
-def test_an_anonymous_broker_is_never_asked_for_a_password(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """No username configured means no login to give, and prompting would make an
-    anonymous broker look like it wants one."""
-    seed(store)  # no username
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: True)
-
-    def _explode(_prompt: str) -> str:
-        raise AssertionError("prompted for a password with no username configured")
-
-    monkeypatch.setattr("whiskerless.cli.getpass.getpass", _explode)
-    captured: dict[str, Any] = {}
-    assert _run_state(captured) == 0
-    assert captured["settings"].password is None
-
-
-def test_a_non_interactive_run_does_not_hang_on_the_prompt(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A cron job or a pipe must fail on the broker's own rejection, not stall on
-    a prompt nobody can see."""
-    seed(store, username="mqtt-user")
-    monkeypatch.delenv("WHISKERLESS_PASSWORD", raising=False)
-    monkeypatch.setattr("whiskerless.cli.sys.stdin.isatty", lambda: False)
-
-    def _explode(_prompt: str) -> str:
-        raise AssertionError("prompted for a password without a terminal")
-
-    monkeypatch.setattr("whiskerless.cli.getpass.getpass", _explode)
-    captured: dict[str, Any] = {}
-    assert _run_state(captured) == 0
-    assert captured["settings"].password is None
 
 
 def test_the_client_id_is_never_the_robots_serial(store: ProfileStore) -> None:
@@ -898,7 +692,7 @@ def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
     """provision collects the serial, broker, CA and WiFi — not the name, the
     broker credentials or the port. Writing defaults over those on a
     reprovision silently erased what the user had set up."""
-    seed(store, name="Upstairs", username="mqtt-user", port=1884)
+    seed(store, name="Upstairs", port=1884)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
@@ -914,7 +708,6 @@ def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
     saved = store.load("LR4C123456")
     assert saved.host == "192.0.2.99", "what provisioning collected does move"
     assert saved.display_name == "Upstairs"
-    assert saved.username == "mqtt-user"
     assert saved.port == 1884
 
 
@@ -1141,58 +934,6 @@ def test_the_wifi_passphrase_is_never_stored(store: ProfileStore) -> None:
     assert "wifi-secret" not in saved
 
 
-def test_a_stored_passphrase_is_reused_for_the_same_network(
-    store: ProfileStore, keychain: dict[str, str]
-) -> None:
-    """The moment the passphrase is wanted is halfway through a re-provision at
-    the machine, and a bench session re-provisions the same network repeatedly."""
-    seed(store, "LR4C654321", wifi_ssid="MyIoT")
-    keychain["wifi:MyIoT"] = "from-the-keychain"
-    prompts: list[str] = []
-
-    def _explode(prompt: str) -> str:
-        raise AssertionError(f"asked for a passphrase already stored: {prompt}")
-
-    with (
-        patch("builtins.input", lambda prompt="": prompts.append(prompt) or ""),
-        patch("whiskerless.cli.getpass.getpass", _explode),
-        patch("whiskerless.ble.scan", _fake_scan),
-        patch("whiskerless.ble.read_device_mac", _fake_mac),
-        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
-    ):
-        assert main(["provision", "--serial", "LR4C123456", "--yes"]) == 0
-
-
-def test_a_typed_passphrase_is_offered_to_the_keychain(
-    store: ProfileStore, keychain: dict[str, str]
-) -> None:
-    """The offer lives in the network chooser now, because that is where the SSID
-    is finally known — it is chosen from what the robot can see, not typed up front."""
-    from whiskerless.ble.messages import WifiNetwork
-    from whiskerless.cli import _choose_network
-
-    networks = [WifiNetwork(ssid="MyIoT", channel=1, rssi=-40, secured=True)]
-    answers = iter(["0", ""])  # pick the first network, then accept "remember?"
-    with (
-        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
-        patch("builtins.input", lambda _prompt="": next(answers)),
-        patch("whiskerless.cli.getpass.getpass", return_value="wifi-secret"),
-    ):
-        ssid, passphrase = _run_async(_choose_network(networks))
-    assert (ssid, passphrase) == ("MyIoT", "wifi-secret")
-    assert keychain == {"wifi:MyIoT": "wifi-secret"}
-
-
-def test_a_passphrase_given_as_a_flag_is_not_offered(
-    store: ProfileStore, keychain: dict[str, str]
-) -> None:
-    """A scripted run has nobody to ask, and storing what a flag supplied would
-    silently seed a keychain from a CI job."""
-    seed(store, "LR4C654321", wifi_ssid="MyIoT")
-    assert _provision_answering(["LR4C123456", "", "", ""], "--wifi-pass", "from-a-flag")[0] == 0
-    assert keychain == {}
-
-
 def test_an_ssid_is_still_asked_for_when_the_prior_robot_has_none(
     store: ProfileStore,
 ) -> None:
@@ -1255,74 +996,6 @@ def _provisioned(argv: list[str], answer: str | None = None) -> int:
             return main(argv)
 
 
-def test_provisioning_asks_for_the_broker_username(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    """An authenticated broker otherwise provisions cleanly and then fails every
-    bare command afterwards, until someone passes --username or edits the JSON."""
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-
-    assert _provisioned(_provision_argv(ca), answer="mqtt-user") == 0
-
-    assert store.load("LR4C123456").username == "mqtt-user"
-
-
-def test_an_anonymous_broker_is_expressible(store: ProfileStore, tmp_path: Path) -> None:
-    """Enter means 'nothing' when nothing was offered."""
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-
-    assert _provisioned(_provision_argv(ca), answer="") == 0
-
-    assert store.load("LR4C123456").username is None
-
-
-def test_a_second_robot_is_offered_the_login_the_others_use(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    seed(store, serial="LR4C111111", username="mqtt-user")
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-
-    assert _provisioned(_provision_argv(ca), answer="") == 0
-
-    assert store.load("LR4C123456").username == "mqtt-user"
-
-
-def test_an_offered_login_can_be_declined(store: ProfileStore, tmp_path: Path) -> None:
-    """Otherwise a household's first authenticated broker would make every later
-    robot claim a login it does not use."""
-    seed(store, serial="LR4C111111", username="mqtt-user")
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-
-    assert _provisioned(_provision_argv(ca), answer="-") == 0
-
-    assert store.load("LR4C123456").username is None
-
-
-def test_a_scripted_provision_is_never_stopped_by_an_optional_question(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    """Every other answer came from a flag; asking here would hang a script."""
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-
-    assert _provisioned(_provision_argv(ca)) == 0
-
-    assert store.load("LR4C123456").username is None
-
-
-def test_the_username_flag_skips_the_question(store: ProfileStore, tmp_path: Path) -> None:
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-
-    assert _provisioned(_provision_argv(ca, "--username", "from-a-flag")) == 0
-
-    assert store.load("LR4C123456").username == "from-a-flag"
-
-
 def test_an_optional_question_still_fails_loudly_on_a_closed_terminal() -> None:
     """Skipping applies to a run that was never interactive. A terminal that
     disappears mid-prompt is a different thing, and guessing an answer there
@@ -1337,34 +1010,6 @@ def test_an_optional_question_still_fails_loudly_on_a_closed_terminal() -> None:
         _ask_optional("broker username", None, None)
 
 
-def test_a_scripted_run_never_adopts_another_robots_login(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    """Offered to a person, a shared login is a suggestion they can see and
-    decline. Taken silently in a script, it writes one broker's credentials into
-    another robot's profile and leaves it failing to connect with no sign why."""
-    seed(store, serial="LR4C111111", username="mqtt-user")
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-
-    assert _provisioned(_provision_argv(ca)) == 0
-
-    assert store.load("LR4C123456").username is None
-
-
-def test_a_scripted_reprovision_keeps_the_robots_own_login(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    """Its own recorded value is the one thing safe to adopt unattended."""
-    seed(store, serial="LR4C123456", username="its-own")
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-
-    assert _provisioned(_provision_argv(ca)) == 0
-
-    assert store.load("LR4C123456").username == "its-own"
-
-
 # --- choosing a network from what the robot can see ---------------------------
 def _networks() -> list[Any]:
     from whiskerless.ble.messages import WifiNetwork
@@ -1375,7 +1020,7 @@ def _networks() -> list[Any]:
     ]
 
 
-def test_a_robot_that_sees_nothing_falls_back_to_typing(keychain: dict[str, str]) -> None:
+def test_a_robot_that_sees_nothing_falls_back_to_typing() -> None:
     """Hidden SSIDs are real and the robot joins them fine; it just cannot list
     them. Falling back beats refusing."""
     from whiskerless.cli import _choose_network
@@ -1389,7 +1034,7 @@ def test_a_robot_that_sees_nothing_falls_back_to_typing(keychain: dict[str, str]
         assert _run_async(_choose_network([])) == ("Hidden", "pw")
 
 
-def test_a_hidden_network_can_be_typed_instead_of_picked(keychain: dict[str, str]) -> None:
+def test_a_hidden_network_can_be_typed_instead_of_picked() -> None:
     from whiskerless.cli import _choose_network
 
     answers = iter(["-", "Hidden", ""])
@@ -1401,7 +1046,7 @@ def test_a_hidden_network_can_be_typed_instead_of_picked(keychain: dict[str, str
         assert _run_async(_choose_network(_networks())) == ("Hidden", "pw")
 
 
-def test_a_nonsense_selection_just_asks_again(keychain: dict[str, str]) -> None:
+def test_a_nonsense_selection_just_asks_again() -> None:
     from whiskerless.cli import _choose_network
 
     answers = iter(["nope", "99", "1", ""])
@@ -1435,26 +1080,30 @@ def test_the_list_is_shown_strongest_first(capsys: pytest.CaptureFixture[str]) -
     assert out.index("Near") < out.index("Far")
 
 
-def test_a_named_network_still_gets_its_passphrase_asked_for(
-    store: ProfileStore, keychain: dict[str, str]
-) -> None:
+def test_a_named_network_still_gets_its_passphrase_asked_for(store: ProfileStore) -> None:
     """--wifi-ssid skips the chooser, so the passphrase prompt has to happen up
     front or the robot is provisioned with an empty one."""
     seed(store, "LR4C654321", wifi_ssid="MyIoT")
-    answers = iter([""] * 4)  # broker, CA, username, then "remember?"
+    asked: list[str] = []
+
+    def _record(_prompt: str) -> str:
+        asked.append("typed-pw")
+        return "typed-pw"
+
+    answers = iter([""] * 3)  # broker, CA, then the network list is skipped
     with (
         patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
         patch("builtins.input", lambda _prompt="": next(answers)),
-        patch("whiskerless.cli.getpass.getpass", return_value="typed-pw"),
+        patch("whiskerless.cli.getpass.getpass", _record),
         patch("whiskerless.ble.scan", _fake_scan),
         patch("whiskerless.ble.read_device_mac", _fake_mac),
         patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
     ):
         assert main(["provision", "--serial", "LR4C123456", "--wifi-ssid", "MyIoT", "--yes"]) == 0
-    assert keychain == {"wifi:MyIoT": "typed-pw"}
+    assert asked == ["typed-pw"], "the passphrase is asked for, never stored"
 
 
-def test_a_supplied_passphrase_survives_the_network_chooser(keychain: dict[str, str]) -> None:
+def test_a_supplied_passphrase_survives_the_network_chooser() -> None:
     """--wifi-pass with no SSID still needs the list, but must not be overwritten."""
     from whiskerless.ble.messages import WifiNetwork
     from whiskerless.cli import _choose_network
@@ -1470,3 +1119,21 @@ def test_a_supplied_passphrase_survives_the_network_chooser(keychain: dict[str, 
         patch("whiskerless.cli.getpass.getpass", _explode),
     ):
         assert _run_async(_choose_network(networks, "from-a-flag")) == ("Near", "from-a-flag")
+
+
+def test_an_open_network_is_never_asked_for_a_password() -> None:
+    """Asking for a password a network does not have invites someone to invent one."""
+    from whiskerless.ble.messages import WifiNetwork
+    from whiskerless.cli import _choose_network
+
+    networks = [WifiNetwork(ssid="Cafe", channel=1, rssi=-50, secured=False)]
+
+    def _explode(_prompt: str) -> str:
+        raise AssertionError("asked for a passphrase on an open network")
+
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _prompt="": "0"),
+        patch("whiskerless.cli.getpass.getpass", _explode),
+    ):
+        assert _run_async(_choose_network(networks)) == ("Cafe", "")

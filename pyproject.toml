@@ -37,20 +37,15 @@ classifiers = [
 # iterates directly (`async for message in client.messages`). 1.x cannot run this.
 dependencies = [
     "aiomqtt>=2.0.0",
-    # Secrets belong in the OS keychain, not in a 0600 file beside the config.
-    # Baseline on macOS and Windows, where the backend is the OS itself and the
-    # closure is four pure-Python packages.
-    #
-    # NOT baseline on Linux: there `keyring` pulls SecretStorage -> cryptography
-    # -> cffi, a compiled stack that lands in the Homebrew resource closure, both
-    # PyInstaller binaries and the manylinux build — to reach a Secret Service
-    # that a headless box does not run anyway. Linux desktop users who want it
-    # install the `keyring` extra. Everything degrades to prompting without it.
-    "keyring>=25; sys_platform != 'linux'",
+    # Certificates are the whole authentication story now: the robot cannot send a
+    # username or password, so every client identifies by certificate. Generating a
+    # CA and issuing per-robot client certs is therefore core function, not a
+    # nicety, and it must not hinge on an `openssl` binary that stock Windows does
+    # not have. Prebuilt wheels exist for macOS, Linux and Windows.
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]
-keyring = ["keyring>=25"]
 # NOT an API boundary — the two bleak features used here (`BleakScanner.discover(
 # return_adv=True)` and `BleakClient.services` as a property) both exist in 0.20.2.
 # 0.22.0 is a deliberate SUPPORT floor: it is the version CI installs and tests, and
@@ -58,9 +53,6 @@ keyring = ["keyring>=25"]
 # Lower it only together with the dependency-floors CI job that proves it.
 ble = ["bleak>=0.22.0"]
 dev = [
-    # Explicit even though it is a baseline dependency on macOS/Windows: the
-    # marker keeps it off Linux, and CI runs the library suite on Linux.
-    "keyring>=25",
     "mypy>=1.11",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

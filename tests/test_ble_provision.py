@@ -19,6 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from whiskerless.ble import messages as m
+from whiskerless.ble.protobuf import read_fields
 from whiskerless.ble.provision import (
     ProvisioningConfig,
     _format_mac,
@@ -566,3 +567,37 @@ async def test_a_scan_that_stalls_on_the_blocking_start_is_bounded() -> None:
 
     with patch.object(prov, "SCAN_TIMEOUT", 0.05), pytest.raises(ProvisioningError, match="did not finish"):
         await prov.scan_networks(_Stalls())  # type: ignore[arg-type]
+
+
+async def test_certificates_are_chunked_the_way_the_app_chunks_them() -> None:
+    """A flat 100 bytes, not MTU-derived. That is the size Whisker's own client
+    has exercised against this firmware on every unit it ever shipped; ours
+    reached 460 and worked here, which is a much smaller sample."""
+    from whiskerless.ble.provision import CERT_CHUNK
+
+    robot = FakeRobot()
+    with _bleak(robot):
+        await provision_robot("AA:BB", _config())
+
+    sizes = []
+    for endpoint, payload in robot.requests:
+        if endpoint != m.EP_MQTT:
+            continue
+        arm = read_fields(payload).get(10)
+        if arm and isinstance(arm[0], bytes):
+            length = read_fields(arm[0]).get(5)
+            if length and isinstance(length[0], int):
+                sizes.append(int(length[0]))
+    assert sizes, "the CA was written in chunks"
+    assert max(sizes) <= CERT_CHUNK == 100
+
+
+def test_an_open_network_needs_no_passphrase() -> None:
+    """Some homes still run an open SSID. The robot joins one with an empty
+    passphrase, and proto3 drops the empty string, so SetConfig carries the SSID
+    alone — exactly what an open join looks like on the wire."""
+    payload = m.wifi_set_config("Cafe", "")
+    fields = read_fields(payload)
+    inner = read_fields(fields[12][0])
+    assert inner[1][0] == b"Cafe"
+    assert 2 not in inner, "no passphrase field at all, rather than an empty one"

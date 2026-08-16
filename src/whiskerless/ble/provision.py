@@ -50,6 +50,9 @@ WIFI_POLL_INTERVAL = 1.5
 WIFI_SETTLE = 1.0
 
 
+#: Bytes per CERT_WRITE chunk. The app's own number; see
+#: docs/devices/litter-robot-4/provisioning/app-onboarding-capture.md.
+CERT_CHUNK = 100
 #: How many scan results to ask for per request. The app uses four; the robot
 #: answers a larger page happily, but there is no reason to diverge from the
 #: number Whisker's own client has always used against this firmware.
@@ -234,7 +237,12 @@ async def provision_robot(
     async with translated(f"BLE connection to {address} failed"), BleakClient(address) as client:
         _assert_lr4(client)
         mtu = getattr(client, "mtu_size", 0) or 0
-        chunk_size = config.chunk_size or max(64, mtu - 40)
+        # 100 bytes, matching the Whisker app exactly — not MTU-derived. A decoded
+        # onboarding shows the app chunking every credential at a flat 100 against
+        # a 500-byte MTU, so that is the size this firmware has been exercised
+        # with on every unit Whisker has ever shipped. Ours reached 460 and worked
+        # on the robots here, which is a far smaller sample than theirs.
+        chunk_size = config.chunk_size or CERT_CHUNK
         step(f"connected to {address} (MTU={mtu or '?'}, cert chunk={chunk_size})")
 
         transport = ProtocommBLE(client, dry_run=dry_run)

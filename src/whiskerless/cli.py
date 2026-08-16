@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import getpass
 import logging
 import os
@@ -24,7 +23,7 @@ from typing import cast
 
 import aiomqtt
 
-from . import __version__, secrets
+from . import __version__
 from .ble.messages import WifiNetwork as DiscoveredNetwork
 from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
@@ -100,32 +99,9 @@ def _profile(args: argparse.Namespace) -> RobotProfile:
         saved,
         host=args.host,
         port=args.port,
-        username=args.username,
-        # An env var beats --password: a flag lands in shell history and in `ps`.
-        password=args.password or os.environ.get("WHISKERLESS_PASSWORD"),
         verify_hostname=None if args.insecure is None else not args.insecure,
         ca_pem=None if args.ca is None else _read_pem(args.ca),
     )
-    # A broker that needs a login should come from the keychain, and ASK when it
-    # is not there. Requiring an environment variable to run an ordinary command
-    # is a chore invented by the tool, and the workaround people reach for is
-    # --password, which is the one place the secret genuinely leaks (shell
-    # history, `ps`).
-    #
-    # Only when a username is configured — an anonymous broker must never be made
-    # to look like it wants a login. The keychain is read whether or not this is a
-    # terminal, so an unattended run works once the password has been stored; only
-    # the fallback PROMPT is gated on a tty, so a cron job with nothing stored
-    # fails on the broker's own rejection instead of hanging on a prompt nobody
-    # can see.
-    if profile.username and not profile.password:
-        key = secrets.broker_key(profile.username, profile.host, profile.port)
-        password = (
-            _ask_secret(key, f"broker password for {profile.username!r}: ")
-            if sys.stdin.isatty()
-            else secrets.get(key)
-        )
-        profile = replace(profile, password=password or None)
     return profile
 
 
@@ -558,29 +534,11 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         default=ca_default,
         default_label=_ca_label(shared, prior) if ca_default else None,
     )
-    # Optional, and the only broker field that is: an authenticated broker
-    # otherwise provisions cleanly and then fails every later bare command until
-    # someone passes --username by hand or edits profile.json. The password is
-    # deliberately NOT asked for — it is never written down (see profiles.py).
-    # This robot's OWN recorded login, if it has one: a reprovision must not lose
-    # it, and it is the only value safe to adopt without anyone looking.
-    own_username: str | None = None
-    with contextlib.suppress(ProfileError):
-        own_username = ProfileStore.from_env().load(serial).username
-    username = _ask_optional(
-        "broker username",
-        args.username,
-        own_username if own_username is not None else shared.username,
-        unattended=own_username,
-    )
     # Deliberately NOT asked here when there is a human to ask later. The robot
     # can list the networks IT can see, and asking before the BLE link is open
     # means asking someone to name a network from memory — which is how a robot
     # ends up provisioned onto an SSID it cannot reach, or a 5 GHz-only one it
     # cannot see, with nothing to show for it but a robot that never appears.
-    # Two independent unknowns. A named network still needs its passphrase asked
-    # for here — the chooser never runs in that case — and a passphrase supplied
-    # on the command line must survive the chooser rather than be overwritten by it.
     ask_now = bool(args.wifi_ssid) or not sys.stdin.isatty()
     ssid = (
         _ask(
@@ -592,7 +550,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     )
     wifi_pass = args.wifi_pass or ""
     if ssid and not wifi_pass and sys.stdin.isatty():
-        wifi_pass = _ask_secret(secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: ")
+        wifi_pass = _ask_secret(f"WiFi password for {ssid!r}: ")
 
     # Not part of ProvisioningConfig: the robot authenticates to the broker with
     # its own factory certificate, so this login is whiskerless's, not the
@@ -671,7 +629,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
 
     # Written only after the robot accepted it, so a failed run never leaves a
     # profile claiming a robot is reachable somewhere it is not.
-    _save_profile(config, args, username)
+    _save_profile(config, args)
     return 0
 
 
@@ -688,9 +646,7 @@ async def _choose_network(
         # list them. Falling back to typing beats refusing.
         print("  the robot saw no networks — type the name instead")
         ssid = _ask("WiFi SSID: ", None, _check_ssid)
-        return ssid, supplied_pass or _ask_secret(
-            secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: "
-        )
+        return ssid, supplied_pass or _ask_secret(f"WiFi password for {ssid!r}: ")
 
     print("\n  networks the robot can see, strongest first:\n")
     for index, network in enumerate(networks):
@@ -709,11 +665,15 @@ async def _choose_network(
             ssid = _ask("WiFi SSID: ", None, _check_ssid)
             break
         if answer.isdigit() and 0 <= int(answer) < len(networks):
-            ssid = networks[int(answer)].ssid
+            chosen = networks[int(answer)]
+            # An open network has no passphrase, and the robot joins it with an
+            # empty one. Asking anyway invites someone to invent an answer.
+            if not chosen.secured:
+                print(_console.dim("  open network — no password needed"))
+                return chosen.ssid, ""
+            ssid = chosen.ssid
             break
-    return ssid, supplied_pass or _ask_secret(
-        secrets.wifi_key(ssid), f"WiFi password for {ssid!r}: "
-    )
+    return ssid, supplied_pass or _ask_secret(f"WiFi password for {ssid!r}: ")
 
 
 def _prior_setup() -> tuple[RobotProfile | None, SharedSetup]:
@@ -737,9 +697,7 @@ def _ca_label(shared: SharedSetup, prior: RobotProfile | None) -> str:
     return f"the CA saved for {prior.display_name}" if prior else "the saved CA"
 
 
-def _save_profile(
-    config: ProvisioningConfig, args: argparse.Namespace, username: str | None
-) -> None:
+def _save_profile(config: ProvisioningConfig, args: argparse.Namespace) -> None:
     store = ProfileStore.from_env()
     try:
         prior = store.load(config.serial)
@@ -750,7 +708,6 @@ def _save_profile(
             serial=Serial(config.serial),
             host=config.host,
             name=args.name or "",
-            username=username,
             ca_pem=config.ca_pem,
             wifi_ssid=config.wifi_ssid,
         )
@@ -763,10 +720,8 @@ def _save_profile(
             serial=Serial(config.serial),
             host=config.host,
             name=args.name or prior.name,
-            username=username,
             ca_pem=config.ca_pem,
             wifi_ssid=config.wifi_ssid,
-            password=None,
         )
     try:
         store.save(profile)
@@ -857,9 +812,6 @@ async def _cmd_adopt(args: argparse.Namespace) -> int:
         default_label=_ca_label(shared, known) if ca_default else None,
         allow_skip=True,
     ) or None
-    username = _ask_optional(
-        "broker username", args.username, shared.username, unattended=args.username
-    )
     name = _ask_optional("what to call this robot, e.g. 'Upstairs'", args.name, None)
     try:
         # Re-running adopt to correct one field must not silently drop the rest.
@@ -872,7 +824,6 @@ async def _cmd_adopt(args: argparse.Namespace) -> int:
             host=host,
             port=args.port or DEFAULT_TLS_PORT,
             name=name or "",
-            username=username,
             ca_pem=ca_pem,
         )
     else:
@@ -882,9 +833,7 @@ async def _cmd_adopt(args: argparse.Namespace) -> int:
             host=host,
             port=args.port or prior.port,
             name=name or prior.name,
-            username=username or prior.username,
             ca_pem=ca_pem or prior.ca_pem,
-            password=None,
         )
     store.save(profile)
     if store.get_default() is None:
@@ -926,34 +875,8 @@ async def _cmd_forget(args: argparse.Namespace) -> int:
         print("aborted", file=sys.stderr)
         return 1
     store.forget(args.robot)
-    for key in _orphaned_secrets(doomed, store.list_profiles()):
-        if secrets.forget(key):
-            print(_console.dim(f"  removed {key} from your keychain"))
     print(f"forgot {name}")
     return 0
-
-
-def _orphaned_secrets(gone: RobotProfile | None, remaining: Sequence[RobotProfile]) -> list[str]:
-    """Keychain entries that no longer belong to any robot on this machine.
-
-    Secrets are shared on purpose — one broker password per login, one passphrase
-    per SSID — so forgetting a robot must not take the password its sibling on the
-    same broker is still using. Only entries nothing else refers to are removed,
-    which is also why an unreadable profile (``gone is None``) removes nothing:
-    the safe failure is a stale keychain entry, not a working robot that suddenly
-    prompts for a password nobody remembers.
-    """
-    if gone is None:
-        return []
-    orphaned = []
-    if gone.username and not any(
-        p.username == gone.username and p.host == gone.host and p.port == gone.port
-        for p in remaining
-    ):
-        orphaned.append(secrets.broker_key(gone.username, gone.host, gone.port))
-    if gone.wifi_ssid and not any(p.wifi_ssid == gone.wifi_ssid for p in remaining):
-        orphaned.append(secrets.wifi_key(gone.wifi_ssid))
-    return orphaned
 
 
 def _print_orientation() -> None:
@@ -1159,29 +1082,14 @@ def _confirm(prompt: str) -> bool:
         return False
 
 
-def _ask_secret(key: str, prompt: str) -> str:
-    """A password, from the keychain if it is there and from the human if not.
+def _ask_secret(prompt: str) -> str:
+    """Ask for a passphrase without echoing it.
 
-    The keychain copy is used without asking — that is the entire point of having
-    put it there — but it is only ever *written* on an explicit yes. Adding an
-    entry to somebody's keychain is a change to their machine that outlives this
-    program, so it is not something to do as a side effect of them answering a
-    question they had to answer anyway.
+    Nothing is stored. The WiFi passphrase is the only secret whiskerless ever
+    asks for, it is wanted once while somebody is standing at the robot, and
+    every device setup on earth asks for it the same way.
     """
-    stored = secrets.get(key)
-    if stored:
-        return stored
-    typed = getpass.getpass(prompt)
-    if typed and secrets.available() and sys.stdin.isatty():
-        try:
-            answer = input("  remember this in your keychain? [Y/n]: ").strip().lower()
-        except EOFError:
-            answer = "n"
-        if answer in ("", "y", "yes") and secrets.put(key, typed):
-            print(_console.dim(
-                f"  stored as {secrets.SERVICE} / {key} — `whiskerless forget` clears it"
-            ))
-    return typed
+    return getpass.getpass(prompt)
 
 
 def _pick_robot(robots: Sequence[DiscoveredRobot], address: str | None) -> DiscoveredRobot:
@@ -1232,8 +1140,6 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--ca", help="path to the broker CA PEM (overrides the saved profile)")
         p.add_argument("--insecure", action="store_true", default=None,
                        help="skip TLS hostname check (CA still verified)")
-        p.add_argument("--username", default=None)
-        p.add_argument("--password", default=None)
         p.add_argument("--client-id", default=None, help="MQTT client-id for THIS tool (not the robot)")
 
     p_status = add_parser("status", "the derived view: what this robot is doing, in plain terms")
@@ -1321,7 +1227,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_prov.add_argument("--scan-timeout", type=float, default=15.0)
     p_prov.add_argument("--dry-run", action="store_true", help="scan/connect and print steps, write nothing")
     p_prov.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
-    p_prov.add_argument("--username", help="broker username, if yours needs one (prompted if omitted)")
     p_prov.add_argument("--name", help="what to call this robot afterwards, e.g. 'Upstairs'")
     p_prov.set_defaults(func=_cmd_provision)
 
@@ -1338,7 +1243,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_adopt.add_argument("--host", help="broker host/IP the robot publishes to")
     p_adopt.add_argument("--ca", help="path to the broker CA PEM")
     p_adopt.add_argument("--port", type=int, default=None)
-    p_adopt.add_argument("--username", default=None, help="broker username, if yours needs one")
     p_adopt.add_argument("--name", help="what to call this robot, e.g. 'Upstairs'")
     p_adopt.set_defaults(func=_cmd_adopt)
 

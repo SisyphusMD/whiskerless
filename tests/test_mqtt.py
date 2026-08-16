@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import datetime
 import ssl
 from pathlib import Path
+from unittest.mock import patch
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 
 from whiskerless.mqtt import MqttSettings, build_tls_context, create_client
 
@@ -85,3 +92,76 @@ async def test_a_client_is_built_from_the_settings_without_connecting() -> None:
     """
     client = create_client(MqttSettings(host="192.0.2.10", port=8883, client_id="mine"))
     assert client is not None
+
+
+def _self_signed(common_name: str = "whiskerless-test") -> tuple[str, str]:
+    """A throwaway cert/key pair, built with the library we already depend on.
+
+    Deliberately not `openssl`: the whole reason `cryptography` is a dependency
+    is that stock Windows has no openssl binary, so a test that shells out to one
+    would fail on the platform the dependency exists to support.
+    """
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    now = datetime.datetime.now(datetime.UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=5))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    return (
+        cert.public_bytes(serialization.Encoding.PEM).decode(),
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ).decode(),
+    )
+
+
+def test_a_client_certificate_is_loaded_into_the_tls_context() -> None:
+    """The broker this project now recommends runs `require_certificate true`, so
+    the CLI has to identify itself the same way the robot does."""
+    cert, key = _self_signed()
+    settings = MqttSettings(
+        host="broker", ca_cert_data=cert, client_cert_data=cert, client_key_data=key
+    )
+    with patch("ssl.SSLContext.load_cert_chain", autospec=True) as loaded:
+        assert build_tls_context(settings) is not None
+    assert loaded.call_count == 1, "the client chain is presented to the broker"
+
+
+def test_no_client_certificate_means_no_chain_is_loaded() -> None:
+    cert, _key = _self_signed()
+    settings = MqttSettings(host="broker", ca_cert_data=cert)
+    with patch("ssl.SSLContext.load_cert_chain", autospec=True) as loaded:
+        assert build_tls_context(settings) is not None
+    assert loaded.call_count == 0
+
+
+def test_a_pem_without_a_trailing_newline_still_parses() -> None:
+    """A PEM that came through .strip() would otherwise concatenate into
+    "-----END CERTIFICATE----------BEGIN", which is valid on neither side."""
+    cert, key = _self_signed()
+    settings = MqttSettings(
+        host="broker",
+        ca_cert_data=cert,
+        client_cert_data=cert.strip(),
+        client_key_data=key,
+    )
+    written: list[str] = []
+    real = Path.write_text
+
+    def _capture(self: Path, data: str, *a: object, **k: object) -> int:
+        written.append(data)
+        return real(self, data, *a, **k)
+
+    with patch.object(Path, "write_text", _capture):
+        assert build_tls_context(settings) is not None
+    assert written, "the pair was materialized"
+    assert "-----END CERTIFICATE-----\n-----BEGIN" in written[0]

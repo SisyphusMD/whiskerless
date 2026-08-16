@@ -19,8 +19,9 @@ Layout under ``~/.whiskerless`` (override with ``WHISKERLESS_HOME``)::
 **No secret is ever written here.** Passwords live in the OS keychain
 (:mod:`whiskerless.secrets`) or nowhere; the robot's factory certificate and
 private key are neither read nor written by whiskerless at all. Files are still
-0600 and directories 0700, because a broker address and username are worth
-keeping to yourself.
+0600 and directories 0700, because a broker address is worth keeping to
+yourself, and because the CA private key lives here once whiskerless generates
+one.
 """
 
 from __future__ import annotations
@@ -143,18 +144,12 @@ class RobotProfile:
     host: str
     port: int = DEFAULT_TLS_PORT
     name: str = ""
-    username: str | None = None
-    # Held in memory to reach the broker, never written HERE. A 0600 file beside
-    # the config is not "stored securely" however it is described — it follows
-    # people into backups and dotfile sync without ever looking like a secret.
-    # The keychain is the one place that genuinely is different; see secrets.py.
-    password: str | None = None
     verify_hostname: bool = True
     ca_pem: str | None = None
     # Not needed to reach the broker — kept so a second robot can be offered the
-    # same network without the user hunting for it. The passphrase is
-    # deliberately absent: a home WiFi secret is a bigger thing to leave on disk
-    # than a broker login, and it is only ever needed during provisioning.
+    # same network without the user hunting for it. The passphrase is never
+    # stored anywhere: it is wanted once, while someone is standing at the robot,
+    # and typing it then is what every device setup asks for anyway.
     wifi_ssid: str = ""
     # What a person measured, with the globe in front of them: the ToF distance
     # at a full fill and (optionally) with the globe empty. Deliberately not the
@@ -180,8 +175,6 @@ class RobotProfile:
             port=self.port,
             ca_cert_data=self.ca_pem,
             verify_hostname=self.verify_hostname,
-            username=self.username,
-            password=self.password,
             client_id=client_id,
         )
 
@@ -202,7 +195,6 @@ class SharedSetup:
     host: str | None = None
     ca_pem: str | None = None
     wifi_ssid: str | None = None
-    username: str | None = None
 
     @classmethod
     def from_profiles(cls, profiles: Sequence[RobotProfile]) -> SharedSetup:
@@ -216,7 +208,6 @@ class SharedSetup:
             host=agreed(profile.host for profile in profiles),
             ca_pem=agreed(profile.ca_pem for profile in profiles),
             wifi_ssid=agreed(profile.wifi_ssid for profile in profiles),
-            username=agreed(profile.username for profile in profiles),
         )
 
 
@@ -315,7 +306,6 @@ class ProfileStore:
             "host": profile.host,
             "port": profile.port,
             "name": profile.name,
-            "username": profile.username,
             "verify_hostname": profile.verify_hostname,
             "wifi_ssid": profile.wifi_ssid,
             "litter_full_mm": profile.litter_full_mm,
@@ -371,7 +361,6 @@ class ProfileStore:
             host=host,
             port=port,
             name=str(raw.get("name") or ""),
-            username=_optional_str(raw.get("username")),
             verify_hostname=bool(raw.get("verify_hostname", True)),
             ca_pem=ca_pem,
             wifi_ssid=str(raw.get("wifi_ssid") or ""),
@@ -488,17 +477,11 @@ def _optional_int(value: object) -> int | None:
     return number if 0 <= number <= _MAX_DISTANCE_MM else None
 
 
-def _optional_str(value: object) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
 def merge_overrides(
     profile: RobotProfile,
     *,
     host: str | None = None,
     port: int | None = None,
-    username: str | None = None,
-    password: str | None = None,
     verify_hostname: bool | None = None,
     ca_pem: str | None = None,
 ) -> RobotProfile:
@@ -511,8 +494,6 @@ def merge_overrides(
         profile,
         host=profile.host if host is None else host,
         port=profile.port if port is None else port,
-        username=profile.username if username is None else username,
-        password=profile.password if password is None else password,
         verify_hostname=(
             profile.verify_hostname if verify_hostname is None else verify_hostname
         ),

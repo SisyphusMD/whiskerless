@@ -9,6 +9,7 @@ port-forward / tunnel where the SNI no longer matches the cert SAN).
 from __future__ import annotations
 
 import ssl
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,8 +28,12 @@ class MqttSettings:
     ca_cert_path: str | None = None
     ca_cert_data: str | None = None
     verify_hostname: bool = True
-    username: str | None = None
-    password: str | None = None
+    # No username/password. The Litter-Robot cannot send credentials at all — its
+    # firmware has no field for them — so the listener it connects to has to
+    # authenticate by certificate. Rather than run two auth schemes against one
+    # broker, whiskerless presents a client certificate like the robot does.
+    client_cert_data: str | None = None
+    client_key_data: str | None = None
     client_id: str | None = None
     keepalive: int = 60
 
@@ -61,9 +66,25 @@ def build_tls_context(settings: MqttSettings) -> ssl.SSLContext | None:
         context.verify_flags &= ~ssl.VERIFY_X509_STRICT
     else:
         context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
-    # The broker ignores the robot's client cert (require_certificate false), so
-    # we present none. Hostname matching is optional because the robot is often
-    # reached by IP / through a port-forward; the CA check always stands.
+    # Our own client certificate, when there is one. A broker configured the way
+    # this project now recommends runs `require_certificate true`, so the CLI has
+    # to identify itself the same way the robot does. Loaded from memory via a
+    # temporary file because ssl has no load_cert_chain-from-string: the key is
+    # written 0600 and unlinked immediately, so it exists on disk only inside
+    # this call.
+    if settings.client_cert_data and settings.client_key_data:
+        with tempfile.TemporaryDirectory() as scratch:
+            pair = Path(scratch) / "client.pem"
+            # Joined with an explicit newline: a PEM that arrived through .strip()
+            # has no trailing one, and "-----END CERTIFICATE----------BEGIN" is
+            # not parseable even though both halves are valid.
+            pair.write_text(
+                settings.client_cert_data.rstrip("\n") + "\n" + settings.client_key_data
+            )
+            pair.chmod(0o600)
+            context.load_cert_chain(pair)
+    # Hostname matching is optional because the robot's broker is often reached by
+    # IP or through a port-forward; the CA check always stands.
     if not settings.verify_hostname:
         context.check_hostname = False
     return context
@@ -74,8 +95,6 @@ def create_client(settings: MqttSettings) -> aiomqtt.Client:
     return aiomqtt.Client(
         hostname=settings.host,
         port=settings.port,
-        username=settings.username,
-        password=settings.password,
         identifier=settings.client_id,
         tls_context=build_tls_context(settings),
         keepalive=settings.keepalive,
