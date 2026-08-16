@@ -1,8 +1,4 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)"
-          srcset="https://raw.githubusercontent.com/SisyphusMD/whiskerless/main/custom_components/whiskerless/brand/dark_logo.png">
-  <img src="https://raw.githubusercontent.com/SisyphusMD/whiskerless/main/custom_components/whiskerless/brand/logo.png" alt="whiskerless" width="420">
-</picture>
+<img src="https://raw.githubusercontent.com/SisyphusMD/whiskerless/main/brand/banner.png" alt="whiskerless" width="470">
 
 <br>
 
@@ -226,10 +222,9 @@ WiFi your saved robots already share — press enter to accept each.
 
 > **No secret is written to `~/.whiskerless`.** If your broker requires
 > authentication, supply the password per run with `WHISKERLESS_PASSWORD`
-> (preferred — `--password` lands in your shell history and in `ps`), and pass
-> `--username` with each command — provision does not collect one yet
-> ([docs/backlog.md](docs/backlog.md) #63), though `username` is a stored
-> profile field you can set once by editing the robot's `profile.json`. The WiFi passphrase is only needed while
+> (preferred — `--password` lands in your shell history and in `ps`).
+> `provision` asks for the broker username and saves it with the robot, so later
+> commands need no `--username`; the flag still overrides it. The WiFi passphrase is only needed while
 > provisioning and is never kept, and the robot's factory certificate and private
 > key are neither read nor written. Files are still owner-only (0600), since a
 > broker address and username are worth keeping to yourself.
@@ -238,14 +233,15 @@ WiFi your saved robots already share — press enter to accept each.
 
 Most people live in Home Assistant afterwards — see
 [docs/setup/home-assistant.md](docs/setup/home-assistant.md) for the entities
-and what they mean. The CLI covers the everyday controls and the raw telemetry
-from a terminal (HA's derived status view — pet weight, visit history, learned
-levels — is HA's for now; closing that gap is tracked in
-[docs/backlog.md](docs/backlog.md) #55):
+and what they mean. The CLI covers the same ground from a terminal — the
+everyday controls, the raw telemetry, and the derived view of what the robot is
+actually doing:
 
 ```bash
+whiskerless status                       # the robot in plain terms, one reading
 whiskerless state                        # full decoded status
 whiskerless monitor                      # live telemetry (ctrl-c to stop)
+whiskerless calibrate full               # store your own litter reference
 whiskerless set night-light-mode auto    # writes, then reads back to confirm
 whiskerless clean-cycle                  # start a cycle (asks first)
 whiskerless robots                       # every robot saved on this machine

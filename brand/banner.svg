@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 942 320" width="942" height="320">
+  <!-- The README lockup, and the only asset that carries its own background.
+       The brand logo puts the wordmark on transparency, which forces a light
+       and a dark file — and the one place that cannot choose between them is a
+       README, rendered on GitHub (either theme), PyPI (always light) and HACS
+       (usually dark) from a single <img>. Painting the wordmark onto the tile
+       colour makes the surface irrelevant. -->
+  <rect width="942" height="320" rx="32" fill="#0E7C7B"/>
+  <g transform="translate(32,32)">
+    <path d="M68 20 L118 66 L76 92 Z" fill="#FFFFFF"/>
+    <path d="M188 20 L138 66 L180 92 Z" fill="#FFFFFF"/>
+    <circle cx="128" cy="110" r="60" fill="#FFFFFF"/>
+    <ellipse cx="106" cy="100" rx="10.5" ry="14" fill="#0E7C7B"/>
+    <ellipse cx="150" cy="100" rx="10.5" ry="14" fill="#0E7C7B"/>
+    <path d="M128 121 l9.5 8 -9.5 8 -9.5 -8 Z" fill="#0E7C7B"/>
+    <!-- Drawn OVER the head, and in the tile colour, so the chin disappears
+         behind it and a ring of background reads as depth rather than a weld.
+         On the banner the tile colour IS the background, so the same two paths
+         still produce the gap. -->
+    <path d="M26 148 H230 V214 a16 16 0 0 1 -16 16 H42 A16 16 0 0 1 26 214 Z" fill="#0E7C7B"/>
+    <path d="M30 152 H226 V212 a14 14 0 0 1 -14 14 H44 A14 14 0 0 1 30 212 Z" fill="#FFFFFF"/>
+    <rect x="88" y="181" width="80" height="13" rx="6.5" fill="#0E7C7B"/>
+  </g>
+  <!-- Same joke as the logo: the half of the name that is the point is the half
+       at full strength. On teal that is white against a tint of white, rather
+       than full teal against a pale teal. -->
+  <text x="332" y="202" font-family="Avenir Next" font-weight="600" font-size="104"><tspan fill="#FFFFFF" fill-opacity="0.55">whisker</tspan><tspan fill="#FFFFFF">less</tspan></text>
+</svg>

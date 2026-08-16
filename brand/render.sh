@@ -29,7 +29,14 @@ for variant in logo dark_logo; do
     rsvg-convert -h 512 "$variant.svg" | magick png:- -trim +repage "$out/$variant@2x.png"
 done
 
-for f in "$out"/*.png; do
+# The README banner is NOT a Home Assistant brand asset and must not land in the
+# integration: that directory is served as the brand set, and its filenames are
+# the ones the brands rules define. The source is already twice the width the
+# README displays it at, so its intrinsic size IS the retina asset — rendering
+# taller just ships four times the pixels for the same picture.
+rsvg-convert -h 320 banner.svg -o banner.png
+
+for f in "$out"/*.png banner.png; do
     # Interlaced (progressive) and stripped of metadata, both of which the
     # brands checks prefer. Lossless: no quantisation, no colour reduction.
     # exclude-chunk=time: ImageMagick stamps a tIME chunk that -strip leaves

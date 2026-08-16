@@ -94,6 +94,23 @@ backdrop, so the equivalent here is a dark tile with the artwork inverted into
 light teal — not white, which glares against near-black exactly as Apple warns.
 `dark_icon` exists so the tile still matches its own lockup on that theme.
 
+**`banner.svg` is the fifth source and deliberately not part of the brand set.**
+The logo puts the wordmark on transparency, which is why it needs a light and a
+dark file — and a README is the one surface that cannot pick between them: it
+renders on GitHub in either theme, on PyPI always light, and in HACS usually
+dark, all from a single `<img>`. Neither logo survives that: the light
+wordmark's `#0E7C7B` drops to about 2.4:1 on a dark page, and the dark
+wordmark's `#4FC3C0` to about 2:1 on a white one. The banner paints the same
+artwork onto the tile colour so it carries its own background and the page
+theme stops mattering. It renders to `brand/banner.png`, **not** into the
+integration — that directory is served as the brand set and its filenames are
+the ones the brands rules define.
+
+`<picture>` was the first attempt and is why this exists: GitHub honours it,
+PyPI strips the `<source>` but keeps the `<img>`, and HACS drops the `<img>`
+entirely and shows the alt text. One image that needs no theme negotiation is
+the only thing all three agree on.
+
 ## Rendering
 
 ```bash
