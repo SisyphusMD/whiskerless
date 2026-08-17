@@ -81,7 +81,7 @@ robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
   networks the robot can see, strongest first:
 
     0  MyIoT                            * ||||  ch 6
-    1  HomeNet                       * ||||  ch 1
+    1  HomeNet                          * ||||  ch 1
     2  Guest                              ||    ch 11
     -  not listed (hidden network)
 

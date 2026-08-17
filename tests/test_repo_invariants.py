@@ -8,6 +8,8 @@ neither Home Assistant nor a broker, and they fail on the file that drifted.
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -134,3 +136,117 @@ def test_every_example_automation_has_a_trigger_and_an_action(path: Path) -> Non
     for automation in loaded:
         assert automation.get("triggers"), f"{path.name}: {automation.get('alias')}"
         assert automation.get("actions"), f"{path.name}: {automation.get('alias')}"
+
+
+# --- nothing personal ever ships ------------------------------------------------
+# The owner's real robot serials were committed for a week in August 2026 and took
+# a full `git filter-repo` rewrite to remove — one that could not reach the PyPI
+# sdists that had already carried them, because PyPI has no delete API. Then a test
+# written AFTER that rewrite put a real serial straight back, and it reached a
+# published release candidate before a collaborator spotted it by hand.
+#
+# So this is not a style rule. A serial is the MQTT client-id and both topic
+# segments; an SSID names somebody's house. Neither is recoverable once it is on
+# PyPI, and the only reliable reviewer is one that runs on every commit.
+#
+# Deliberately an ALLOWLIST, never a denylist of the real values: a test naming
+# what must not leak would be the leak.
+EXAMPLE_SERIALS = frozenset(
+    {
+        "LR3C000001", "LR3C123456", "LR4C000000", "LR4C000001",
+        "LR4C111111", "LR4C123456", "LR4C222222", "LR4C654321", "LR4C999999",
+    }
+)
+#: Every network name the repository is allowed to use as an example.
+EXAMPLE_NETWORKS = frozenset(
+    {
+        "", "MyIoT", "HomeNet", "Guest", "IoT", "home", "hidden",
+        "Near", "Far", "Cafe", "Seen", "x",
+        r"Guest\x1b[31m\nEvil",  # the control-character escaping fixture
+    }
+)
+
+# Deliberately wider than the two units this project has seen. `provision`
+# accepts any LR4-prefixed serial on purpose, so pinning the guard to the `C`
+# designator would wave through a real `LR4D…` from somebody else's robot — and
+# the whole point is to catch the serial nobody thought to look for.
+_SERIAL = re.compile(r"\bLR[0-9][A-Z]?[0-9]{6}\b", re.IGNORECASE)
+#: Every syntactic form an SSID is written in here — `wifi_ssid=`, `ssid=`,
+#: `"ssid":` and the CLI flag. Free prose is not checkable; these are.
+#: A QUOTED value in every case, including after the flag: unquoted prose such as
+#: "--wifi-ssid skips the chooser" is not an SSID, and a guard that cries wolf is
+#: a guard somebody deletes.
+_SSID = re.compile(
+    r"""(?:wifi[_-]?ssid|ssid)["']?\s*[:=]\s*["']([^"']*)["']|--wifi-ssid[= ]["']([^"']+)["']"""
+)
+
+
+def _tracked_text() -> list[tuple[Path, str]]:
+    """Every tracked file git considers text, with its contents.
+
+    Tracked rather than walked: the working tree also holds virtualenvs, caches
+    and scratch files, and none of those are what gets published.
+    """
+    listed = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=REPO, capture_output=True, text=True, check=True
+    )
+    found = []
+    for name in listed.stdout.split("\0"):
+        path = REPO / name
+        if not name or not path.is_file():
+            continue
+        try:
+            found.append((path, path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError):
+            continue  # a binary asset cannot carry a serial in a form that matters
+    return found
+
+
+TRACKED = _tracked_text()
+
+
+def test_no_real_robot_serial_is_committed() -> None:
+    """Every serial-shaped token in the tree is one of the invented examples."""
+    strays = {
+        f"{path.relative_to(REPO)}: {found}"
+        for path, text in TRACKED
+        for found in _SERIAL.findall(text)
+        if found.upper() not in EXAMPLE_SERIALS
+    }
+    assert not strays, (
+        "a serial that is not a documented example is in the tree — if it is real, it "
+        f"must not be committed; if it is a new example, add it to EXAMPLE_SERIALS: {sorted(strays)}"
+    )
+
+
+def test_no_real_network_name_is_committed() -> None:
+    """Same rule for SSIDs, wherever one is syntactically identifiable.
+
+    Only where the code or a fixture *names* the field — free prose is not
+    mechanically checkable, and pretending otherwise would be a guard that
+    quietly covers less than it claims.
+    """
+    strays = {
+        f"{path.relative_to(REPO)}: {found}"
+        for path, text in TRACKED
+        for match in _SSID.findall(text)
+        for found in (next((g for g in match if g), ""),)
+        if found not in EXAMPLE_NETWORKS and not found.startswith(("<", "{", "%", "$"))
+    }
+    assert not strays, (
+        "a network name that is not a documented example is in the tree — add it to "
+        f"EXAMPLE_NETWORKS if it is invented: {sorted(strays)}"
+    )
+
+
+def test_the_readme_network_picker_uses_only_example_names() -> None:
+    """The README is PyPI's long description, so it lands in every wheel's
+    METADATA — the one place a stray name is published even when the sdist is
+    not. Its scan-output block is prose to every other check here."""
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    # Anchored on the channel column, so the menu of numbered *choices* higher up
+    # the transcript ("1  Generate one for me") is not read as a network name.
+    picker = re.compile(r"^\s{4}\d\s{2}(\S+)\s.*\bch \d+\s*$", re.MULTILINE)
+    names = set(picker.findall(readme))
+    assert names, "the provisioning transcript's network picker is no longer recognisable"
+    assert names <= EXAMPLE_NETWORKS, f"not example names: {sorted(names - EXAMPLE_NETWORKS)}"

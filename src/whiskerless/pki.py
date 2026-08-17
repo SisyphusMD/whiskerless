@@ -44,6 +44,12 @@ from .exceptions import WhiskerlessError
 
 #: Key size for everything issued here. See the module docstring.
 KEY_BITS = 2048
+#: X.509 caps a common name at 64 characters (X.520 ``ub-common-name``), and
+#: ``cryptography`` enforces it by raising. A machine whose hostname is long
+#: enough to pass it is not a reason for ``setup`` to die with a traceback —
+#: the CN is a label for the broker's log, while hostname verification matches
+#: against the SAN, which is not length-limited and always carries the full name.
+CN_MAX = 64
 #: The CA outlives the robots. Renewing it means re-provisioning every robot over
 #: BLE, so a short life would buy nothing but bench visits.
 CA_DAYS = 3650
@@ -60,6 +66,19 @@ class KeyPair:
 
     cert_pem: str
     key_pem: str
+
+
+def _bounded(common_name: str) -> str:
+    """``common_name`` cut to what X.509 will accept, on a character boundary.
+
+    Measured in **bytes**, not characters: the limit is on the encoded value, so
+    a name of 33 accented characters is 66 bytes and raises while looking well
+    short. Truncated on a boundary because half a UTF-8 sequence is not a name.
+    """
+    encoded = common_name.encode("utf-8")
+    if len(encoded) <= CN_MAX:
+        return common_name
+    return encoded[:CN_MAX].decode("utf-8", errors="ignore")
 
 
 def _now() -> datetime.datetime:
@@ -87,7 +106,7 @@ def _encode(cert: x509.Certificate, key: rsa.RSAPrivateKey) -> KeyPair:
 def generate_ca(common_name: str = "whiskerless local CA") -> KeyPair:
     """Create a self-signed CA."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=KEY_BITS)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, _bounded(common_name))])
     now = _now()
     cert = (
         x509.CertificateBuilder()
@@ -133,7 +152,10 @@ def _issue(
     now = _now()
     builder = (
         x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
+        # Truncated rather than refused: every caller's name is descriptive, not
+        # load-bearing — a robot's serial is bounded well under this by its own
+        # validation, and what a TLS peer actually verifies is the SAN.
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, _bounded(common_name))]))
         .issuer_name(ca_cert.subject)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
@@ -176,13 +198,19 @@ def client_common_name() -> str:
 
     The hostname is in there so that two machines running whiskerless are
     distinguishable in the broker's log rather than both being "the CLI".
+
+    Bounded to :data:`CN_MAX`, because a DNS label may be 63 characters and the
+    prefix takes it past what X.509 allows — which is a ``ValueError`` out of the
+    certificate builder, i.e. `setup` dying on a machine whose only crime is a
+    long hostname. Returned already truncated so this reports the name that will
+    actually be issued.
     """
     host = ""
     try:
         host = socket.gethostname().split(".")[0].strip()
     except OSError:
         host = ""
-    return f"whiskerless-{host}" if host else "whiskerless-cli"
+    return _bounded(f"whiskerless-{host}") if host else "whiskerless-cli"
 
 
 def certificate_common_name(cert_pem: str) -> str | None:

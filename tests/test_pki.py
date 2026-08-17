@@ -120,6 +120,45 @@ def test_this_machine_names_itself_after_its_hostname(monkeypatch: pytest.Monkey
     assert pki.client_common_name() == "whiskerless-kitchen-pi"
 
 
+def test_a_very_long_hostname_does_not_kill_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """X.509 caps a common name at 64 characters and `cryptography` enforces it
+    by raising. A DNS label may be 63 on its own, so the prefix is enough to pass
+    it — and the whole of `setup` then dies on a machine whose only crime is a
+    long hostname. Found on a CI runner, not in review."""
+    monkeypatch.setattr("socket.gethostname", lambda: "a" * 63)
+    name = pki.client_common_name()
+    assert len(name) == pki.CN_MAX
+    assert name.startswith("whiskerless-")
+
+
+def test_the_cap_is_bytes_not_characters(ca: pki.KeyPair) -> None:
+    """The limit is on the ENCODED value, so 33 accented characters is 66 bytes
+    and raises while looking well short of 64 — an accented hostname is not
+    exotic. Cut on a character boundary, because half a UTF-8 sequence is not a
+    name any parser will take."""
+    pair = pki.issue_client(ca, "é" * 40)
+    name = pki.certificate_common_name(pair.cert_pem) or ""
+    assert len(name.encode("utf-8")) <= pki.CN_MAX
+    assert name == "é" * 32  # a whole number of characters, not a split one
+
+
+def test_a_ca_name_is_capped_too(ca: pki.KeyPair) -> None:
+    """`generate_ca` builds its subject directly, so the guard on the leaf path
+    does not cover it."""
+    made = pki.generate_ca("a" * 100)
+    assert len(pki.certificate_common_name(made.cert_pem) or "") == pki.CN_MAX
+
+
+def test_an_over_long_name_is_truncated_rather_than_raising(ca: pki.KeyPair) -> None:
+    """The guard sits at the builder too, so no caller can reach the raise —
+    and the SAN, which is what a TLS peer actually verifies, is not affected."""
+    pair = pki.issue_server(ca, "x" * 80 + ".example.lan")
+    cert = _cert(pair.cert_pem)
+    assert len(pki.certificate_common_name(pair.cert_pem) or "") == pki.CN_MAX
+    sans = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    assert sans.get_values_for_type(x509.DNSName) == ["x" * 80 + ".example.lan"]
+
+
 @pytest.mark.parametrize("failure", [lambda: "", lambda: (_ for _ in ()).throw(OSError)])
 def test_a_machine_with_no_usable_hostname_still_has_a_name(
     monkeypatch: pytest.MonkeyPatch, failure: object
