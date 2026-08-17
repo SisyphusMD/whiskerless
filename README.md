@@ -47,8 +47,7 @@ You get:
 One guided session, next to the robot, and you never touch it again:
 
 ```
-$ whiskerless provision
-robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
+$ whiskerless setup
 broker IP (e.g. 192.168.1.10): 192.168.1.10
 
   NO CERTIFICATE AUTHORITY ON THIS MACHINE
@@ -71,6 +70,12 @@ broker IP (e.g. 192.168.1.10): 192.168.1.10
   Back up ~/whiskerless somewhere safe. It holds the key that signs
   certificates for your robots.
 
+  Next: install the files above on your broker, restart it, then
+  whiskerless provision with a robot in pairing mode.
+
+
+$ whiskerless provision
+robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
 ⠹ scanning for robots over BLE (3s)
 
   networks the robot can see, strongest first:
@@ -242,6 +247,20 @@ pip install 'whiskerless[ble]'                        # library + BLE provisioni
 The releases live on [Forgejo (primary)](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases)
 and the [GitHub mirror](https://github.com/SisyphusMD/whiskerless/releases) —
 same artifacts either way.
+
+## Set up this machine
+
+Once, before any robot:
+
+```bash
+whiskerless setup
+```
+
+It asks for your broker's address, offers to create a certificate authority, and
+prints the three files to install on your broker. **Install them and restart the
+broker before going further** — that is why this is a separate command from
+`provision`: a robot in pairing mode holds a short window open, and it should not
+be spent waiting on a broker restart.
 
 ## Provision the robot
 

@@ -199,6 +199,16 @@ gave you my server cert" mistake), a mismatched pair, or an expired one; warn
 about a CA with no `keyUsage` extension, which the robot's mbedTLS accepts and
 Python 3.13's `VERIFY_X509_STRICT` then rejects — the worst possible split.
 
+### Setup is a separate command from provisioning
+
+`whiskerless setup` establishes the broker and the certificates; `whiskerless
+provision` puts a robot on them. Doing both in one command looked tidier and was
+wrong: between generating certificates and a robot being able to use them,
+somebody has to copy three files to a broker and restart it — minutes, on
+anything more involved than a local Mosquitto. A robot sits in pairing mode with
+a limited window, so the single command would have spent that window on paperwork
+and then failed in a way that looks exactly like a broken robot.
+
 ### Nothing about the machine is committed until a robot accepts it
 
 `broker.json` is written only after provisioning succeeds. An abort, a failed

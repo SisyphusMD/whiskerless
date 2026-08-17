@@ -32,7 +32,7 @@ import os
 import re
 import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import pki
@@ -246,6 +246,13 @@ class ProfileStore:
             store = cls(_home(environ) / DEFAULT_SUBDIR)
             store._migrate_legacy_home(_home(environ) / LEGACY_SUBDIR)
         store.check_layout()
+        if store.root.is_dir() and store.layout_version() < LAYOUT_VERSION:
+            object.__setattr__(store, "_migrating", True)
+            try:
+                store._migrate_to_layout_1()
+            finally:
+                object.__setattr__(store, "_migrating", False)
+            store._ensure_root()  # stamps only now that every step has landed
         return store
 
     def _migrate_legacy_home(self, legacy: Path) -> None:
@@ -268,6 +275,64 @@ class ProfileStore:
                 f"could not move {legacy} to {self.root}: {exc.strerror}. Move it "
                 f"by hand, or set WHISKERLESS_HOME to point at it"
             ) from exc
+
+    #: Set while hoisting a pre-1 store, so the writes it makes cannot stamp the
+    #: layout before the whole migration has succeeded.
+    _migrating: bool = field(default=False, compare=False, repr=False)
+
+    def _migrate_to_layout_1(self) -> None:
+        """Hoist a pre-1 store's per-robot broker and CA to where they now live.
+
+        Before layout 1 every robot carried its own host, port and CA. Leaving
+        them there would look like a machine with no broker and no authority — so
+        `provision` would offer to generate a NEW CA, and accepting it would
+        strand every robot already provisioned to trust the old one. Each rescue
+        is a walk to a robot with a laptop, so this runs before anything asks.
+
+        Reads the default robot's values, or the first if none is marked. They
+        agreed with each other in practice; the old apparatus for reconciling
+        them is exactly what this layout removed.
+        """
+        if not self.robots_dir.is_dir():
+            return
+        entries = [e for e in sorted(self.robots_dir.iterdir()) if e.is_dir()]
+        if not entries:
+            return
+        default = self.get_default()
+        chosen = next((e for e in entries if e.name == default), entries[0])
+
+        if not self.has_broker():
+            try:
+                raw = json.loads((chosen / _PROFILE_FILE).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raw = {}
+            # This runs from from_env(), so anything raising here takes EVERY
+            # command down. A robot too damaged to read is one whose broker we
+            # cannot hoist — not a reason to stop hoisting the CA below.
+            if not isinstance(raw, dict):
+                raw = {}
+            host = raw.get("host")
+            try:
+                port = int(raw.get("port", DEFAULT_TLS_PORT))
+            except (TypeError, ValueError):
+                port = DEFAULT_TLS_PORT
+            if isinstance(host, str) and host:
+                self.save_broker(
+                    Broker(
+                        host=host,
+                        port=port,
+                        verify_hostname=bool(raw.get("verify_hostname", True)),
+                    )
+                )
+
+        if not self.has_ca_cert():
+            # A stray ca.crt at the root predates the ca/ directory; a per-robot
+            # ca.pem predates the store having one CA at all. Either is the
+            # certificate these robots were provisioned to trust.
+            for candidate in (self.root / _CA_CERT, chosen / _CA_FILE):
+                if candidate.is_file():
+                    self.save_ca_cert_only(candidate.read_text(encoding="utf-8"))
+                    break
 
     def layout_version(self) -> int:
         """The structure version on disk. Absent marker means pre-versioning."""
@@ -441,7 +506,11 @@ class ProfileStore:
         self.root.mkdir(exist_ok=True)
         self.root.chmod(0o700)
         marker = self.root / _LAYOUT_FILE
-        if not marker.is_file():
+        if not marker.is_file() and not self._migrating:
+            # Never stamped mid-migration. A marker written before the CA is
+            # hoisted would make the next run skip the unfinished work forever,
+            # and `setup` would then generate a replacement CA that every
+            # existing robot refuses.
             _write_private(marker, f"{LAYOUT_VERSION}\n")
 
     def _ensure_dir(self, name: str) -> Path:

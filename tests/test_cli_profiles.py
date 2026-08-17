@@ -49,6 +49,7 @@ def seed(store: ProfileStore, serial: str = "LR4C123456", **kwargs: object) -> R
         store.save_broker(Broker(host="192.0.2.10"))
     if not store.has_ca_cert():
         store.save_ca_cert_only(CA)
+
     defaults: dict[str, object] = {}
     defaults.update(kwargs)
     profile = RobotProfile(serial=Serial(serial), **defaults)  # type: ignore[arg-type]
@@ -518,11 +519,12 @@ def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
     """provision collects the serial, broker, CA and WiFi — not the name, the
     broker credentials or the port. Writing defaults over those on a
     reprovision silently erased what the user had set up."""
+    _prepared(store)
     seed(store, name="Upstairs", litter_full_mm=140)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.99",
+        "provision", "--serial", "LR4C123456",
         "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
@@ -538,11 +540,11 @@ def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
 def test_provisioning_saves_a_profile_that_later_commands_find(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    _prepared(store)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca),
+        "provision", "--serial", "LR4C123456",
         "--wifi-ssid", "home", "--wifi-pass", "secret",
         "--name", "Upstairs", "--yes",
     ]
@@ -562,8 +564,7 @@ def test_a_failed_provisioning_saves_nothing(store: ProfileStore, tmp_path: Path
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca),
+        "provision", "--serial", "LR4C123456",
         "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
@@ -579,12 +580,11 @@ def test_a_failed_provisioning_saves_nothing(store: ProfileStore, tmp_path: Path
 def test_a_dry_run_saves_nothing_and_says_so(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    _prepared(store)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-       "--ca", str(ca),
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret",
+        "provision", "--serial", "LR4C123456", "--wifi-ssid", "home", "--wifi-pass", "secret",
         "--dry-run", "--yes",
     ]
     with (
@@ -601,11 +601,11 @@ def test_a_dry_run_saves_nothing_and_says_so(
 def test_the_first_robot_provisioned_becomes_the_default(
     store: ProfileStore, tmp_path: Path
 ) -> None:
+    _prepared(store)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca),
+        "provision", "--serial", "LR4C123456",
         "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
@@ -625,8 +625,7 @@ def test_provisioning_a_second_robot_leaves_the_default_alone(
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca),
+        "provision", "--serial", "LR4C123456",
         "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
@@ -642,11 +641,11 @@ def test_a_store_that_cannot_be_written_does_not_fail_the_provisioning(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The robot is already changed; a convenience file must not undo that verdict."""
+    _prepared(store)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca),
+        "provision", "--serial", "LR4C123456",
         "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
@@ -735,13 +734,34 @@ def _fake_provision(*, success: bool) -> Any:
 
 
 def _provision_argv(ca: Path, *extra: str) -> list[str]:
+    """A provision on a machine that `setup` has already prepared."""
+    store = ProfileStore.from_env()
+    if not store.has_broker():
+        store.save_broker(Broker(host="192.0.2.10"))
+    if not store.has_ca_cert():
+        store.save_ca_cert_only(ca.read_text())
     return [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10", "--ca", str(ca),
+        "provision", "--serial", "LR4C123456",
         "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes", *extra,
     ]
 
 
+def _prepared(store: ProfileStore | None = None, *, with_key: bool = False) -> None:
+    """What `whiskerless setup` leaves behind, without running it."""
+    from whiskerless import pki
+
+    store = store or ProfileStore.from_env()
+    if not store.has_broker():
+        store.save_broker(Broker(host="192.0.2.10"))
+    if not store.has_ca_cert():
+        if with_key:
+            store.save_ca(pki.generate_ca())
+        else:
+            store.save_ca_cert_only(CA)
+
+
 def _provisioned(argv: list[str], answer: str | None = None) -> int:
+    _prepared()
     patches = [
         patch("whiskerless.ble.scan", _fake_scan),
         patch("whiskerless.ble.read_device_mac", _fake_mac),
@@ -888,12 +908,13 @@ def test_an_open_network_is_never_asked_for_a_password() -> None:
 
 # --- what the robot gets for an identity --------------------------------------
 def _provision_output(store: ProfileStore, *extra: str) -> str:
+    _prepared(store)
     with (
         patch("whiskerless.ble.scan", _fake_scan),
         patch("whiskerless.ble.read_device_mac", _fake_mac),
         patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
     ):
-        main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+        main(["provision", "--serial", "LR4C123456",
               "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes", *extra])
     return ""
 
@@ -903,9 +924,7 @@ def test_no_ca_key_says_loudly_that_the_broker_must_allow_anonymous(
 ) -> None:
     """Someone who expected mutual TLS and gets an anonymous listener has a broker
     standing open, and now is the only moment that is cheap to discover."""
-    ca = tmp_path / "ca.crt"
-    ca.write_text(CA)
-    _provision_output(store, "--ca", str(ca))
+    _provision_output(store)
     out = capsys.readouterr().out
     assert "NO CA KEY" in out
     assert "MUST therefore accept anonymous clients" in out
@@ -918,9 +937,7 @@ def test_a_ca_we_can_sign_with_means_the_robot_gets_our_identity(
     from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
-    ca = tmp_path / "ca.crt"
-    ca.write_text(CA)
-    _provision_output(store, "--ca", str(ca))
+    _provision_output(store)
     out = capsys.readouterr().out
     assert "NO CA KEY" not in out
     assert "issued by your CA, CN=LR4C123456" in out
@@ -954,18 +971,24 @@ def _ca_files(tmp_path: Path, *, with_key: bool = True) -> tuple[str, str | None
 
 
 def _first_run(store: ProfileStore, answers: list[str], *extra: str) -> None:
+    """Interactive `setup`, then a provision — the order a first-time user takes."""
     it = iter(answers)
     with (
         patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
         patch("sys.stdin.isatty", return_value=True),
         patch("builtins.input", lambda _p="": next(it)),
         patch("whiskerless.cli.getpass.getpass", return_value="pw"),
+    ):
+        main(["setup", "--host", "192.0.2.10", *extra])
+    if not ProfileStore.from_env().has_ca_cert():
+        return  # setup declined or failed; nothing to provision onto
+    with (
         patch("whiskerless.ble.scan", _fake_scan),
         patch("whiskerless.ble.read_device_mac", _fake_mac),
         patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
     ):
-        main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-              "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes", *extra])
+        main(["provision", "--serial", "LR4C123456",
+              "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes"])
 
 
 def test_a_fresh_machine_is_offered_a_certificate_authority(
@@ -1060,8 +1083,7 @@ def test_an_unattended_run_with_no_ca_at_all_explains_the_flags(
         patch("whiskerless.ble.read_device_mac", _fake_mac),
         patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
     ):
-        assert main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes"]) == 1
+        assert main(["setup", "--host", "192.0.2.10"]) == 1
     err = capsys.readouterr().err
     assert "--ca" in err and "run this in a terminal" in err
 
@@ -1072,14 +1094,28 @@ def test_the_issued_certificate_serial_is_recorded(store: ProfileStore) -> None:
     assert store.load("LR4C123456").cert_serial
 
 
-def _flag_run(store: ProfileStore, *extra: str) -> int:
+def _setup_run(*extra: str) -> int:
+    """`whiskerless setup` — this machine, its broker and its certificates."""
+    return main(["setup", "--host", "192.0.2.10", *extra])
+
+
+def _flag_run(store: ProfileStore, *setup_flags: str, provision: tuple[str, ...] = ()) -> int:
+    """`setup` with these flags, then a provision onto the machine it prepared.
+
+    Two commands on purpose: between generating certificates and a robot being
+    able to use them, three files have to reach the broker and it has to restart,
+    and a robot in pairing mode cannot be kept waiting for that.
+    """
+    code = main(["setup", "--host", "192.0.2.10", *setup_flags])
+    if code != 0:
+        return code
     with (
         patch("whiskerless.ble.scan", _fake_scan),
         patch("whiskerless.ble.read_device_mac", _fake_mac),
         patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
     ):
-        return main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes", *extra])
+        return main(["provision", "--serial", "LR4C123456",
+                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes", *provision])
 
 
 def test_a_ca_supplied_by_flag_is_copied_and_can_issue(
@@ -1199,8 +1235,7 @@ def test_input_ending_at_the_authority_question_names_the_flags(
         patch("whiskerless.ble.read_device_mac", _fake_mac),
         patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
     ):
-        assert main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes"]) == 1
+        assert main(["setup", "--host", "192.0.2.10"]) == 1
     assert "--ca" in capsys.readouterr().err
 
 
@@ -1244,26 +1279,6 @@ def test_the_optional_ca_key_question_is_skipped_without_a_terminal() -> None:
 
     with patch("whiskerless.cli.sys.stdin.isatty", lambda: False):
         assert _ask("path: ", None, _readable_path, allow_skip=True) == ""
-
-
-def test_an_aborted_provision_does_not_retarget_the_machine(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    """The broker only becomes the one every other command uses once a robot is
-    actually on it — an abort must not point the whole machine somewhere new."""
-    from whiskerless import pki
-    from whiskerless.profiles import Broker
-
-    store.save_broker(Broker(host="192.0.2.10"))
-    store.save_ca(pki.generate_ca())
-    with (
-        patch("whiskerless.ble.scan", _fake_scan),
-        patch("whiskerless.ble.read_device_mac", _fake_mac),
-        patch("whiskerless.ble.provision_robot", _fake_provision(success=False)),
-    ):
-        main(["provision", "--serial", "LR4C123456", "--host-ip", "10.9.9.9",
-              "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes"])
-    assert store.load_broker().host == "192.0.2.10", "still the broker that works"
 
 
 def test_a_different_ca_is_refused_rather_than_swapped_in(
@@ -1329,6 +1344,7 @@ def test_declining_a_dry_run_is_still_a_decline(
 ) -> None:
     """A script reading the exit code must not be told a run it declined
     succeeded, dry or not."""
+    _prepared(store)
     from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
@@ -1339,7 +1355,44 @@ def test_declining_a_dry_run_is_still_a_decline(
         patch("whiskerless.ble.read_device_mac", _fake_mac),
         patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
     ):
-        code = main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+        code = main(["provision", "--serial", "LR4C123456",
                      "--wifi-ssid", "home", "--wifi-pass", "pw", "--dry-run"])
     assert code == 1
     assert "aborted" in capsys.readouterr().err
+
+
+def test_rerunning_setup_keeps_a_deliberate_insecure_setting(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """An omitted flag means "leave it alone", not "back to the default" — a
+    broker whose certificate does not match its address would start failing."""
+    cert, key = _ca_files(tmp_path)
+    assert _setup_run("--insecure", "--ca", cert, "--ca-key", key) == 0
+    assert store.load_broker().verify_hostname is False
+    assert _setup_run() == 0
+    assert store.load_broker().verify_hostname is False
+
+
+def test_setup_can_change_a_port_without_restating_the_host(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """And without prompting: a scripted run cannot answer a question."""
+    cert, key = _ca_files(tmp_path)
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    with patch("whiskerless.cli.sys.stdin.isatty", lambda: False):
+        assert main(["setup", "--port", "1884"]) == 0
+    saved = store.load_broker()
+    assert (saved.host, saved.port) == ("192.0.2.10", 1884)
+
+
+def test_setup_asks_for_the_broker_when_there_is_nothing_saved(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """The first-ever run has no host to fall back on, so it asks."""
+    cert, key = _ca_files(tmp_path)
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _p="": "192.0.2.77"),
+    ):
+        assert main(["setup", "--ca", cert, "--ca-key", key]) == 0
+    assert store.load_broker().host == "192.0.2.77"

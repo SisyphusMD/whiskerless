@@ -81,6 +81,13 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   shown as such and can still be removed.
 - **A second robot inherits the saved setup** — each prompt offers what your
   robots already share, so you type only the serial and the WiFi password.
+- **`whiskerless setup` is a new command**, run once before any robot. It
+  establishes your broker's address and its certificates, and prints the three
+  files to install on the broker. Deliberately separate from `provision`:
+  between generating those files and a robot being able to use them, somebody has
+  to install them and restart the broker — and a robot in pairing mode is holding
+  a short window open the whole time. `provision` now refuses on a machine that
+  has not been set up, and says so.
 - **whiskerless runs a certificate authority for you.** The Litter-Robot cannot
   send a username or a password — its firmware has no field for one, because it
   was built for AWS IoT, which authenticates clients by certificate. So

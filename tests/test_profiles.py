@@ -482,3 +482,149 @@ def test_a_layout_from_the_future_is_refused(store: ProfileStore) -> None:
     (store.root / ".layout").write_text(f"{LAYOUT_VERSION + 1}\n")
     with pytest.raises(ProfileError, match="newer whiskerless"):
         store.check_layout()
+
+
+def test_a_pre_layout_store_keeps_its_broker_and_its_ca(tmp_path: Path) -> None:
+    """The upgrade that would otherwise strand every robot: before layout 1 the
+    broker and CA lived on each robot, and ignoring them makes the machine look
+    like it has neither — so provisioning would offer a NEW authority, and
+    accepting it leaves every robot trusting a certificate the broker no longer
+    presents."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR
+    robot = legacy / "robots" / "LR4C654321"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text(json.dumps({
+        "serial": "LR4C654321", "host": "192.0.2.10", "port": 8883,
+        "verify_hostname": True, "wifi_ssid": "MyIoT",
+    }))
+    (robot / "ca.pem").write_text(CA)
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    broker = store.load_broker()
+    assert (broker.host, broker.port) == ("192.0.2.10", 8883)
+    assert store.has_ca_cert(), "the certificate the robots already trust"
+    assert store.ca_path.read_text() == CA
+    assert not store.has_ca(), "no key came with it, so nothing can be issued here"
+    assert store.load("LR4C654321").wifi_ssid == "MyIoT"
+
+
+def test_a_root_ca_from_an_even_older_layout_is_adopted(tmp_path: Path) -> None:
+    """A stray ca.crt at the root predates the ca/ directory."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR
+    (legacy / "robots" / "LR4C654321").mkdir(parents=True)
+    (legacy / "robots" / "LR4C654321" / "profile.json").write_text(
+        json.dumps({"serial": "LR4C654321", "host": "192.0.2.10"})
+    )
+    (legacy / "ca.crt").write_text(CA)
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.ca_path.read_text() == CA
+
+
+def test_the_migration_runs_once(tmp_path: Path) -> None:
+    """Stamped afterwards, so a later hand-edit of broker.json is not undone by
+    the next command re-reading a robot's stale copy."""
+    from whiskerless.profiles import LAYOUT_VERSION, LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR
+    (legacy / "robots" / "LR4C654321").mkdir(parents=True)
+    (legacy / "robots" / "LR4C654321" / "profile.json").write_text(
+        json.dumps({"serial": "LR4C654321", "host": "192.0.2.10"})
+    )
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.layout_version() == LAYOUT_VERSION
+    store.save_broker(Broker(host="10.0.0.1"))
+    assert ProfileStore.from_env({"HOME": str(tmp_path)}).load_broker().host == "10.0.0.1"
+
+
+def test_a_pre_layout_store_with_no_robots_migrates_quietly(tmp_path: Path) -> None:
+    """An empty legacy directory has nothing to hoist and must not fail trying."""
+    from whiskerless.profiles import LAYOUT_VERSION, LEGACY_SUBDIR
+
+    (tmp_path / LEGACY_SUBDIR / "robots").mkdir(parents=True)
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.layout_version() == LAYOUT_VERSION
+    assert not store.has_broker()
+
+
+def test_a_pre_layout_profile_that_will_not_parse_loses_only_the_broker(
+    tmp_path: Path,
+) -> None:
+    """A corrupt profile must not take the whole migration down — the CA beside
+    it is still the certificate every robot trusts."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text("{not json")
+    (robot / "ca.pem").write_text(CA)
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert not store.has_broker(), "nothing usable to hoist"
+    assert store.ca_path.read_text() == CA, "but the CA came across"
+
+
+def test_the_default_robot_is_the_one_whose_broker_is_hoisted(tmp_path: Path) -> None:
+    """With several robots, the one marked default is the machine's real broker."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR
+    for serial, host in (("LR4C111111", "10.0.0.1"), ("LR4C222222", "10.0.0.2")):
+        d = legacy / "robots" / serial
+        d.mkdir(parents=True)
+        (d / "profile.json").write_text(json.dumps({"serial": serial, "host": host}))
+    (legacy / "default").write_text("LR4C222222\n")
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.load_broker().host == "10.0.0.2"
+
+
+def test_the_layout_is_not_stamped_if_the_migration_fails(tmp_path: Path) -> None:
+    """A marker written mid-migration would make the next run skip the unfinished
+    work forever — leaving the CA behind, so `setup` generates a replacement that
+    every existing robot refuses."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text(json.dumps({"serial": "LR4C654321", "host": "192.0.2.10"}))
+    (robot / "ca.pem").write_text(CA)
+
+    with (
+        patch.object(ProfileStore, "save_ca_cert_only", side_effect=OSError("disk full")),
+        pytest.raises(OSError),
+    ):
+        ProfileStore.from_env({"HOME": str(tmp_path)})
+
+    # Nothing stamped, so the next run tries again rather than skipping forever.
+    store = ProfileStore(tmp_path / "whiskerless")
+    assert store.layout_version() == 0
+    assert ProfileStore.from_env({"HOME": str(tmp_path)}).ca_path.read_text() == CA
+
+
+def test_a_legacy_profile_of_the_wrong_shape_does_not_break_every_command(
+    tmp_path: Path,
+) -> None:
+    """Migration runs from from_env(), so anything raising here takes the whole
+    CLI down — including `robots`, which is how you would diagnose it."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text("[]")
+    (robot / "ca.pem").write_text(CA)
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert not store.has_broker()
+    assert store.ca_path.read_text() == CA, "the CA still came across"
+
+
+def test_a_legacy_port_that_is_not_a_number_falls_back(tmp_path: Path) -> None:
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text(
+        json.dumps({"serial": "LR4C654321", "host": "192.0.2.10", "port": "eight"})
+    )
+    assert ProfileStore.from_env({"HOME": str(tmp_path)}).load_broker().port == 8883

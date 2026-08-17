@@ -495,6 +495,56 @@ async def _cmd_send(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _cmd_setup(args: argparse.Namespace) -> int:
+    """Prepare this machine: the broker it talks to, and the certificates for it.
+
+    Separate from `provision` on purpose. Between generating certificates and a
+    robot being able to use them, somebody has to install three files on their
+    broker and restart it — and on anything more involved than a local Mosquitto
+    that is minutes, not seconds. A robot sits in pairing mode with a limited
+    window, so doing this in the middle of a provisioning session would spend the
+    window on paperwork and then fail in a way that looks like a broken robot.
+    """
+    store = ProfileStore.from_env()
+    saved = store.load_broker() if store.has_broker() else None
+    if args.host:
+        host = _check_host(args.host)
+    elif saved is not None:
+        # Re-running to change a port must not insist on restating the host, and
+        # must not hang a scripted run on a prompt it cannot answer.
+        host = (
+            _ask("broker IP (e.g. 192.168.1.10): ", None, _check_host, default=saved.host)
+            if sys.stdin.isatty()
+            else saved.host
+        )
+    else:
+        host = _ask("broker IP (e.g. 192.168.1.10): ", None, _check_host)
+    # Each setting falls back to what is already saved, not to the literal
+    # default: re-running plain `setup` must not quietly re-enable hostname
+    # verification for a broker somebody deliberately set --insecure.
+    broker = Broker(
+        host=host,
+        port=args.port or (saved.port if saved else DEFAULT_TLS_PORT),
+        verify_hostname=(
+            not args.insecure
+            if args.insecure is not None
+            else (saved.verify_hostname if saved else True)
+        ),
+    )
+    can_issue = _ensure_pki(args, store, host)
+    store.save_broker(broker)
+
+    print(f"\n  This machine is set up for the broker at {_console.accent(host)}.\n")
+    if not can_issue:
+        print(
+            "  No CA private key here, so robots keep their Whisker certificate and\n"
+            "  your broker's listener must accept anonymous clients.\n"
+        )
+    print(f"  Next: install the files above on your broker, restart it, then\n"
+          f"  {_console.accent('whiskerless provision')} with a robot in pairing mode.\n")
+    return 0
+
+
 async def _cmd_provision(args: argparse.Namespace) -> int:
     from . import ble
 
@@ -520,27 +570,19 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # Every robot here talks to the same broker behind the same CA — a genuinely
     # separate broker is a separate store, reached with WHISKERLESS_HOME.
     store = ProfileStore.from_env()
-    saved = store.load_broker() if store.has_broker() else None
-    if saved is not None and not args.host_ip:
-        host = saved.host
-    else:
-        host = _ask("broker IP (e.g. 192.168.1.10): ", args.host_ip, _check_host)
-    # Each flag laid on independently: --port alone must not be ignored, and
-    # --host-ip alone must not silently reset a port somebody chose.
-    broker = Broker(
-        host=host,
-        port=args.port or (saved.port if saved else DEFAULT_TLS_PORT),
-        verify_hostname=(
-            not args.insecure
-            if args.insecure is not None
-            else (saved.verify_hostname if saved else True)
-        ),
-    )
-    # The CA question comes AFTER the offer to generate one, and disappears
-    # entirely once whiskerless has a CA: the certificate it signs with and the
-    # certificate the robot trusts are the same certificate, so asking again
-    # would be asking someone to re-state what they just agreed to.
-    can_issue = _ensure_pki(args, store, host) and not args.no_client_cert
+    if not store.has_broker() or not store.has_ca_cert():
+        # Deliberately does NOT offer to do it here. Between generating
+        # certificates and a robot being able to use them, three files have to
+        # reach the broker and it has to restart — and the robot is holding a
+        # pairing window open the whole time.
+        raise WhiskerlessError(
+            "this machine is not set up yet — run `whiskerless setup` first. It "
+            "establishes your broker and its certificates, which have to be "
+            "installed on the broker before a robot can reach it"
+        )
+    broker = store.load_broker()
+    host = broker.host
+    can_issue = store.has_ca() and not args.no_client_cert
     # One CA per machine now, established above — so there is nothing left to ask
     # about here. The only way to reach the second branch is an unattended run
     # supplying --ca, which _ensure_pki has already insisted on.
@@ -1338,18 +1380,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="robot serial: the unhyphenated LR4C… label line, not the LR4-…-US model "
         "(prompted if omitted)",
     )
-    p_prov.add_argument("--host-ip", help="broker IP to provision (prompted if omitted)")
-    p_prov.add_argument("--ca", help="path to your CA PEM (prompted if omitted)")
     p_prov.add_argument("--wifi-ssid", help="WiFi SSID (prompted if omitted)")
     p_prov.add_argument("--wifi-pass", default=None, help="WiFi password (prompted securely if omitted)")
     p_prov.add_argument("--address", help="BLE MAC to target directly (skip the picker)")
     p_prov.add_argument("--scan-timeout", type=float, default=15.0)
-    p_prov.add_argument("--port", type=int, default=None, help="broker port (default 8883)")
-    p_prov.add_argument("--insecure", action="store_true", default=None,
-                        help="skip TLS hostname check (CA still verified)")
-    p_prov.add_argument("--ca-key", help="the matching CA private key, so certificates can be issued")
-    p_prov.add_argument("--client-cert", help="this machine's client certificate (if you issue your own)")
-    p_prov.add_argument("--client-key", help="the matching private key for --client-cert")
     p_prov.add_argument(
         "--no-client-cert", action="store_true",
         help="leave the robot's factory identity alone (broker must allow anonymous)",
@@ -1358,6 +1392,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_prov.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_prov.add_argument("--name", help="what to call this robot afterwards, e.g. 'Upstairs'")
     p_prov.set_defaults(func=_cmd_provision)
+
+    p_setup = add_parser("setup", "prepare this machine: your broker and its certificates")
+    p_setup.add_argument("--host", help="broker IP or hostname the robots will publish to")
+    p_setup.add_argument("--port", type=int, default=None, help="broker port (default 8883)")
+    p_setup.add_argument("--insecure", action="store_true", default=None,
+                         help="skip TLS hostname check (CA still verified)")
+    p_setup.add_argument("--ca", help="use this CA certificate instead of generating one")
+    p_setup.add_argument("--ca-key", help="its private key, so robot certificates can be issued")
+    p_setup.add_argument("--client-cert", help="this machine's client certificate, if you issue your own")
+    p_setup.add_argument("--client-key", help="the matching private key for --client-cert")
+    p_setup.set_defaults(func=_cmd_setup)
 
     p_robots = add_parser("robots", "list the robots set up on this machine")
     p_robots.set_defaults(func=_cmd_robots)

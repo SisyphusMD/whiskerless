@@ -416,11 +416,21 @@ def _ble(robots: list[Any], *, result: Any = None, mac: str | None = "aa:bb") ->
 
 
 def _prov_args(tmp_path: Any) -> list[str]:
-    ca = tmp_path / "ca.crt"
-    ca.write_text("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n")
+    """A provision onto a machine `setup` has already prepared.
+
+    The broker and the certificate authority are established by `whiskerless
+    setup`, a separate command — three files have to reach the broker and it has
+    to restart before a robot can use them, and a robot in pairing mode cannot be
+    kept waiting for that.
+    """
+    from whiskerless.profiles import ProfileStore
+
+    store = ProfileStore.from_env()
+    if not store.has_ca_cert():
+        store.save_ca_cert_only("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n")
     return [
-        "provision", "--serial", "LR4C000001", "--host-ip", "192.168.1.10",
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret",
+        "provision", "--serial", "LR4C000001",
+        "--wifi-ssid", "home", "--wifi-pass", "secret",
     ]
 
 
