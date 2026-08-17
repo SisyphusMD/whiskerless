@@ -43,7 +43,17 @@ for f in "$@"; do
   name=$(basename "$f")
   old=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -skf "${auth[@]}" "$api/releases/$id/assets" 2>/dev/null \
     | jq -r ".[] | select(.name==\"$name\") | .id" || true)
-  [ -n "$old" ] && curl --max-time 300 -sk "${auth[@]}" -X DELETE "$api/releases/$id/assets/$old" >/dev/null || true
-  curl --max-time 300 -sSk "${auth[@]}" -X POST "$api/releases/$id/assets?name=$name" -F "attachment=@$f" >/dev/null
+  # Delete-then-upload is a window where the asset does not exist, so the upload
+  # MUST be checked. Without --fail curl exits 0 on an HTTP 4xx/5xx, and a
+  # re-drive of a partial publish would delete the old asset, fail to replace it,
+  # print "uploaded" and finish green — losing the artifact it was re-run to fix.
+  if [ -n "$old" ]; then
+    curl --max-time 300 -sk "${auth[@]}" -X DELETE "$api/releases/$id/assets/$old" >/dev/null || true
+  fi
+  if ! curl --max-time 300 -sSkf "${auth[@]}" \
+      -X POST "$api/releases/$id/assets?name=$name" -F "attachment=@$f" >/dev/null; then
+    echo "failed to upload $name to $host" >&2
+    exit 1
+  fi
   echo "  uploaded $name → $host"
 done

@@ -6,6 +6,11 @@ on:
     tags: ["v*.*.*"]
   pull_request:
     branches: [main]
+  # Forgejo has no rerun API and no equivalent of GitHub's retry-infra-failures
+  # workflow, so without this a transient runner fault — `actions/setup-python`
+  # failing to fetch its versions manifest took all five jobs down on
+  # 2026-08-17 — leaves main red with no way back except an unrelated commit.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

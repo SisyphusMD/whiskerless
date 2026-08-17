@@ -6,13 +6,35 @@ name: Publish
 # the signed .pkg to the GitHub + public-Forgejo releases; the `nas-pkg` job here
 # then bridges that .pkg over to the internal NAS (which GitHub can't reach).
 on:
+  # Dispatchable so a partly-failed publish can be finished without cutting a new
+  # release. rc.27 lost its GitHub assets to a mirror-timing failure and there was
+  # no way to retry the job — the only recovery was another rc. Dispatch with the
+  # tag as the ref; every helper here is idempotent (create-or-reuse, replace
+  # assets), so re-running a partial publish completes it rather than duplicating.
+  workflow_dispatch:
   push:
     tags: ["v*.*.*"]
 
 
 jobs:
+  # Dispatching from `main` would treat "main" as the version: packages named for
+  # it, a wait for a tag that does not exist, and releases called `main` created
+  # on all three hosts. The trigger exists for re-driving a TAG.
+  guard:
+    name: Refuse anything that is not a release tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the ref
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF}" in
+            refs/tags/v*.*.*) echo "publishing ${GITHUB_REF_NAME}" ;;
+            *) echo "::error::${GITHUB_REF} is not a release tag — dispatch this with a v*.*.* tag as the ref" >&2; exit 1 ;;
+          esac
+
   pypi:
     name: Publish to PyPI
+    needs: guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
