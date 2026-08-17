@@ -535,6 +535,7 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
         ),
     )
     can_issue = _ensure_pki(args, store, host)
+    _refresh_server_cert(store, host, can_issue=can_issue)
     store.save_broker(broker)
     # Shown whenever they exist, not only when this run created them. Re-running
     # setup to change a port is a perfectly good moment to be reminded where the
@@ -599,14 +600,11 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     broker = store.load_broker()
     host = broker.host
     can_issue = store.has_ca() and not args.no_client_cert
-    # One CA per machine now, established above — so there is nothing left to ask
-    # about here. The only way to reach the second branch is an unattended run
-    # supplying --ca, which _ensure_pki has already insisted on.
-    ca_pem = (
-        store.ca_path.read_text(encoding="utf-8")
-        if store.has_ca_cert()
-        else _read_pem(args.ca)
-    )
+    # Unconditional: the guard above already refused a machine with no CA on
+    # file, so there is no second case left. There used to be a fallback here
+    # reading `--ca`, which `provision` no longer has — unreachable, and an
+    # AttributeError the day something made it reachable.
+    ca_pem = store.ca_path.read_text(encoding="utf-8")
     # Deliberately NOT asked here when there is a human to ask later. The robot
     # can list the networks IT can see, and asking before the BLE link is open
     # means asking someone to name a network from memory — which is how a robot
@@ -874,6 +872,42 @@ def _ensure_pki(args: argparse.Namespace, store: ProfileStore, host: str) -> boo
         store.client_identity()
     _report_pki(store, broker)
     return True
+
+
+def _refresh_server_cert(store: ProfileStore, host: str, *, can_issue: bool) -> None:
+    """Reissue the broker's certificate when it no longer names the broker.
+
+    Moving the broker used to leave the old certificate in place while
+    `broker.json` moved on, and then `setup` printed those same three files and
+    said to install them — so the robot would be handed a certificate whose SAN
+    names an address it is not connecting to, and fail hostname verification at
+    every handshake. It is named for its host (the CN *is* the host), so a
+    mismatch is unambiguous.
+
+    Only when a certificate is already on file: minting the first one for
+    somebody who brought their own CA is a separate question (backlog #72), and
+    deciding it silently here is not the place.
+    """
+    existing = store.broker_dir / "server.crt"
+    if not existing.is_file():
+        return
+    try:
+        named = pki.certificate_common_name(existing.read_text(encoding="utf-8"))
+    except (OSError, WhiskerlessError):
+        named = None
+    if named == host:
+        return
+    if not can_issue:
+        print(
+            f"  ! {existing} is for {named or 'another host'}, not {host} — it cannot be\n"
+            f"    reissued without a CA private key here, so replace it yourself before\n"
+            f"    restarting your broker.",
+            file=sys.stderr,
+        )
+        return
+    store.save_broker_certs(pki.issue_server(store.load_ca(), host))
+    print(f"  reissued the broker certificate for {_console.accent(host)} "
+          f"(it named {named or 'another host'})")
 
 
 def _import_ca(store: ProfileStore) -> bool:

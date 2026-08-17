@@ -470,11 +470,29 @@ gate the feature, because recovery no longer depends on it.
 Until then the anonymous listener stands, and [setup/mqtt-broker.md](setup/mqtt-broker.md)
 says why.
 
-### #71 — Prove the certificate flow on real hardware, then cut the rc
+### #71 — Cut an rc, then prove the certificate flow on real hardware with it
 
 **Nothing in the certificate work has touched a robot.** It is verified against
 fakes and one decoded capture, and both suites are green, but the identity write
-has never gone over BLE to a real LR4. That is the gate before an rc.
+has never gone over BLE to a real LR4.
+
+**The rc comes first, decided 2026-08-16.** An earlier draft of this item called
+the hardware test the gate *before* cutting one, which had it backwards: a
+release candidate is the thing you install in order to run the test.
+`prerelease.yml` says as much in its own header — tag-only, never "latest", only
+offered by HACS to somebody who opted into beta. The gate it guards is the
+**stable** cut, and that gate stands.
+
+Nothing in the certificate work reaches the running Home Assistant integration,
+which is what makes installing an rc on a live system safe here. Stated
+precisely, because the loose version of this claim is false: the integration
+imports `WhiskerlessError`, `whiskerless.safety` and the Litter-Robot 4 device
+modules, and importing any of them executes `whiskerless/__init__.py`, which
+does pull in `MqttSettings`. What it never does is *construct* one, open a
+broker connection, or touch `profiles`, `pki` or `backup` — it rides Home
+Assistant's own MQTT integration. The certificate rework lives entirely in the
+CLI's path, and `grep -rn "profiles\|pki\|backup" custom_components/` returning
+nothing is the check.
 
 **State of the two robots as of 2026-08-16:** upstairs is on **Whisker's cloud**
 (left there by the app-onboarding capture); downstairs is on the local broker at

@@ -8,6 +8,7 @@ restored into.
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import tarfile
@@ -211,6 +212,20 @@ def test_a_damaged_header_is_explained_not_traced(meta: dict[str, object], expec
     raw = backup.MAGIC + json.dumps(meta).encode() + b"\nciphertext"
     with pytest.raises(WhiskerlessError, match=expected):
         backup.read(raw, password="x")
+
+
+def test_a_nonce_of_the_wrong_length_is_a_message_not_a_traceback(store: Path) -> None:
+    """The other shape of "this file is damaged": a short nonce is valid base64
+    and derives a key quite happily, then raises ValueError inside the cipher
+    rather than failing the tag — and ValueError is not something `main()`
+    turns into one line."""
+    sealed = backup.create(store, password="x")
+    line, _, rest = sealed[len(backup.MAGIC) :].partition(b"\n")
+    meta = json.loads(line)
+    meta["nonce"] = base64.b64encode(b"tooshort").decode()
+    damaged = backup.MAGIC + json.dumps(meta, sort_keys=True).encode() + b"\n" + rest
+    with pytest.raises(WhiskerlessError, match="could not decrypt"):
+        backup.read(damaged, password="x")
 
 
 def test_a_header_that_is_not_an_object_is_explained() -> None:

@@ -31,7 +31,7 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
 - **One broker per machine.** The broker, its port and its CA moved off each
   robot and into the store, because every robot in a house talks to the same one.
   `--host`, `--port`, `--ca` and `--insecure` are gone from the everyday commands
-  and live on `provision`, which is where the broker is established. A genuinely
+  and live on `setup`, which is where the broker is established. A genuinely
   separate broker is a separate store: point `WHISKERLESS_HOME` at it.
 - **`whiskerless adopt` is removed.** With the broker no longer per-robot it only
   recorded a serial, and it could never give the robot the certificate it now

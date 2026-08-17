@@ -1412,6 +1412,69 @@ def test_setup_that_generates_points_at_the_files_it_made(
     assert "install the files above" in out
 
 
+def test_moving_the_broker_reissues_its_certificate(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The certificate is bound to the address, so `broker.json` moving on while
+    it stayed put handed the robot a SAN naming somewhere it does not connect —
+    a handshake that fails every time and looks exactly like a broken robot.
+    Worse, `setup` then printed those same three files and said to install them."""
+    from whiskerless import pki
+
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _p="": ""),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+    first = (store.broker_dir / "server.crt").read_text()
+    assert pki.certificate_common_name(first) == "192.0.2.10"
+
+    assert main(["setup", "--host", "192.0.2.99"]) == 0
+    reissued = (store.broker_dir / "server.crt").read_text()
+    assert pki.certificate_common_name(reissued) == "192.0.2.99"
+    assert "reissued the broker certificate" in capsys.readouterr().out
+
+
+def test_the_same_broker_keeps_the_certificate_it_already_has(store: ProfileStore) -> None:
+    """Re-running setup to change a port must not churn a certificate somebody
+    has already installed on their broker."""
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _p="": ""),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+    before = (store.broker_dir / "server.crt").read_text()
+    assert main(["setup", "--host", "192.0.2.10", "--port", "9883"]) == 0
+    assert (store.broker_dir / "server.crt").read_text() == before
+
+
+def test_a_moved_broker_with_no_signing_key_is_told_to_replace_it(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing here can reissue it, and silently printing the stale one as a file
+    to install is the failure this guard exists to prevent."""
+    from whiskerless import pki
+
+    ca = pki.generate_ca()
+    store.save_ca_cert_only(ca.cert_pem)
+    store.save_broker_certs(pki.issue_server(ca, "192.0.2.10"))
+    assert main(["setup", "--host", "192.0.2.99"]) == 0
+    assert "not 192.0.2.99" in capsys.readouterr().err
+
+
+def test_a_broker_certificate_that_cannot_be_read_is_reissued(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _p="": ""),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+    (store.broker_dir / "server.crt").write_text("not a certificate")
+    assert main(["setup", "--host", "192.0.2.10"]) == 0
+    assert "reissued the broker certificate" in capsys.readouterr().out
+
+
 def test_setup_that_imports_a_ca_does_not_point_at_files_it_did_not_make(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

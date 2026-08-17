@@ -99,8 +99,10 @@ sign the other's.
 The same reasoning removed `--host`, `--port`, `--ca` and `--insecure` from the
 everyday commands. Under mutual TLS a one-off `--host` would still present this
 store's CA and this machine's client certificate, so it could only ever produce a
-confusing TLS failure. They survive on `provision`, which is where the broker is
-established.
+confusing TLS failure. They survive on `setup`, which is where the broker is
+established — and moving the broker there reissues its server certificate,
+because a certificate whose SAN names the old address fails every handshake the
+robot attempts and looks exactly like a broken robot.
 
 `.layout` is the **only** version marker. An earlier design also stamped a format
 version inside each `profile.json`; both were kept briefly and that was a mistake —

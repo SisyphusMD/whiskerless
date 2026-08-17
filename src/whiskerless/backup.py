@@ -281,10 +281,13 @@ def _decrypt(raw: bytes, password: str) -> bytes:
         raise WhiskerlessError(f"this backup's header is damaged: {exc}") from exc
     try:
         return AESGCM(key).decrypt(nonce, ciphertext, line + b"\n")
-    except InvalidTag:
-        # GCM cannot tell the two apart, and neither should the message — a
-        # confident "wrong password" for a corrupted file sends somebody hunting
-        # through a password manager for something that would not have worked.
+    except (InvalidTag, ValueError):
+        # GCM cannot tell a wrong password from a corrupted file apart, and
+        # neither should the message — a confident "wrong password" for a damaged
+        # file sends somebody hunting through a password manager for something
+        # that would never have worked. ValueError is the other shape of the same
+        # answer: a nonce of the wrong length is valid base64 and derives a key
+        # quite happily, then fails inside the cipher rather than at the tag.
         raise WhiskerlessError(
             "could not decrypt this backup — wrong password, or the file is damaged"
         ) from None
