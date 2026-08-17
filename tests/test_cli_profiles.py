@@ -1462,17 +1462,24 @@ def test_a_moved_broker_with_no_signing_key_is_told_to_replace_it(
     assert "not 192.0.2.99" in capsys.readouterr().err
 
 
-def test_a_broker_certificate_that_cannot_be_read_is_reissued(
+def test_a_broker_certificate_that_cannot_be_read_is_reported_not_replaced(
     store: ProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Unparseable means unprovable, and the rule is that only a certificate
+    chaining to OUR CA is ever overwritten. Deleting a private key on the
+    strength of "this did not parse" is not a trade worth making — so it is
+    reported and left, and setup stops recommending it."""
     with (
         patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
         patch("builtins.input", lambda _p="": ""),
     ):
         assert main(["setup", "--host", "192.0.2.10"]) == 0
+    capsys.readouterr()  # discard the first run: it legitimately says "install the files above"
     (store.broker_dir / "server.crt").write_text("not a certificate")
     assert main(["setup", "--host", "192.0.2.10"]) == 0
-    assert "reissued the broker certificate" in capsys.readouterr().out
+    out = capsys.readouterr()
+    assert "is not signed by the CA" in out.err
+    assert "install the files above" not in out.out
 
 
 def test_setup_that_imports_a_ca_does_not_point_at_files_it_did_not_make(
@@ -1485,3 +1492,119 @@ def test_setup_that_imports_a_ca_does_not_point_at_files_it_did_not_make(
     out = capsys.readouterr().out
     assert "install the files above" not in out
     assert "signed by this CA" in out
+
+
+def test_bringing_your_own_ca_and_key_also_gets_a_broker_certificate(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Backlog #72. Handing over the signing key gives whiskerless everything it
+    needs to issue the broker's certificate; it used to file the pair, mint this
+    machine's identity, and then tell you to make sure your broker presents a
+    certificate signed by that CA — with the thing that could sign it sitting
+    right there."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path, with_key=True)
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
+    issued = store.broker_dir / "server.crt"
+    assert issued.is_file(), "the broker certificate should have been issued"
+    assert pki.certificate_common_name(issued.read_text()) == "192.0.2.10"
+    out = capsys.readouterr().out
+    assert "cafile" in out, "and setup should now point at all three files"
+
+
+def test_a_server_certificate_you_placed_yourself_is_never_overwritten(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Only the ABSENT case is filled in. Somebody with their own issuance
+    process may have put the real one there already — and as long as it names
+    this broker, it is theirs to keep. (An UNREADABLE one is reissued instead;
+    that is a different test, and deliberate.)"""
+    from whiskerless import pki
+
+    # ONE call: _ca_files mints a fresh CA each time, so calling it twice would
+    # sign the fixture with a CA that is never imported — which the code now
+    # correctly refuses to leave in place.
+    cert, key = _ca_files(tmp_path, with_key=True)
+    assert key is not None
+    theirs = pki.issue_server(pki.read_pair(Path(cert), Path(key)), "192.0.2.10")
+    store.save_broker_certs(theirs)
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
+    assert (store.broker_dir / "server.crt").read_text() == theirs.cert_pem
+
+
+def test_a_broker_certificate_from_a_foreign_ca_is_never_overwritten(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The worst shape of wrong — right host, right filename, fails every
+    handshake because the robots hold a different CA. It is REPORTED, not
+    replaced: proving a chain is harder than it looks (an intermediate, or an
+    RSASSA-PSS signature, reads as "not ours"), and a false negative that
+    overwrites would destroy somebody's certificate and its private key."""
+    from whiskerless import pki
+
+    stranger = pki.issue_server(pki.generate_ca("not yours"), "192.0.2.10")
+    store.save_broker_certs(stranger)
+    cert, key = _ca_files(tmp_path, with_key=True)
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
+    assert (store.broker_dir / "server.crt").read_text() == stranger.cert_pem
+    out = capsys.readouterr()
+    assert "will not overwrite a certificate it did not issue" in out.err
+    assert "install the files above" not in out.out
+
+
+def test_a_wrong_ca_broker_certificate_is_called_out_when_it_cannot_be_reissued(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    store.save_broker_certs(pki.issue_server(pki.generate_ca("not yours"), "192.0.2.10"))
+    cert, _ = _ca_files(tmp_path, with_key=False)
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert]) == 0
+    assert "cannot verify a broker" in capsys.readouterr().err
+
+
+def test_an_unreadable_broker_certificate_file_does_not_crash_setup(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """The chain check reads the file a second time; a read that fails there must
+    not take down a command that was only deciding whether to reissue."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path, with_key=True)
+    assert key is not None
+    store.save_broker_certs(pki.issue_server(pki.read_pair(Path(cert), Path(key)), "192.0.2.10"))
+    real = Path.read_text
+    calls: list[int] = []
+
+    def flaky(self: Path, *a: object, **kw: object) -> str:
+        # Fail only the chain-check read of server.crt, not the CN read before it.
+        if self.name == "server.crt":
+            calls.append(1)
+            if len(calls) > 1:
+                raise OSError(5, "Input/output error")
+        return real(self, *a, **kw)  # type: ignore[arg-type]
+
+    with patch.object(Path, "read_text", flaky):
+        assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
+
+
+def test_a_broker_certificate_that_vanishes_mid_check_is_not_treated_as_usable(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """`is_file()` then `read_text()` is a check-then-use; if the read fails the
+    answer must be "not usable", never "fine"."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path, with_key=True)
+    assert key is not None
+    store.save_broker_certs(pki.issue_server(pki.read_pair(Path(cert), Path(key)), "192.0.2.10"))
+    real = Path.read_text
+
+    def vanish(self: Path, *a: object, **kw: object) -> str:
+        if self.name == "server.crt":
+            raise OSError(2, "No such file or directory")
+        return real(self, *a, **kw)  # type: ignore[arg-type]
+
+    with patch.object(Path, "read_text", vanish):
+        assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0

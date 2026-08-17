@@ -207,7 +207,7 @@ jobs:
           # the limit to 5,000/hour. Absent, the script still works, just slowly.
           # This job still holds no WRITE credential, which is the property that
           # matters: it cannot push anything.
-          MIRROR_CI_TOKEN: ${{ secrets.GH_READ_PAT }}
+          MIRROR_CI_TOKEN: ${{ secrets.GH_REPO_READ_PAT }}
         run: bash packaging/check-mirror-ci.sh "${{ github.sha }}"
 
   tag:

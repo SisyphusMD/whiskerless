@@ -37,8 +37,8 @@ and bridges.
    build the Homebrew formula on a Mac — and that build is the one that broke
    silently for a whole release candidate (`cryptography`'s Rust extension,
    stripped by cargo into a Mach-O dyld refuses; the Linux smoke passed
-   throughout). `mirror-gate` therefore blocks `tag` until **`CI (macOS)` is green
-   on GitHub for the commit the release is cut from** — see
+   throughout). `mirror-gate` therefore blocks `tag` until **`Homebrew formula (macOS)` is
+   green on GitHub for the commit the release is cut from** — see
    `packaging/check-mirror-ci.sh`. Note "cut from", not "tagged": the tag job
    stamps version strings and commits, so the tagged tree is a *child* of the
    gated SHA, and for a prerelease that child is never pushed to a branch at all,
@@ -58,7 +58,7 @@ and bridges.
    waiting on. Split out, each commit's verdict stands on its own and survives
    whatever lands after it, so pushing during a release is safe again.
 
-   **Add `GH_READ_PAT` if the gate starts timing out.** Unauthenticated GitHub
+   **Add `GH_REPO_READ_PAT` if the gate starts timing out.** Unauthenticated GitHub
    allows 60 API requests an hour *per IP*, shared with everything else leaving
    this network — exhaust it and the gate polls uselessly and then fails a
    release that was never broken (seen 2026-08-17). A token with **no scopes at
@@ -171,7 +171,7 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `CLUSTER_FORGEJO_REPO_WRITE_PAT` | Forgejo PAT, repo write (push the release commit/tag + create/append the Forgejo release). You already use this on `archiver`. |
 | `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release + receive the bridged `.pkg`). |
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write (Forgejo creates the GitHub release with it). Same PAT used as the GitHub push-mirror password. |
-| `GH_READ_PAT` | **Optional.** GitHub PAT with **no scopes** — read-only public data, used solely by `mirror-gate` to escape the 60-request/hour unauthenticated limit. Absent, the gate still works and just polls slowly. |
+| `GH_REPO_READ_PAT` | **Optional.** GitHub PAT with **no scopes** — read-only public data, used solely by `mirror-gate` to escape the 60-request/hour unauthenticated limit. Absent, the gate still works and just polls slowly. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`). OIDC trusted publishing isn't available on Forgejo, so this is a token. Scope it to the project once it exists. |
 | `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. |
 

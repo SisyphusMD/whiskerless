@@ -36,8 +36,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cryptography import x509
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from .exceptions import WhiskerlessError
@@ -223,6 +224,34 @@ def certificate_common_name(cert_pem: str) -> str | None:
     value = names[0].value if names else None
     return value if isinstance(value, str) else None
 
+
+
+def is_signed_by(cert_pem: str, ca_cert_pem: str) -> bool:
+    """Whether ``cert_pem`` was actually signed by ``ca_cert_pem``.
+
+    A broker certificate that does not chain to the CA the robots were given is
+    the worst shape of wrong: it installs cleanly, looks right in a listing, and
+    then fails every TLS handshake — which is indistinguishable from a dead
+    robot. Cheap to check, and only checkable here.
+    """
+    try:
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        ca = x509.load_pem_x509_certificate(ca_cert_pem.encode())
+    except ValueError:
+        return False
+    public = ca.public_key()
+    if not isinstance(public, rsa.RSAPublicKey) or cert.signature_hash_algorithm is None:
+        return False
+    try:
+        public.verify(
+            cert.signature,
+            cert.tbs_certificate_bytes,
+            padding.PKCS1v15(),
+            cert.signature_hash_algorithm,
+        )
+    except InvalidSignature:
+        return False
+    return True
 
 def check_pair(pair: KeyPair) -> None:
     """Refuse a certificate and key that do not belong together.

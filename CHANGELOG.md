@@ -160,6 +160,19 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
 
 ### Fixed
 
+- **`whiskerless setup` no longer dies on a machine with a long hostname.** The
+  certificate it issues for this machine is named `whiskerless-<hostname>`, and
+  X.509 caps a common name at 64 **bytes** — so a long enough hostname made
+  `cryptography` raise and took the whole command down with a traceback. Names
+  are now truncated on a character boundary; the full name still goes in the
+  SAN, which is what TLS actually verifies.
+- **Moving your broker reissues its certificate.** `setup --host <new>` used to
+  record the new address while leaving the old certificate in place, then print
+  those same files and tell you to install them — handing the robot a
+  certificate naming somewhere it does not connect, which fails every handshake
+  and looks exactly like a broken robot. It is reissued when the host changes,
+  and says so; without a CA key to sign with, it tells you to replace it
+  yourself instead of staying quiet.
 - **Provisioning stops scanning the moment it finds your robot.** It used to run
   the whole `--scan-timeout` even after the robot answered — and since a robot
   only advertises while you hold Connect, that *spent* the pairing window instead

@@ -284,3 +284,27 @@ def test_an_encrypted_private_key_says_so(ca: pki.KeyPair) -> None:
     ).decode()
     with pytest.raises(WhiskerlessError, match="encrypted private key"):
         pki.check_pair(pki.KeyPair(cert_pem=ca.cert_pem, key_pem=locked))
+
+
+def test_a_non_rsa_authority_cannot_vouch_for_anything(ca: pki.KeyPair) -> None:
+    """Everything this project issues is RSA, but `is_signed_by` is handed
+    whatever is on disk — including a CA somebody generated elsewhere on a curve.
+    It answers "no" rather than raising into a command that was only asking a
+    question."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    key = ed25519.Ed25519PrivateKey.generate()
+    now = __import__("datetime").datetime.now(__import__("datetime").UTC)
+    curve_ca = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([]))
+        .issuer_name(x509.Name([]))
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + __import__("datetime").timedelta(days=1))
+        .sign(key, None)
+    )
+    pem = curve_ca.public_bytes(serialization.Encoding.PEM).decode()
+    assert pki.is_signed_by(pki.issue_server(ca, "192.0.2.10").cert_pem, pem) is False

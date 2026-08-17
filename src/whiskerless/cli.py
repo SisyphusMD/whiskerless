@@ -535,12 +535,16 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
         ),
     )
     can_issue = _ensure_pki(args, store, host)
-    _refresh_server_cert(store, host, can_issue=can_issue)
+    # Usable, not merely present: a certificate we just warned about — foreign CA,
+    # or the wrong host with no key to reissue — must not then be recommended.
+    # Printing "install the files above" under a warning that they cannot work is
+    # how somebody restarts their broker into a listener no robot can verify.
+    serving = _refresh_server_cert(store, host, can_issue=can_issue)
     store.save_broker(broker)
     # Shown whenever they exist, not only when this run created them. Re-running
     # setup to change a port is a perfectly good moment to be reminded where the
     # broker's files are, and it keeps "the files above" honest either way.
-    made_files = (store.broker_dir / "server.crt").is_file()
+    made_files = serving and (store.broker_dir / "server.crt").is_file()
     if made_files:
         _report_files(store)
 
@@ -556,6 +560,9 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
     if made_files:
         print("  Next: install the files above on your broker and restart it, then\n"
               f"  {_console.accent('whiskerless provision')} with a robot in pairing mode.\n")
+    elif (store.broker_dir / "server.crt").is_file():
+        print("  Fix the broker certificate above first — a robot provisioned now would\n"
+              "  fail every handshake against it.\n")
     else:
         print(f"  Make sure your broker presents a certificate signed by this CA, then\n"
               f"  {_console.accent('whiskerless provision')} with a robot in pairing mode.\n")
@@ -874,29 +881,57 @@ def _ensure_pki(args: argparse.Namespace, store: ProfileStore, host: str) -> boo
     return True
 
 
-def _refresh_server_cert(store: ProfileStore, host: str, *, can_issue: bool) -> None:
-    """Reissue the broker's certificate when it no longer names the broker.
+def _refresh_server_cert(store: ProfileStore, host: str, *, can_issue: bool) -> bool:
+    """Keep the broker's certificate matching the broker. Returns whether it is usable.
 
-    Moving the broker used to leave the old certificate in place while
-    `broker.json` moved on, and then `setup` printed those same three files and
-    said to install them — so the robot would be handed a certificate whose SAN
-    names an address it is not connecting to, and fail hostname verification at
-    every handshake. It is named for its host (the CN *is* the host), so a
-    mismatch is unambiguous.
+    Two ways it can be wrong, and both look perfectly fine on disk while failing
+    every handshake: named for an address the robot does not connect to, or
+    signed by a CA the robots were never given.
 
-    Only when a certificate is already on file: minting the first one for
-    somebody who brought their own CA is a separate question (backlog #72), and
-    deciding it silently here is not the place.
+    **Only a certificate that chains to OUR CA is ever overwritten.** That is the
+    line, and it is deliberate: proving a chain is harder than it looks — an
+    intermediate, or an RSASSA-PSS signature, reads as "not ours" to a check this
+    simple. A false negative that only warns costs a confusing message; one that
+    overwrites destroys somebody's certificate *and its private key*. So a
+    foreign certificate is reported and left alone, always.
+
+    Mints the first one when this machine can sign and none exists — the case
+    somebody who brought their own CA *and* its key used to land in, told to make
+    sure their broker presents a certificate signed by that CA while the thing
+    that could sign it sat right there (backlog #72).
     """
     existing = store.broker_dir / "server.crt"
     if not existing.is_file():
-        return
+        if can_issue:
+            broker = store.save_broker_certs(pki.issue_server(store.load_ca(), host))
+            print(f"  issued your broker's certificate for {_console.accent(host)} "
+                  f"in {broker}")
+            return True
+        return False
     try:
-        named = pki.certificate_common_name(existing.read_text(encoding="utf-8"))
-    except (OSError, WhiskerlessError):
+        pem = existing.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    try:
+        named = pki.certificate_common_name(pem)
+    except WhiskerlessError:
         named = None
+    ours = store.ca_path.read_text(encoding="utf-8") if store.has_ca_cert() else ""
+    chains = bool(ours) and pki.is_signed_by(pem, ours)
+
+    if not chains:
+        # Not ours to replace. Say what is wrong and stop — the alternative is
+        # deleting a private key on the strength of a heuristic.
+        print(
+            f"  ! {existing} is not signed by the CA in {store.ca_path}.\n"
+            f"    The robots are given that CA, so they cannot verify a broker\n"
+            f"    presenting this. Replace it with one your CA signed — whiskerless\n"
+            f"    will not overwrite a certificate it did not issue.",
+            file=sys.stderr,
+        )
+        return False
     if named == host:
-        return
+        return True
     if not can_issue:
         print(
             f"  ! {existing} is for {named or 'another host'}, not {host} — it cannot be\n"
@@ -904,10 +939,11 @@ def _refresh_server_cert(store: ProfileStore, host: str, *, can_issue: bool) -> 
             f"    restarting your broker.",
             file=sys.stderr,
         )
-        return
+        return False
     store.save_broker_certs(pki.issue_server(store.load_ca(), host))
     print(f"  reissued the broker certificate for {_console.accent(host)} "
           f"(it named {named or 'another host'})")
+    return True
 
 
 def _import_ca(store: ProfileStore) -> bool:

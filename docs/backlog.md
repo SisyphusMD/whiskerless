@@ -127,7 +127,7 @@ costs nothing to maintain as macOS versions roll.
 Until then the `.pkg`, `.deb`/`.rpm` and PyPI paths are all wheel-based and cost
 nothing, so Homebrew is the only expensive route.
 
-### #72 — `setup --ca --ca-key` files the CA but never issues the broker's server cert
+### #72 — `setup --ca --ca-key` files the CA but never issues the broker's server cert — *DONE 2026-08-17*
 
 Bringing your own CA *and* its key gives whiskerless everything it needs to issue
 the broker's server certificate, and it does not: `_ensure_pki()` saves the pair,
@@ -142,6 +142,12 @@ would not want a stray leaf minted for them, and issuing one silently overwrites
 `broker/server.*` if they had already put their own there. A prompt ("issue your
 broker's certificate too?") splits the difference. Noticed while writing
 `restore`, which has to know whether those files exist before pointing at them.
+
+**Done 2026-08-17.** `_refresh_server_cert()` now mints the first certificate
+when this machine can sign and none exists, alongside reissuing one that names
+the wrong host. Only ever when the file is **absent**, so a valid certificate
+somebody placed themselves survives — an *unreadable* one is still reissued,
+which is a different case and deliberate.
 
 ### #13 — Confirm the empty and power writes on hardware — *POWER DONE 2026-08-16; empty still blocked (costs a litter refill)*
 
