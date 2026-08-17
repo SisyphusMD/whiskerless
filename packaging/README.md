@@ -236,19 +236,53 @@ only helps once `0.2.0` exists — until then the newest thing in the repository
 **both** — leaving it out of `testing` would strand testers on the last rc, and
 pruning that rc would then take the package away from them entirely.
 
-**Who signs what, and why both matter.** apt authenticates the repository index,
-which **Forgejo** signs with its own key; it does not check the `_gpgorigin`
-member nfpm embeds. dnf checks the `.rpm`'s own signature, which is **ours**
-(`4BBACD5A6FF38564`) — Forgejo stores and serves the uploaded bytes unmodified, so
-our signature survives intact. Note that Forgejo generates a **separate key per
-registry type**: `debian/repository.key` and `rpm/repository.key` are different
-keys.
+**Who signs what.** The two ecosystems authenticate different things, and that
+asymmetry is theirs, not a choice made here:
 
-**Do not hand users the `.repo` file Forgejo generates.** It sets `gpgcheck=1`
-with only Forgejo's RPM key, which cannot verify a package we signed — `dnf
-install` then fails with `GPG check FAILED` (reproduced). The README ships a
-stanza listing both keys instead: Forgejo's for `repo_gpgcheck`, ours for
-`gpgcheck`.
+- **apt authenticates the repository index**, which **Forgejo** signs with its own
+  Debian key. It does not check the `_gpgorigin` member nfpm embeds — proven by
+  installing our signed `.deb` with only Forgejo's key imported. So on the apt
+  side our signature is inert, and Forgejo's key is unavoidable: there is no API
+  to make the registry sign the index with a key of ours, and substituting one
+  would mean hand-writing a private key into a plaintext database column.
+- **dnf authenticates the package**, and that signature is **ours**
+  (`4BBACD5A6FF38564`). Forgejo stores and serves the uploaded bytes unmodified,
+  so it survives intact.
+
+Forgejo generates a **separate key per registry type**: `debian/repository.key`
+and `rpm/repository.key` are different keys.
+
+**Forgejo can sign RPMs itself** — `PUT …/rpm/{group}/upload?sign=true`, or the
+`DEFAULT_RPM_SIGN_ENABLED` server setting (verified: the file grows, and `rpm -K`
+then wants Forgejo's key). Deliberately not used. It would replace the anchor we
+control with one living in plaintext on the machine that serves the packages, and
+it would make the registry copy of a release differ from the identical-looking
+file on the release page.
+
+**The dnf config ships in this repository** (`whiskerless.repo`,
+`whiskerless-testing.repo`) rather than pointing users at the one Forgejo
+generates, and it lists **only our key**. Both halves matter, and both were
+checked against the live registry:
+
+| `gpgkey=` contains | a package signed only by Forgejo's key |
+|---|---|
+| ours + Forgejo's | **installs** |
+| ours alone | `GPG check FAILED` |
+
+dnf accepts a package signed by *any* key in `gpgkey`, so listing Forgejo's
+"as well, to be safe" would make a compromise of that single host enough to
+install arbitrary code on every subscriber.
+
+**zypper cannot use the repository**, and that is why openSUSE is documented as a
+single-file install. It verifies the repository index even with
+`repo_gpgcheck=0` — checked, it fails with `Signature verification failed for
+repomd.xml` — so the only way to satisfy it is to trust Forgejo's key, which puts
+that key in the rpm keyring and lets a Forgejo-signed package pass `pkg_gpgcheck`
+too. Same weakness as listing it under `gpgkey`, arrived at by a different route. `repo_gpgcheck` is therefore `0`: it
+would check the index against a key stored on the very host it defends against,
+which buys little and costs the property above. Nothing can be *installed*
+without our key; the residual gap is that a compromised host could withhold an
+update rather than forge one.
 
 The one-time key import cannot be automated away — apt will not install a package
 to obtain the key it needs to trust that package. A Chrome-style self-registering

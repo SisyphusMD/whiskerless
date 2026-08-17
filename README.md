@@ -228,32 +228,36 @@ last candidate.
 **Fedora, RHEL** — a dnf repository:
 
 ```bash
-sudo tee /etc/yum.repos.d/whiskerless.repo >/dev/null <<'EOF'
-[whiskerless]
-name=whiskerless
-baseurl=https://forgejo.bryantserver.com/api/packages/SisyphusMD/rpm/stable
-enabled=1
-gpgcheck=1
-repo_gpgcheck=1
-gpgkey=https://forgejo.bryantserver.com/api/packages/SisyphusMD/rpm/repository.key
-       https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless-signing-key.asc
-EOF
+sudo dnf config-manager --add-repo \
+  https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless.repo
 
 sudo dnf install whiskerless
 ```
 
-**Both keys are required, and they sign different things.** The first signs the
-repository index (`repo_gpgcheck`); the second is ours — `4BBACD5A6FF38564` — and
-signs the `.rpm` itself (`gpgcheck`). Do **not** use
-`dnf config-manager --add-repo …/rpm/stable.repo`: the file Forgejo generates
-lists only its own key, and the install then fails with `GPG check FAILED`,
-because nothing in it can verify a package we signed.
+(`whiskerless-testing.repo` in place of `whiskerless.repo` tracks release
+candidates. On dnf4, `--add-repo` is the same flag; on dnf5 it is
+`dnf config-manager addrepo --from-repofile=<url>`.)
 
-Again, `testing` in place of `stable` tracks release candidates.
+That file pins **our** signing key, `4BBACD5A6FF38564`, and dnf verifies every
+package against it on every install. Do **not** substitute the `.repo` file
+Forgejo generates at `…/rpm/stable.repo`: it names Forgejo's own key, which
+cannot verify a package we signed, so the install fails with `GPG check FAILED`.
+Adding that key alongside ours "to be safe" is worse still — dnf accepts a package
+signed by *any* listed key, which would let the machine hosting the packages sign
+its own.
 
-**openSUSE:** the same repository — `sudo zypper addrepo -G
-https://forgejo.bryantserver.com/api/packages/SisyphusMD/rpm/stable whiskerless`,
-then `sudo rpm --import` both keys above before `sudo zypper install whiskerless`.
+**openSUSE:** the same repository —
+
+```bash
+sudo rpm --import https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless-signing-key.asc
+sudo zypper install ./whiskerless-<version>.x86_64.rpm
+```
+
+**The repository is apt and dnf only.** zypper insists on verifying the
+repository index even with `repo_gpgcheck=0` (checked — it fails with `Signature
+verification failed for repomd.xml`), and the key that would satisfy it is
+Forgejo's, which we deliberately do not ask you to trust. Downloading the `.rpm`
+and verifying it against our key is the same guarantee without that trade.
 
 **A single file instead** — every `.deb` and `.rpm` is also attached to each
 release, if you would rather not point a package manager at another host:

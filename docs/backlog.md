@@ -181,7 +181,20 @@ Findings that are worth keeping, all established against the live registry:
   `gpgcheck` verifies.
 - **The `.repo` file Forgejo generates cannot install our packages.** It lists
   only Forgejo's RPM key under `gpgcheck=1`, and `dnf install` fails with
-  `GPG check FAILED`. The README ships a stanza naming both keys instead.
+  `GPG check FAILED`.
+- **Naming both keys, which was the first fix, is a security downgrade.** dnf
+  accepts a package signed by ANY key in `gpgkey`, so listing Forgejo's alongside
+  ours means a package signed only by Forgejo's key installs — verified both
+  ways. That key lives in Forgejo's database in plaintext, on the host serving
+  the packages, so listing it would make one host's compromise enough to install
+  arbitrary code on every subscriber. `packaging/*.repo` therefore pins **our key
+  alone**, with `repo_gpgcheck=0`, and is shipped in the repo so the install is
+  still a one-liner.
+- **Forgejo can sign RPMs itself** (`?sign=true`, or `DEFAULT_RPM_SIGN_ENABLED`).
+  Not used: it would move the anchor onto the host it protects, and make the
+  registry copy of a release differ from the identical-looking file on the
+  release page. Its Debian key is unavoidable, though — apt authenticates the
+  index, Forgejo signs the index, and there is no API to substitute ours.
 - A re-upload answers 409, which the publisher treats as success so a dispatched
   re-run of a partial publish still completes.
 

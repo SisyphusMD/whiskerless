@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -496,3 +497,99 @@ def test_nothing_renders_a_formula_behind_the_renderers_back() -> None:
         assert "REPLACE_SDIST_SHA256" not in text, (
             f"{caller.name} substitutes markers itself instead of delegating"
         )
+
+
+# --- the dnf config pins our key and only our key ---------------------------------
+#
+# dnf accepts a package signed by ANY key listed in `gpgkey`, so adding Forgejo's
+# registry key "as well, to be safe" is not additive — it makes a compromise of the
+# single host that serves the packages sufficient to install arbitrary code on
+# every subscriber. Checked against the live registry, both ways: with both keys
+# listed, a package signed only by Forgejo's key installs; with ours alone, the
+# same package is refused.
+#
+# Our key is the one worth pinning because it is the only one that does not live on
+# that host — Forgejo keeps its registry keys in the database, in plaintext.
+REPO_FILES = sorted((REPO / "packaging").glob("*.repo"))
+FORGEJO_REGISTRY_KEY = "/api/packages/SisyphusMD/rpm/repository.key"
+OUR_KEY = "packaging/whiskerless-signing-key.asc"
+
+
+def test_there_are_repo_files_to_check() -> None:
+    assert REPO_FILES
+
+
+OUR_KEY_URL = (
+    "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
+    "/raw/branch/main/packaging/whiskerless-signing-key.asc"
+)
+SIGNING_KEY_ID = "4BBACD5A6FF38564"
+
+
+def _gpgkey_urls(text: str) -> list[str]:
+    """Every key the file trusts, including INI continuation lines.
+
+    An indented line after `gpgkey=` continues the value, which is exactly how a
+    second key gets added without touching the `gpgkey=` line itself — so reading
+    only that one line would miss it.
+    """
+    urls: list[str] = []
+    collecting = False
+    for line in text.splitlines():
+        if line.startswith("gpgkey="):
+            collecting = True
+            urls += line[len("gpgkey=") :].split()
+        elif collecting and line[:1] in (" ", "\t"):
+            urls += line.split()
+        elif collecting:
+            collecting = False
+    return urls
+
+
+@pytest.mark.parametrize("path", REPO_FILES, ids=lambda p: p.name)
+def test_the_dnf_config_trusts_our_key_alone(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    config = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+    assert _gpgkey_urls(config) == [OUR_KEY_URL], (
+        f"{path.name} must trust exactly one key, ours — dnf accepts a package signed "
+        f"by ANY key listed here"
+    )
+    assert FORGEJO_REGISTRY_KEY not in config, (
+        f"{path.name} trusts Forgejo's registry key; a package signed by it would then install"
+    )
+    assert "gpgcheck=1" in config, f"{path.name} does not verify package signatures at all"
+    # Exact value, not merely absent: flipping this to 1 makes dnf verify the index
+    # against Forgejo's key, which this file deliberately does not list — so the
+    # repository stops working entirely.
+    assert "repo_gpgcheck=0" in config, (
+        f"{path.name} must set repo_gpgcheck=0 — it lists no key that could verify the index"
+    )
+
+
+def test_the_pinned_key_is_the_one_this_repository_ships() -> None:
+    """The URL could be right while the file behind it is some other key."""
+    key = REPO / "packaging" / "whiskerless-signing-key.asc"
+    assert key.exists(), "the signing key the .repo files pin is not in the repository"
+    if not shutil.which("gpg"):
+        pytest.skip("no gpg available to read the key's fingerprint")
+    proc = subprocess.run(
+        ["gpg", "--show-keys", "--with-colons", str(key)],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    fingerprints = [ln.split(":")[9] for ln in proc.stdout.splitlines() if ln.startswith("fpr:")]
+    assert any(f.endswith(SIGNING_KEY_ID) for f in fingerprints), (
+        f"the shipped key is not {SIGNING_KEY_ID}: {fingerprints}"
+    )
+
+
+@pytest.mark.parametrize("path", REPO_FILES, ids=lambda p: p.name)
+def test_the_dnf_config_names_a_distribution_the_publisher_writes(path: Path) -> None:
+    """A baseurl pointing at a group nothing publishes to is a repository that
+    resolves, returns an empty index, and reports no candidate."""
+    publisher = (REPO / "packaging" / "publish-registry.sh").read_text(encoding="utf-8")
+    baseurl = next(ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.startswith("baseurl="))
+    distribution = baseurl.rstrip("/").rsplit("/", 1)[1]
+    assert re.search(rf'dists="[^"]*\b{distribution}\b', publisher), (
+        f"{path.name} points at '{distribution}', which publish-registry.sh never writes to"
+    )
