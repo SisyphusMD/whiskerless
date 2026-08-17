@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -424,3 +425,74 @@ def test_the_publish_wait_counts_both_formulae_on_a_stable_tag() -> None:
     platforms = len(_bottle_matrix())
     assert re.search(rf"\*-rc\.\*\)\s*expected={platforms} ", publish), "rc tag expects one formula"
     assert re.search(rf"\*\)\s*expected={platforms * 2} ", publish), "stable tag expects both formulae"
+
+
+# --- one renderer, and it never emits a marker --------------------------------------
+#
+# Three places used to perform this substitution — the tap's two passes and the
+# install smoke — and teaching only two of them about a newly added marker shipped
+# a formula carrying the bare word `REPLACE_BOTTLE_BLOCK`. Ruby PARSES a bare word
+# happily (it is a constant reference), so `ruby -c` cannot catch it and neither
+# can any container: it surfaced only when Homebrew loaded the formula, on macOS,
+# on the job that gates every release.
+#
+# The fix is structural — one renderer — so these check the structure holds, by
+# running the real script rather than reimplementing what it does.
+RENDER = REPO / "packaging" / "render-formula.sh"
+RENDER_CALLERS = [REPO / "packaging" / "update-tap.sh", REPO / "packaging" / "test-homebrew-formula.sh"]
+
+
+def _render(template: Path, block: str | None = None) -> str:
+    args = [str(RENDER), str(template), "0.2.0rc28", "0" * 64]
+    with tempfile.TemporaryDirectory() as tmp:
+        if block is not None:
+            blockfile = Path(tmp) / "block"
+            blockfile.write_text(block)
+            args.append(str(blockfile))
+        proc = subprocess.run(args, capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, f"render-formula.sh failed:\n{proc.stderr}"
+    return proc.stdout
+
+
+@pytest.mark.parametrize("path", FORMULAE, ids=lambda p: Path(p).name)
+def test_rendering_a_template_leaves_no_marker(path: Path) -> None:
+    assert "REPLACE_" not in _render(path)
+
+
+@pytest.mark.parametrize("path", FORMULAE, ids=lambda p: Path(p).name)
+def test_rendering_with_a_bottle_block_leaves_no_marker(path: Path) -> None:
+    block = "\n".join(
+        ["  bottle do", '    root_url "https://example.invalid/d"']
+        + [
+            f'    sha256 cellar: "/opt/homebrew/Cellar", {tag}: "{"a" * 64}"'
+            for tag in ("arm64_sequoia", "sequoia", "x86_64_linux", "arm64_linux")
+        ]
+        + ["  end"]
+    )
+    rendered = _render(path, block)
+    assert "REPLACE_" not in rendered
+    assert "bottle do" in rendered
+
+
+def test_the_renderer_refuses_a_template_it_cannot_fully_render() -> None:
+    """The property the whole consolidation rests on: an unhandled marker is fatal
+    where it is introduced, not silent until Homebrew loads the formula."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "bad.rb"
+        bad.write_text('class X < Formula\n  url "u"\n  REPLACE_SOMETHING_NEW\nend\n')
+        proc = subprocess.run(
+            [str(RENDER), str(bad), "0.2.0rc28", "0" * 64], capture_output=True, text=True, check=False
+        )
+    assert proc.returncode != 0, "an unrendered marker was emitted instead of refused"
+    assert "REPLACE_SOMETHING_NEW" in proc.stderr
+
+
+def test_nothing_renders_a_formula_behind_the_renderers_back() -> None:
+    """A fourth copy of the substitution would reintroduce exactly the drift that
+    broke the release gate, so the callers must delegate rather than sed it."""
+    for caller in RENDER_CALLERS:
+        text = caller.read_text(encoding="utf-8")
+        assert "render-formula.sh" in text, f"{caller.name} does not use the shared renderer"
+        assert "REPLACE_SDIST_SHA256" not in text, (
+            f"{caller.name} substitutes markers itself instead of delegating"
+        )

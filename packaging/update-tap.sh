@@ -141,28 +141,21 @@ render_formula() {
   out="$tapdir/Formula/${formula}.rb"
   # Always a file, and never empty: `sed r` on an empty file would swallow the
   # blank line the marker stands in for and glue the block to `license`.
-  block="$work/${formula}.block"
-  printf '\n' > "$block"
   if [ -n "$manifests" ]; then
     # --expect-tags 4 is the whole point of a separate pass: a platform whose
     # bottle never arrived is otherwise invisible, and its users quietly go back
     # to compiling cryptography for several minutes.
+    block="$work/${formula}.block"
     python3 "$here/bottle-block.py" --formula "$formula" --version "$pypi_version" \
-      --root-url "$root_url" --expect-tags 4 "$manifests"/*.json >> "$block"
-    printf '\n' >> "$block"
+      --root-url "$root_url" --expect-tags 4 "$manifests"/*.json > "$block"
+    bash "$here/render-formula.sh" "$here/homebrew/${formula}.rb" "$pypi_version" "$sha" "$block" > "$out"
+  else
+    bash "$here/render-formula.sh" "$here/homebrew/${formula}.rb" "$pypi_version" "$sha" > "$out"
   fi
-  sed -e "s|REPLACE_PYPI_VERSION|${pypi_version}|g" \
-      -e "s|REPLACE_VERSION|${pypi_version}|g" \
-      -e "s|REPLACE_SDIST_SHA256|${sha}|" \
-      -e "/REPLACE_BOTTLE_BLOCK/r $block" \
-      -e "/REPLACE_BOTTLE_BLOCK/d" \
-      "$here/homebrew/${formula}.rb" > "$out"
   # Spelled as an explicit `if` rather than `A && B || C`: that reads as if-then-else
   # and is not (shellcheck SC2015), which is a bad shape for the check standing
   # between a template and a published formula.
-  if ! grep -Fq "url \"$url\"" "$out" \
-    || ! grep -Fq "sha256 \"$sha\"" "$out" \
-    || grep -Eq 'REPLACE_(PYPI_)?VERSION|REPLACE_SDIST_SHA256|REPLACE_BOTTLE_BLOCK' "$out"; then
+  if ! grep -Fq "url \"$url\"" "$out" || ! grep -Fq "sha256 \"$sha\"" "$out"; then
     echo "formula template substitution failed for $formula" >&2
     exit 1
   fi

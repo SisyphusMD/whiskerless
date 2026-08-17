@@ -43,15 +43,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Rendered exactly as update-tap.sh renders it, except the url points at the local sdist.
-sed -e "s|REPLACE_PYPI_VERSION|${pypi_version}|g" \
-    -e "s|REPLACE_VERSION|${pypi_version}|g" \
-    -e "s|REPLACE_SDIST_SHA256|${sha}|" \
-    "$here/homebrew/${formula}.rb" \
+# Rendered exactly as update-tap.sh renders it on its FIRST pass, except the url points at the
+# local sdist. No bottle block, deliberately and necessarily: this smoke exists to prove the
+# source build still works, which is the thing a bottle would skip.
+#
+# The marker becomes a blank line rather than being deleted, which is what update-tap.sh's
+# no-bottle pass produces — an unhandled marker is left as a bare word, and Homebrew reads that
+# as a Ruby constant and dies with `uninitialized constant ... REPLACE_BOTTLE_BLOCK`.
+bash "$here/render-formula.sh" "$here/homebrew/${formula}.rb" "$pypi_version" "$sha" \
   | sed -e "s|^  url \".*\"$|  url \"file://${sdist}\"|" \
   > "$tmp/$formula.rb"
-if ! grep -Fq "file://$sdist" "$tmp/$formula.rb" \
-  || grep -Eq 'REPLACE_(PYPI_)?VERSION|REPLACE_SDIST_SHA256' "$tmp/$formula.rb"; then
+if ! grep -Fq "file://$sdist" "$tmp/$formula.rb"; then
   echo "formula rendering failed" >&2
   exit 1
 fi
