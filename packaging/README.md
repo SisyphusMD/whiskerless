@@ -87,6 +87,12 @@ and bridges.
    appends it to the **GitHub** and **public-Forgejo** releases (all it can reach).
 4. **Forgejo `publish.yml` `nas-pkg` job**: waits for the `.pkg` on the public
    Forgejo release, then **copies it to the internal NAS** release.
+5. **GitHub `bottles.yml`** (mirrored tag): builds the four **Homebrew bottles**
+   and appends them, with their manifests, to the GitHub + public-Forgejo
+   releases.
+6. **Forgejo `publish.yml` `homebrew-bottles` job**: waits for those manifests,
+   then re-renders the tap formula with a `bottle do` block — the second of two
+   tap passes.
 
 All three releases end up with the same notes; PyPI has the library. The release
 helpers are idempotent (create-or-reuse + replace assets), so the forges can
@@ -102,7 +108,14 @@ write the same release in any order.
 | `whiskerless_<v>_{amd64,arm64}.deb` | `publish.yml` | Debian / Ubuntu |
 | `whiskerless-<v>.{x86_64,aarch64}.rpm` | `publish.yml` | Fedora / RHEL |
 | `whiskerless-macos-{arm64,x86_64}.pkg` | `release-macos.yml` | macOS, signed + notarized |
+| `whiskerless{,-rc}-<v>.<platform>.bottle.tar.gz` | `bottles.yml` | Homebrew, poured not compiled |
 | `SHA256SUMS` | `publish.yml` | checksums for every Linux artifact |
+
+The `.deb`/`.rpm` are **also pushed into the apt/dnf repositories** (below), which
+is how most people should install them. `SHA256SUMS` covers the artifacts that
+exist when it is written — not the `.pkg` or the bottles, both of which are built
+later on GitHub. Those two carry their own stronger guarantees anyway
+(notarization; a sha256 inside the formula).
 
 Verify a download with **`sha256sum -c --ignore-missing SHA256SUMS`**. The
 `--ignore-missing` is required, not optional: an artifact whose version contains
@@ -156,6 +169,113 @@ packaging/homebrew-resources.py
 
 Needs `CLUSTER_FORGEJO_TAP_WRITE_PAT`.
 
+### Bottles
+
+Without a bottle, Homebrew builds every resource from source — and `cryptography`
+is a Rust extension, so `brew install` pulls `rust` → `llvm` (~2.4 GB) and
+compiles for minutes. A bottle is a prebuilt keg: ~7 MB, poured instantly. It
+covers the *whole* formula, so it removes `cffi`'s and `pyobjc-core`'s C builds
+too, and because `rust`/`pkgconf` are `=> :build`, a bottled user never installs
+them at all.
+
+**Four platforms, one per arch**: `arm64_sequoia`, `sequoia`, `x86_64_linux`,
+`arm64_linux`. Not one per macOS release — Homebrew pours an older bottle when
+none matches, verified on a macOS 27 machine pouring `arm64_tahoe` (26) bottles.
+So building the floor (macos-15) covers everything above it. Note macOS 16–25 do
+not exist: Apple went 15 → 26 → 27, so those two are consecutive.
+
+**A stable tag builds eight, not four.** Bottle filenames embed the *formula*
+name and the keg inside is rooted at `<formula>/<version>/`, so a `whiskerless`
+bottle can be neither renamed nor relabelled into a `whiskerless-rc` one. Since a
+stable tag re-points the rc formula at the stable release, that release has to
+carry a full set under *both* names — otherwise `brew install whiskerless-rc`
+finds a block naming files that were never built and silently falls back to
+compiling.
+
+**Two tap passes, and they cannot be merged.** A bottle is produced by installing
+the published formula, so the formula must exist first; the block can only be
+written once the bottles do. Pass one publishes the formula (`update-tap.sh <tag>
+<tap>`), pass two adds the block (`update-tap.sh <tag> <tap> <manifest-dir>`).
+The second accepts an equal version for exactly this reason, and refuses to write
+a block that is not the complete set — a missing platform is otherwise invisible,
+and its users just go back to compiling.
+
+`root_url` points at the Forgejo release, so the bottles ride as release assets
+and `prune-rcs` collects them with the release they belong to. Homebrew fetches
+`<root_url>/<filename>`, where `filename` is the single-dash name in the manifest
+— `brew bottle` writes a double-dash local name that must be renamed before
+upload.
+
+The Linux legs build inside the **pinned** `homebrew/brew` image rather than the
+runner's own Homebrew: GitHub documents no Homebrew on the arm64 Ubuntu image,
+and that image is already what the Linux formula smoke proves the formula in.
+
+## apt / dnf repositories
+
+`publish.yml` pushes every `.deb` and `.rpm` into **Forgejo's native Debian and
+RPM registries**, so the normal install is `apt install whiskerless` rather than
+downloading a file. Endpoints (Forgejo 16 — the two formats do not share a
+shape, and neither is guessable from the other):
+
+```
+PUT /api/packages/SisyphusMD/debian/pool/{distribution}/{component}/upload
+PUT /api/packages/SisyphusMD/rpm/{group}/upload
+```
+
+Public instance only: an `apt update` resolves this host on every run, and the
+NAS is not reachable from outside the house. Needs
+`CLUSTER_FORGEJO_PACKAGE_WRITE_PAT` — Forgejo scopes packages separately, and the
+release PAT's `write:repository` **cannot** upload one.
+
+**Two distributions, `stable` and `testing`.** Version ordering alone cannot keep
+candidates away from release subscribers: `0.2.0~rc.28` sorts below `0.2.0`, which
+only helps once `0.2.0` exists — until then the newest thing in the repository
+*is* the candidate. So a candidate goes to `testing` only, and a release goes to
+**both** — leaving it out of `testing` would strand testers on the last rc, and
+pruning that rc would then take the package away from them entirely.
+
+**Who signs what, and why both matter.** apt authenticates the repository index,
+which **Forgejo** signs with its own key; it does not check the `_gpgorigin`
+member nfpm embeds. dnf checks the `.rpm`'s own signature, which is **ours**
+(`4BBACD5A6FF38564`) — Forgejo stores and serves the uploaded bytes unmodified, so
+our signature survives intact. Note that Forgejo generates a **separate key per
+registry type**: `debian/repository.key` and `rpm/repository.key` are different
+keys.
+
+**Do not hand users the `.repo` file Forgejo generates.** It sets `gpgcheck=1`
+with only Forgejo's RPM key, which cannot verify a package we signed — `dnf
+install` then fails with `GPG check FAILED` (reproduced). The README ships a
+stanza listing both keys instead: Forgejo's for `repo_gpgcheck`, ours for
+`gpgcheck`.
+
+The one-time key import cannot be automated away — apt will not install a package
+to obtain the key it needs to trust that package. A Chrome-style self-registering
+`.deb` was considered and rejected.
+
+### Pruning them
+
+`prune-rcs.sh` sweeps the registry alongside the releases, on the same "only once
+the stable exists on all three hosts" guard, and it also *enumerates* from the
+registry — so a candidate whose release was already deleted by a half-finished
+sweep is still found and removed.
+
+**The two formats need opposite delete endpoints**, which is not a preference and
+is invisible at the API — every call returns 204 either way:
+
+| | rebuilds the index | leaves it stale |
+|---|---|---|
+| **debian** | generic `/api/v1/packages/{owner}/debian/{name}/{version}` | pool endpoint |
+| **rpm** | native `/api/packages/{owner}/rpm/{group}/package/…` | generic endpoint |
+
+Get it backwards and the file 404s while the published index keeps advertising
+it, so a package manager offers a version it cannot download. Both directions
+were checked against the live registry.
+
+Versions are looked up, never constructed: debian reports `0.2.0~rc.28` while rpm
+reports `0.2.0~rc.28-1`, and a constructed rpm version 404s every time. The sweep
+also filters by package **name** — this owner holds the sister projects'
+container images, and the delete is by version.
+
 ## Transient runner failures
 
 GitHub's hosted runners sometimes fail before any of our steps run — observed 2026-08-11, a
@@ -183,7 +303,9 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write (Forgejo creates the GitHub release with it). Same PAT used as the GitHub push-mirror password. |
 | `GH_REPO_READ_PAT` | **Optional.** GitHub PAT with **no scopes** — read-only public data, used solely by `mirror-gate` to escape the 60-request/hour unauthenticated limit. Absent, the gate still works and just polls slowly. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`). OIDC trusted publishing isn't available on Forgejo, so this is a token. Scope it to the project once it exists. |
-| `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. |
+| `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. Held at the **org** level, not on this repo. |
+| `CLUSTER_FORGEJO_PACKAGE_WRITE_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. A separate secret because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with 403 rather than anything obvious. The token is `whiskerless-registry-push`. |
+| `GPG_SIGNING_KEY` | The armoured private half of the package signing key (`4BBACD5A6FF38564`). Written to a tmp file **outside** the workspace and `docker cp`'d in separately, so it is never part of a build context. |
 
 ### On GitHub (`github.com/SisyphusMD/whiskerless` → Settings → Secrets and variables → Actions)
 

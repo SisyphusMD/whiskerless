@@ -2,7 +2,12 @@
 # Fill the Homebrew formulas for a release from a LOCAL build of the sdist, then require PyPI to be
 # serving exactly those bytes. A registry download is what the formula checksum is supposed to
 # protect users from, so it is never the source of that checksum.
-#   update-tap.sh <tag> <tap-clone-dir>
+#   update-tap.sh <tag> <tap-clone-dir> [bottle-manifest-dir]
+#
+# Run TWICE per release. The first pass (no manifest dir) publishes the formula as soon as PyPI has
+# the sdist, because the bottles are built by installing that formula and cannot exist before it.
+# The second pass, once they do, re-renders the same version with a `bottle do` block so nobody
+# compiles cryptography again. A release is usable after either pass; only the second is fast.
 #
 # Verified reproducible for this project: building the sdist from the v0.1.3 tag reproduces the
 # sha256 PyPI serves for 0.1.3, byte for byte. If that ever stops being true this script fails loudly
@@ -16,8 +21,9 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 
-[ "$#" -eq 2 ] || { echo "usage: $0 <tag> <tap-clone-dir>" >&2; exit 2; }
-tag="$1"; tapdir="$2"
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || { echo "usage: $0 <tag> <tap-clone-dir> [bottle-manifest-dir]" >&2; exit 2; }
+tag="$1"; tapdir="$2"; manifests="${3:-}"
+[ -z "$manifests" ] || [ -d "$manifests" ] || { echo "not a directory: $manifests" >&2; exit 2; }
 case "$tag" in
   v[0-9]*.[0-9]*.[0-9]*) : ;;
   *) echo "not a release tag: $tag" >&2; exit 2 ;;
@@ -84,8 +90,13 @@ remote_sha="$($shacmd "$work/remote.tar.gz" | awk '{print $1}')"
 # re-run long after a newer release. Whoever clones last would otherwise win and
 # repoint the channel BACKWARDS, silently downgrading everyone on `brew upgrade`.
 # Compare against whatever the tap already holds and refuse to go back.
+#
+# The bottle pass re-renders the version that is ALREADY there, so it accepts an
+# equal version — refusing it would leave every release un-bottled, which is the
+# silent slow-compile this whole mechanism exists to prevent.
 newer_than_tap() {
-  local formula="$1" out="$tapdir/Formula/$1.rb" existing
+  local formula="$1" out="$tapdir/Formula/$1.rb" existing allow_equal=false
+  [ -z "$manifests" ] || allow_equal=true
   [ -f "$out" ] || return 0                       # nothing published yet
   existing="$(sed -n 's|.*/whiskerless-\(.*\)\.tar\.gz".*|\1|p' "$out" | head -1)"
   [ -n "$existing" ] || return 0                  # unparseable; treat as first write
@@ -105,34 +116,63 @@ def key(value):
     return (int(major), int(minor), int(patch), 0 if rc else 1, int(rc or 0))
 
 existing, incoming = key(sys.argv[1]), key(sys.argv[2])
+allow_equal = sys.argv[3] == "true"
 if existing is None:          # hand-edited or unrecognised: let the release win
     sys.exit(0)
-sys.exit(0 if incoming is not None and incoming > existing else 1)
-' "$existing" "$pypi_version"
+if incoming is None:
+    sys.exit(1)
+sys.exit(0 if (incoming >= existing if allow_equal else incoming > existing) else 1)
+' "$existing" "$pypi_version" "$allow_equal"
 }
 
+# Bottles are served from this release's assets, so the URL carries the TAG
+# spelling (v0.2.0-rc.28), not PyPI's normalized one. A stable tag re-points the
+# rc formula at its own release, which is why that release has to carry a full
+# set of `whiskerless-rc-` bottles as well as `whiskerless-`.
+root_url="https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases/download/${tag}"
+
 render_formula() {
-  local formula="$1" out
+  local formula="$1" out block
   if ! newer_than_tap "$formula"; then
     echo "tap already holds $formula at a version >= $pypi_version; refusing to move it back"
     return 0
   fi
   mkdir -p "$tapdir/Formula"
   out="$tapdir/Formula/${formula}.rb"
+  # Always a file, and never empty: `sed r` on an empty file would swallow the
+  # blank line the marker stands in for and glue the block to `license`.
+  block="$work/${formula}.block"
+  printf '\n' > "$block"
+  if [ -n "$manifests" ]; then
+    # --expect-tags 4 is the whole point of a separate pass: a platform whose
+    # bottle never arrived is otherwise invisible, and its users quietly go back
+    # to compiling cryptography for several minutes.
+    python3 "$here/bottle-block.py" --formula "$formula" --version "$pypi_version" \
+      --root-url "$root_url" --expect-tags 4 "$manifests"/*.json >> "$block"
+    printf '\n' >> "$block"
+  fi
   sed -e "s|REPLACE_PYPI_VERSION|${pypi_version}|g" \
       -e "s|REPLACE_VERSION|${pypi_version}|g" \
       -e "s|REPLACE_SDIST_SHA256|${sha}|" \
+      -e "/REPLACE_BOTTLE_BLOCK/r $block" \
+      -e "/REPLACE_BOTTLE_BLOCK/d" \
       "$here/homebrew/${formula}.rb" > "$out"
   # Spelled as an explicit `if` rather than `A && B || C`: that reads as if-then-else
   # and is not (shellcheck SC2015), which is a bad shape for the check standing
   # between a template and a published formula.
   if ! grep -Fq "url \"$url\"" "$out" \
     || ! grep -Fq "sha256 \"$sha\"" "$out" \
-    || grep -Eq 'REPLACE_(PYPI_)?VERSION|REPLACE_SDIST_SHA256' "$out"; then
+    || grep -Eq 'REPLACE_(PYPI_)?VERSION|REPLACE_SDIST_SHA256|REPLACE_BOTTLE_BLOCK' "$out"; then
     echo "formula template substitution failed for $formula" >&2
     exit 1
   fi
-  echo "wrote $out (tag=$tag sha=$sha)"
+  # A bottle pass that rendered no block would publish, report success, and leave
+  # every user compiling — the exact failure it was added to remove.
+  if [ -n "$manifests" ] && ! grep -Fq "bottle do" "$out"; then
+    echo "bottle pass produced no bottle block for $formula" >&2
+    exit 1
+  fi
+  echo "wrote $out (tag=$tag sha=$sha${manifests:+ +bottles})"
 }
 
 case "$tag" in

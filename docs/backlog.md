@@ -11,7 +11,7 @@ Statuses: **open** (nothing started), **blocked** (says on what), **discuss**
 
 ## Open
 
-### #75 — Decide whether the Linux packages should be signed like the macOS one — *ANSWERED 2026-08-17: checksums shipped, GPG deferred*
+### #75 — Decide whether the Linux packages should be signed like the macOS one — *DONE 2026-08-17: checksums, then GPG once the repository made it real*
 
 The macOS `.pkg` is signed with a Developer ID and notarized;
 `packaging/nfpm.yaml` carries **no signing configuration at all**, so the `.deb`
@@ -34,9 +34,13 @@ followed, it is Gatekeeper refusing to run the thing otherwise.
 So `publish.yml` now ships a **`SHA256SUMS`** covering every Linux artifact,
 which closes the real gap ("did this arrive intact") with no key to hold, rotate
 or revoke. Its limit is stated in the workflow: served from the same host as the
-artifacts, it proves integrity and not authenticity. **Revisit GPG signing if a
-repository is ever published** — that is the point at which it stops being
-ceremonial.
+artifacts, it proves integrity and not authenticity.
+
+**Then the condition it named came true.** The repositories in #77 are exactly
+the "something verifies it automatically" case, so the packages are now signed
+with `4BBACD5A6FF38564` as well. On dnf that signature is what `gpgcheck` checks
+on every install; on apt it stays belt-and-braces, since apt authenticates the
+repository index Forgejo signs rather than the `_gpgorigin` member nfpm embeds.
 
 ### #76 — One forge failing should not skip the work for the others — *DONE 2026-08-17*
 
@@ -85,7 +89,7 @@ job fails the cut and needs a manual re-dispatch. Worth either a Forgejo-side
 retry workflow or pinning the interpreter setup so it stops reaching out to a
 manifest mid-build.
 
-### #73 — Ship Homebrew bottles so `brew install` stops compiling cryptography
+### #73 — Ship Homebrew bottles so `brew install` stops compiling cryptography — *DONE 2026-08-17*
 
 Taking `cryptography` made the tap expensive: Homebrew builds every resource from
 source, cryptography's extension is Rust, and Homebrew's `rust` formula drags in
@@ -141,8 +145,62 @@ from Homebrew's source-build convention, which is why it is not the default
 recommendation — but for a personal tap serving a CLI it is defensible, and it
 costs nothing to maintain as macOS versions roll.
 
-Until then the `.pkg`, `.deb`/`.rpm` and PyPI paths are all wheel-based and cost
-nothing, so Homebrew is the only expensive route.
+**Done 2026-08-17.** `.github/workflows/bottles.yml` builds the four, and
+`publish.yml`'s `homebrew-bottles` job writes the block in a **second** tap pass —
+a bottle is produced by installing the published formula, so the block cannot
+exist until after the formula does. Three things were settled by testing rather
+than reasoning:
+
+- A bottle's keg is rooted at `<formula>/<version>/`, confirmed by unpacking one,
+  so a `whiskerless` bottle genuinely cannot be renamed into a `whiskerless-rc`
+  one. The 8-on-stable rule is not belt-and-braces; it is the only way.
+- Homebrew fetches `<root_url>/<filename>` using the single-dash `filename` from
+  the manifest, not the double-dash name `brew bottle` writes locally. Proven by
+  serving a generated block over HTTP and watching Homebrew pour it.
+- The cellar in the manifest is a concrete path for a venv install, not `:any`,
+  so the generated block quotes it rather than emitting a symbol.
+
+`bottle-block.py` refuses a short set, a manifest from another version, and a
+non-zero rebuild counter, because each of those publishes happily and only shows
+up as somebody quietly compiling.
+
+### #77 — Publish apt/dnf repositories — *DONE 2026-08-17*
+
+Signing the packages (#75) only does real work where something verifies it
+automatically, which is a repository. Forgejo 16 has native Debian and RPM
+registries, so that is what `publish.yml` now pushes to, into `stable` and
+`testing` distributions.
+
+Findings that are worth keeping, all established against the live registry:
+
+- The upload paths differ in shape between the two formats — debian takes
+  `pool/{distribution}/{component}`, rpm takes a `{group}`.
+- Forgejo generates a **separate key per registry type**, so `debian/repository.key`
+  and `rpm/repository.key` are different keys. It stores and serves uploaded
+  bytes unmodified, so our own signature on the `.rpm` survives and is what
+  `gpgcheck` verifies.
+- **The `.repo` file Forgejo generates cannot install our packages.** It lists
+  only Forgejo's RPM key under `gpgcheck=1`, and `dnf install` fails with
+  `GPG check FAILED`. The README ships a stanza naming both keys instead.
+- A re-upload answers 409, which the publisher treats as success so a dispatched
+  re-run of a partial publish still completes.
+
+### #78 — `prune-rcs` reaches the package registry — *DONE 2026-08-17*
+
+Pruning a release used to leave its packages behind, and a candidate left in
+`testing` is worse than a stale release: it is still being served.
+
+The trap, and the reason this needed hardware-in-the-loop testing rather than
+reading the API docs: **the two formats rebuild their published index from
+opposite endpoints.** Deleting a debian package through the pool endpoint, or an
+rpm through the generic one, returns 204 and leaves the index advertising a file
+that now 404s. Both directions were confirmed by deleting and then reading the
+published `Packages` / `primary.xml`.
+
+Also found and fixed while testing: GitHub answers a DELETE for a missing tag ref
+with **422**, not 404, so the ordinary already-gone case aborted the whole sweep.
+That was pre-existing and became reachable far more often once candidates are
+also enumerated from the registry.
 
 ### #72 — `setup --ca --ca-key` files the CA but never issues the broker's server cert — *DONE 2026-08-17*
 

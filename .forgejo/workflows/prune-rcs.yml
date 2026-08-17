@@ -24,4 +24,5 @@ jobs:
           FORGEJO_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
           NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}
           GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
+          PACKAGE_TOKEN: ${{ secrets.CLUSTER_FORGEJO_PACKAGE_WRITE_PAT }}
         run: bash packaging/prune-rcs.sh

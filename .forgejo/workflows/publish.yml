@@ -252,6 +252,23 @@ jobs:
             echo "::error::release publishing failed for:$failed"
             exit 1
           fi
+      - name: Publish the .deb/.rpm into the apt/dnf repositories
+        # Runs even when a release upload failed. The repository is a fourth
+        # destination with its own failure modes, and #76's lesson was exactly
+        # this: a job that publishes to independent places must not let the
+        # first failure skip the rest.
+        #
+        # A SEPARATE token from the release PAT: Forgejo scopes the package
+        # registry on its own, and `write:repository` — everything the release
+        # helpers need — cannot upload a package. Checked before writing this:
+        # the release token carries only `write:repository`, so it would have
+        # 403d here.
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          chmod +x packaging/publish-registry.sh
+          packaging/publish-registry.sh forgejo.bryantserver.com \
+            "${{ secrets.CLUSTER_FORGEJO_PACKAGE_WRITE_PAT }}" "$GITHUB_REF_NAME" ./*.deb ./*.rpm
 
   homebrew-tap:
     name: Update the Homebrew tap formula (stable or -rc per tag)
@@ -302,6 +319,93 @@ jobs:
           git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
           git add Formula/
           git commit -m "whiskerless ${GITHUB_REF_NAME#v}" || { echo "no change to publish"; exit 0; }
+          git -c "$AUTH" push
+
+  homebrew-bottles:
+    name: Add the bottle block to the tap (second pass)
+    # The tap must already hold this version (the bottles were built by
+    # installing it) and the release must exist (the bottles are its assets).
+    needs: [homebrew-tap, releases]
+    # `releases` going red does not mean the bottles are missing — they are
+    # appended by the GitHub workflow, to a release that may well have been
+    # created successfully before some later host failed. #76 again.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Wait for every bottle manifest on the Forgejo release
+        run: |
+          set -euo pipefail
+          API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
+          # Four platforms. A stable tag bottles BOTH formulae — the stable one
+          # and the rc one it re-points at itself — because a bottle's filename
+          # embeds the formula name and its keg is rooted at
+          # `<formula>/<version>/`, so one cannot be renamed into the other.
+          # Without the second set, `brew install whiskerless-rc` after a stable
+          # release silently goes back to compiling.
+          case "$GITHUB_REF_NAME" in
+            *-rc.*) expected=4 ;;
+            *)      expected=8 ;;
+          esac
+          echo "waiting for $expected bottle manifest(s)"
+          mkdir -p manifests
+          # Up to 60 minutes: the macOS legs build cryptography from source
+          # twice on a stable tag, on the slowest runners in the fleet.
+          for _ in $(seq 1 180); do
+            urls=$(curl -sf "$API/releases/tags/$GITHUB_REF_NAME" \
+              | jq -r '.assets[]? | select(.name | endswith(".bottle.json")) | .browser_download_url' || true)
+            [ "$(printf '%s\n' "$urls" | grep -c . || true)" -ge "$expected" ] && break
+            sleep 20
+          done
+          found="$(printf '%s\n' "$urls" | grep -c . || true)"
+          if [ "$found" -lt "$expected" ]; then
+            echo "::error::only ${found}/${expected} bottle manifests after 60m — the tap keeps its unbottled formula"
+            exit 1
+          fi
+          printf '%s\n' "$urls" | while read -r u; do
+            [ -n "$u" ] && curl -sSL -o "manifests/$(basename "$u")" "$u"
+          done
+          ls -l manifests/
+          # The manifests arriving does not mean the BOTTLES did. They are
+          # uploaded in one pass, and the double-dash manifest names sort ahead of
+          # the single-dash archives — so the count above can be satisfied while a
+          # tarball is still in flight or failed outright. Publishing then gives
+          # the tap a block full of sha256s for files nobody can download, which
+          # is worse than no block at all: Homebrew stops falling back to source
+          # and just fails.
+          assets=$(curl -sf "$API/releases/tags/$GITHUB_REF_NAME" | jq -r '.assets[]?.name')
+          missing=""
+          while read -r want; do
+            [ -n "$want" ] || continue
+            printf '%s\n' "$assets" | grep -Fqx "$want" || missing="$missing $want"
+          done < <(jq -r '.[].bottle.tags[].filename' manifests/*.json)
+          if [ -n "$missing" ]; then
+            echo "::error::the release is missing bottle archives:$missing"
+            exit 1
+          fi
+          echo "every bottle the manifests name is on the release"
+      - name: Re-render the formula with the bottle block and push
+        env:
+          TOKEN: ${{ secrets.CLUSTER_FORGEJO_TAP_WRITE_PAT }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          AUTH="http.extraheader=Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          # Outside the checkout, for the same reason the first pass does it:
+          # update-tap.sh builds an sdist to compare against PyPI, and anything
+          # sitting beside the source is swept into it.
+          tap="$(mktemp -d)/tap"
+          git -c "$AUTH" clone "${GITHUB_SERVER_URL}/SisyphusMD/homebrew-tap.git" "$tap"
+          chmod +x packaging/update-tap.sh
+          bash packaging/update-tap.sh "$GITHUB_REF_NAME" "$tap" "$PWD/manifests"
+          cd "$tap"
+          git config user.name "forgejo-actions[bot]"
+          git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
+          git add Formula/
+          git commit -m "whiskerless ${GITHUB_REF_NAME#v} bottles" || { echo "no change to publish"; exit 0; }
           git -c "$AUTH" push
 
   nas-pkg:
@@ -362,7 +466,11 @@ jobs:
     # Both, now that nas-pkg runs through a failed `releases`: pruning candidates
     # while this release is itself incomplete on some host is exactly the silent
     # no-op above, or worse.
-    needs: [releases, nas-pkg]
+    #
+    # homebrew-bottles too, since #15: the sweep now deletes registry packages as
+    # well as releases, and it must not start while this release is still
+    # assembling the artifacts that replace them.
+    needs: [releases, nas-pkg, homebrew-bottles]
     # An rc publishes through this same workflow, and its own stable does not
     # exist yet, so the sweep would enumerate every host to print zero. Skip it
     # rather than pay for the round trip.
@@ -376,4 +484,5 @@ jobs:
           FORGEJO_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
           NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}
           GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
+          PACKAGE_TOKEN: ${{ secrets.CLUSTER_FORGEJO_PACKAGE_WRITE_PAT }}
         run: bash packaging/prune-rcs.sh

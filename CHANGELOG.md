@@ -55,12 +55,13 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
 - **Library: `LitterRobot4Client` and `WhiskerlessAuthError` are removed.** Nothing
   used them, and the client had become a third, already-drifting copy of the
   write-verify loop.
-- **Homebrew installs now compile, and take minutes rather than seconds.**
-  Certificates became core function, so `cryptography` is a hard dependency — and
-  Homebrew builds every resource from source, where `cryptography` is a Rust
-  extension. The formula gained `rust` as a build dependency and `openssl@3`;
-  nothing about the installed result changes. Every other install path
-  (PyPI/pipx/uvx, the macOS `.pkg`, `.deb`/`.rpm`) uses wheels and is unaffected.
+- **Homebrew gained build dependencies** — `rust` and `openssl@3` — because
+  certificates became core function and `cryptography` is a Rust extension that
+  Homebrew builds from source. This briefly meant a multi-minute, ~2.4 GB
+  install; **bottles now make it instant again** (see Added), so it only bites on
+  a platform we do not bottle. Nothing about the installed result changes, and
+  every other install path (PyPI/pipx/uvx, the macOS `.pkg`, `.deb`/`.rpm`) uses
+  wheels and was never affected.
 
 ### Added
 
@@ -149,6 +150,17 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   the next cat visit.
 - **New install channels**: Homebrew, `.deb`/`.rpm`, and standalone Linux binaries
   for amd64 and arm64 — none of which need a system Python.
+- **apt and dnf repositories**, so Linux installs and upgrades come through the
+  package manager instead of a downloaded file. Two channels — `stable` and
+  `testing` — because version ordering alone cannot keep a candidate away from
+  release subscribers until the release it precedes actually exists. Setup, and
+  the one-time key import it cannot avoid, is in the README. The packages are
+  GPG-signed (`4BBACD5A6FF38564`); on dnf that signature is what `gpgcheck`
+  verifies, while apt authenticates the repository index Forgejo signs.
+- **Homebrew bottles**, so `brew install` pours a prebuilt keg in seconds instead
+  of downloading ~2.4 GB of `rust` and `llvm` to compile `cryptography`. Four
+  platforms: Apple Silicon and Intel macOS, and Linux on both architectures.
+  Anything unbottled still installs exactly as before, just slowly.
 - **The CLI shows liveness and colour**: a spinner on the BLE scan (heartbeat lines
   when piped), banners on the dangerous prompts, `NO_COLOR` honoured.
   **`whiskerless --version`** works, and a bare `whiskerless` prints an

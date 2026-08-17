@@ -377,3 +377,50 @@ def test_the_man_page_is_installed_by_the_packages() -> None:
         "Debian policy requires man pages compressed; dpkg does not gzip them and "
         "nfpm is not debhelper, so the recipe must install the .gz"
     )
+
+
+# --- bottles: the matrix, the formula templates and the expected counts agree ------
+#
+# Three files have to say "four platforms" at once — the build matrix, the merge
+# that refuses a short set, and the wait that counts manifests off the release.
+# Nothing fails when they drift: the release publishes, and whoever is on the
+# platform that lost its bottle quietly compiles cryptography for several
+# minutes, which is the entire cost bottles were added to remove.
+BOTTLES_WORKFLOW = REPO / ".github" / "workflows" / "bottles.yml"
+
+
+def _bottle_matrix() -> list[dict[str, str]]:
+    loaded = yaml.safe_load(BOTTLES_WORKFLOW.read_text(encoding="utf-8"))
+    return loaded["jobs"]["build"]["strategy"]["matrix"]["include"]
+
+
+def test_every_formula_template_can_receive_a_bottle_block() -> None:
+    """A template that lost its marker publishes an un-bottled formula on that
+    channel only, and update-tap.sh has nothing to fail on."""
+    for path in FORMULAE:
+        assert "REPLACE_BOTTLE_BLOCK" in _formula(str(path)), f"{path} cannot take a bottle block"
+
+
+def test_the_bottle_matrix_covers_one_arch_per_platform() -> None:
+    labels = sorted(entry["label"] for entry in _bottle_matrix())
+    assert labels == ["arm64_linux", "arm64_sequoia", "sequoia", "x86_64_linux"], labels
+
+
+def test_the_merge_demands_exactly_as_many_bottles_as_the_matrix_builds() -> None:
+    """`--expect-tags` is what turns a missing platform from silent into fatal;
+    it is only true while it matches the matrix."""
+    tap = (REPO / "packaging" / "update-tap.sh").read_text(encoding="utf-8")
+    demanded = re.search(r"--expect-tags (\d+)", tap)
+    assert demanded, "update-tap.sh no longer demands a bottle count"
+    assert int(demanded.group(1)) == len(_bottle_matrix())
+
+
+def test_the_publish_wait_counts_both_formulae_on_a_stable_tag() -> None:
+    """A candidate bottles one formula, a release bottles both — because a
+    bottle's keg is rooted at `<formula>/<version>/` and cannot be renamed into
+    the other channel. The wait has to expect the right number or it either
+    times out or proceeds on a half-built set."""
+    publish = (REPO / ".forgejo" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    platforms = len(_bottle_matrix())
+    assert re.search(rf"\*-rc\.\*\)\s*expected={platforms} ", publish), "rc tag expects one formula"
+    assert re.search(rf"\*\)\s*expected={platforms * 2} ", publish), "stable tag expects both formulae"

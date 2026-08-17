@@ -202,21 +202,71 @@ Intel) and double-click. It's signed and **notarized by Apple**, so there's no
 "unidentified developer" warning. The first time it scans, macOS asks to let
 your terminal use Bluetooth — allow it.
 
-**Debian, Ubuntu, Raspberry Pi OS (64-bit):**
+**Debian, Ubuntu, Raspberry Pi OS (64-bit)** — an apt repository, so upgrades
+arrive with the rest of the system:
 
 ```bash
-sudo apt install ./whiskerless_<version>_amd64.deb    # arm64 for a Pi
+sudo install -d /etc/apt/keyrings
+curl -fsSL https://forgejo.bryantserver.com/api/packages/SisyphusMD/debian/repository.key \
+  | sudo tee /etc/apt/keyrings/whiskerless.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/whiskerless.asc] https://forgejo.bryantserver.com/api/packages/SisyphusMD/debian stable main" \
+  | sudo tee /etc/apt/sources.list.d/whiskerless.list >/dev/null
+
+sudo apt update && sudo apt install whiskerless
 ```
+
+That first step is the one part that cannot come from the repository: apt will not
+install a package to obtain the key it needs to trust that package. Fetch it over
+HTTPS once and apt verifies everything afterwards on its own.
+
+Swap `stable` for `testing` to track release candidates. A release lands in
+**both**, so a `testing` subscriber receives it too and is never stranded on the
+last candidate.
 
 (No 32-bit build — a Pi on 32-bit Raspberry Pi OS should use the PyPI route below.)
 
-**Fedora, RHEL:**
+**Fedora, RHEL** — a dnf repository:
 
 ```bash
-sudo dnf install ./whiskerless-<version>.x86_64.rpm   # aarch64 for ARM
+sudo tee /etc/yum.repos.d/whiskerless.repo >/dev/null <<'EOF'
+[whiskerless]
+name=whiskerless
+baseurl=https://forgejo.bryantserver.com/api/packages/SisyphusMD/rpm/stable
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://forgejo.bryantserver.com/api/packages/SisyphusMD/rpm/repository.key
+       https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless-signing-key.asc
+EOF
+
+sudo dnf install whiskerless
 ```
 
-**openSUSE:** the same `.rpm`, via `sudo zypper install ./whiskerless-<version>.x86_64.rpm`.
+**Both keys are required, and they sign different things.** The first signs the
+repository index (`repo_gpgcheck`); the second is ours — `4BBACD5A6FF38564` — and
+signs the `.rpm` itself (`gpgcheck`). Do **not** use
+`dnf config-manager --add-repo …/rpm/stable.repo`: the file Forgejo generates
+lists only its own key, and the install then fails with `GPG check FAILED`,
+because nothing in it can verify a package we signed.
+
+Again, `testing` in place of `stable` tracks release candidates.
+
+**openSUSE:** the same repository — `sudo zypper addrepo -G
+https://forgejo.bryantserver.com/api/packages/SisyphusMD/rpm/stable whiskerless`,
+then `sudo rpm --import` both keys above before `sudo zypper install whiskerless`.
+
+**A single file instead** — every `.deb` and `.rpm` is also attached to each
+release, if you would rather not point a package manager at another host:
+
+```bash
+sudo apt install ./whiskerless_<version>_amd64.deb     # arm64 for a Pi
+sudo dnf install ./whiskerless-<version>.x86_64.rpm    # aarch64 for ARM
+```
+
+Verify one before installing it with `rpm -K ./whiskerless-<version>.x86_64.rpm`
+(after importing the key above) or against the release's `SHA256SUMS`. Note that
+`dpkg`/`apt` do not check package signatures for a local file at all — that is
+what the repository above is for.
 
 **Raw Linux binary** — `whiskerless-<version>-linux-x86_64` / `…-arm64` from the
 same releases page:
@@ -376,7 +426,9 @@ lists the rest — including `read` and `send` for protocol work.
 - **Homebrew**: `brew upgrade whiskerless`.
 - **macOS .pkg**: download the newer `.pkg` and double-click — it installs over
   the old one in place.
-- **.deb / .rpm**: install the newer package the same way as the first one.
+- **.deb / .rpm**: `sudo apt upgrade whiskerless` / `sudo dnf upgrade whiskerless`
+  if you added the repository; otherwise install the newer file the same way as
+  the first one.
 - **PyPI**: `pipx upgrade whiskerless` / `pip install -U whiskerless`.
 
 `whiskerless --version` says what is on your PATH.

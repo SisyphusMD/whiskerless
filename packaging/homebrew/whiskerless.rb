@@ -22,7 +22,7 @@ class Whiskerless < Formula
   url "https://files.pythonhosted.org/packages/source/w/whiskerless/whiskerless-REPLACE_VERSION.tar.gz"
   sha256 "REPLACE_SDIST_SHA256"
   license "MIT"
-
+REPLACE_BOTTLE_BLOCK
   # matches the interpreter the .pkg/.deb bundles freeze; bump by hand with each CPython minor —
   # no Renovate manager covers this formula.
   depends_on "python@3.14"
