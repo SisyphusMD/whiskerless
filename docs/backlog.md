@@ -11,7 +11,7 @@ Statuses: **open** (nothing started), **blocked** (says on what), **discuss**
 
 ## Open
 
-### #75 — Decide whether the Linux packages should be signed like the macOS one
+### #75 — Decide whether the Linux packages should be signed like the macOS one — *ANSWERED 2026-08-17: checksums shipped, GPG deferred*
 
 The macOS `.pkg` is signed with a Developer ID and notarized;
 `packaging/nfpm.yaml` carries **no signing configuration at all**, so the `.deb`
@@ -23,10 +23,22 @@ This is platform-driven rather than neglect — Gatekeeper refuses an unsigned
 downloaded, where a macOS user does. nfpm supports GPG signing; the question is
 whether a key is worth carrying for packages nobody installs from a repository.
 
-Decide it deliberately rather than leaving it as an accident of which platform
-forces the issue.
+**Answered 2026-08-17.** Signing only does work where something verifies it
+automatically — an apt/dnf **repository**, where the package manager checks every
+install. These are downloaded from release pages and installed with `dpkg -i`,
+which does not check signatures at all (`rpm -i` only warns if configured), so a
+signature would sit unverified unless a user manually imported a key. macOS is
+not the counterexample it appears to be: notarization is not a practice we
+followed, it is Gatekeeper refusing to run the thing otherwise.
 
-### #76 — One forge failing should not skip the work for the others
+So `publish.yml` now ships a **`SHA256SUMS`** covering every Linux artifact,
+which closes the real gap ("did this arrive intact") with no key to hold, rotate
+or revoke. Its limit is stated in the workflow: served from the same host as the
+artifacts, it proves integrity and not authenticity. **Revisit GPG signing if a
+repository is ever published** — that is the point at which it stops being
+ceremonial.
+
+### #76 — One forge failing should not skip the work for the others — *DONE 2026-08-17*
 
 rc.27 exposed this: `publish.yml`'s release job publishes to Forgejo, the NAS and
 GitHub, and when the GitHub step failed (waiting for a tag the mirror had not yet
@@ -40,9 +52,14 @@ destinations, and a downstream job gated on that job as a whole. Publishing to
 each forge should stand or fall on its own, and the NAS bridge should depend on
 the `.pkg` existing rather than on every other forge having succeeded.
 
-Worth pairing with a longer or unbounded tag wait — no fixed window survives an
-outage, so the honest choices are "wait much longer" or "fail this forge only
-and let a re-run finish it".
+**Done 2026-08-17.** The publish step already tried each forge independently and
+collected failures — the coupling was narrower than it looked: `nas-pkg` had
+`needs: releases`, so GitHub's failure skipped the `.pkg` bridge entirely. It now
+carries `if: ${{ !cancelled() }}`, because the only thing it needs is the `.pkg`
+on the public Forgejo release, which has nothing to do with GitHub. `prune-rcs`
+gained `needs: [releases, nas-pkg]` so it cannot prune while this release is
+itself incomplete. The GitHub tag wait went from 10 minutes to 30, since rc.27
+timed out at ten on a tag that arrived shortly after.
 
 ### #74 — Forgejo has no infra-retry, and no rerun API to fall back on
 

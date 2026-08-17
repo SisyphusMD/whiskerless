@@ -102,6 +102,16 @@ write the same release in any order.
 | `whiskerless_<v>_{amd64,arm64}.deb` | `publish.yml` | Debian / Ubuntu |
 | `whiskerless-<v>.{x86_64,aarch64}.rpm` | `publish.yml` | Fedora / RHEL |
 | `whiskerless-macos-{arm64,x86_64}.pkg` | `release-macos.yml` | macOS, signed + notarized |
+| `SHA256SUMS` | `publish.yml` | checksums for every Linux artifact |
+
+Verify a download with **`sha256sum -c --ignore-missing SHA256SUMS`**. The
+`--ignore-missing` is required, not optional: an artifact whose version contains
+`~` is listed twice — once under the canonical name Forgejo serves, once under
+the `.`-rewritten name GitHub's asset API produces — so whichever forge you
+downloaded from, the other spelling is a line with no local file. Checksums prove
+the bytes arrived intact; they are served from the same host as the artifacts, so
+they say nothing about authenticity. That is what the GPG signature on the
+packages is for.
 
 The `.deb`/`.rpm` declare **no** dependency on a system Python: PyInstaller
 bundles the interpreter, so the package works on a machine that has none. That

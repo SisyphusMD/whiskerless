@@ -85,6 +85,14 @@ while :; do
         echo "  GitHub returned ${code} (rate limited) — backing off to ${interval}s"
       fi
       ;;
+    401)
+      # An expired or revoked token. Retrying cannot fix it, and letting it fall
+      # through would spend the whole timeout and then blame the run — sending
+      # somebody to read CI logs when the answer is a dead credential.
+      echo "::error::GitHub rejected the credential (401). MIRROR_CI_TOKEN is expired, revoked or malformed." >&2
+      echo "Fix or remove the token — unset, this check still works unauthenticated, just slowly." >&2
+      exit 1
+      ;;
     *) echo "  GitHub returned ${code} — retrying" ;;
   esac
 

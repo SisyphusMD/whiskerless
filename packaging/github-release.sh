@@ -19,7 +19,10 @@ api="https://api.github.com/repos/$repo"
 auth=(-H "Authorization: Bearer $token" -H "Accept: application/vnd.github+json")
 
 echo "waiting for tag $tag on GitHub…"
-for _ in $(seq 1 60); do
+# 30 minutes, not 10: the push-mirror is asynchronous and a network blip on
+# either side stretches it. rc.27 timed out at ten and cost that release its
+# GitHub assets, on a tag that arrived shortly afterwards.
+for _ in $(seq 1 180); do
   curl --max-time 20 -sf "${auth[@]}" "$api/git/refs/tags/$tag" >/dev/null && break
   sleep 10
 done

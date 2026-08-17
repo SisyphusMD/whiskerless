@@ -160,6 +160,30 @@ jobs:
           chmod +x packaging/forgejo-release.sh packaging/github-release.sh
           # Both raw binaries, both .debs and both .rpms. The helpers take [asset...].
           mapfile -t ASSETS < <(ls whiskerless-*-linux-x86_64 whiskerless-*-linux-arm64 ./*.deb ./*.rpm)
+          # A checksum file so a download can be verified at all. The macOS .pkg
+          # is signed and notarized because Gatekeeper refuses to run it
+          # otherwise; nothing compels the Linux packages, and `dpkg -i` does not
+          # check signatures even when they exist — so the practical gap is
+          # "did this arrive intact", which a checksum closes without a signing
+          # key to hold, rotate and revoke. It proves integrity, not authenticity:
+          # it is served from the same host as the artifacts. Authenticity would
+          # mean signing THIS file with a key published elsewhere, which is worth
+          # doing only alongside an apt/dnf repository (backlog #75).
+          #
+          # The .pkg is absent here on purpose — it does not exist yet at this
+          # point in the pipeline, being built later on GitHub's macOS runners.
+          # Both spellings, because GitHub's asset API rewrites `~` to `.` in the
+          # uploaded FILENAME (documented in packaging/README.md) while Forgejo
+          # serves the canonical name. One manifest has to verify against either,
+          # so an artifact whose name contains `~` is listed twice with the same
+          # hash. Verify with `sha256sum -c --ignore-missing SHA256SUMS`; the
+          # spelling you did not download is the one reported missing.
+          sha256sum "${ASSETS[@]}" | sed 's| \./| |' > SHA256SUMS
+          awk '$2 ~ /~/ { name = $2; gsub(/~/, ".", name); print $1 "  " name }' SHA256SUMS >> SHA256SUMS.alt
+          [ -s SHA256SUMS.alt ] && cat SHA256SUMS.alt >> SHA256SUMS
+          rm -f SHA256SUMS.alt
+          ASSETS+=(SHA256SUMS)
+          echo "checksums:"; cat SHA256SUMS
           # Every target is attempted even when an earlier one fails. Run
           # fail-fast and sequentially, one unreachable host costs every target
           # after it its release, and the tag-wait poll in each helper means a
@@ -235,6 +259,13 @@ jobs:
   nas-pkg:
     name: Bridge the macOS .pkg → NAS
     needs: releases
+    # Runs even when `releases` went red. It needs exactly one thing — the .pkg on
+    # the public Forgejo release — and that has nothing to do with whether GitHub
+    # accepted its copy. rc.27 proved the cost of coupling them: GitHub's release
+    # step timed out waiting for a mirrored tag, the job failed, and the NAS was
+    # left permanently short its two .pkg files for a reason entirely unrelated
+    # to the NAS.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -244,22 +275,34 @@ jobs:
           API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
           # The .pkg is built + notarized on GitHub (slow), then appended to the
           # public Forgejo release. Wait for it (up to 30 min), then copy to NAS.
+          # BOTH of them — release-macos.yml builds arm64 and x86_64. Breaking on
+          # the first meant a half-copied NAS release reported success, and
+          # prune-rcs trusts this job's verdict before deleting candidates.
+          expected=2
           urls=""
           for _ in $(seq 1 180); do
             urls=$(curl -sf "$API/releases/tags/$GITHUB_REF_NAME" \
               | jq -r '.assets[]? | select(.name | endswith(".pkg")) | .browser_download_url' || true)
-            [ -n "$urls" ] && break
+            [ "$(printf '%s\n' "$urls" | grep -c . || true)" -ge "$expected" ] && break
             sleep 10
           done
-          if [ -z "$urls" ]; then
-            echo "::warning::no .pkg on the Forgejo release after 30m; NAS release will lack it"
-            exit 0
+          found="$(printf '%s\n' "$urls" | grep -c . || true)"
+          partial=false
+          if [ "$found" -lt "$expected" ]; then
+            # Upload what DID arrive before going red. The earlier version claimed
+            # to do this and did not — it downloaded to the runner and exited, so
+            # the NAS got nothing at all.
+            partial=true
           fi
           echo "$urls" | while read -r u; do [ -n "$u" ] && curl -sSL -O "$u"; done
           bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
           chmod +x packaging/forgejo-release.sh
           packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
             "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md *.pkg
+          if [ "$partial" = true ]; then
+            echo "::error::only ${found}/${expected} .pkg on the Forgejo release after 30m — the NAS release is incomplete"
+            exit 1
+          fi
 
   prune-rcs:
     name: Prune the candidates this release supersedes
@@ -267,7 +310,11 @@ jobs:
     # stable exists on all three hosts, and nas-pkg is what finishes the set.
     # Run any earlier and this release would find its own stable half-published
     # and keep every rc, turning the automatic pass into a silent no-op.
-    needs: nas-pkg
+    #
+    # Both, now that nas-pkg runs through a failed `releases`: pruning candidates
+    # while this release is itself incomplete on some host is exactly the silent
+    # no-op above, or worse.
+    needs: [releases, nas-pkg]
     # An rc publishes through this same workflow, and its own stable does not
     # exist yet, so the sweep would enumerate every host to print zero. Skip it
     # rather than pay for the round trip.
