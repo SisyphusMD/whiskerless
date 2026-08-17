@@ -70,11 +70,37 @@ in a file manager. Matches the sibling dreame-valetudo project.
 ```
 ~/whiskerless/
 ├── .layout              structure version, separate from the release version
+├── broker.json          the ONE broker every robot here talks to
 ├── ca/ca.crt  ca.key    the authority; the key never leaves this machine
 ├── client/              this machine's identity to the broker
 ├── broker/              server.crt + server.key — copy to your broker
 └── robots/<serial>/profile.json
 ```
+
+### One broker per store
+
+The broker, its port and its CA used to live on every robot profile, and a whole
+apparatus existed to reconcile them: a `SharedSetup` type computing what the
+robots agreed on, `merge_overrides` laying flags over a profile, a per-robot copy
+of the CA, and a prompt that had to *describe whose* CA it was offering. None of
+those values ever actually differ — a household points its robots at one broker.
+
+Hoisting them to the store deleted all of it, and deleted `whiskerless adopt`
+with it: once the broker was no longer per-robot, adopt only recorded a serial,
+and it could never give a robot the certificate it now needs. Re-provisioning is
+the honest path.
+
+A genuinely separate broker is a separate store: point `WHISKERLESS_HOME` at
+another directory and it gets its own CA, its own robots, its own everything.
+That is more honest than pretending one machine can straddle two brokers, because
+under mutual TLS it cannot — the CA that signed one broker's certificate did not
+sign the other's.
+
+The same reasoning removed `--host`, `--port`, `--ca` and `--insecure` from the
+everyday commands. Under mutual TLS a one-off `--host` would still present this
+store's CA and this machine's client certificate, so it could only ever produce a
+confusing TLS failure. They survive on `provision`, which is where the broker is
+established.
 
 `.layout` is the **only** version marker. An earlier design also stamped a format
 version inside each `profile.json`; both were kept briefly and that was a mistake —
@@ -157,6 +183,11 @@ incoherent: it fell straight through to asking for a CA path anyway. Whether the
 robot gets an identity of its own is a *consequence* of handing over the signing
 key, not a separate choice.
 
+The confirmation screen fires **after** the network is chosen and before the
+first write, not before the BLE link opens. The robot lists the networks it can
+see, so the SSID is not known until then — asking earlier printed a blank WiFi
+row and asked somebody to approve a thing they had not chosen yet.
+
 Supplied files are **copied in under our own names**, never remembered by path. A
 path breaks when the USB stick comes out or the folder is tidied, and it breaks
 later, at a moment nobody connects back to the decision. `--no-store-ca-key` is
@@ -167,6 +198,19 @@ invisible until a handshake fails: refuse a certificate that is not a CA (the "I
 gave you my server cert" mistake), a mismatched pair, or an expired one; warn
 about a CA with no `keyUsage` extension, which the robot's mbedTLS accepts and
 Python 3.13's `VERIFY_X509_STRICT` then rejects — the worst possible split.
+
+### Nothing about the machine is committed until a robot accepts it
+
+`broker.json` is written only after provisioning succeeds. An abort, a failed
+WiFi join, or a robot that never advertised would otherwise silently retarget
+*every other command* at a broker no robot is on. The CA and this machine's
+identity are written earlier and deliberately — they are idempotent, reusable,
+and a second run should not regenerate them.
+
+An established CA is never replaced. Swapping it would leave every provisioned
+robot trusting a certificate the broker no longer presents, and each rescue is a
+walk to that robot with a laptop; the refusal names the robots that would be
+stranded. Rotating deliberately means starting a fresh store.
 
 ### No ACL shipped
 

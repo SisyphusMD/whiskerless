@@ -6,19 +6,30 @@ getting the robot back into pairing mode, and clearing the everyday faults.
 
 ## Go back to the Whisker cloud
 
-whiskerless only overwrites **connection details** — the trusted root CA, the
-broker host and topics, the client id, and the WiFi credentials (the six fields
-listed below, the same ones the app writes at first setup). It never touches the
-factory **device certificate/key**. So restoring stock cloud operation is just
-re-onboarding through the official **Whisker app**:
+Restoring stock cloud operation is re-onboarding through the official **Whisker
+app**:
 
 1. In the Whisker app, run the normal "set up / reconnect" flow for the robot.
 2. The app rewrites the real Amazon root CA + AWS endpoints over the *same* BLE
-   channel whiskerless used.
-3. The untouched factory identity lets the robot authenticate to AWS exactly as
-   before.
+   channel whiskerless used — **and reissues the robot's device certificate and
+   private key**, which is what lets it authenticate to AWS again.
 
 That's it — no flashing, nothing permanent, no fuses burned.
+
+**This holds whether or not whiskerless replaced the robot's identity.** If you
+let it issue the robot a certificate of your own, the factory one is gone — but
+the app writes a fresh identity on every onboarding regardless, so the route home
+is the same. That is not an assumption: a Whisker-app onboarding was captured and
+decoded, and it writes all three certificate slots even to a robot that already
+had a valid identity. See
+[the app-onboarding capture](devices/litter-robot-4/provisioning/app-onboarding-capture.md).
+
+The one thing that recovery therefore depends on is Whisker's app continuing to
+behave this way. If they ever changed onboarding to reuse an existing identity
+rather than reissue one, a robot carrying your certificate instead of theirs
+would have no route back. Nothing observed suggests they intend to, and there is
+no way to insure against it from here — which is why the identity write announces
+itself before it happens rather than being quiet about it.
 
 **This round trip has been done**, not just reasoned about: a robot provisioned onto
 a local broker was re-onboarded through the Whisker app and returned to normal cloud
@@ -26,13 +37,16 @@ operation.
 
 Provisioning writes six things, all of them the same ones the app writes at first
 setup: the client id (set to the serial), the WiFi SSID and passphrase, the broker
-host, the two topic endpoints, and the root CA. Nothing there is irreplaceable —
+host, the two topic endpoints, and the root CA — plus, if you asked for it, the
+robot's own certificate and key, which the app also writes every time. Nothing there is irreplaceable —
 Amazon's root CAs are public, the endpoint is Whisker's own, and the topics embed the
 serial printed on the robot's own label.
 
 **There is nothing to back up first, and no way to do it if there were.** The only
-per-robot secret is the factory device certificate and key, which whiskerless neither
-writes nor reads. Of the config messages mapped so far, the only one that answers
+per-robot secret is the device certificate and key. whiskerless can *write* those
+(that is the optional identity step), but nothing can **read** them back — the
+provisioning protocol has no read verb for any certificate, which was byte-verified
+from the firmware's own message descriptors. Of the config messages mapped so far, the only one that answers
 with data is the device-id read (a 6-byte value we format as a MAC — one proto
 comment suggests it may be the serial instead; unresolved, see the backlog's #52) —
 there is no mapped way to retrieve a certificate, host or topic at all. Whether the

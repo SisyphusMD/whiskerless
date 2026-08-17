@@ -27,8 +27,12 @@ drive it.
 
 That's the whole trick: install **your** CA into the root-CA slot, point the host
 at **your** broker, and the robot trusts and connects to it — no soldering, no
-UART, no reflash. Because the factory device cert/key are left untouched, it's
-**fully reversible** by re-onboarding through the Whisker app.
+UART, no reflash. It is **fully reversible** by re-onboarding through the Whisker
+app, which rewrites the whole MQTT identity — root CA, device certificate and
+private key — on every onboarding. (whiskerless can optionally replace the device
+certificate and key with ones your own CA signed, so the broker can require a
+certificate rather than accepting anonymous clients; the route home is the same
+either way.)
 
 The MQTT protobuf field numbers were recovered byte-exactly from the firmware's
 protobuf-c descriptor tables, so whiskerless reproduces the app's frames without
@@ -161,7 +165,8 @@ order of effort:
    [compatibility.md](devices/litter-robot-4/compatibility.md#open-items).
    Sniffing the cloud's own command bytes is not available *at this tier*: a
    cloud-paired robot talks to Whisker's AWS broker using a factory device key that
-   provisioning never touches. It becomes available once the ESP flash read below
+   provisioning does not read (it can write one, but nothing can read one back).
+   It becomes available once the ESP flash read below
    yields that identity, at which point a client can subscribe as the robot — which
    is one of the strongest reasons to want the dump.
 2. **Decompile the Whisker app (Blutter).** It confirms the full command **verb**

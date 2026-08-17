@@ -35,8 +35,13 @@ ADVERTISER_NAME = "LitterRobot4"
 
 class CertificateType(IntEnum):
     CERT_AWS_ROOT_CERT = 1  # server-trust root CA — provision OUR CA here
-    CERT_DEVICE_CERT = 2    # factory identity — do NOT touch
-    CERT_DEVICE_KEY = 3     # factory identity — do NOT touch
+    # The device's own identity. Written only when the user asks for one signed by
+    # their CA, so their broker can require a certificate instead of accepting
+    # anonymous clients. Nothing can read these back — there is no read verb —
+    # and the route home is the Whisker app, which reissues all three on every
+    # onboarding. See docs/design/authentication.md.
+    CERT_DEVICE_CERT = 2
+    CERT_DEVICE_KEY = 3
 
 
 class EndpointType(IntEnum):

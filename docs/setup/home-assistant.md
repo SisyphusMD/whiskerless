@@ -32,6 +32,18 @@ supported. Firmware caveats and the per-opcode differences are in
 > (commonly a local `1883` listener with a username/password) — the two are
 > independent, and Whiskerless simply reads the robot's messages through HA's
 > connection.
+>
+> **If you harden the robot's listener, check which one HA uses first.** Letting
+> whiskerless issue each robot a certificate means 8883 can require one
+> ([mqtt-broker.md](mqtt-broker.md#requiring-certificates-instead-recommended)).
+> Home Assistant on its own authenticated listener — the recommended 1883 setup —
+> is untouched by that, and this integration never opens a broker connection of
+> its own, so there is nothing to reconfigure in HA.
+>
+> But if you pointed HA's MQTT integration at **8883**, `require_certificate
+> true` will reject it as well, and HA has no way to present a client
+> certificate. Move HA to the authenticated listener before hardening, or leave
+> 8883 anonymous.
 
 ## Install via HACS
 
