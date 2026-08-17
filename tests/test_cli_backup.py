@@ -247,9 +247,14 @@ def test_force_overwrites(store: ProfileStore, tmp_path: Path) -> None:
 def test_an_unwritable_destination_is_explained_not_traced(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    locked = tmp_path / "locked"
-    locked.mkdir(mode=0o500)
-    assert run("backup", str(locked / "b.tar.gz"), "--no-password") == 1
+    """The failure is injected rather than staged with directory permissions:
+    root ignores a mode of 0o500 and writes anyway, so a permissions-based
+    version of this passes for a developer and fails on any CI runner that
+    builds as root — which is most of them, including this project's."""
+    with patch(
+        "whiskerless.cli._write_bytes_private", side_effect=OSError(13, "Permission denied")
+    ):
+        assert run("backup", str(tmp_path / "b.tar.gz"), "--no-password") == 1
     assert "could not write" in capsys.readouterr().err
 
 
