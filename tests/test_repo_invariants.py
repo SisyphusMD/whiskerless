@@ -250,3 +250,54 @@ def test_the_readme_network_picker_uses_only_example_names() -> None:
     names = set(picker.findall(readme))
     assert names, "the provisioning transcript's network picker is no longer recognisable"
     assert names <= EXAMPLE_NETWORKS, f"not example names: {sorted(names - EXAMPLE_NETWORKS)}"
+
+
+# --- the two Homebrew formulae must not drift ------------------------------------
+# `whiskerless.rb` and `whiskerless-rc.rb` differ only in name, description and
+# which one they conflict with. Everything that decides whether `brew install`
+# WORKS — the dependency list, the resource closure, the install body — has to be
+# identical, because only one of them is ever exercised by any given CI run.
+#
+# Both halves of this have already shipped broken: the resource closure went stale
+# in both when cryptography became a dependency, and the macOS build fix had to be
+# applied to each by hand. Nothing checked either.
+FORMULAE = [Path("packaging/homebrew/whiskerless.rb"), Path("packaging/homebrew/whiskerless-rc.rb")]
+
+
+def _formula(name: str) -> str:
+    return (REPO / name).read_text(encoding="utf-8")
+
+
+def _between(text: str, start: str, end: str) -> str:
+    body = text.split(start, 1)
+    assert len(body) == 2, f"marker {start!r} missing"
+    return body[1].split(end, 1)[0]
+
+
+def test_both_formulae_declare_the_same_dependencies() -> None:
+    """A build dependency added to one and not the other is a formula that fails
+    only on the channel nobody tested."""
+    declared = [
+        sorted(
+            line.strip()
+            for line in _formula(str(p)).splitlines()
+            if line.strip().startswith("depends_on")
+        )
+        for p in FORMULAE
+    ]
+    assert declared[0] == declared[1], f"formula dependencies drifted: {declared}"
+
+
+def test_both_formulae_carry_the_same_resource_closure() -> None:
+    """`packaging/homebrew-resources.py` emits one block for both. Regenerating
+    into a single file is the exact mistake that shipped a formula whose every
+    command died on `ModuleNotFoundError: cryptography`."""
+    blocks = [_between(_formula(str(p)), "BEGIN RESOURCES", "END RESOURCES") for p in FORMULAE]
+    assert blocks[0] == blocks[1], "resource closures drifted between the two formulae"
+
+
+def test_both_formulae_install_the_same_way() -> None:
+    """The install body carries the macOS build fix; applying it to one formula
+    only leaves the other producing a binary dyld refuses to load."""
+    bodies = [_between(_formula(str(p)), "def install", "\n  end") for p in FORMULAE]
+    assert bodies[0] == bodies[1], "install bodies drifted between the two formulae"
