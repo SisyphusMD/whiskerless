@@ -224,8 +224,10 @@ PUT /api/packages/SisyphusMD/rpm/{group}/upload
 
 Public instance only: an `apt update` resolves this host on every run, and the
 NAS is not reachable from outside the house. Needs
-`CLUSTER_FORGEJO_PACKAGE_WRITE_PAT` — Forgejo scopes packages separately, and the
-release PAT's `write:repository` **cannot** upload one.
+`CLUSTER_FORGEJO_REGISTRY_PUSH_PAT` — the org-level PAT the sister repos already
+push container images with. Forgejo scopes packages separately, so the release
+PAT's `write:repository` **cannot** upload one; `write:package` covers upload,
+listing and delete across every package type.
 
 **Two distributions, `stable` and `testing`.** Version ordering alone cannot keep
 candidates away from release subscribers: `0.2.0~rc.28` sorts below `0.2.0`, which
@@ -304,7 +306,7 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `GH_REPO_READ_PAT` | **Optional.** GitHub PAT with **no scopes** — read-only public data, used solely by `mirror-gate` to escape the 60-request/hour unauthenticated limit. Absent, the gate still works and just polls slowly. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`). OIDC trusted publishing isn't available on Forgejo, so this is a token. Scope it to the project once it exists. |
 | `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. Held at the **org** level, not on this repo. |
-| `CLUSTER_FORGEJO_PACKAGE_WRITE_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. A separate secret because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with 403 rather than anything obvious. The token is `whiskerless-registry-push`. |
+| `CLUSTER_FORGEJO_REGISTRY_PUSH_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. Held at the **org** level and shared with the sister repos' container pushes — one scope covers every package type. Needed because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with a 403 rather than anything obvious. |
 | `GPG_SIGNING_KEY` | The armoured private half of the package signing key (`4BBACD5A6FF38564`). Written to a tmp file **outside** the workspace and `docker cp`'d in separately, so it is never part of a build context. |
 
 ### On GitHub (`github.com/SisyphusMD/whiskerless` → Settings → Secrets and variables → Actions)

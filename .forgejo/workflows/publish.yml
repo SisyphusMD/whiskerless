@@ -268,7 +268,7 @@ jobs:
           set -euo pipefail
           chmod +x packaging/publish-registry.sh
           packaging/publish-registry.sh forgejo.bryantserver.com \
-            "${{ secrets.CLUSTER_FORGEJO_PACKAGE_WRITE_PAT }}" "$GITHUB_REF_NAME" ./*.deb ./*.rpm
+            "${{ secrets.CLUSTER_FORGEJO_REGISTRY_PUSH_PAT }}" "$GITHUB_REF_NAME" ./*.deb ./*.rpm
 
   homebrew-tap:
     name: Update the Homebrew tap formula (stable or -rc per tag)
@@ -493,5 +493,5 @@ jobs:
           FORGEJO_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
           NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}
           GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
-          PACKAGE_TOKEN: ${{ secrets.CLUSTER_FORGEJO_PACKAGE_WRITE_PAT }}
+          PACKAGE_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REGISTRY_PUSH_PAT }}
         run: bash packaging/prune-rcs.sh
