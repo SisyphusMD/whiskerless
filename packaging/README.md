@@ -46,7 +46,18 @@ and bridges.
    because the tag job's own intent check already refuses unless the diff is
    exactly the version-stamped files — none of which is the formula, or any code
    the formula compiles. It is unauthenticated by design: the gate jobs
-   hold no credential, and the mirror is public. It **waits** rather than failing
+   hold no credential, and the mirror is public.
+
+   The check it waits on lives in its **own** workflow
+   (`.github/workflows/formula-macos.yml`), keyed per commit with
+   `cancel-in-progress: false`, rather than alongside the macOS test matrix.
+   That is load-bearing: `ci-macos.yml` cancels superseded runs, which is right
+   for a fast matrix and wrong here — a cancelled run reads as not-green, so any
+   push landing during a release cut used to kill the very run the release was
+   waiting on. Split out, each commit's verdict stands on its own and survives
+   whatever lands after it, so pushing during a release is safe again.
+
+   It **waits** rather than failing
    fast, because the push-mirror is asynchronous — a release dispatched moments
    after a push finds no run at all for a while. A `cancelled` run counts as
    not-green, which matters: pushing again cancels the previous run.

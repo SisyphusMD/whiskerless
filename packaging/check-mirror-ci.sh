@@ -7,7 +7,10 @@
 #   check-mirror-ci.sh <sha> [workflow-name]
 #
 # Forgejo has no macOS runner, so the only thing that ever builds the Homebrew
-# formula on a Mac is `CI (macOS)` on the mirror. Without this the release gate
+# formula on a Mac is the `Homebrew formula (macOS)` workflow on the mirror —
+# deliberately its own workflow, keyed per commit and never cancelled, because
+# a cancelled run reads as not-green and a push during a release cut would
+# otherwise kill the run the release is waiting on. Without this the release gate
 # is blind to it — which is how a release candidate shipped whose every
 # brew-installed command died on `ImportError: ... mis-aligned LINKEDIT string
 # pool`, a macOS-only corruption of cryptography's Rust extension. The Linux
@@ -22,7 +25,7 @@
 set -euo pipefail
 
 sha="${1:?usage: check-mirror-ci.sh <sha> [workflow-name]}"
-want="${2:-CI (macOS)}"
+want="${2:-Homebrew formula (macOS)}"
 repo="${MIRROR_REPO:-SisyphusMD/whiskerless}"
 timeout="${MIRROR_CI_TIMEOUT:-2400}"
 interval="${MIRROR_CI_INTERVAL:-60}"

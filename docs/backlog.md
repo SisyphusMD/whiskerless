@@ -11,6 +11,27 @@ Statuses: **open** (nothing started), **blocked** (says on what), **discuss**
 
 ## Open
 
+### #73 — Ship Homebrew bottles so `brew install` stops compiling cryptography
+
+Taking `cryptography` made the tap expensive: Homebrew builds every resource from
+source, cryptography's extension is Rust, and Homebrew's `rust` formula drags in
+`llvm` — so a `brew install` now downloads ~2.4 GB of build dependencies and
+compiles for several minutes, on every user's machine.
+
+**The dependency list is not the problem.** homebrew-core's `certbot` needs
+cryptography too and declares exactly the same trio (`openssl@3`, `pkgconf`,
+`rust`). The difference is that certbot ships a **bottle** — a prebuilt keg — so
+nobody installing it ever compiles. Our tap ships none, so everyone does.
+
+The fix is to build bottles in CI and attach them to the tap: `brew bottle
+--json` per platform, upload the tarballs, add the `bottle do … end` block to
+both formula templates. The runners already exist — `release-macos.yml` uses
+GitHub's macOS machines for the `.pkg`, and Linux is free. Needs arm64 macOS,
+x86_64 macOS and Linux to cover what the formula claims.
+
+Until then the `.pkg`, `.deb`/`.rpm` and PyPI paths are all wheel-based and cost
+nothing, so Homebrew is the only expensive route.
+
 ### #72 — `setup --ca --ca-key` files the CA but never issues the broker's server cert
 
 Bringing your own CA *and* its key gives whiskerless everything it needs to issue

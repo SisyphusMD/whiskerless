@@ -25,6 +25,7 @@ on:
   workflow_run:
     workflows:
       - "CI (macOS)"
+      - "Homebrew formula (macOS)"
       - "Release (macOS pkg)"
     types: [completed]
 

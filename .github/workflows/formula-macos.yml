@@ -1,0 +1,66 @@
+name: Homebrew formula (macOS)
+
+# Split out of ci-macos.yml on purpose. That workflow cancels superseded runs,
+# which is right for a fast test matrix and WRONG for this: the release gate
+# (`mirror-gate` in the Forgejo release workflows) refuses to tag until this
+# workflow is green on the commit being released, and a cancelled run counts as
+# not-green. Under the shared policy, any push landing during a release cut
+# killed the very run the release was waiting on.
+#
+# So: keyed per COMMIT, and never cancelled. Each commit's verdict stands on its
+# own and survives whatever lands after it.
+
+on:
+  # Same breadth as ci-macos.yml: a prerelease can be dispatched from any branch,
+  # and `mirror-gate` then has nothing to read for that commit — it would wait the
+  # full timeout and fail a release that was never actually broken.
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: formula-macos-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  formula:
+    name: Homebrew formula builds and runs (macOS)
+    # The only other formula check runs inside linuxbrew Docker, so it proves the
+    # resource closure and nothing about macOS. That gap shipped a whiskerless-rc
+    # whose every command died on `ImportError: ... mis-aligned LINKEDIT string
+    # pool` — cryptography's Rust extension, stripped by cargo into a Mach-O dyld
+    # refuses. Nothing in CI could see it, because nothing in CI built the formula
+    # on a Mac.
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Build an sdist from a pristine export
+        # Same reason publish.yml exports rather than building in place: hatchling
+        # sweeps untracked files, and a stray virtualenv turns a 700 KB sdist into
+        # hundreds of megabytes.
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          work="$(mktemp -d)"
+          git archive --format=tar HEAD | tar -x -C "$work"
+          (cd "$work" && python -m build --sdist --outdir "$GITHUB_WORKSPACE/dist")
+      - name: Install the rendered formula and run it
+        # The runner is disposable, which is the condition test-homebrew-formula.sh
+        # asks for. It builds cryptography from source — several minutes — which is
+        # the entire point: that build is what breaks.
+        #
+        # The tag has to match the sdist, because the script asserts the installed
+        # CLI reports it. That means the STABLE formula is the one exercised here;
+        # the rc formula carries a byte-identical dependency and install block, and
+        # the Linux smoke covers it at publish time.
+        run: |
+          set -euo pipefail
+          version="$(python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")"
+          bash packaging/test-homebrew-formula.sh "v${version}" dist/whiskerless-*.tar.gz
