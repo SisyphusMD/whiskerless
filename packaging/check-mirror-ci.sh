@@ -16,9 +16,19 @@
 # pool`, a macOS-only corruption of cryptography's Rust extension. The Linux
 # smoke passed the whole time, because a Linux container cannot see it.
 #
-# Deliberately UNAUTHENTICATED: the gate job holds no credential by design (only
-# the tag job is handed a write token), and the mirror is public. Unauthenticated
-# GitHub allows 60 requests/hour per IP, and this polls once a minute at most.
+# Unauthenticated by default: the gate job holds no WRITE credential by design
+# (only the tag job is handed one), and the mirror is public.
+#
+# But unauthenticated GitHub allows only 60 requests/hour PER IP, and the runner
+# egresses from the same address as everything else on that network — so the
+# budget is shared and can be exhausted by something else entirely. Observed
+# 2026-08-17: a 403 on every poll, and the gate then timed out on a commit whose
+# run had actually passed. Hence a slow interval, backoff on 403, and a message
+# that names rate limiting instead of blaming the run.
+#
+# Set MIRROR_CI_TOKEN to a read-only GitHub token to get 5,000/hour instead. It
+# needs no scopes at all for a public repository, so it stays far away from the
+# write credential this job deliberately does not hold.
 #
 # Waits rather than failing fast, because the push-mirror is asynchronous: a
 # release dispatched moments after a push will find no run at all for a while.
@@ -28,26 +38,52 @@ sha="${1:?usage: check-mirror-ci.sh <sha> [workflow-name]}"
 want="${2:-Homebrew formula (macOS)}"
 repo="${MIRROR_REPO:-SisyphusMD/whiskerless}"
 timeout="${MIRROR_CI_TIMEOUT:-2400}"
-interval="${MIRROR_CI_INTERVAL:-60}"
+interval="${MIRROR_CI_INTERVAL:-300}"   # 300s: ~8 polls per 40 min, well under 60/hour
 
 api="https://api.github.com/repos/${repo}/actions/runs?head_sha=${sha}&per_page=50"
 deadline=$(( $(date +%s) + timeout ))
+throttled=0
 
 echo "Waiting for '${want}' on ${repo}@${sha:0:12} (up to $(( timeout / 60 )) min)"
 
 runs_json="$(mktemp)"
-trap 'rm -f "$runs_json"' EXIT
+headers="$(mktemp)"
+trap 'rm -f "$runs_json" "$headers"' EXIT
 
 while :; do
   fetched=false
-  code="$(curl -sS -o "$runs_json" -w '%{http_code}' \
-    -H 'Accept: application/vnd.github+json' "$api" || echo 000)"
+  auth=()
+  [ -n "${MIRROR_CI_TOKEN:-}" ] && auth=(-H "Authorization: Bearer ${MIRROR_CI_TOKEN}")
+  code="$(curl -sS -o "$runs_json" -D "$headers" -w '%{http_code}' \
+    -H 'Accept: application/vnd.github+json' "${auth[@]}" "$api" || echo 000)"
   case "$code" in
-    200) fetched=true ;;
+    200)
+      fetched=true
+      # Clear the throttle record: a successful read means the eventual timeout
+      # is about the RUN, not the quota, and the diagnosis must say so.
+      throttled=0
+      interval="${MIRROR_CI_INTERVAL:-300}"
+      ;;
     403|429)
       # Rate limited or throttled. Not a verdict on the commit, so keep waiting
-      # rather than failing a release for somebody else's traffic on this IP.
-      echo "  GitHub returned ${code} (rate limit?) — retrying"
+      # rather than failing a release for somebody else's traffic on this IP —
+      # but back off hard, because hammering a rate limit only extends it.
+      throttled=$(( throttled + 1 ))
+      # GitHub states exactly when the quota returns. Waiting for that beats
+      # doubling blindly, which either hammers the limit or overshoots it.
+      reset="$(awk -F': *' 'tolower($1)=="x-ratelimit-reset"{gsub(/\r/,"",$2); print $2}' "$headers")"
+      now="$(date +%s)"
+      if [ -n "$reset" ] && [ "$reset" -gt "$now" ] 2>/dev/null; then
+        interval=$(( reset - now + 5 ))
+        echo "  GitHub returned ${code} (rate limited) — quota resets in ${interval}s, waiting for it"
+        # The reset can be up to an hour away; a deadline shorter than that would
+        # fail a release over a quota rather than over the code.
+        [ $(( now + interval + 60 )) -gt "$deadline" ] && deadline=$(( now + interval + 60 ))
+      else
+        interval=$(( interval * 2 ))
+        [ "$interval" -gt 900 ] && interval=900
+        echo "  GitHub returned ${code} (rate limited) — backing off to ${interval}s"
+      fi
       ;;
     *) echo "  GitHub returned ${code} — retrying" ;;
   esac
@@ -92,6 +128,13 @@ PY
   fi
 
   if [ "$(date +%s)" -ge "$deadline" ]; then
+    if [ "$throttled" -gt 0 ]; then
+      # Do not let a rate limit masquerade as a broken build: the difference
+      # decides whether somebody goes looking at their code or at their quota.
+      echo "::error::gave up waiting for '${want}' on ${repo}@${sha:0:12} — GitHub rate-limited ${throttled} of the polls, so this is NOT a verdict on the commit" >&2
+      echo "Set MIRROR_CI_TOKEN to a read-only GitHub token (no scopes needed for a public repo) to raise the limit from 60/hour to 5,000." >&2
+      exit 1
+    fi
     echo "::error::timed out waiting for '${want}' on ${repo}@${sha:0:12}" >&2
     echo "Either the push-mirror has not delivered this commit, or the run is stuck." >&2
     echo "Check https://github.com/${repo}/actions and dispatch again once it is green." >&2

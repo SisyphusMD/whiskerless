@@ -11,6 +11,39 @@ Statuses: **open** (nothing started), **blocked** (says on what), **discuss**
 
 ## Open
 
+### #75 — Decide whether the Linux packages should be signed like the macOS one
+
+The macOS `.pkg` is signed with a Developer ID and notarized;
+`packaging/nfpm.yaml` carries **no signing configuration at all**, so the `.deb`
+and `.rpm` ship unsigned.
+
+This is platform-driven rather than neglect — Gatekeeper refuses an unsigned
+`.pkg`, and nothing on Linux refuses an unsigned package installed directly with
+`dpkg -i` / `rpm -i`. But it means a Linux user has no way to verify what they
+downloaded, where a macOS user does. nfpm supports GPG signing; the question is
+whether a key is worth carrying for packages nobody installs from a repository.
+
+Decide it deliberately rather than leaving it as an accident of which platform
+forces the issue.
+
+### #76 — One forge failing should not skip the work for the others
+
+rc.27 exposed this: `publish.yml`'s release job publishes to Forgejo, the NAS and
+GitHub, and when the GitHub step failed (waiting for a tag the mirror had not yet
+delivered) the **whole job** failed — which then **skipped** the `nas-pkg` bridge
+downstream. Result: Forgejo got all 8 assets, the NAS got 6 (no `.pkg`, because
+the bridge never ran), GitHub got 2 (the `.pkg` that `release-macos.yml` attached
+on its own).
+
+Two artifacts of one design: a single job publishing to three independent
+destinations, and a downstream job gated on that job as a whole. Publishing to
+each forge should stand or fall on its own, and the NAS bridge should depend on
+the `.pkg` existing rather than on every other forge having succeeded.
+
+Worth pairing with a longer or unbounded tag wait — no fixed window survives an
+outage, so the honest choices are "wait much longer" or "fail this forge only
+and let a re-run finish it".
+
 ### #74 — Forgejo has no infra-retry, and no rerun API to fall back on
 
 `retry-infra-failures.yml` re-runs a job when the *runner* failed before any of
@@ -21,6 +54,13 @@ against `swagger.v1.json`: `runs/{id}/cancel` exists, nothing to re-run).
 Seen 2026-08-17: all five `ci.yml` jobs failed together on
 `actions/setup-python` — "Failed to fetch the Python versions manifest ... all
 retries were exhausted". Zero real failures; every job died in setup.
+
+**Probably not a random flake.** The household internet was intermittently down
+across that window, and the same period produced a second network-shaped
+failure: `publish.yml`'s GitHub release step waited out its full ten minutes for
+the mirrored rc.27 tag to become visible and gave up. Both are consistent with
+the outage; neither is proven to be caused by it. The lesson holds either way —
+a release cut has no tolerance for a network blip, on a forge with no retry.
 
 Cosmetic on a `main` push, since the only way back to green is another push. It
 is **not** cosmetic during a release: the same flake in a `prerelease.yml` gate
@@ -52,22 +92,31 @@ Four things settled while scoping it (2026-08-17):
   push-mirror replicates **refs only — never release assets**. So the formula
   mirrors for free and the bottles do not; they have to be uploaded to GitHub
   explicitly, the way `publish.yml` already attaches the `.deb`/`.rpm`/binaries
-  with `GH_REPO_WRITE_PAT`. `root_url` should point at GitHub for the same
-  reason: otherwise every `brew install` anywhere pulls from the self-hosted
-  forge.
+  with `GH_REPO_WRITE_PAT` — which it does for all three forges, so bottles ride
+  the same path as every other artifact. (Where `root_url` then points is a
+  separate question, answered below.)
 - **A bottle covers the whole formula, not one resource.** It prebuilds the
   entire venv, so it removes cryptography's Rust build *and* `cffi`'s and
   `pyobjc-core`'s C builds. `rust` and `pkgconf` are `=> :build`, so bottled
   users never install them — and `llvm` (1.9 GB) is rust's dependency, not ours,
   so it goes with them. Only `python@3.14` and `openssl@3` remain.
-- **macOS coverage is 15 and 26 only.** The CI matrix builds arm64 + Intel on
-  each, which is four bottle tags: `arm64_sequoia`, `sequoia`, `arm64_tahoe`,
-  `tahoe`. Anyone on macOS 14 or older matches none and silently compiles.
-  Decide: add a Sonoma leg, or declare 15 the floor.
-- **Linux is not bottled and the arch is not the obvious one.** The Linux
-  formula smoke runs on an **arm64** runner. GitHub's ubuntu runners are x86_64,
-  so covering Linux means both `x86_64_linux` and `arm64_linux` — and Homebrew's
+- **One bottle per ARCH, not per macOS version.** Homebrew falls back to an
+  older bottle when none matches the running OS — verified 2026-08-17 on a
+  macOS **27** machine, which poured `arm64_tahoe` (26) bottles for `rust`. So
+  building on the oldest supported OS covers every newer one. Note also that
+  macOS 16–25 do not exist: Apple went 15 (Sequoia) → 26 (Tahoe) → 27, so the
+  matrix's `macos-15` "floor" and `macos-26` "current" are *consecutive*
+  releases. Building the floor leg gives `arm64_sequoia` + `sequoia`, and 26 and
+  27 both use them.
+- **Four bottles total, then**: `arm64_sequoia`, `sequoia`, `x86_64_linux`,
+  `arm64_linux`. The Linux formula smoke runs on an **arm64** runner while
+  GitHub's ubuntu runners are x86_64, so Linux needs both — and Homebrew's
   well-trodden Linux path is x86_64.
+- **`root_url` is a free choice, not a constraint.** HACS genuinely requires
+  GitHub; Homebrew does not — `root_url` takes any HTTPS URL, so pointing it at
+  Forgejo keeps the primary-forge convention. The cost is availability: once a
+  bottle exists, brew stops fetching the PyPI sdist, so whatever `root_url`
+  names becomes the *only* download path for every install anywhere.
 
 The alternative that avoids per-OS bottle maintenance entirely is installing the
 compiled resources from upstream wheels instead of building them. It departs

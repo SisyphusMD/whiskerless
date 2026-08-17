@@ -45,8 +45,9 @@ and bridges.
    so no branch workflow could ever evaluate it. Gating the parent is sound
    because the tag job's own intent check already refuses unless the diff is
    exactly the version-stamped files — none of which is the formula, or any code
-   the formula compiles. It is unauthenticated by design: the gate jobs
-   hold no credential, and the mirror is public.
+   the formula compiles. The job holds **no write credential** by design — that is
+   the property that matters, since it cannot push anything — and the mirror is
+   public, so it needs no credential at all to read.
 
    The check it waits on lives in its **own** workflow
    (`.github/workflows/formula-macos.yml`), keyed per commit with
@@ -56,6 +57,14 @@ and bridges.
    push landing during a release cut used to kill the very run the release was
    waiting on. Split out, each commit's verdict stands on its own and survives
    whatever lands after it, so pushing during a release is safe again.
+
+   **Add `GH_READ_PAT` if the gate starts timing out.** Unauthenticated GitHub
+   allows 60 API requests an hour *per IP*, shared with everything else leaving
+   this network — exhaust it and the gate polls uselessly and then fails a
+   release that was never broken (seen 2026-08-17). A token with **no scopes at
+   all** lifts that to 5,000/hour on a public repo. It is optional: absent, the
+   gate still works, just slowly, and it distinguishes "rate-limited" from "not
+   green" in its failure message so nobody debugs the wrong thing.
 
    It **waits** rather than failing
    fast, because the push-mirror is asynchronous — a release dispatched moments
@@ -162,6 +171,7 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `CLUSTER_FORGEJO_REPO_WRITE_PAT` | Forgejo PAT, repo write (push the release commit/tag + create/append the Forgejo release). You already use this on `archiver`. |
 | `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release + receive the bridged `.pkg`). |
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write (Forgejo creates the GitHub release with it). Same PAT used as the GitHub push-mirror password. |
+| `GH_READ_PAT` | **Optional.** GitHub PAT with **no scopes** — read-only public data, used solely by `mirror-gate` to escape the 60-request/hour unauthenticated limit. Absent, the gate still works and just polls slowly. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`). OIDC trusted publishing isn't available on Forgejo, so this is a token. Scope it to the project once it exists. |
 | `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. |
 

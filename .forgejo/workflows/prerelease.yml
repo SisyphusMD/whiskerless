@@ -177,7 +177,7 @@ jobs:
         run: coverage report --include='custom_components/whiskerless/config_flow.py' --fail-under=100
 
   mirror-gate:
-    name: Qualify the mirror's macOS checks on the source commit (secret-free)
+    name: Qualify the mirror's macOS checks on the source commit (no write credential)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -199,6 +199,15 @@ jobs:
         #
         # Unauthenticated on purpose: the gate jobs hold no credential by design,
         # and the mirror is public.
+        env:
+          # Optional and read-only. Unauthenticated GitHub allows 60 requests an
+          # hour PER IP, shared with everything else egressing from this network —
+          # exhaust it and the gate polls uselessly and then fails a release that
+          # was never broken. A token needs NO scopes for a public repo and lifts
+          # the limit to 5,000/hour. Absent, the script still works, just slowly.
+          # This job still holds no WRITE credential, which is the property that
+          # matters: it cannot push anything.
+          MIRROR_CI_TOKEN: ${{ secrets.GH_READ_PAT }}
         run: bash packaging/check-mirror-ci.sh "${{ github.sha }}"
 
   tag:
