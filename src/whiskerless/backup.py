@@ -80,6 +80,26 @@ def default_name(*, encrypted: bool) -> str:
     return f"whiskerless-backup-{stamp}.tar.gz" + (".enc" if encrypted else "")
 
 
+def unused_name(directory: Path, *, encrypted: bool) -> Path:
+    """A filename in ``directory`` that is not already taken.
+
+    Dated, then numbered if that day is already spoken for. Two backups on one
+    day is an ordinary thing to do — before and after a change is the obvious
+    case — and neither refusing the second nor overwriting the first is a good
+    answer when the earlier file may be the one from *before* the store was
+    damaged. To the second would never collide, but it buys unreadable names to
+    solve a problem a counter already solves.
+    """
+    base = default_name(encrypted=encrypted)
+    stem, _, extensions = base.partition(".")
+    candidate = directory / base
+    attempt = 2
+    while candidate.exists():
+        candidate = directory / f"{stem}-{attempt}.{extensions}"
+        attempt += 1
+    return candidate
+
+
 def is_encrypted(raw: bytes) -> bool:
     """Whether ``raw`` needs a password — read from the bytes, not the filename."""
     return raw.startswith(MAGIC)

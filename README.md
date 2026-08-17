@@ -316,11 +316,16 @@ join — the broker and the CA are already settled.
 > whiskerless restore <that file>     # on the machine that replaces this one
 > ```
 >
-> It offers to encrypt the file, and asks before it would write your signing key
-> in the clear. Unencrypted it is an ordinary `.tar.gz`, so `tar` can open it on
-> a machine that has never heard of whiskerless. `restore` will not replace a
-> setup that is already there unless you pass `--force`, and it tells you first
-> which robots that would strand.
+> Leave the path off either one and it asks — `restore` lists the backups it can
+> see and takes a number. It offers to encrypt the file, and asks before it would
+> write your signing key in the clear. Unencrypted it is an ordinary `.tar.gz`,
+> so `tar` can open it on a machine that has never heard of whiskerless.
+>
+> Backups are dated, and a second one on the same day is numbered rather than
+> replacing the first — the earlier file may be the one from *before* whatever
+> you are about to change. `restore` will not replace a setup that is already
+> there unless you pass `--force`, and it tells you first which robots that
+> would strand.
 
 ## Everyday use
 

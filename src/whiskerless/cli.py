@@ -1117,21 +1117,33 @@ async def _cmd_backup(args: argparse.Namespace) -> int:
         raise WhiskerlessError(
             f"nothing to back up in {store.root} — run `whiskerless setup` first"
         )
-    password = _backup_password(args)
-    blob = backup.create(store.root, password=password)
-    destination = _backup_destination(args, encrypted=password is not None)
-    if destination.resolve().is_relative_to(store.root.resolve()):
+    # Asked before the password, so a destination this refuses does not cost
+    # somebody a passphrase they typed twice.
+    target = _backup_target(args)
+    if target.resolve().is_relative_to(store.root.resolve()):
         # Otherwise each backup swallows the last one, and they grow until the
         # size ceiling stops them. Easy to do by accident: running the command
         # from inside the store is all it takes.
         raise WhiskerlessError(
-            f"{destination} is inside the store being backed up — write it somewhere else"
+            f"{target} is inside the store being backed up — write it somewhere else"
         )
-    if destination.exists() and not args.force:
+    password = _backup_password(args)
+    blob = backup.create(store.root, password=password)
+    # A name we chose steps around what is already there; a name somebody typed
+    # is honoured, and overwriting it has to be asked for.
+    chosen_for_them = target.is_dir()
+    destination = (
+        _reserve_a_name(target, encrypted=password is not None) if chosen_for_them else target
+    )
+    if not chosen_for_them and destination.exists() and not args.force:
         raise WhiskerlessError(f"{destination} already exists — pass --force to overwrite it")
     try:
         _write_bytes_private(destination, blob)
     except OSError as exc:
+        if chosen_for_them:
+            # Only ever the placeholder this run just created. A destination
+            # somebody named may be the good backup they are replacing.
+            destination.unlink(missing_ok=True)
         raise WhiskerlessError(f"could not write {destination}: {exc.strerror or exc}") from exc
 
     # Read back what actually landed on disk rather than describing what was
@@ -1154,7 +1166,7 @@ async def _cmd_backup(args: argparse.Namespace) -> int:
 async def _cmd_restore(args: argparse.Namespace) -> int:
     """Put a backup back, refusing to quietly replace a working setup."""
     store = ProfileStore.from_env()
-    source = Path(args.path).expanduser()
+    source = Path(args.path).expanduser() if args.path else _choose_backup()
     raw = backup.load(source)
     archive = backup.read(raw, password=_restore_password(backup.is_encrypted(raw)))
     found = archive.layout_version()
@@ -1309,13 +1321,94 @@ def _occupied(store: ProfileStore, archive: backup.Archive, aside: Path) -> str:
     )
 
 
-def _backup_destination(args: argparse.Namespace, *, encrypted: bool) -> Path:
-    name = backup.default_name(encrypted=encrypted)
-    if not args.path:
-        return Path.cwd() / name
-    path = Path(args.path).expanduser()
-    # A directory is what people type when they mean "put it in here".
-    return path / name if path.is_dir() else path
+def _backup_target(args: argparse.Namespace) -> Path:
+    """Where the archive should go — a directory, or a filename to use verbatim.
+
+    Asked rather than assumed when nobody said. The whole point of a backup is
+    that it ends up somewhere *else*, and silently dropping it in whatever
+    directory the terminal happened to be sitting in is how it ends up on the
+    same disk as the thing it is insuring. Seeing the default offered is what
+    makes somebody type `~/Documents` instead.
+    """
+    if args.path:
+        return Path(args.path).expanduser()
+    if not sys.stdin.isatty():
+        return Path.cwd()
+    return Path(
+        _ask("where should the backup go?", None, _writable_target, default=str(Path.cwd()))
+    ).expanduser()
+
+
+def _reserve_a_name(target: Path, *, encrypted: bool) -> Path:
+    """Claim a free filename by creating it, rather than by looking at the folder.
+
+    Looking and then writing leaves a window between the two: two backups into
+    the same folder can both see the same candidate free, and the second's write
+    would then discard the first — the exact loss the numbering exists to
+    prevent. ``O_EXCL`` makes the claim and the check the same operation.
+    """
+    for _ in range(100):
+        candidate = backup.unused_name(target, encrypted=encrypted)
+        try:
+            os.close(os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+        except FileExistsError:
+            continue  # somebody else took it between the look and the claim
+        return candidate
+    raise WhiskerlessError(f"could not find a free filename in {target}")
+
+
+def _writable_target(raw: str) -> str:
+    """A destination that can actually be written, checked while somebody can fix it."""
+    path = Path(raw).expanduser()
+    if path.is_dir():
+        return str(path)
+    if not path.parent.is_dir():
+        raise WhiskerlessError(
+            f"there is no directory {path.parent} — give an existing folder, or a "
+            f"filename inside one"
+        )
+    return str(path)
+
+
+def _choose_backup() -> Path:
+    """Which file to restore, when the command was given no path.
+
+    Offers what is in front of it. Whiskerless names its own archives, so the
+    common case — you just copied one back onto a fresh machine — is a numbered
+    list rather than somebody retyping a path with a date in it.
+    """
+    if not sys.stdin.isatty():
+        raise WhiskerlessError("which backup? give the path to the file to restore")
+    found = _backups_here()
+    if found:
+        print("\n  backups in this directory:\n")
+        for index, path in enumerate(found, start=1):
+            stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            sealed = " (encrypted)" if path.suffix == ".enc" else ""
+            print(f"   {_console.dim(f'{index:>2}')}  {path.name}"
+                  f"  {_console.dim(stamp + sealed)}")
+        print()
+
+    def chosen(answer: str) -> str:
+        if answer.isdigit() and 1 <= int(answer) <= len(found):
+            return str(found[int(answer) - 1])
+        return _readable_path(answer)
+
+    prompt = "which backup? (a number, or a path): " if found else "path to the backup file: "
+    return Path(_ask(prompt, None, chosen)).expanduser()
+
+
+def _backups_here() -> list[Path]:
+    """Archives whiskerless wrote, in the current directory, newest first.
+
+    Only our own naming. A wider sweep for `*.tar.gz` would offer somebody's
+    holiday photos as a candidate restore, and the prompt still takes any path.
+    """
+    try:
+        found = [path for path in Path.cwd().glob("whiskerless-backup-*") if path.is_file()]
+        return sorted(found, key=lambda path: path.stat().st_mtime, reverse=True)[:9]
+    except OSError:
+        return []
 
 
 def _backup_password(args: argparse.Namespace) -> str | None:
@@ -1731,14 +1824,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_forget.set_defaults(func=_cmd_forget)
 
     p_backup = add_parser("backup", "save this machine's setup (including the CA) to one file")
-    p_backup.add_argument("path", nargs="?", help="where to write it (a directory, or a filename)")
+    p_backup.add_argument("path", nargs="?",
+                          help="where to write it — a directory, or a filename (prompted if omitted)")
     p_backup.add_argument("--no-password", action="store_true",
                           help="write it unencrypted — the CA private key will be in the clear")
-    p_backup.add_argument("--force", action="store_true", help="overwrite an existing file")
+    p_backup.add_argument("--force", action="store_true",
+                          help="overwrite the file you named (a generated name never collides)")
     p_backup.set_defaults(func=_cmd_backup)
 
     p_restore = add_parser("restore", "put a backup back on this machine")
-    p_restore.add_argument("path", help="the backup file to restore")
+    p_restore.add_argument("path", nargs="?",
+                           help="the backup file to restore (prompted if omitted)")
     p_restore.add_argument("--force", action="store_true",
                            help="move an existing setup aside and restore over it")
     p_restore.set_defaults(func=_cmd_restore)

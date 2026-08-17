@@ -8,6 +8,7 @@ never replace a working setup without saying which robots it would strand.
 from __future__ import annotations
 
 import asyncio
+import os
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -131,6 +132,71 @@ def test_an_encrypted_backup_is_named_for_what_it_is(
     assert list(tmp_path.glob("whiskerless-backup-*.tar.gz.enc"))
 
 
+def test_a_second_backup_the_same_day_does_not_clobber_the_first(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Before and after a change is the obvious reason to back up twice in a
+    day, and the earlier file may be the one from before the store was damaged."""
+    assert run("backup", str(tmp_path), "--no-password") == 0
+    first = next(iter(tmp_path.glob("whiskerless-backup-*.tar.gz")))
+    original = first.read_bytes()
+
+    assert run("backup", str(tmp_path), "--no-password") == 0
+    assert first.read_bytes() == original
+    assert len(list(tmp_path.glob("whiskerless-backup-*.tar.gz"))) == 2
+    assert any(path.name.endswith("-2.tar.gz") for path in tmp_path.iterdir())
+
+
+def test_a_name_is_claimed_by_creating_it_not_by_looking(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Two backups into one folder could otherwise both see the same candidate
+    free, and the second would discard the first — the loss the numbering is
+    there to prevent."""
+    taken: list[Path] = []
+    real = os.open
+
+    def racy(path: Any, flags: int, *rest: Any) -> Any:
+        # Whoever else is backing up wins the first name, once.
+        if flags & os.O_EXCL and not taken:
+            taken.append(Path(path))
+            Path(path).write_bytes(b"the other run got here first")
+            raise FileExistsError(17, "File exists")
+        return real(path, flags, *rest)
+
+    with patch("whiskerless.cli.os.open", racy):
+        assert run("backup", str(tmp_path), "--no-password") == 0
+    assert taken[0].read_bytes() == b"the other run got here first"
+    assert len(list(tmp_path.glob("whiskerless-backup-*"))) == 2
+
+
+def test_a_folder_with_no_free_name_is_explained_not_looped(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with patch("whiskerless.cli.os.open", side_effect=FileExistsError(17, "File exists")):
+        assert run("backup", str(tmp_path), "--no-password") == 1
+    assert "could not find a free filename" in capsys.readouterr().err
+
+
+def test_a_failed_write_removes_the_placeholder_it_reserved(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """The claim is a real, empty file — leaving it behind would look like a
+    backup and restore as nothing."""
+    with patch("whiskerless.cli.os.replace", side_effect=OSError(28, "No space left")):
+        assert run("backup", str(tmp_path), "--no-password") == 1
+    assert not list(tmp_path.glob("whiskerless-backup-*"))
+
+
+def test_the_numbering_keeps_the_encrypted_suffix(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("WHISKERLESS_BACKUP_PASSWORD", "hunter2")
+    assert run("backup", str(tmp_path)) == 0
+    assert run("backup", str(tmp_path)) == 0
+    assert any(path.name.endswith("-2.tar.gz.enc") for path in tmp_path.iterdir())
+
+
 def test_an_existing_file_is_not_overwritten_by_accident(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -225,6 +291,136 @@ def test_an_encrypted_backup_warns_that_the_password_is_the_backup(
     monkeypatch.setenv("WHISKERLESS_BACKUP_PASSWORD", "hunter2")
     assert run("backup", str(tmp_path / "b.enc")) == 0
     assert "Nothing can recover that password" in capsys.readouterr().out
+
+
+# --- being asked where -----------------------------------------------------------
+def test_where_to_put_it_is_asked_rather_than_assumed(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The point of a backup is that it ends up somewhere else, and silently
+    dropping it wherever the terminal was sitting is how it lands on the same
+    disk as the thing it insures."""
+    monkeypatch.chdir(tmp_path)
+    elsewhere = tmp_path / "Documents"
+    elsewhere.mkdir()
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "builtins.input", return_value=str(elsewhere)
+    ), patch("whiskerless.cli._ask_secret", return_value=""):
+        assert run("backup") == 0
+    assert list(elsewhere.glob("whiskerless-backup-*.tar.gz"))
+
+
+def test_pressing_enter_takes_the_directory_you_are_standing_in(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "builtins.input", return_value=""
+    ), patch("whiskerless.cli._ask_secret", return_value=""):
+        assert run("backup") == 0
+    assert list(tmp_path.glob("whiskerless-backup-*.tar.gz"))
+
+
+def test_a_destination_that_cannot_exist_is_caught_at_the_prompt(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Re-asked, not fatal — and caught before a passphrase is typed twice for a
+    file that was never going to be written."""
+    monkeypatch.chdir(tmp_path)
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "builtins.input", side_effect=[str(tmp_path / "nope" / "b.tar.gz"), str(tmp_path)]
+    ), patch("whiskerless.cli._ask_secret", return_value="") as secret:
+        assert run("backup") == 0
+    assert "there is no directory" in capsys.readouterr().err
+    assert secret.call_count == 1
+
+
+def test_the_destination_prompt_takes_a_filename_too(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """"Where should it go" is answered with a full name as often as a folder."""
+    monkeypatch.chdir(tmp_path)
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "builtins.input", return_value=str(tmp_path / "before-the-rotation.tar.gz")
+    ), patch("whiskerless.cli._ask_secret", return_value=""):
+        assert run("backup") == 0
+    assert (tmp_path / "before-the-rotation.tar.gz").is_file()
+
+
+def test_a_deleted_working_directory_does_not_break_the_restore_prompt(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Listing what is nearby is a convenience; failing to reach it must not
+    stop somebody typing the path they already know."""
+    archive = _backup_file(store, tmp_path / "b.tar.gz")
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path / "fresh"))
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "whiskerless.cli.Path.cwd", side_effect=OSError("no such directory")
+    ), patch("builtins.input", return_value=str(archive)):
+        assert run("restore") == 0
+    assert ProfileStore.from_env().load_ca().cert_pem == CA.cert_pem
+
+
+def test_which_backup_to_restore_is_offered_not_retyped(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """You just copied one onto a fresh machine; retyping a filename with a date
+    in it is not the interaction that moment deserves."""
+    _backup_file(store, tmp_path / "whiskerless-backup-20260816.tar.gz")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path / "fresh"))
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="1"):
+        assert run("restore") == 0
+    out = capsys.readouterr().out
+    assert "whiskerless-backup-20260816.tar.gz" in out
+    assert ProfileStore.from_env().load_ca().cert_pem == CA.cert_pem
+
+
+def test_the_restore_prompt_still_takes_a_path(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The listing only covers files whiskerless named, in one directory."""
+    archive = _backup_file(store, tmp_path / "somewhere-else.bak")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path / "fresh"))
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "builtins.input", return_value=str(archive)
+    ):
+        assert run("restore") == 0
+    assert ProfileStore.from_env().load_ca().cert_pem == CA.cert_pem
+
+
+def test_a_mistyped_path_at_the_restore_prompt_is_re_asked(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    archive = _backup_file(store, tmp_path / "b.bak")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path / "fresh"))
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "builtins.input", side_effect=[str(tmp_path / "typo.bak"), str(archive)]
+    ):
+        assert run("restore") == 0
+    assert "typo.bak" in capsys.readouterr().err
+
+
+def test_restore_with_no_path_and_nobody_to_ask_says_which(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It used to be argparse's exit-2 "the following arguments are required"."""
+    assert run("restore") == 1
+    assert "which backup?" in capsys.readouterr().err
+
+
+def test_an_unattended_backup_still_writes_where_it_stands(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A prompt must never be the thing that breaks a scripted run."""
+    monkeypatch.chdir(tmp_path)
+    assert run("backup", "--no-password") == 0
+    assert list(tmp_path.glob("whiskerless-backup-*.tar.gz"))
 
 
 # --- restoring ------------------------------------------------------------------
