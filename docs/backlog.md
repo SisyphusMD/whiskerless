@@ -11,6 +11,23 @@ Statuses: **open** (nothing started), **blocked** (says on what), **discuss**
 
 ## Open
 
+### #74 — Forgejo has no infra-retry, and no rerun API to fall back on
+
+`retry-infra-failures.yml` re-runs a job when the *runner* failed before any of
+our steps began — but it lives in `.github/` and watches GitHub workflows only.
+Forgejo has no equivalent, and its API exposes no rerun endpoint at all (checked
+against `swagger.v1.json`: `runs/{id}/cancel` exists, nothing to re-run).
+
+Seen 2026-08-17: all five `ci.yml` jobs failed together on
+`actions/setup-python` — "Failed to fetch the Python versions manifest ... all
+retries were exhausted". Zero real failures; every job died in setup.
+
+Cosmetic on a `main` push, since the only way back to green is another push. It
+is **not** cosmetic during a release: the same flake in a `prerelease.yml` gate
+job fails the cut and needs a manual re-dispatch. Worth either a Forgejo-side
+retry workflow or pinning the interpreter setup so it stops reaching out to a
+manifest mid-build.
+
 ### #73 — Ship Homebrew bottles so `brew install` stops compiling cryptography
 
 Taking `cryptography` made the tap expensive: Homebrew builds every resource from
@@ -26,8 +43,37 @@ nobody installing it ever compiles. Our tap ships none, so everyone does.
 The fix is to build bottles in CI and attach them to the tap: `brew bottle
 --json` per platform, upload the tarballs, add the `bottle do … end` block to
 both formula templates. The runners already exist — `release-macos.yml` uses
-GitHub's macOS machines for the `.pkg`, and Linux is free. Needs arm64 macOS,
-x86_64 macOS and Linux to cover what the formula claims.
+GitHub's macOS machines for the `.pkg`, and Linux is free.
+
+Four things settled while scoping it (2026-08-17):
+
+- **Bottles go to GitHub, not the mirror-by-git path.** The tap repo is
+  Forgejo-primary and mirrors to GitHub (verified: identical HEADs), but a git
+  push-mirror replicates **refs only — never release assets**. So the formula
+  mirrors for free and the bottles do not; they have to be uploaded to GitHub
+  explicitly, the way `publish.yml` already attaches the `.deb`/`.rpm`/binaries
+  with `GH_REPO_WRITE_PAT`. `root_url` should point at GitHub for the same
+  reason: otherwise every `brew install` anywhere pulls from the self-hosted
+  forge.
+- **A bottle covers the whole formula, not one resource.** It prebuilds the
+  entire venv, so it removes cryptography's Rust build *and* `cffi`'s and
+  `pyobjc-core`'s C builds. `rust` and `pkgconf` are `=> :build`, so bottled
+  users never install them — and `llvm` (1.9 GB) is rust's dependency, not ours,
+  so it goes with them. Only `python@3.14` and `openssl@3` remain.
+- **macOS coverage is 15 and 26 only.** The CI matrix builds arm64 + Intel on
+  each, which is four bottle tags: `arm64_sequoia`, `sequoia`, `arm64_tahoe`,
+  `tahoe`. Anyone on macOS 14 or older matches none and silently compiles.
+  Decide: add a Sonoma leg, or declare 15 the floor.
+- **Linux is not bottled and the arch is not the obvious one.** The Linux
+  formula smoke runs on an **arm64** runner. GitHub's ubuntu runners are x86_64,
+  so covering Linux means both `x86_64_linux` and `arm64_linux` — and Homebrew's
+  well-trodden Linux path is x86_64.
+
+The alternative that avoids per-OS bottle maintenance entirely is installing the
+compiled resources from upstream wheels instead of building them. It departs
+from Homebrew's source-build convention, which is why it is not the default
+recommendation — but for a personal tap serving a CLI it is defensible, and it
+costs nothing to maintain as macOS versions roll.
 
 Until then the `.pkg`, `.deb`/`.rpm` and PyPI paths are all wheel-based and cost
 nothing, so Homebrew is the only expensive route.
