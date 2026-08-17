@@ -1221,6 +1221,7 @@ def test_a_ca_without_key_usage_warns_about_the_failure_it_will_cause(
     assert _flag_run(store, "--ca", str(cpath), "--ca-key", str(kpath)) == 0
     err = capsys.readouterr().err
     assert "no keyUsage extension" in err
+    assert "whiskerless handles that" in err, "not presented as a failure it is not"
     assert "expires within a year" in err, "and its short life is worth saying too"
 
 
@@ -1396,3 +1397,28 @@ def test_setup_asks_for_the_broker_when_there_is_nothing_saved(
     ):
         assert main(["setup", "--ca", cert, "--ca-key", key]) == 0
     assert store.load_broker().host == "192.0.2.77"
+
+
+def test_setup_that_generates_points_at_the_files_it_made(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _p="": ""),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+    out = capsys.readouterr().out
+    assert "cafile" in out, "the three files are listed"
+    assert "install the files above" in out
+
+
+def test_setup_that_imports_a_ca_does_not_point_at_files_it_did_not_make(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Importing a CA generates nothing to install; sending somebody looking for
+    "the files above" when nothing was printed above is a wild goose chase."""
+    cert, _ = _ca_files(tmp_path, with_key=False)
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert]) == 0
+    out = capsys.readouterr().out
+    assert "install the files above" not in out
+    assert "signed by this CA" in out

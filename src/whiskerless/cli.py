@@ -533,6 +533,12 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
     )
     can_issue = _ensure_pki(args, store, host)
     store.save_broker(broker)
+    # Shown whenever they exist, not only when this run created them. Re-running
+    # setup to change a port is a perfectly good moment to be reminded where the
+    # broker's files are, and it keeps "the files above" honest either way.
+    made_files = (store.broker_dir / "server.crt").is_file()
+    if made_files:
+        _report_files(store)
 
     print(f"\n  This machine is set up for the broker at {_console.accent(host)}.\n")
     if not can_issue:
@@ -540,8 +546,15 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
             "  No CA private key here, so robots keep their Whisker certificate and\n"
             "  your broker's listener must accept anonymous clients.\n"
         )
-    print(f"  Next: install the files above on your broker, restart it, then\n"
-          f"  {_console.accent('whiskerless provision')} with a robot in pairing mode.\n")
+    # Only point at files that were actually produced. Importing a CA generates
+    # nothing to install, and telling somebody to install "the files above" when
+    # nothing was printed above sends them looking for something that is not there.
+    if made_files:
+        print("  Next: install the files above on your broker and restart it, then\n"
+              f"  {_console.accent('whiskerless provision')} with a robot in pairing mode.\n")
+    else:
+        print(f"  Make sure your broker presents a certificate signed by this CA, then\n"
+              f"  {_console.accent('whiskerless provision')} with a robot in pairing mode.\n")
     return 0
 
 
@@ -943,10 +956,13 @@ def _check_ca(ca: KeyPair) -> None:
         # Works for the robot's mbedTLS and then breaks our own CLI under Python
         # 3.13's VERIFY_X509_STRICT. Warned rather than refused: the robot half
         # still works, and refusing would strand someone whose CA serves them.
+        # Worth saying, but NOT the failure it used to be: mqtt.py clears
+        # VERIFY_X509_STRICT for exactly this shape, so whiskerless itself is
+        # fine. Other tools that pin a CA are not necessarily so forgiving.
         print(
-            "  ! this CA has no keyUsage extension. The robot will accept it, but\n"
-            "    `whiskerless state` on Python 3.13+ will fail with\n"
-            "    'CA cert does not include key usage extension'.",
+            "  note: this CA has no keyUsage extension. whiskerless handles that, and\n"
+            "  the robot's mbedTLS accepts it — but other TLS clients on Python 3.13+\n"
+            "  may reject it with 'CA cert does not include key usage extension'.",
             file=sys.stderr,
         )
     if (cert.not_valid_after_utc - datetime.now(UTC)).days < 365:
@@ -954,16 +970,21 @@ def _check_ca(ca: KeyPair) -> None:
               "every robot", file=sys.stderr)
 
 
-def _report_pki(store: ProfileStore, broker: Path) -> None:
-    """Say what was made, where it goes, and what losing it costs."""
-    print(f"\n  Certificate authority created in {_console.accent(str(store.root))}\n")
-    print("  Your broker needs three files:\n")
+def _report_files(store: ProfileStore) -> None:
+    """The three files a broker needs, and which directive each one goes with."""
+    print("\n  Your broker needs three files:\n")
     for path, directive in (
         (store.ca_path, "cafile"),
-        (broker / "server.crt", "certfile"),
-        (broker / "server.key", "keyfile"),
+        (store.broker_dir / "server.crt", "certfile"),
+        (store.broker_dir / "server.key", "keyfile"),
     ):
         print(f"    {path}  {_console.dim('→')}  {directive}")
+
+
+def _report_pki(store: ProfileStore, broker: Path) -> None:
+    """Say what was made, where it goes, and what losing it costs."""
+    print(f"\n  Certificate authority created in {_console.accent(str(store.root))}")
+    _report_files(store)
     print(
         f"\n  {_console.accent('Back up ' + str(store.root) + ' somewhere safe.')}\n"
         "  It holds the key that signs certificates for your robots. Losing it does\n"
