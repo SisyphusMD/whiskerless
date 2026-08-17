@@ -190,8 +190,13 @@ row and asked somebody to approve a thing they had not chosen yet.
 
 Supplied files are **copied in under our own names**, never remembered by path. A
 path breaks when the USB stick comes out or the folder is tidied, and it breaks
-later, at a moment nobody connects back to the decision. `--no-store-ca-key` is
-the exit for a genuinely offline CA.
+later, at a moment nobody connects back to the decision. A genuinely offline CA has no exit yet — the key is copied in and stays. If that
+matters, delete `ca/ca.key` once every robot has been provisioned. Deleting it
+only stops *future* issuance: robots already carrying a CA-issued certificate are
+unaffected, and a listener running `require_certificate true` should stay that
+way. What it does mean is that the next robot provisioned would fall back to its
+factory certificate and be refused, so re-import the key before adding one. A
+`--no-store-ca-key` flag was considered and not built.
 
 Validation before anything is written, because these failures are otherwise
 invisible until a handshake fails: refuse a certificate that is not a CA (the "I

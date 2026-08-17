@@ -454,6 +454,88 @@ gate the feature, because recovery no longer depends on it.
 Until then the anonymous listener stands, and [setup/mqtt-broker.md](setup/mqtt-broker.md)
 says why.
 
+### #71 — Prove the certificate flow on real hardware, then cut the rc
+
+**Nothing in the certificate work has touched a robot.** It is verified against
+fakes and one decoded capture, and both suites are green, but the identity write
+has never gone over BLE to a real LR4. That is the gate before an rc.
+
+**State of the two robots as of 2026-08-16:** upstairs is on **Whisker's cloud**
+(left there by the app-onboarding capture); downstairs is on the local broker at
+192.0.2.10, provisioned by an rc build, trusting the OpenBao-backed
+`LR4 Local Control Root CA`.
+
+#### Test the identity write first — this needs no broker change at all
+
+The point is to prove `CERT_DEVICE_CERT` / `CERT_DEVICE_KEY` actually land. Doing
+that with the **existing** CA means the broker's configuration never changes and
+downstairs is never at risk:
+
+1. Export the `lr4-mqtt-ca` certificate **and key** from OpenBao to the Mac.
+2. `whiskerless setup --host 192.0.2.10 --ca ca.crt --ca-key ca.key` — imports
+   them, so whiskerless can now issue from the CA the broker already trusts.
+3. Put **upstairs** in pairing mode and `whiskerless provision`. It is on
+   Whisker's cloud, so nothing local depends on it.
+4. Confirm `CERT_DEVICE_CERT` and `CERT_DEVICE_KEY` appear in the step list, then
+   that upstairs shows up on the broker and
+   `whiskerless state --serial <upstairs-serial>` answers. **Name the serial** —
+   downstairs is the saved default and provisioning a second robot deliberately
+   does not steal it, so a bare `whiskerless state` would check the wrong robot
+   and pass while upstairs is unreachable.
+
+Nothing about mosquitto changes, downstairs keeps working throughout, and the
+robot now holds a certificate the broker would accept if asked.
+
+**Do not delete the key until every robot has been re-provisioned.** Without it
+`provision` leaves a robot on its factory certificate, and a listener already set
+to `require_certificate true` would then refuse that robot. Finish the fleet
+first, then clean up.
+
+**And removing it takes two deletions, not one.** `setup --ca-key`
+*copies* it to `~/whiskerless/ca/ca.key`, so deleting the file exported from
+OpenBao leaves the signing key on the laptop. Delete both. Without the stored
+copy whiskerless simply stops being able to issue, which is the state it was in
+before — the CA certificate stays and robots keep working.
+
+Only after that works is `require_certificate true` worth trying — and it needs
+downstairs re-provisioned first, or it drops off.
+
+#### Retiring OpenBao is a separate, disruptive job
+
+The owner wants whiskerless to own the CA instead. That is a **CA rotation**, and
+rotation is inherently disruptive: the moment mosquitto stops trusting the old
+CA, every robot still holding it drops off. There is no ordering that avoids it —
+both robots must be re-provisioned, and each is a trip to the machine.
+
+**The directory rename makes this easy.** The store is moving from
+`~/.whiskerless` to `~/whiskerless` anyway, so moving the old one aside first
+means the machine simply looks new — no migration runs, `setup` offers to
+generate a CA, and the whole first-run path gets exercised exactly as a new user
+would meet it:
+
+```bash
+mv ~/.whiskerless ~/.whiskerless.pre-rotation    # keep it until the fleet is back
+whiskerless setup                                 # asks for the broker, offers a CA
+```
+
+Migration would otherwise *prevent* this: it hoists the OpenBao certificate into
+`ca/ca.crt`, and `_ensure_pki()` declines to generate whenever a CA certificate
+is already on file — deliberately, because generating one over a live fleet is
+what strands robots.
+
+Nothing of value is lost. The downstairs profile holds a name and a litter
+calibration, both empty on this machine, and the robot itself is untouched by any
+of this — it keeps running on the old CA until the broker changes.
+
+Then swap the cluster's mosquitto certificates for the generated ones, restart,
+re-provision both robots, and only then delete the old directory.
+
+Worth deciding whether it is wanted at all: the OpenBao CA already works, already
+survives cluster loss, and keeps the signing key off the laptop — which is a
+better posture than whiskerless's own default. The reason to rotate is to prove
+the generate-a-CA path on real hardware, and that can also be proved on a spare
+store pointed at a throwaway broker.
+
 ---
 
 ## After 0.2.0 (the durable plan)
