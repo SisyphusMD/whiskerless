@@ -90,7 +90,14 @@ class WhiskerlessRc < Formula
   end
   # END RESOURCES
 
+
   def install
+    # Do NOT let cargo strip the extension. cryptography's release profile
+    # strips symbols, and the resulting Mach-O is one dyld refuses outright
+    # ("mis-aligned LINKEDIT string pool") — the formula then installs cleanly
+    # and every command dies on import. Upstream's own wheel is unstripped and
+    # twice the size, which is the tell. Linux never sees this.
+    ENV["CARGO_PROFILE_RELEASE_STRIP"] = "none" if OS.mac?
     virtualenv_install_with_resources
   end
 
