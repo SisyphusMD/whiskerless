@@ -55,6 +55,12 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
 - **Library: `LitterRobot4Client` and `WhiskerlessAuthError` are removed.** Nothing
   used them, and the client had become a third, already-drifting copy of the
   write-verify loop.
+- **Homebrew installs now compile, and take minutes rather than seconds.**
+  Certificates became core function, so `cryptography` is a hard dependency — and
+  Homebrew builds every resource from source, where `cryptography` is a Rust
+  extension. The formula gained `rust` as a build dependency and `openssl@3`;
+  nothing about the installed result changes. Every other install path
+  (PyPI/pipx/uvx, the macOS `.pkg`, `.deb`/`.rpm`) uses wheels and is unaffected.
 
 ### Added
 

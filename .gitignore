@@ -5,7 +5,10 @@ __pycache__/
 .eggs/
 build/
 dist/
-.venv/
+# .venv* rather than .venv: the integration tests need a SECOND environment on
+# Python 3.13 (3.11 cannot import Home Assistant), and the obvious name for it —
+# .venv-ha — was not covered, so it sat in `git status` as untracked.
+.venv*/
 venv/
 
 # Tooling caches
