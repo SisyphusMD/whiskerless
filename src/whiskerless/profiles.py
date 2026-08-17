@@ -5,23 +5,27 @@ broker, the CA — so it is the moment to write them down. Without that, each
 later command re-asks for all three, and a tool whose audience is standing next
 to a litter box with a laptop makes them retype a path they already typed once.
 
-The CA is stored by **contents**, not by path. A path can be moved, deleted, or
-typed with a ``~`` the shell never sees; the bytes cannot. :class:`MqttSettings`
-already prefers ``ca_cert_data`` over ``ca_cert_path``, so a stored profile
-needs no special handling downstream.
+Certificates are stored by **contents**, not by path. A path can be moved,
+deleted, or typed with a ``~`` the shell never sees; the bytes cannot.
+:class:`MqttSettings` already prefers ``ca_cert_data`` over ``ca_cert_path``, so
+nothing downstream needs to care where a file came from.
 
-Layout under ``~/.whiskerless`` (override with ``WHISKERLESS_HOME``)::
+Layout under ``~/whiskerless`` (override with ``WHISKERLESS_HOME``)::
 
-    robots/<serial>/profile.json   0600 — format version, broker, optional login
-    robots/<serial>/ca.pem         0600 — the CA that signed the broker
-    default                        0600 — serial used when none is given
+    .layout                        structure version, separate from the release
+    broker.json                    the ONE broker every robot here talks to
+    ca/ca.crt  ca/ca.key           the authority; the key never leaves this machine
+    client/                        this machine's identity to the broker
+    broker/                        server.crt + server.key — copy to your broker
+    robots/<serial>/profile.json   what a person named and measured
+    default                        serial used when none is given
 
-**No secret is ever written here.** Passwords live in the OS keychain
-(:mod:`whiskerless.secrets`) or nowhere; the robot's factory certificate and
-private key are neither read nor written by whiskerless at all. Files are still
-0600 and directories 0700, because a broker address is worth keeping to
-yourself, and because the CA private key lives here once whiskerless generates
-one.
+**One secret lives here on purpose: the CA private key.** It is archival — it
+must survive machine loss, and every tool on earth keeps CA keys as files
+because you have to carry and archive them. Everything else is either public or
+not stored at all: the WiFi passphrase is asked for at the robot and forgotten,
+and a robot's own client certificate is written to the robot and never kept.
+Files are 0600 and directories 0700 throughout.
 """
 
 from __future__ import annotations

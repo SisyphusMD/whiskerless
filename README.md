@@ -310,6 +310,17 @@ join — the broker and the CA are already settled.
 > ability to add or re-provision one without visiting every robot you own. The
 > WiFi passphrase is never stored anywhere — it is asked for while you are
 > standing at the robot, and that is the only time it is needed.
+>
+> ```bash
+> whiskerless backup ~/Documents      # one file: your CA, broker and robots
+> whiskerless restore <that file>     # on the machine that replaces this one
+> ```
+>
+> It offers to encrypt the file, and asks before it would write your signing key
+> in the clear. Unencrypted it is an ordinary `.tar.gz`, so `tar` can open it on
+> a machine that has never heard of whiskerless. `restore` will not replace a
+> setup that is already there unless you pass `--force`, and it tells you first
+> which robots that would strand.
 
 ## Everyday use
 
@@ -339,13 +350,15 @@ whiskerless clean-cycle                  # start a cycle (asks first)
 whiskerless robots                       # every robot saved on this machine
 whiskerless use LR4Cxxxxxx               # pick the default of several
 whiskerless state --serial LR4Cyyyyyy    # or name one per command
+whiskerless backup ~/Documents           # your CA and robots, in one file
 ```
 
-Every connection flag still exists as an override (`--host`, `--ca`, `--port`,
-…), so a one-off connection to somebody else's broker needs no saved profile at
-all. `whiskerless forget <serial>` drops the saved details; the robot keeps
-running. `whiskerless --help` lists the rest — including `read` and `send` for
-protocol work.
+There are no per-command broker flags: one machine points at one broker, behind
+one CA, and a flag naming a different one would still present this store's
+certificates — so it could only fail confusingly. A genuinely separate broker is
+a separate store; set `WHISKERLESS_HOME` to it. `whiskerless forget <serial>`
+drops a robot's saved details; the robot keeps running. `whiskerless --help`
+lists the rest — including `read` and `send` for protocol work.
 
 ## Upgrading
 
@@ -391,8 +404,8 @@ the tools:
 - **PyPI**: `pipx uninstall whiskerless` / `pip uninstall whiskerless`.
 
 Your certificate authority and saved robots stay in `~/whiskerless`; delete that
-folder to remove them. Keep a backup first if you ever want to add a robot
-without re-provisioning every one you own. To put a robot back on the Whisker cloud, re-onboard
+folder to remove them. Run `whiskerless backup` first if you ever want to add a
+robot without re-provisioning every one you own. To put a robot back on the Whisker cloud, re-onboard
 it in the Whisker app — the round trip is proven and documented in
 [docs/recovery.md](docs/recovery.md).
 

@@ -31,3 +31,6 @@ def _isolated_profile_store(
     """
     root: Path = tmp_path_factory.mktemp("whiskerless-home")
     monkeypatch.setenv("WHISKERLESS_HOME", str(root))
+    # A developer who exported this for a real backup would otherwise silently
+    # satisfy the prompts these tests exist to exercise.
+    monkeypatch.delenv("WHISKERLESS_BACKUP_PASSWORD", raising=False)

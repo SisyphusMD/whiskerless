@@ -97,6 +97,19 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   prints the three files your broker needs and which mosquitto directive each one
   goes with. Already have a CA? Point at it with `--ca`, add `--ca-key` if you
   want certificates issued here, and it is copied into place under our names.
+- **`whiskerless backup` and `whiskerless restore`.** "Back up `~/whiskerless`"
+  is advice people follow exactly as often as it is convenient, and the CA
+  private key in there is the one thing that cannot be regenerated — losing it
+  costs you the ability to add or re-provision a robot without walking to every
+  robot you own. `backup` writes one file; `restore` puts it back. It offers to
+  encrypt (AES-256-GCM, scrypt) and an unattended run has to say `--no-password`
+  or set `WHISKERLESS_BACKUP_PASSWORD` rather than write a signing key in the
+  clear by default. Unencrypted it is an ordinary `.tar.gz`, because this is a
+  file you open once, years later, possibly on a machine with no whiskerless on
+  it. `restore` refuses to replace an existing setup unless you pass `--force`,
+  and the refusal says whether the CA differs and names the robots that would
+  stop trusting your broker; `--force` moves the old store aside rather than
+  deleting it.
 - **Each robot gets its own certificate, signed by your CA**, written over BLE
   exactly the way the Whisker app writes its own — same order, same 100-byte
   chunks, same single apply. Its common name is the robot's serial, so

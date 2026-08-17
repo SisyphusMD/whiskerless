@@ -227,6 +227,47 @@ robot trusting a certificate the broker no longer presents, and each rescue is a
 walk to that robot with a laptop; the refusal names the robots that would be
 stranded. Rotating deliberately means starting a fresh store.
 
+### Backup is a command, not an instruction
+
+"Back up `~/whiskerless`" was the whole plan for a while, and it is the kind of
+advice people follow exactly as often as it is convenient. `whiskerless backup`
+writes one file; `whiskerless restore` puts it back.
+
+**Encryption is offered, never assumed, and never silent.** The archive contains
+the signing key, and a backup's whole purpose is to be somewhere else — a USB
+stick, a NAS, cloud storage. So an interactive run is asked for a passphrase and
+enter means none; an unattended run must say `--no-password` or set
+`WHISKERLESS_BACKUP_PASSWORD`, because a cron job that writes a signing key in
+the clear should have had to choose that. Encrypted is AES-256-GCM with an
+scrypt-derived key, and the header line is the AEAD's associated data, so the
+parameters it states are the parameters that were used.
+
+Unencrypted, it is an ordinary `.tar.gz` — deliberately. This file is opened
+once, years later, on a bad day, possibly on a machine that does not have
+whiskerless on it. `tar` will still be there. The encrypted container is
+documented byte for byte in `backup.py`'s module docstring for the same reason:
+a backup that can only be read by the program that wrote it is a bet on that
+program still existing.
+
+Everything is archived under a single `whiskerless/` directory so unpacking by
+hand cannot scatter `ca/`, `robots/` and a bare `.layout` across whatever
+directory somebody was standing in.
+
+**Restore refuses to replace a setup, and says what replacing it would cost.**
+The question is always which CA is on each side: the same one makes it a dull
+overwrite, a different one silently strands every robot that trusts the one
+being displaced — so the refusal names those robots, and each of them is a walk
+with a laptop. `--force` proceeds, and *moves* the old store aside rather than
+deleting it, because what is being displaced may be the only copy of a key
+robots in that house still trust.
+
+Member names out of the archive are validated rather than sanitised: absolute
+paths, `..`, backslashes and non-regular members are refused outright. Tar path
+traversal is ancient and still works, and a name that needs cleaning was not
+written by whiskerless — quietly repairing it would hide that. Permissions come
+from the restoring end, never from the archive, because one of those files signs
+certificates and the archive has been through cloud storage.
+
 ### No ACL shipped
 
 `pattern readwrite prod/LR4/%u/#` would confine each robot to its own topics with

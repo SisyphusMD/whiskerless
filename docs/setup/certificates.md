@@ -33,7 +33,7 @@ your CA  ──signs──▶  broker server cert (SAN = <broker-ip>)
 
 ## whiskerless can do all of this for you
 
-The first `whiskerless provision` on a machine offers to generate the CA **and**
+`whiskerless setup`, run once before any robot, offers to generate the CA **and**
 your broker's server certificate, then prints which file goes with which
 mosquitto directive. Everything below is what it does on your behalf — worth
 reading if you want to understand the model, and worth following by hand if you
@@ -116,10 +116,47 @@ port-forward where the SNI no longer matches the cert SAN):
 - **Home Assistant** reaches the broker through *its own* MQTT integration —
   configure that integration's TLS/CA there (Whiskerless itself takes no broker
   details; it discovers the robot over HA's MQTT connection).
-- **CLI:** pass `--insecure` to skip only the hostname match (the CA is still
-  verified) when reaching the broker by IP/tunnel.
+- **CLI:** `whiskerless setup --insecure` skips only the hostname match (the CA
+  is still verified) when you reach the broker by IP/tunnel. It is a property of
+  the broker, recorded once, not a per-command flag.
 
 For a normal same-subnet setup with a matching IP SAN, leave verification on.
+
+## Keeping the CA
+
+`ca.key` is the only thing here that cannot be regenerated. Losing it does not
+stop robots that already work — the certificates they hold stay valid, and your
+broker keeps presenting the server certificate it already has. What it costs is
+the ability to *add* or *re-provision* a robot, because there is nothing left to
+sign with. Recovering from that means generating a new CA and walking to every
+robot you own with a laptop.
+
+If whiskerless holds your CA, one command copies the lot:
+
+```bash
+whiskerless backup ~/Documents   # CA, broker details, and every robot profile
+```
+
+It offers to encrypt the file with a passphrase (AES-256-GCM), and will not
+write your signing key in the clear without being told to. Unencrypted it is an
+ordinary `.tar.gz` — deliberately, because this is a file you open once, years
+later, possibly on a machine that has never had whiskerless installed.
+
+On the replacement machine:
+
+```bash
+whiskerless restore whiskerless-backup-20260816.tar.gz
+```
+
+That machine can then issue certificates and provision robots as if it were the
+original. `restore` refuses to overwrite a setup that is already there unless
+you pass `--force`; the refusal tells you whether the CA differs and names the
+robots that would stop trusting your broker, and `--force` moves the displaced
+store aside rather than deleting it.
+
+If you keep the CA yourself — the `openssl` path above — back up `ca.key` the
+way you back up any other private key, and give whiskerless only `ca.crt` unless
+you want it issuing robot certificates for you.
 
 ## Next steps
 

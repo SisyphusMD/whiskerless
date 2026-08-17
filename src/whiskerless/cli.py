@@ -13,7 +13,9 @@ import asyncio
 import getpass
 import logging
 import os
+import shutil
 import sys
+import tempfile
 from collections.abc import Callable, Sequence
 from contextlib import aclosing, suppress
 from dataclasses import asdict, replace
@@ -23,7 +25,7 @@ from typing import cast
 
 import aiomqtt
 
-from . import __version__, pki
+from . import __version__, backup, pki
 from .ble.messages import WifiNetwork as DiscoveredNetwork
 from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
@@ -42,7 +44,7 @@ from .devices.litter_robot_4.protocol import ActivityMessage, StateMessage
 from .exceptions import ProfileError, SafetyError, WhiskerlessError
 from .mqtt import DEFAULT_TLS_PORT
 from .pki import KeyPair
-from .profiles import Broker, ProfileStore, RobotProfile, Serial
+from .profiles import LAYOUT_VERSION, Broker, ProfileStore, RobotProfile, Serial
 from .safety import classify_code
 
 log = logging.getLogger("whiskerless")
@@ -1099,6 +1101,297 @@ async def _cmd_forget(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- backup and restore --------------------------------------------------------
+_PASSWORD_ENV = "WHISKERLESS_BACKUP_PASSWORD"
+
+
+async def _cmd_backup(args: argparse.Namespace) -> int:
+    """Pack this machine's store into one file.
+
+    The CA private key is the only thing in here that cannot be regenerated, and
+    the bill for losing it arrives years later as a walk to every robot in the
+    house with a laptop.
+    """
+    store = ProfileStore.from_env()
+    if not _holds_a_setup(store):
+        raise WhiskerlessError(
+            f"nothing to back up in {store.root} — run `whiskerless setup` first"
+        )
+    password = _backup_password(args)
+    blob = backup.create(store.root, password=password)
+    destination = _backup_destination(args, encrypted=password is not None)
+    if destination.resolve().is_relative_to(store.root.resolve()):
+        # Otherwise each backup swallows the last one, and they grow until the
+        # size ceiling stops them. Easy to do by accident: running the command
+        # from inside the store is all it takes.
+        raise WhiskerlessError(
+            f"{destination} is inside the store being backed up — write it somewhere else"
+        )
+    if destination.exists() and not args.force:
+        raise WhiskerlessError(f"{destination} already exists — pass --force to overwrite it")
+    try:
+        _write_bytes_private(destination, blob)
+    except OSError as exc:
+        raise WhiskerlessError(f"could not write {destination}: {exc.strerror or exc}") from exc
+
+    # Read back what actually landed on disk rather than describing what was
+    # meant to. It is the same write-then-verify discipline every setting write
+    # uses, and it is worth more here than anywhere: an archive that cannot be
+    # opened is discovered now, not on the day it is the only copy left.
+    print(f"\n  wrote {_console.accent(str(destination))}  ({_human_size(len(blob))})\n")
+    written = backup.read(backup.load(destination), password=password)
+    _describe(written)
+    _warn_if_the_ca_cannot_sign(written)
+    if password is None:
+        print("\n  ! Not encrypted. It holds the private key that signs certificates for\n"
+              "    your robots — keep it where you would keep a password.\n")
+    else:
+        print("\n  Encrypted with the password you typed. Nothing can recover that password,\n"
+              "  so the backup is worth exactly as much as your record of it.\n")
+    return 0
+
+
+async def _cmd_restore(args: argparse.Namespace) -> int:
+    """Put a backup back, refusing to quietly replace a working setup."""
+    store = ProfileStore.from_env()
+    source = Path(args.path).expanduser()
+    raw = backup.load(source)
+    archive = backup.read(raw, password=_restore_password(backup.is_encrypted(raw)))
+    found = archive.layout_version()
+    if found > LAYOUT_VERSION:
+        raise WhiskerlessError(
+            f"this backup was written by a newer whiskerless (layout {found}; this build "
+            f"understands {LAYOUT_VERSION}) — upgrade whiskerless and try again"
+        )
+
+    # Moved, never deleted. What is being displaced may be the only copy of a CA
+    # key that robots in this house still trust. But "not empty" is not the same
+    # as "worth keeping": running any command at all stamps a layout marker into
+    # the store directory, and refusing to restore over that alone would send
+    # somebody hunting for the setup they are certain they never made.
+    occupied = store.root.is_dir() and any(store.root.iterdir())
+    aside = _unused_name(store.root, "replaced") if occupied else None
+    valuable = _holds_a_setup(store)
+    if aside is not None and valuable and not args.force:
+        raise WhiskerlessError(_occupied(store, archive, aside))
+    _swap_in(archive, store.root, aside)
+    moved = aside if valuable else None
+    if aside is not None and not valuable:
+        shutil.rmtree(aside, ignore_errors=True)
+
+    print(f"\n  restored {_console.accent(str(store.root))} from {source}\n")
+    # Re-read through the store so an older layout is migrated now, and so the
+    # summary describes what later commands will actually see.
+    restored = ProfileStore.from_env()
+    _describe(archive)
+    _warn_if_the_ca_cannot_sign(archive)
+    if moved is not None:
+        print(f"\n  what was here is at {_console.accent(str(moved))} — delete it once you are sure")
+    # Only when they are actually in the backup. A store built around an imported
+    # CA never generated a server certificate, and pointing somebody at files
+    # that do not exist sends them hunting for something that was never there.
+    if (restored.broker_dir / "server.crt").is_file():
+        _report_files(restored)
+        print()
+    return 0
+
+
+def _holds_a_setup(store: ProfileStore) -> bool:
+    """Whether this store contains anything somebody would miss.
+
+    Asked of the CONTENTS, never of the directory: running any command at all
+    stamps a layout marker, so "there is a file in it" would call an untouched
+    machine a setup — which would make `backup` report a successful copy of
+    nothing, and `restore` refuse to write to a machine that has nothing on it.
+
+    The CA key counts on its own, without its certificate. A store somebody has
+    damaged is exactly when the one unregenerable file has to stay rescuable.
+    """
+    return bool(
+        store.has_ca_cert()
+        or store.ca_key_path.is_file()
+        or store.has_broker()
+        or store.list_profiles()
+    )
+
+
+def _swap_in(archive: backup.Archive, root: Path, aside: Path | None) -> None:
+    """Lay the archive down beside the store, then swap it in with renames.
+
+    Never written over the live store directly. Extraction takes as long as it
+    takes and can run out of disk halfway; a rename is near-instant, so the
+    window in which the machine has neither the old setup nor the new one is
+    microseconds rather than the whole unpack. If the swap itself fails, the
+    displaced store goes straight back.
+    """
+    staged = _unused_name(root, "incoming")
+    try:
+        archive.write_into(staged)
+        if aside is not None:
+            root.rename(aside)
+            try:
+                staged.rename(root)
+            except OSError:
+                aside.rename(root)
+                raise
+        else:
+            staged.rename(root)
+    except OSError as exc:
+        shutil.rmtree(staged, ignore_errors=True)
+        raise WhiskerlessError(
+            f"could not restore into {root}: {exc.strerror or exc}"
+        ) from exc
+
+
+def _warn_if_the_ca_cannot_sign(archive: backup.Archive) -> None:
+    """Say so when the authority in an archive is not a usable pair.
+
+    The container's own integrity checks prove the file opened, not that what
+    came out of it works: a truncated or mismatched ``ca.key`` on the machine is
+    copied faithfully into the backup and reported as a success. Warned rather
+    than refused — a damaged store is precisely when a copy is still worth
+    having, and the point is that somebody hears about it now instead of on the
+    day it is the only copy left.
+    """
+    cert, key = archive.ca_cert_pem(), archive.text("ca/ca.key")
+    if cert is None or key is None:
+        return
+    try:
+        pki.check_pair(pki.KeyPair(cert_pem=cert, key_pem=key))
+    except WhiskerlessError as exc:
+        print(
+            f"\n  ! this certificate authority cannot sign anything: {exc}\n"
+            "    Robots already provisioned keep working; adding or re-provisioning "
+            "one does not.",
+            file=sys.stderr,
+        )
+
+
+def _describe(archive: backup.Archive) -> None:
+    """The three things a person checks to know they grabbed the right backup."""
+    ca = archive.ca_cert_pem()
+    if ca is not None:
+        name = "unreadable"
+        with suppress(WhiskerlessError):
+            name = pki.certificate_common_name(ca) or "unnamed"
+        print(f"    certificate authority   {name}{'' if archive.files.get('ca/ca.key') else '  (certificate only, cannot issue)'}")
+    broker = archive.broker()
+    if broker is not None:
+        print(f"    broker                  {broker[0]}:{broker[1]}")
+    robots = archive.robots()
+    if robots:
+        print(f"    robots                  {', '.join(robots)}")
+
+
+def _occupied(store: ProfileStore, archive: backup.Archive, aside: Path) -> str:
+    """Why restoring over an existing store is refused, in the terms that matter.
+
+    Which CA is on each side is the whole question: the same one makes this a
+    dull overwrite, a different one silently strands every robot that trusts the
+    one being displaced, and each rescue is a bench visit.
+    """
+    incoming = (archive.ca_cert_pem() or "").strip()
+    current = store.ca_path.read_text(encoding="utf-8").strip() if store.has_ca_cert() else ""
+    if not current:
+        verdict = "It has no certificate authority of its own."
+    elif current == incoming:
+        verdict = "Its certificate authority is the same one, so no robot would be stranded."
+    else:
+        known = ", ".join(profile.serial.value for profile in store.list_profiles())
+        verdict = (
+            "Its certificate authority is a DIFFERENT one"
+            + (f", and the robots set up here ({known}) trust it" if known else "")
+            + " — they would stop trusting your broker until each is re-provisioned over BLE."
+        )
+    return (
+        f"{store.root} already holds a setup — restoring would replace it. {verdict} "
+        f"Pass --force to move it aside to {aside} and restore anyway"
+    )
+
+
+def _backup_destination(args: argparse.Namespace, *, encrypted: bool) -> Path:
+    name = backup.default_name(encrypted=encrypted)
+    if not args.path:
+        return Path.cwd() / name
+    path = Path(args.path).expanduser()
+    # A directory is what people type when they mean "put it in here".
+    return path / name if path.is_dir() else path
+
+
+def _backup_password(args: argparse.Namespace) -> str | None:
+    """The password to encrypt with, or None for a plain archive.
+
+    Never silently plain. A backup's whole purpose is to live somewhere else —
+    a USB stick, cloud storage — and this one contains a signing key, so leaving
+    it in the clear has to be something somebody chose.
+    """
+    if args.no_password:
+        return None
+    supplied = os.environ.get(_PASSWORD_ENV)
+    if supplied:
+        return supplied
+    if not sys.stdin.isatty():
+        raise WhiskerlessError(
+            f"there is nobody here to ask for a password — set {_PASSWORD_ENV}, or pass "
+            "--no-password to write the archive (including your CA private key) in the clear"
+        )
+    while True:
+        first = _ask_secret("password to encrypt this backup (enter for none): ")
+        if not first:
+            return None
+        if first == _ask_secret("again: "):
+            return first
+        print("  those do not match", file=sys.stderr)
+
+
+def _restore_password(encrypted: bool) -> str | None:
+    if not encrypted:
+        return None
+    supplied = os.environ.get(_PASSWORD_ENV)
+    if supplied:
+        return supplied
+    if not sys.stdin.isatty():
+        raise WhiskerlessError(
+            f"this backup is encrypted and there is nobody here to ask — set {_PASSWORD_ENV}"
+        )
+    return _ask_secret("password for this backup: ")
+
+
+def _write_bytes_private(path: Path, data: bytes) -> None:
+    """Replace ``path`` atomically, owner-readable only, durable on return.
+
+    Truncating in place would destroy an existing backup before the replacement
+    is written, so a full disk or an interrupted run leaves neither — in the one
+    tool whose entire job is not losing things. ``mkstemp`` creates at 0600
+    regardless of umask, so the archive is never briefly world-readable either.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temp_path = Path(temporary)
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, path)  # noqa: PTH105 - os-level rename for durability
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _unused_name(root: Path, label: str) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    candidate = root.with_name(f"{root.name}.{label}-{stamp}")
+    attempt = 2
+    while candidate.exists():
+        candidate = root.with_name(f"{root.name}.{label}-{stamp}-{attempt}")
+        attempt += 1
+    return candidate
+
+
+def _human_size(count: int) -> str:
+    return f"{count / 1024:.1f} KB" if count >= 1024 else f"{count} bytes"
+
+
 def _print_orientation() -> None:
     """What a bare `whiskerless` says — which depends on whether anything is set up."""
     known = ProfileStore.from_env().list_profiles()
@@ -1436,6 +1729,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_forget.add_argument("robot", help="serial of a robot from `whiskerless robots`")
     p_forget.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_forget.set_defaults(func=_cmd_forget)
+
+    p_backup = add_parser("backup", "save this machine's setup (including the CA) to one file")
+    p_backup.add_argument("path", nargs="?", help="where to write it (a directory, or a filename)")
+    p_backup.add_argument("--no-password", action="store_true",
+                          help="write it unencrypted — the CA private key will be in the clear")
+    p_backup.add_argument("--force", action="store_true", help="overwrite an existing file")
+    p_backup.set_defaults(func=_cmd_backup)
+
+    p_restore = add_parser("restore", "put a backup back on this machine")
+    p_restore.add_argument("path", help="the backup file to restore")
+    p_restore.add_argument("--force", action="store_true",
+                           help="move an existing setup aside and restore over it")
+    p_restore.set_defaults(func=_cmd_restore)
 
     return parser
 

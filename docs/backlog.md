@@ -11,6 +11,22 @@ Statuses: **open** (nothing started), **blocked** (says on what), **discuss**
 
 ## Open
 
+### #72 — `setup --ca --ca-key` files the CA but never issues the broker's server cert
+
+Bringing your own CA *and* its key gives whiskerless everything it needs to issue
+the broker's server certificate, and it does not: `_ensure_pki()` saves the pair,
+mints this machine's client identity, and returns. `setup` then prints "make sure
+your broker presents a certificate signed by this CA" — true, and unhelpful when
+the thing that could sign it is sitting right there. The generate-a-CA branch two
+lines below does exactly this.
+
+Two ways to read the current behaviour, which is why this is a question and not
+a bug: somebody with their own CA may well have their own issuance process and
+would not want a stray leaf minted for them, and issuing one silently overwrites
+`broker/server.*` if they had already put their own there. A prompt ("issue your
+broker's certificate too?") splits the difference. Noticed while writing
+`restore`, which has to know whether those files exist before pointing at them.
+
 ### #13 — Confirm the empty and power writes on hardware — *POWER DONE 2026-08-16; empty still blocked (costs a litter refill)*
 
 **Power: DONE 2026-08-16.** `0x02010101` was published to a live robot; it emitted
@@ -530,11 +546,30 @@ of this — it keeps running on the old CA until the broker changes.
 Then swap the cluster's mosquitto certificates for the generated ones, restart,
 re-provision both robots, and only then delete the old directory.
 
-Worth deciding whether it is wanted at all: the OpenBao CA already works, already
-survives cluster loss, and keeps the signing key off the laptop — which is a
-better posture than whiskerless's own default. The reason to rotate is to prove
-the generate-a-CA path on real hardware, and that can also be proved on a spare
-store pointed at a throwaway broker.
+**Decided 2026-08-16: rotate.** The signing key moves to the laptop and the
+secrets manager keeps only the broker's *server* key, as transport — so
+cert-manager can no longer sign that leaf, because the CA key deliberately never
+reaches the cluster. That is a worse posture on paper than the arrangement it
+replaces, and it is the point: it is the arrangement every user of this project
+gets, and shipping a first-run path nobody has run is how the last three
+"proven" claims in this repo turned out to be inherited.
+
+`whiskerless backup` was built for this ordering — the store between generating
+the CA and installing it is the only copy of a key both robots will trust:
+
+```bash
+mv ~/.whiskerless ~/.whiskerless.pre-rotation   # keep until BOTH robots are back
+whiskerless setup                                # broker address, offers a CA
+whiskerless backup ~/Documents                   # before anything depends on it
+#  → install ca.crt / server.crt / server.key on the broker, restart it
+#  → POINT OF NO RETURN: robots holding the old CA drop off here
+whiskerless provision                            # once per robot, at the robot
+#  → optionally require_certificate true + use_identity_as_username true
+```
+
+Keep `~/.whiskerless.pre-rotation` until the fleet is back: it holds the old CA
+certificate, so putting the broker's old files back is the one rollback that
+does not cost a bench trip.
 
 ---
 
