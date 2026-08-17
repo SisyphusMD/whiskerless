@@ -176,9 +176,34 @@ jobs:
       - name: Coverage gate (config flow)
         run: coverage report --include='custom_components/whiskerless/config_flow.py' --fail-under=100
 
+  mirror-gate:
+    name: Qualify the mirror's macOS checks on the source commit (secret-free)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require the mirror's macOS checks to be green on the source commit
+        # This forge has no macOS runner, so nothing here can build the Homebrew
+        # formula on a Mac — and that build is the one that broke, silently, for a
+        # whole release candidate. The mirror runs it; this makes the release wait
+        # for its verdict instead of assuming one.
+        #
+        # The SOURCE commit, deliberately, not the tagged one: the tag job stamps
+        # version strings and commits, so the tagged tree is a child of this SHA —
+        # and for a prerelease that child is never pushed to a branch, so no branch
+        # workflow can ever evaluate it. What makes gating the parent sound is the
+        # intent check below, which already refuses unless the working tree differs
+        # by exactly the version-stamped files. None of those is the formula, or any
+        # code the formula compiles.
+        #
+        # Unauthenticated on purpose: the gate jobs hold no credential by design,
+        # and the mirror is public.
+        run: bash packaging/check-mirror-ci.sh "${{ github.sha }}"
+
   tag:
     name: Authorize and push prerelease tag
-    needs: [gate, floor-gate, dependency-floor-gate, integration-gate]
+    needs: [gate, floor-gate, dependency-floor-gate, integration-gate, mirror-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Fresh checkout with no persisted credential

@@ -33,6 +33,24 @@ Only `forgejo.bryantserver.com` can reach everything (itself, the **internal**
 NAS, GitHub, PyPI); GitHub can't reach the NAS. So the public Forgejo orchestrates
 and bridges.
 
+0. **The mirror gates the cut.** Forgejo has no macOS runner, so nothing here can
+   build the Homebrew formula on a Mac — and that build is the one that broke
+   silently for a whole release candidate (`cryptography`'s Rust extension,
+   stripped by cargo into a Mach-O dyld refuses; the Linux smoke passed
+   throughout). `mirror-gate` therefore blocks `tag` until **`CI (macOS)` is green
+   on GitHub for the commit the release is cut from** — see
+   `packaging/check-mirror-ci.sh`. Note "cut from", not "tagged": the tag job
+   stamps version strings and commits, so the tagged tree is a *child* of the
+   gated SHA, and for a prerelease that child is never pushed to a branch at all,
+   so no branch workflow could ever evaluate it. Gating the parent is sound
+   because the tag job's own intent check already refuses unless the diff is
+   exactly the version-stamped files — none of which is the formula, or any code
+   the formula compiles. It is unauthenticated by design: the gate jobs
+   hold no credential, and the mirror is public. It **waits** rather than failing
+   fast, because the push-mirror is asynchronous — a release dispatched moments
+   after a push finds no run at all for a while. A `cancelled` run counts as
+   not-green, which matters: pushing again cancels the previous run.
+
 1. **Cut it on Forgejo** — run the **Release** workflow (`.forgejo/workflows/release.yml`)
    from the Forgejo UI and pick `patch` / `minor` / `major`. (First release on a
    fresh repo: dispatch `minor` → `0.1.0`.) It advances the CHANGELOG, bumps every
