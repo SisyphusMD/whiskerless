@@ -321,11 +321,14 @@ join — the broker and the CA are already settled.
 > write your signing key in the clear. Unencrypted it is an ordinary `.tar.gz`,
 > so `tar` can open it on a machine that has never heard of whiskerless.
 >
-> Backups are dated, and a second one on the same day is numbered rather than
-> replacing the first — the earlier file may be the one from *before* whatever
-> you are about to change. `restore` will not replace a setup that is already
-> there unless you pass `--force`, and it tells you first which robots that
-> would strand.
+> Each backup is named for the moment it was made
+> (`whiskerless-backup-20260816-204915.tar.gz`) and never replaces an earlier
+> one — that earlier file may be the copy from *before* whatever you are about
+> to change. The timestamp is in the name because it is the only part that
+> survives being copied to a stick or pulled out of a snapshot; modification
+> time becomes "just now" for every file at once. `restore` will not replace a
+> setup that is already there unless you pass `--force`, and it tells you first
+> which robots that would strand.
 
 ## Everyday use
 

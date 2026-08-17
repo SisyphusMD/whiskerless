@@ -145,7 +145,7 @@ later, possibly on a machine that has never had whiskerless installed.
 On the replacement machine:
 
 ```bash
-whiskerless restore whiskerless-backup-20260816.tar.gz
+whiskerless restore whiskerless-backup-20260816-204915.tar.gz
 ```
 
 That machine can then issue certificates and provision robots as if it were the

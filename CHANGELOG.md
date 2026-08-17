@@ -102,10 +102,12 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   private key in there is the one thing that cannot be regenerated — losing it
   costs you the ability to add or re-provision a robot without walking to every
   robot you own. `backup` writes one file; `restore` puts it back. Leave the
-  path off either and it asks — `restore` lists the backups it can see and takes
-  a number — and a second backup on the same day is numbered rather than
-  replacing the first, because the earlier file may be the one from *before*
-  whatever you are about to change. It offers to
+  path off either and it asks — `restore` lists the backups it can see, newest
+  first, and takes a number. Each archive is named for the moment it was made
+  and never replaces an earlier one, because that earlier file may be the copy
+  from *before* whatever you are about to change; the timestamp lives in the
+  name because it is the only part that survives being copied to a stick or
+  pulled out of a snapshot. It offers to
   encrypt (AES-256-GCM, scrypt) and an unattended run has to say `--no-password`
   or set `WHISKERLESS_BACKUP_PASSWORD` rather than write a signing key in the
   clear by default. Unencrypted it is an ordinary `.tar.gz`, because this is a

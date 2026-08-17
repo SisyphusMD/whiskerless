@@ -13,6 +13,7 @@ import asyncio
 import getpass
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -1383,10 +1384,8 @@ def _choose_backup() -> Path:
     if found:
         print("\n  backups in this directory:\n")
         for index, path in enumerate(found, start=1):
-            stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-            sealed = " (encrypted)" if path.suffix == ".enc" else ""
-            print(f"   {_console.dim(f'{index:>2}')}  {path.name}"
-                  f"  {_console.dim(stamp + sealed)}")
+            sealed = _console.dim("  (encrypted)") if path.suffix == ".enc" else ""
+            print(f"   {_console.dim(f'{index:>2}')}  {path.name}{sealed}")
         print()
 
     def chosen(answer: str) -> str:
@@ -1401,14 +1400,41 @@ def _choose_backup() -> Path:
 def _backups_here() -> list[Path]:
     """Archives whiskerless wrote, in the current directory, newest first.
 
-    Only our own naming. A wider sweep for `*.tar.gz` would offer somebody's
+    Ordered by name, not by modification time. The names are timestamped, and
+    that timestamp is the one that survived being copied here — mtime says when
+    this particular copy landed, which on a machine somebody is restoring onto
+    is usually "all of them, just now, in no order at all".
+
+    Only our own naming, too: a wider sweep for `*.tar.gz` would offer somebody's
     holiday photos as a candidate restore, and the prompt still takes any path.
     """
     try:
         found = [path for path in Path.cwd().glob("whiskerless-backup-*") if path.is_file()]
-        return sorted(found, key=lambda path: path.stat().st_mtime, reverse=True)[:9]
+        return sorted(found, key=_made_at, reverse=True)[:9]
     except OSError:
         return []
+
+
+_BACKUP_NAME = re.compile(r"\Awhiskerless-backup-(\d{8})-(\d{6})(?:-(\d+))?\.")
+
+
+def _made_at(path: Path) -> tuple[str, str, int, str]:
+    """Sort key for a backup filename: when it was made, then its tie-breaker.
+
+    The counter has to be read as a NUMBER and the timestamp has to end where
+    the counter begins — plain lexicographic order gets both wrong. `-2` sorts
+    before `-10`, and worse, the unsuffixed name of a pair sorts *after* its
+    `-2` sibling because `.` follows `-` in ASCII, so the older of two backups
+    made in the same second would be offered as the newest one. Restoring the
+    wrong backup is not a mistake to make easy.
+
+    Anything not matching sorts last, under its own name — it is a file
+    somebody renamed, and guessing at when they meant is worse than listing it.
+    """
+    found = _BACKUP_NAME.match(path.name)
+    if found is None:
+        return ("", "", 0, path.name)
+    return (found[1], found[2], int(found[3] or 1), path.name)
 
 
 def _backup_password(args: argparse.Namespace) -> str | None:

@@ -70,25 +70,29 @@ _KEY_BYTES, _SALT_BYTES, _NONCE_BYTES = 32, 16, 12
 
 
 def default_name(*, encrypted: bool) -> str:
-    """A dated filename to write when none was given.
+    """A timestamped filename to write when none was given.
 
-    Local time, not UTC: this date is read by the person who made the backup,
-    and a file stamped tomorrow because they ran it after dinner is a small,
-    pointless confusion.
+    To the second, so the name carries its own ordering. Modification time does
+    not survive the journey a backup is *for* — copied to a stick, synced
+    through cloud storage, pulled out of a Time Machine snapshot, every file
+    arrives stamped with whenever that copy happened. The name is the only part
+    that still says when it was made, so it has to say it.
+
+    Local time, not UTC: this is read by the person who made the backup, and a
+    file stamped tomorrow because they ran it after dinner is a small, pointless
+    confusion.
     """
-    stamp = datetime.now().strftime("%Y%m%d")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return f"whiskerless-backup-{stamp}.tar.gz" + (".enc" if encrypted else "")
 
 
 def unused_name(directory: Path, *, encrypted: bool) -> Path:
     """A filename in ``directory`` that is not already taken.
 
-    Dated, then numbered if that day is already spoken for. Two backups on one
-    day is an ordinary thing to do — before and after a change is the obvious
-    case — and neither refusing the second nor overwriting the first is a good
-    answer when the earlier file may be the one from *before* the store was
-    damaged. To the second would never collide, but it buys unreadable names to
-    solve a problem a counter already solves.
+    The timestamp does the work; the counter is only for two backups inside one
+    second, which a scripted loop can manage and a person cannot. Neither
+    refusing the second nor overwriting the first would be a good answer — the
+    earlier file may be the one from *before* the store was damaged.
     """
     base = default_name(encrypted=encrypted)
     stem, _, extensions = base.partition(".")

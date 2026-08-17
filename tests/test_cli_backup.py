@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tarfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -132,11 +133,24 @@ def test_an_encrypted_backup_is_named_for_what_it_is(
     assert list(tmp_path.glob("whiskerless-backup-*.tar.gz.enc"))
 
 
-def test_a_second_backup_the_same_day_does_not_clobber_the_first(
+def test_a_backup_carries_when_it_was_made_in_its_name(
     store: ProfileStore, tmp_path: Path
 ) -> None:
-    """Before and after a change is the obvious reason to back up twice in a
-    day, and the earlier file may be the one from before the store was damaged."""
+    """Modification time does not survive the journey a backup is *for* — copied
+    to a stick, synced through cloud storage, pulled out of a snapshot, every
+    file arrives stamped with whenever that copy happened. The name is the only
+    part that still says when it was made."""
+    assert run("backup", str(tmp_path), "--no-password") == 0
+    name = next(iter(tmp_path.glob("whiskerless-backup-*"))).name
+    stamp = name.removeprefix("whiskerless-backup-").removesuffix(".tar.gz")
+    assert datetime.strptime(stamp, "%Y%m%d-%H%M%S")
+
+
+def test_a_second_backup_never_clobbers_the_first(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Before and after a change is the obvious reason to back up twice, and the
+    earlier file may be the one from before the store was damaged."""
     assert run("backup", str(tmp_path), "--no-password") == 0
     first = next(iter(tmp_path.glob("whiskerless-backup-*.tar.gz")))
     original = first.read_bytes()
@@ -144,7 +158,21 @@ def test_a_second_backup_the_same_day_does_not_clobber_the_first(
     assert run("backup", str(tmp_path), "--no-password") == 0
     assert first.read_bytes() == original
     assert len(list(tmp_path.glob("whiskerless-backup-*.tar.gz"))) == 2
-    assert any(path.name.endswith("-2.tar.gz") for path in tmp_path.iterdir())
+
+
+def test_two_backups_inside_one_second_are_numbered(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """A scripted loop can manage that; a person cannot. The timestamp does the
+    work and the counter only covers the tie."""
+    with patch("whiskerless.backup.datetime") as clock:
+        clock.now.return_value.strftime.return_value = "20260816-204915"
+        assert run("backup", str(tmp_path), "--no-password") == 0
+        assert run("backup", str(tmp_path), "--no-password") == 0
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "whiskerless-backup-20260816-204915-2.tar.gz",
+        "whiskerless-backup-20260816-204915.tar.gz",
+    ]
 
 
 def test_a_name_is_claimed_by_creating_it_not_by_looking(
@@ -192,8 +220,10 @@ def test_the_numbering_keeps_the_encrypted_suffix(
     store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("WHISKERLESS_BACKUP_PASSWORD", "hunter2")
-    assert run("backup", str(tmp_path)) == 0
-    assert run("backup", str(tmp_path)) == 0
+    with patch("whiskerless.backup.datetime") as clock:
+        clock.now.return_value.strftime.return_value = "20260816-204915"
+        assert run("backup", str(tmp_path)) == 0
+        assert run("backup", str(tmp_path)) == 0
     assert any(path.name.endswith("-2.tar.gz.enc") for path in tmp_path.iterdir())
 
 
@@ -366,16 +396,64 @@ def test_which_backup_to_restore_is_offered_not_retyped(
     store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """You just copied one onto a fresh machine; retyping a filename with a date
-    in it is not the interaction that moment deserves."""
-    _backup_file(store, tmp_path / "whiskerless-backup-20260816.tar.gz")
+    """You just copied one onto a fresh machine; retyping a filename with a
+    timestamp in it is not the interaction that moment deserves.
+
+    Newest first, ordered by the NAME. On a machine somebody is restoring onto,
+    every file was copied there at once, so modification time would put them in
+    no order at all — the timestamp in the name is the one that travelled."""
+    older = _backup_file(store, tmp_path / "whiskerless-backup-20260101-090000.tar.gz")
+    newer = tmp_path / "whiskerless-backup-20260816-204915.tar.gz"
+    newer.write_bytes(older.read_bytes())
+    os.utime(newer, (0, 0))  # oldest on disk, newest by name
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path / "fresh"))
     with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="1"):
         assert run("restore") == 0
     out = capsys.readouterr().out
-    assert "whiskerless-backup-20260816.tar.gz" in out
+    assert out.index(newer.name) < out.index(older.name)
+    assert str(newer) in out
     assert ProfileStore.from_env().load_ca().cert_pem == CA.cert_pem
+
+
+def test_the_listing_reads_the_counter_as_a_number_not_as_text(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Plain alphabetical order gets both halves wrong: `-2` sorts before `-10`,
+    and the unsuffixed name of a pair sorts AFTER its `-2` sibling because `.`
+    follows `-` in ASCII. Either way the oldest backup made in that second would
+    be offered as number 1, and restoring the wrong one strands robots."""
+    for name in (
+        "whiskerless-backup-20260816-204915.tar.gz",
+        "whiskerless-backup-20260816-204915-2.tar.gz",
+        "whiskerless-backup-20260816-204915-10.tar.gz",
+    ):
+        _backup_file(store, tmp_path / name)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path / "fresh"))
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="1"):
+        assert run("restore") == 0
+    listed = [line for line in capsys.readouterr().out.splitlines() if "whiskerless-backup-" in line]
+    assert [line.split()[1] for line in listed[:3]] == [
+        "whiskerless-backup-20260816-204915-10.tar.gz",
+        "whiskerless-backup-20260816-204915-2.tar.gz",
+        "whiskerless-backup-20260816-204915.tar.gz",
+    ]
+
+
+def test_a_renamed_backup_is_listed_last_rather_than_guessed_at(
+    store: ProfileStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _backup_file(store, tmp_path / "whiskerless-backup-before-the-rotation.tar.gz")
+    _backup_file(store, tmp_path / "whiskerless-backup-20260101-090000.tar.gz")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path / "fresh"))
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="1"):
+        assert run("restore") == 0
+    out = capsys.readouterr().out
+    assert out.index("20260101-090000") < out.index("before-the-rotation")
 
 
 def test_the_restore_prompt_still_takes_a_path(
