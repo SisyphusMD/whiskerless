@@ -62,17 +62,6 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   under `~/.whiskerless`; later commands run bare, and every flag still overrides.
   **`robots`, `use` and `forget`** list, pick and drop them — damaged profiles are
   shown as such and can still be removed.
-- **`whiskerless adopt`** tells the CLI about a robot you provisioned before the
-  profile store existed, so it stops needing `--serial/--host/--ca` on every
-  command. Run it bare and it asks, the way `provision` does, offering the broker
-  and CA your other robots already use; flags still work for scripts. It writes
-  the same profile `provision` would and contacts nothing — which also means it
-  cannot check the serial, so confirm with `whiskerless state`.
-- **Saved profiles carry a format version**, so a future change to the file can be
-  migrated rather than guessed at. Files written before this reload unchanged — the
-  shape did not change when the stamp was added. A profile written by a *newer*
-  whiskerless is refused with a message saying so, instead of being read
-  optimistically and saved back with whatever it did not understand dropped.
 - **A second robot inherits the saved setup** — each prompt offers what your
   robots already share, so you type only the serial and the WiFi password.
 - **Passwords go in your OS keychain, or nowhere.** Nothing secret is written to

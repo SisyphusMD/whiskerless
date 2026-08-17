@@ -1,5 +1,8 @@
 # Certificates & the trust model
 
+> Why it works this way — and why the robot leaves no other option — is in
+> [design/authentication.md](../design/authentication.md).
+
 This is the piece that makes the robot trust *your* broker. It's a one-time
 setup and, once you understand the model, only a few `openssl` commands.
 

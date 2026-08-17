@@ -18,7 +18,7 @@ import pytest
 
 from whiskerless.cli import _check_host, _check_ssid, _read_pem, main
 from whiskerless.exceptions import ProfileError, ProvisioningError, WhiskerlessError
-from whiskerless.profiles import ProfileStore, RobotProfile, Serial
+from whiskerless.profiles import Broker, ProfileStore, RobotProfile, Serial
 
 CA = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
 
@@ -44,7 +44,12 @@ def store() -> ProfileStore:
 
 
 def seed(store: ProfileStore, serial: str = "LR4C123456", **kwargs: object) -> RobotProfile:
-    defaults: dict[str, object] = {"host": "192.0.2.10", "ca_pem": CA}
+    """A saved robot, plus the one broker and CA every robot in a store shares."""
+    if not store.has_broker():
+        store.save_broker(Broker(host="192.0.2.10"))
+    if not store.has_ca_cert():
+        store.save_ca_cert_only(CA)
+    defaults: dict[str, object] = {}
     defaults.update(kwargs)
     profile = RobotProfile(serial=Serial(serial), **defaults)  # type: ignore[arg-type]
     store.save(profile)
@@ -58,6 +63,20 @@ def _run_async(coro: Any) -> Any:
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+_SHARED_CA: Path | None = None
+
+
+def _shared_ca_file() -> str:
+    """A CA file on disk for helpers that have no tmp_path of their own."""
+    global _SHARED_CA
+    if _SHARED_CA is None:
+        import tempfile
+
+        _SHARED_CA = Path(tempfile.mkdtemp()) / "ca.pem"
+        _SHARED_CA.write_text(CA)
+    return str(_SHARED_CA)
 
 
 def run(*argv: str, answer: str | None = None) -> int:
@@ -116,142 +135,9 @@ def test_robots_marks_an_unconfirmed_serial(
 def test_robots_does_not_nag_about_a_confirmed_serial(
     store: ProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    store.save(RobotProfile(serial=Serial("LR4C123456", verified=True), host="192.0.2.10"))
+    store.save(RobotProfile(serial=Serial("LR4C123456", verified=True)))
     assert run("robots") == 0
     assert "unconfirmed" not in capsys.readouterr().out
-
-
-# --- adopt --------------------------------------------------------------------
-def test_adopt_saves_a_robot_that_was_never_provisioned_here(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """The store only fills on a successful provision, so a robot set up before it
-    existed has no profile — and re-provisioning to get one would touch the robot."""
-    ca = tmp_path / "ca.crt"
-    ca.write_text(CA)
-
-    assert run("adopt", "--serial", "LR4C654321", "--host", "192.0.2.20",
-               "--ca", str(ca), "--name", "Upstairs") == 0
-
-    saved = store.load("LR4C654321")
-    assert saved.host == "192.0.2.20"
-    assert saved.name == "Upstairs"
-    assert saved.ca_pem == CA
-    assert saved.serial.verified is False, "nobody confirmed this serial; a typo is invisible"
-    assert "whiskerless state" in capsys.readouterr().out, "and it says how to check"
-
-
-def test_adopt_becomes_the_default_when_it_is_the_only_robot(store: ProfileStore) -> None:
-    assert run("adopt", "--serial", "LR4C654321", "--host", "192.0.2.20") == 0
-    assert store.get_default() == "LR4C654321"
-
-
-def test_adopt_does_not_steal_the_default_from_an_existing_robot(store: ProfileStore) -> None:
-    seed(store, "LR4C123456")
-    store.set_default("LR4C123456")
-    assert run("adopt", "--serial", "LR4C654321", "--host", "192.0.2.20") == 0
-    assert store.get_default() == "LR4C123456"
-
-
-def test_adopt_refuses_a_serial_that_cannot_be_one(store: ProfileStore) -> None:
-    """A typo becomes the MQTT client-id and both topics, so it fails silently
-    forever. The shape check is the only guard available without the robot."""
-    assert run("adopt", "--serial", "nope!", "--host", "192.0.2.20") == 1
-
-
-def test_adopt_refuses_the_model_number_from_the_same_label(store: ProfileStore) -> None:
-    """The label carries LR4C123456 and LR4-0301-00-US side by side, and the
-    store's own shape rule accepts the second one. Adoption has to apply the
-    provisioner's check, or it writes the one value guaranteed never to work."""
-    assert run("adopt", "--serial", "LR4-0301-00-US", "--host", "192.0.2.20") == 1
-
-
-def test_adopt_again_does_not_wipe_what_it_was_not_given(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    """Correcting the host must not cost the CA, the name, or the litter
-    reference someone measured with the globe in front of them."""
-    seed(store, "LR4C123456", name="Upstairs", litter_full_mm=140)
-
-    assert run("adopt", "--serial", "LR4C123456", "--host", "192.0.2.99") == 0
-
-    saved = store.load("LR4C123456")
-    assert saved.host == "192.0.2.99", "the field given is updated"
-    assert saved.name == "Upstairs"
-    assert saved.ca_pem == CA
-    assert saved.litter_full_mm == 140
-
-
-def test_adopt_refuses_a_ca_that_is_not_a_pem(store: ProfileStore, tmp_path: Path) -> None:
-    junk = tmp_path / "not-a-ca.txt"
-    junk.write_text("this is not a certificate")
-    assert run("adopt", "--serial", "LR4C654321", "--host", "192.0.2.20", "--ca", str(junk)) == 1
-
-
-def _adopt_answering(answers: list[str], *extra: str) -> tuple[int, list[str]]:
-    """Run an interactive `adopt`, scripting the prompts. Returns prompts seen."""
-    prompts: list[str] = []
-
-    def _input(prompt: str = "") -> str:
-        prompts.append(prompt)
-        return answers.pop(0)
-
-    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", _input):
-        return main(["adopt", *extra]), prompts
-
-
-def test_adopt_with_no_arguments_asks(store: ProfileStore, tmp_path: Path) -> None:
-    """Someone reaching for adopt is usually meeting the tool for the first time,
-    and argparse's "the following arguments are required" teaches them nothing."""
-    ca = tmp_path / "ca.crt"
-    ca.write_text(CA)
-    # serial, broker, CA, username (skip), name
-    # serial, broker, CA, name — there is no broker-username question any more
-    code, prompts = _adopt_answering(["LR4C654321", "192.0.2.20", str(ca), "Upstairs"])
-    assert code == 0
-    saved = store.load("LR4C654321")
-    assert (saved.host, saved.name, saved.ca_pem) == ("192.0.2.20", "Upstairs", CA)
-    assert any("serial" in prompt for prompt in prompts)
-
-
-def test_adopt_re_asks_a_serial_that_cannot_be_one(store: ProfileStore) -> None:
-    """The model number is printed on the label beside the serial, and adopting it
-    writes the one value guaranteed never to work."""
-    code, _ = _adopt_answering(["LR4-0301-00-US", "LR4C654321", "192.0.2.20", "", ""])
-    assert code == 0
-    assert store.load("LR4C654321").host == "192.0.2.20"
-
-
-def test_adopt_offers_the_setup_already_in_use(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
-) -> None:
-    seed(store, "LR4C123456", host="192.0.2.10", name="Downstairs")
-    # serial, then enter for broker and CA, then skip username and name.
-    code, prompts = _adopt_answering(["LR4C654321", "", "", ""])
-    assert code == 0
-    saved = store.load("LR4C654321")
-    assert saved.host == "192.0.2.10"
-    assert saved.ca_pem == CA
-    assert "the setup already in use here" in capsys.readouterr().out
-    ca_prompt = next(prompt for prompt in prompts if "CA" in prompt)
-    assert "BEGIN CERTIFICATE" not in ca_prompt, "a PEM blob in a prompt is unreadable"
-
-
-def test_adopt_can_skip_the_ca(store: ProfileStore) -> None:
-    """A broker on a certificate the system already trusts needs none."""
-    code, prompts = _adopt_answering(["LR4C654321", "192.0.2.20", "", ""])
-    assert code == 0
-    assert store.load("LR4C654321").ca_pem is None
-    assert any("enter to skip" in prompt for prompt in prompts if "CA" in prompt)
-
-
-def test_adopt_without_a_terminal_names_the_flags_it_needs(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A script gets an error about the arguments, not the EOF of a prompt it
-    could never have answered."""
-    assert run("adopt") == 1
-    assert "--serial and --host" in capsys.readouterr().err
 
 
 def test_use_marks_the_default(store: ProfileStore, capsys: pytest.CaptureFixture[str]) -> None:
@@ -337,7 +223,6 @@ def test_a_saved_robot_needs_no_flags_at_all(store: ProfileStore) -> None:
     captured: dict[str, Any] = {}
     assert _run_state(captured) == 0
     assert captured["serial"] == "LR4C123456"
-    assert captured["settings"].host == "192.0.2.10"
     assert captured["settings"].ca_cert_data == CA
 
 
@@ -376,56 +261,7 @@ def test_nothing_saved_and_no_flags_points_at_provisioning(
     assert "run `whiskerless provision` first" in capsys.readouterr().err
 
 
-def test_a_fully_explicit_invocation_still_works_with_an_empty_store() -> None:
-    """How this behaved before there was a store, and how scripts still call it."""
-    captured: dict[str, Any] = {}
-    assert _run_state(captured, "--serial", "LR4C000001", "--host", "192.0.2.99") == 0
-    assert captured["settings"].host == "192.0.2.99"
-
-
-def test_a_host_without_a_serial_says_what_is_missing(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """"Run provision first" would mislead someone who already gave the broker."""
-    assert run("state", "--host", "192.0.2.99") == 1
-    assert "add --serial" in capsys.readouterr().err
-
-
 # --- flags override, but only where given -------------------------------------
-def test_a_flag_overrides_just_its_own_field(store: ProfileStore) -> None:
-    seed(store)
-    captured: dict[str, Any] = {}
-    assert _run_state(captured, "--host", "10.0.0.9") == 0
-    assert captured["settings"].host == "10.0.0.9"
-    assert captured["settings"].ca_cert_data == CA
-
-
-def test_an_unspecified_port_does_not_clobber_the_saved_one(store: ProfileStore) -> None:
-    """Every flag defaults to None precisely so argparse cannot overwrite the profile."""
-    seed(store, port=1883)
-    captured: dict[str, Any] = {}
-    assert _run_state(captured) == 0
-    assert captured["settings"].port == 1883
-
-
-def test_insecure_turns_off_hostname_checking(store: ProfileStore) -> None:
-    seed(store)
-    captured: dict[str, Any] = {}
-    assert _run_state(captured, "--insecure") == 0
-    assert captured["settings"].verify_hostname is False
-
-
-def test_a_ca_flag_is_read_and_replaces_the_saved_one(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    seed(store)
-    other = tmp_path / "other.pem"
-    other.write_text("-----BEGIN CERTIFICATE-----\nother\n-----END CERTIFICATE-----\n")
-    captured: dict[str, Any] = {}
-    assert _run_state(captured, "--ca", str(other)) == 0
-    assert "other" in (captured["settings"].ca_cert_data or "")
-
-
 def test_the_client_id_is_never_the_robots_serial(store: ProfileStore) -> None:
     """Claiming the robot's id kicks the robot off its own broker connection."""
     seed(store)
@@ -529,27 +365,17 @@ def test_an_unreadable_file_is_reported_not_raised_raw(tmp_path: Path) -> None:
         _read_pem(str(directory))
 
 
-def test_a_bad_ca_path_exits_cleanly_rather_than_tracing_back(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
-) -> None:
-    seed(store)
-    assert run("state", "--ca", "/nonexistent/nowhere.pem") == 1
-    assert "whiskerless: no such file" in capsys.readouterr().err
-
-
 def test_debug_re_raises_so_a_bug_report_has_a_traceback(store: ProfileStore) -> None:
-    seed(store)
     with pytest.raises(WhiskerlessError):
-        main(["state", "--debug", "--ca", "/nonexistent/nowhere.pem"])
+        main(["state", "--debug"])  # nothing set up: a ProfileError
 
 
 def test_the_debug_environment_variable_does_the_same(
     store: ProfileStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seed(store)
     monkeypatch.setenv("WHISKERLESS_DEBUG", "1")
     with pytest.raises(WhiskerlessError):
-        main(["state", "--ca", "/nonexistent/nowhere.pem"])
+        main(["state"])
 
 
 def test_an_os_error_becomes_a_message(store: ProfileStore, capsys: pytest.CaptureFixture[str]) -> None:
@@ -692,12 +518,12 @@ def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
     """provision collects the serial, broker, CA and WiFi — not the name, the
     broker credentials or the port. Writing defaults over those on a
     reprovision silently erased what the user had set up."""
-    seed(store, name="Upstairs", port=1884)
+    seed(store, name="Upstairs", litter_full_mm=140)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
     argv = [
         "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.99",
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
+        "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
         patch("whiskerless.ble.scan", _fake_scan),
@@ -706,9 +532,7 @@ def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
     ):
         assert main(argv) == 0
     saved = store.load("LR4C123456")
-    assert saved.host == "192.0.2.99", "what provisioning collected does move"
     assert saved.display_name == "Upstairs"
-    assert saved.port == 1884
 
 
 def test_provisioning_saves_a_profile_that_later_commands_find(
@@ -718,7 +542,8 @@ def test_provisioning_saves_a_profile_that_later_commands_find(
     ca.write_text(CA)
     argv = [
         "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret",
+        "--ca", str(ca),
+        "--wifi-ssid", "home", "--wifi-pass", "secret",
         "--name", "Upstairs", "--yes",
     ]
     with (
@@ -728,8 +553,6 @@ def test_provisioning_saves_a_profile_that_later_commands_find(
     ):
         assert main(argv) == 0
     saved = store.resolve("LR4C123456")
-    assert saved.host == "192.0.2.10"
-    assert saved.ca_pem == CA
     assert saved.display_name == "Upstairs"
     assert "saved as Upstairs" in capsys.readouterr().out
 
@@ -740,7 +563,8 @@ def test_a_failed_provisioning_saves_nothing(store: ProfileStore, tmp_path: Path
     ca.write_text(CA)
     argv = [
         "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
+        "--ca", str(ca),
+        "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
         patch("whiskerless.ble.scan", _fake_scan),
@@ -759,6 +583,7 @@ def test_a_dry_run_saves_nothing_and_says_so(
     ca.write_text(CA)
     argv = [
         "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+       "--ca", str(ca),
         "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret",
         "--dry-run", "--yes",
     ]
@@ -780,7 +605,8 @@ def test_the_first_robot_provisioned_becomes_the_default(
     ca.write_text(CA)
     argv = [
         "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
+        "--ca", str(ca),
+        "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
         patch("whiskerless.ble.scan", _fake_scan),
@@ -800,7 +626,8 @@ def test_provisioning_a_second_robot_leaves_the_default_alone(
     ca.write_text(CA)
     argv = [
         "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
+        "--ca", str(ca),
+        "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
         patch("whiskerless.ble.scan", _fake_scan),
@@ -819,7 +646,8 @@ def test_a_store_that_cannot_be_written_does_not_fail_the_provisioning(
     ca.write_text(CA)
     argv = [
         "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
+        "--ca", str(ca),
+        "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
     ]
     with (
         patch("whiskerless.ble.scan", _fake_scan),
@@ -850,82 +678,6 @@ def _provision_answering(answers: list[str], *extra: str) -> tuple[int, list[str
         return main(["provision", "--yes", *extra]), prompts
 
 
-def test_a_second_robot_is_offered_the_first_ones_broker(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
-) -> None:
-    seed(store, "LR4C654321", host="192.0.2.10", name="Downstairs", wifi_ssid="MyIoT")
-    # serial, then enter three times to accept broker / CA / SSID.
-    code, prompts = _provision_answering(["LR4C123456", "", "", ""])
-    assert code == 0
-    saved = store.load("LR4C123456")
-    assert saved.host == "192.0.2.10"
-    assert saved.ca_pem == CA
-    assert saved.wifi_ssid == "MyIoT"
-    assert "the setup already in use here" in capsys.readouterr().out
-    assert any("192.0.2.10" in prompt for prompt in prompts)
-
-
-def test_the_offered_ca_is_described_not_dumped(store: ProfileStore) -> None:
-    """The stored CA is contents, and a PEM blob in a prompt is unreadable."""
-    seed(store, "LR4C654321", name="Downstairs")
-    _, prompts = _provision_answering(["LR4C123456", "", "", "MyIoT"])
-    ca_prompt = next(prompt for prompt in prompts if "CA" in prompt)
-    assert "BEGIN CERTIFICATE" not in ca_prompt
-    assert "the CA already in use here" in ca_prompt
-
-
-def test_a_shared_ca_is_never_attributed_to_one_robot(store: ProfileStore) -> None:
-    """Naming a robot implies the CA is per-robot; with several sharing it, it is not."""
-    for serial in ("LR4C111111", "LR4C222222", "LR4C333333"):
-        seed(store, serial, name=f"Robot {serial[-1]}")
-    _, prompts = _provision_answering(["LR4C123456", "", "", "MyIoT"])
-    ca_prompt = next(prompt for prompt in prompts if "CA" in prompt)
-    assert "the CA already in use here" in ca_prompt
-    assert not any(name in ca_prompt for name in ("Robot 1", "Robot 2", "Robot 3"))
-
-
-def test_robots_that_disagree_fall_back_to_naming_the_source(store: ProfileStore) -> None:
-    """Only when the CAs genuinely differ is naming one of them informative."""
-    seed(store, "LR4C111111", name="Garage", ca_pem=CA)
-    seed(store, "LR4C222222", name="Attic", ca_pem="-----BEGIN CERTIFICATE-----\nB\n-----END CERTIFICATE-----\n")
-    store.set_default("LR4C222222")
-    _, prompts = _provision_answering(["LR4C123456", "", "", "MyIoT"])
-    ca_prompt = next(prompt for prompt in prompts if "CA" in prompt)
-    assert "the CA saved for Attic" in ca_prompt
-
-
-def test_a_robot_with_no_ca_does_not_veto_the_shared_offer(store: ProfileStore) -> None:
-    seed(store, "LR4C111111", ca_pem=CA)
-    store.save(RobotProfile(serial=Serial("LR4C222222"), host="192.0.2.10"))
-    _, prompts = _provision_answering(["LR4C123456", "", "", "MyIoT"])
-    ca_prompt = next(prompt for prompt in prompts if "CA" in prompt)
-    assert "the CA already in use here" in ca_prompt
-
-
-def test_the_offer_can_be_overridden_by_typing(store: ProfileStore, tmp_path: Path) -> None:
-    seed(store, "LR4C654321", host="192.0.2.10", wifi_ssid="MyIoT")
-    other = tmp_path / "other.pem"
-    other.write_text("-----BEGIN CERTIFICATE-----\nother\n-----END CERTIFICATE-----\n")
-    code, _ = _provision_answering(
-        ["LR4C123456", "10.0.0.9", str(other), "OtherNet"]
-    )
-    assert code == 0
-    saved = store.load("LR4C123456")
-    assert saved.host == "10.0.0.9"
-    assert "other" in (saved.ca_pem or "")
-    assert saved.wifi_ssid == "OtherNet"
-
-
-def test_the_first_robot_is_offered_nothing(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ca = tmp_path / "ca.pem"
-    ca.write_text(CA)
-    code, _ = _provision_answering(["LR4C123456", "192.0.2.10", str(ca), "MyIoT"])
-    assert code == 0
-    assert "reusing the setup" not in capsys.readouterr().out
-
-
 def test_the_wifi_passphrase_is_never_stored(store: ProfileStore) -> None:
     """A home WiFi secret is a bigger thing to leave on disk than a broker login."""
     seed(store, "LR4C654321", wifi_ssid="MyIoT")
@@ -942,14 +694,6 @@ def test_an_ssid_is_still_asked_for_when_the_prior_robot_has_none(
     assert code == 0
     assert store.load("LR4C123456").wifi_ssid == "MyIoT"
     assert any(prompt.startswith("WiFi SSID: ") for prompt in prompts)
-
-
-def test_the_default_robot_is_the_one_whose_setup_is_offered(store: ProfileStore) -> None:
-    seed(store, "LR4C111111", host="10.0.0.1")
-    seed(store, "LR4C999999", host="10.0.0.2")
-    store.set_default("LR4C999999")
-    assert _provision_answering(["LR4C123456", "", "", "MyIoT"])[0] == 0
-    assert store.load("LR4C123456").host == "10.0.0.2"
 
 
 async def _fake_scan(**_: object) -> list[Any]:
@@ -975,8 +719,8 @@ def _fake_provision(*, success: bool) -> Any:
 
 def _provision_argv(ca: Path, *extra: str) -> list[str]:
     return [
-        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
-        "--ca", str(ca), "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes", *extra,
+        "provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10", "--ca", str(ca),
+        "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes", *extra,
     ]
 
 
@@ -994,20 +738,6 @@ def _provisioned(argv: list[str], answer: str | None = None) -> int:
             return main(argv)
         with patches[3], patches[4]:
             return main(argv)
-
-
-def test_an_optional_question_still_fails_loudly_on_a_closed_terminal() -> None:
-    """Skipping applies to a run that was never interactive. A terminal that
-    disappears mid-prompt is a different thing, and guessing an answer there
-    would write a profile nobody agreed to."""
-    from whiskerless.cli import _ask_optional
-
-    with (
-        patch("sys.stdin.isatty", return_value=True),
-        patch("builtins.input", side_effect=EOFError),
-        pytest.raises(WhiskerlessError, match="input ended"),
-    ):
-        _ask_optional("broker username", None, None)
 
 
 # --- choosing a network from what the robot can see ---------------------------
@@ -1137,3 +867,441 @@ def test_an_open_network_is_never_asked_for_a_password() -> None:
         patch("whiskerless.cli.getpass.getpass", _explode),
     ):
         assert _run_async(_choose_network(networks)) == ("Cafe", "")
+
+
+# --- what the robot gets for an identity --------------------------------------
+def _provision_output(store: ProfileStore, *extra: str) -> str:
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ):
+        main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+              "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes", *extra])
+    return ""
+
+
+def test_no_ca_key_says_loudly_that_the_broker_must_allow_anonymous(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Someone who expected mutual TLS and gets an anonymous listener has a broker
+    standing open, and now is the only moment that is cheap to discover."""
+    ca = tmp_path / "ca.crt"
+    ca.write_text(CA)
+    _provision_output(store, "--ca", str(ca))
+    out = capsys.readouterr().out
+    assert "NO CA KEY" in out
+    assert "MUST therefore accept anonymous clients" in out
+    assert "Whisker factory certificate (unchanged)" in out
+
+
+def test_a_ca_we_can_sign_with_means_the_robot_gets_our_identity(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    ca = tmp_path / "ca.crt"
+    ca.write_text(CA)
+    _provision_output(store, "--ca", str(ca))
+    out = capsys.readouterr().out
+    assert "NO CA KEY" not in out
+    assert "issued by your CA, CN=LR4C123456" in out
+
+
+def test_the_identity_write_can_be_declined_even_with_a_ca(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An exit for the person who reads what it does and would rather not."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    ca = tmp_path / "ca.crt"
+    ca.write_text(CA)
+    _provision_output(store, "--no-client-cert")
+    assert "NO CA KEY" in capsys.readouterr().out
+
+
+# --- setting up a certificate authority on a fresh machine --------------------
+def _ca_files(tmp_path: Path, *, with_key: bool = True) -> tuple[str, str | None]:
+    from whiskerless import pki
+
+    ca = pki.generate_ca("someone else's CA")
+    cert = tmp_path / "their-ca.crt"
+    cert.write_text(ca.cert_pem)
+    if not with_key:
+        return str(cert), None
+    key = tmp_path / "their-ca.key"
+    key.write_text(ca.key_pem)
+    return str(cert), str(key)
+
+
+def _first_run(store: ProfileStore, answers: list[str], *extra: str) -> None:
+    it = iter(answers)
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": next(it)),
+        patch("whiskerless.cli.getpass.getpass", return_value="pw"),
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ):
+        main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+              "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes", *extra])
+
+
+def test_a_fresh_machine_is_offered_a_certificate_authority(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Enter generates everything: a first-time user should not have to learn
+    openssl before their litter box works."""
+    _first_run(store, [""])
+    out = capsys.readouterr().out
+    assert "NO CERTIFICATE AUTHORITY" in out
+    assert store.has_ca(), "the CA is on disk afterwards"
+    assert store.has_client(), "so is this machine's identity"
+    assert (store.broker_dir / "server.crt").is_file()
+    assert "Back up" in out and "cafile" in out
+
+
+def test_the_certificate_authority_is_generated_once(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regenerating would strand every robot provisioned to trust the old one."""
+    _first_run(store, [""])
+    first = store.ca_path.read_text()
+    capsys.readouterr()
+    _first_run(store, [])
+    assert store.ca_path.read_text() == first
+    assert "NO CERTIFICATE AUTHORITY" not in capsys.readouterr().out
+
+
+def test_a_supplied_ca_and_key_are_copied_into_the_store(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Copied, not remembered by path: a path breaks when the USB stick comes out."""
+    cert, key = _ca_files(tmp_path)
+    _first_run(store, ["2", cert, key])
+    assert store.has_ca()
+    assert store.ca_path.read_text() == Path(cert).read_text()
+
+
+def test_a_supplied_ca_without_its_key_cannot_issue(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A deliberate arrangement — the key lives in a secrets manager — not an
+    unfinished one."""
+    cert, _ = _ca_files(tmp_path, with_key=False)
+    _first_run(store, ["2", cert, ""])
+    assert store.has_ca_cert() and not store.has_ca()
+    out = capsys.readouterr().out
+    assert "NO CA KEY" in out
+    assert "Whisker factory certificate (unchanged)" in out
+
+
+def test_a_ca_certificate_on_file_is_not_asked_about_again(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert, _ = _ca_files(tmp_path, with_key=False)
+    _first_run(store, ["2", cert, ""])
+    capsys.readouterr()
+    _first_run(store, [])
+    assert "NO CERTIFICATE AUTHORITY" not in capsys.readouterr().out
+
+
+def test_a_server_certificate_is_missing_a_ca_and_says_so(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The "I gave you my server cert" mistake, caught at the prompt rather than
+    as an unexplained TLS failure weeks later."""
+    from whiskerless import pki
+
+    ca = pki.generate_ca()
+    leaf = pki.issue_server(ca, "192.0.2.10")
+    cert, key = tmp_path / "leaf.crt", tmp_path / "leaf.key"
+    cert.write_text(leaf.cert_pem)
+    key.write_text(leaf.key_pem)
+    _first_run(store, ["2", str(cert), str(key)])
+    assert "not a certificate authority" in capsys.readouterr().err
+
+
+def test_a_path_that_is_not_there_is_caught_at_the_prompt(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert, key = _ca_files(tmp_path)
+    _first_run(store, ["2", str(tmp_path / "nope.crt"), cert, key])
+    assert "no such file" in capsys.readouterr().err
+
+
+def test_an_unattended_run_with_no_ca_at_all_explains_the_flags(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A cron job gets a sentence about --ca, not an EOF on a prompt."""
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ):
+        assert main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes"]) == 1
+    err = capsys.readouterr().err
+    assert "--ca" in err and "run this in a terminal" in err
+
+
+def test_the_issued_certificate_serial_is_recorded(store: ProfileStore) -> None:
+    """The only trace kept of a robot's certificate, and it is not secret."""
+    _first_run(store, [""])
+    assert store.load("LR4C123456").cert_serial
+
+
+def _flag_run(store: ProfileStore, *extra: str) -> int:
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ):
+        return main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes", *extra])
+
+
+def test_a_ca_supplied_by_flag_is_copied_and_can_issue(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    cert, key = _ca_files(tmp_path)
+    assert _flag_run(store, "--ca", cert, "--ca-key", key) == 0
+    assert store.has_ca()
+    assert store.load("LR4C123456").cert_serial, "a robot certificate was issued"
+
+
+def test_a_ca_key_without_its_certificate_says_why_both_are_needed(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _cert, key = _ca_files(tmp_path)
+    assert _flag_run(store, "--ca-key", key) == 1
+    assert "--ca-key needs --ca" in capsys.readouterr().err
+
+
+def test_a_client_certificate_can_be_supplied_by_flag(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """For somebody whose CA key lives elsewhere and cannot issue here."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    ca = pki.read_pair(Path(cert), Path(key))
+    mine = pki.issue_client(ca, "whiskerless-test")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(mine.cert_pem)
+    kpath.write_text(mine.key_pem)
+    assert _flag_run(store, "--ca", cert, "--client-cert", str(cpath),
+                     "--client-key", str(kpath)) == 0
+    assert store.has_client()
+    assert store.load_client().cert_pem == mine.cert_pem
+
+
+def test_half_a_client_identity_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert, _key = _ca_files(tmp_path, with_key=False)
+    assert _flag_run(store, "--ca", cert, "--client-cert", cert) == 1
+    assert "go together" in capsys.readouterr().err
+
+
+def test_an_expired_ca_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import datetime as dt
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "stale CA")])
+    past = dt.datetime.now(dt.UTC) - dt.timedelta(days=10)
+    cert = (
+        x509.CertificateBuilder().subject_name(name).issuer_name(name)
+        .public_key(key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(past - dt.timedelta(days=1)).not_valid_after(past)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    cpath, kpath = tmp_path / "old.crt", tmp_path / "old.key"
+    cpath.write_text(cert.public_bytes(serialization.Encoding.PEM).decode())
+    kpath.write_text(key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption()).decode())
+    assert _flag_run(store, "--ca", str(cpath), "--ca-key", str(kpath)) == 1
+    assert "already expired" in capsys.readouterr().err
+
+
+def test_a_ca_without_key_usage_warns_about_the_failure_it_will_cause(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It works for the robot and then breaks our own CLI on Python 3.13 — the
+    worst possible split, and worth naming before it happens."""
+    import datetime as dt
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "loose CA")])
+    now = dt.datetime.now(dt.UTC)
+    cert = (
+        x509.CertificateBuilder().subject_name(name).issuer_name(name)
+        .public_key(key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(days=1))
+        .not_valid_after(now + dt.timedelta(days=200))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    cpath, kpath = tmp_path / "loose.crt", tmp_path / "loose.key"
+    cpath.write_text(cert.public_bytes(serialization.Encoding.PEM).decode())
+    kpath.write_text(key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption()).decode())
+    assert _flag_run(store, "--ca", str(cpath), "--ca-key", str(kpath)) == 0
+    err = capsys.readouterr().err
+    assert "no keyUsage extension" in err
+    assert "expires within a year" in err, "and its short life is worth saying too"
+
+
+def test_input_ending_at_the_authority_question_names_the_flags(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pipe that reaches the question gets a sentence, not a traceback."""
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", side_effect=EOFError),
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ):
+        assert main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes"]) == 1
+    assert "--ca" in capsys.readouterr().err
+
+
+def test_a_certificate_with_no_constraints_at_all_is_not_a_ca(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Older self-signed certificates often carry no basicConstraints extension;
+    absent is not the same as CA:TRUE."""
+    import datetime as dt
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "bare")])
+    now = dt.datetime.now(dt.UTC)
+    cert = (
+        x509.CertificateBuilder().subject_name(name).issuer_name(name)
+        .public_key(key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(days=1))
+        .not_valid_after(now + dt.timedelta(days=800))
+        .sign(key, hashes.SHA256())
+    )
+    cpath, kpath = tmp_path / "bare.crt", tmp_path / "bare.key"
+    cpath.write_text(cert.public_bytes(serialization.Encoding.PEM).decode())
+    kpath.write_text(key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption()).decode())
+    assert _flag_run(store, "--ca", str(cpath), "--ca-key", str(kpath)) == 1
+    assert "not a certificate authority" in capsys.readouterr().err
+
+
+
+
+def test_the_optional_ca_key_question_is_skipped_without_a_terminal() -> None:
+    """`_ask(allow_skip=True)` must never be the thing that hangs a scripted run
+    on a question it was never going to answer."""
+    from whiskerless.cli import _ask, _readable_path
+
+    with patch("whiskerless.cli.sys.stdin.isatty", lambda: False):
+        assert _ask("path: ", None, _readable_path, allow_skip=True) == ""
+
+
+def test_an_aborted_provision_does_not_retarget_the_machine(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """The broker only becomes the one every other command uses once a robot is
+    actually on it — an abort must not point the whole machine somewhere new."""
+    from whiskerless import pki
+    from whiskerless.profiles import Broker
+
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.save_ca(pki.generate_ca())
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=False)),
+    ):
+        main(["provision", "--serial", "LR4C123456", "--host-ip", "10.9.9.9",
+              "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes"])
+    assert store.load_broker().host == "192.0.2.10", "still the broker that works"
+
+
+def test_a_different_ca_is_refused_rather_than_swapped_in(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Replacing it leaves every provisioned robot trusting a certificate the
+    broker no longer presents, and each rescue is a walk to the robot."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca("the one they trust"))
+    seed(store, "LR4C111111", name="Upstairs")
+    other, key = _ca_files(tmp_path)
+    assert _flag_run(store, "--ca", other, "--ca-key", key) == 1
+    err = capsys.readouterr().err
+    assert "already has a different certificate authority" in err
+    assert "Upstairs" in err, "and it names who would be stranded"
+
+
+def test_the_same_ca_supplied_again_is_not_treated_as_a_swap(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Re-running with the same files is idempotent, not an error."""
+    cert, key = _ca_files(tmp_path)
+    assert _flag_run(store, "--ca", cert, "--ca-key", key) == 0
+    assert _flag_run(store, "--ca", cert, "--ca-key", key) == 0
+
+
+def test_an_imported_ca_also_gives_this_machine_an_identity(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Otherwise the robot gets a certificate and the CLI does not, and a broker
+    running `require_certificate true` refuses every command afterwards."""
+    cert, key = _ca_files(tmp_path)
+    assert _flag_run(store, "--ca", cert, "--ca-key", key) == 0
+    assert store.has_client(), "the CLI can identify itself too"
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        (["--port", "1884"], (1884, True)),
+        (["--insecure"], (8883, False)),
+    ],
+)
+def test_a_broker_flag_applies_without_restating_the_host(
+    store: ProfileStore, flags: list[str], expected: tuple[int, bool]
+) -> None:
+    """--port alone must not be ignored, and --host-ip alone must not silently
+    reset a port somebody chose."""
+    from whiskerless import pki
+    from whiskerless.profiles import Broker
+
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.save_ca(pki.generate_ca())
+    assert _flag_run(store, *flags) == 0
+    saved = store.load_broker()
+    assert (saved.port, saved.verify_hostname) == expected
+    assert saved.host == "192.0.2.10"

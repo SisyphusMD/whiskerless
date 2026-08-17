@@ -26,7 +26,15 @@ from whiskerless.devices.litter_robot_4.protocol import (
 from whiskerless.exceptions import WhiskerlessConnectionError
 from whiskerless.safety import Hazard, assert_sendable, classify_code
 
-BASE = ["--host", "192.0.2.10", "--serial", "LR4C000001"]
+BASE = ["--serial", "LR4C000001"]
+
+
+@pytest.fixture(autouse=True)
+def _a_broker_to_talk_to() -> None:
+    """The store carries the broker now, so every command needs one on file."""
+    from whiskerless.profiles import Broker, ProfileStore
+
+    ProfileStore.from_env().save_broker(Broker(host="192.0.2.10"))
 
 
 class FakeLink:

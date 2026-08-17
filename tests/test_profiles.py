@@ -5,20 +5,17 @@ from __future__ import annotations
 import json
 import stat
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from whiskerless import profiles
 from whiskerless.exceptions import ProfileError
-from whiskerless.mqtt import DEFAULT_TLS_PORT
 from whiskerless.profiles import (
     HOME_ENV,
-    PROFILE_VERSION,
+    Broker,
     ProfileStore,
     RobotProfile,
     Serial,
-    SharedSetup,
-    merge_overrides,
 )
 
 CA = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
@@ -30,9 +27,7 @@ def store(tmp_path: Path) -> ProfileStore:
 
 
 def make(serial: str = "LR4C123456", **kwargs: object) -> RobotProfile:
-    defaults: dict[str, object] = {"host": "192.168.1.10", "ca_pem": CA}
-    defaults.update(kwargs)
-    return RobotProfile(serial=Serial(serial), **defaults)  # type: ignore[arg-type]
+    return RobotProfile(serial=Serial(serial), **kwargs)  # type: ignore[arg-type]
 
 
 # --- Serial -------------------------------------------------------------------
@@ -68,7 +63,7 @@ def test_serial_traversal_cannot_reach_outside_the_store(tmp_path: Path) -> None
     """The serial becomes a path segment, so this is a containment test, not style."""
     store = ProfileStore(tmp_path / "home")
     with pytest.raises(ProfileError):
-        store.save(RobotProfile(serial=Serial("../escape"), host="h"))
+        store.save(RobotProfile(serial=Serial("../escape"), ))
     assert not (tmp_path / "escape").exists()
 
 
@@ -81,25 +76,9 @@ def test_display_name_falls_back_to_the_serial() -> None:
     assert make().display_name == "LR4C123456"
 
 
-def test_settings_pass_the_ca_as_data_not_a_path() -> None:
-    settings = make().settings()
-    assert settings.ca_cert_data == CA
-    assert settings.ca_cert_path is None
-
-
-def test_settings_never_default_the_client_id_to_the_serial() -> None:
-    """A client claiming the robot's id kicks the robot off its own connection."""
-    assert make().settings().client_id is None
-    assert make().settings(client_id="whiskerless-cli").client_id == "whiskerless-cli"
-
-
-def test_settings_carry_the_hostname_policy() -> None:
-    assert make(verify_hostname=False).settings().verify_hostname is False
-
-
 # --- save / load --------------------------------------------------------------
 def test_save_then_load_round_trips(store: ProfileStore) -> None:
-    original = make(name="Upstairs", port=1883)
+    original = make(name="Upstairs")
     store.save(original)
     assert store.load("LR4C123456") == original
 
@@ -109,105 +88,19 @@ def _stored(store: ProfileStore, serial: str = "LR4C123456") -> Path:
     return store.robots_dir / serial / "profile.json"
 
 
-def test_a_saved_profile_stamps_its_format(store: ProfileStore) -> None:
-    store.save(make())
-    assert json.loads(_stored(store).read_text())["version"] == PROFILE_VERSION
-
-
-def test_a_profile_written_before_versioning_still_loads(store: ProfileStore) -> None:
-    """Nothing about the shape changed when the stamp was added, so an unstamped
-    file IS version 1 — refusing it would strand every profile in the field."""
-    store.save(make(name="Upstairs"))
-    raw = json.loads(_stored(store).read_text())
-    del raw["version"]
-    _stored(store).write_text(json.dumps(raw))
-    assert store.load("LR4C123456").name == "Upstairs"
-
-
-def test_a_profile_from_the_future_is_refused_not_guessed_at(store: ProfileStore) -> None:
-    """A best-effort read discards whatever the newer version added and then saves
-    the truncated result back over it — destroying data while appearing to work."""
-    store.save(make())
-    raw = json.loads(_stored(store).read_text())
-    raw["version"] = PROFILE_VERSION + 1
-    _stored(store).write_text(json.dumps(raw))
-    with pytest.raises(ProfileError, match="newer whiskerless"):
-        store.load("LR4C123456")
-
-
-@pytest.mark.parametrize("version", ["1", 0, -1, True, None, 1.5])
-def test_an_unusable_format_version_is_damage(store: ProfileStore, version: object) -> None:
-    store.save(make())
-    raw = json.loads(_stored(store).read_text())
-    raw["version"] = version
-    _stored(store).write_text(json.dumps(raw))
-    with pytest.raises(ProfileError, match="format version"):
-        store.load("LR4C123456")
-
-
-def test_a_future_profile_is_shown_as_damaged_and_can_still_be_forgotten(
-    store: ProfileStore,
-) -> None:
-    """An entry a user cannot see is one they can never repair or remove."""
-    store.save(make())
-    raw = json.loads(_stored(store).read_text())
-    raw["version"] = PROFILE_VERSION + 1
-    _stored(store).write_text(json.dumps(raw))
-    assert store.list_profiles() == ()
-    assert [name for name, _ in store.damaged()] == ["LR4C123456"]
-    store.forget("LR4C123456")
-    assert store.damaged() == ()
-
-
-def test_an_older_profile_is_walked_forward_one_step_at_a_time(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The table ships empty because version 1 is the first shape there is, so the
-    walk is exercised against a synthetic v1 -> v2 -> v3 to prove it composes."""
-    store.save(make(name="Upstairs"))
-    monkeypatch.setattr(profiles, "PROFILE_VERSION", 3)
-    monkeypatch.setattr(
-        profiles,
-        "_MIGRATIONS",
-        {
-            1: lambda raw: {**raw, "version": 2, "name": raw["name"] + " (v2)"},
-            2: lambda raw: {**raw, "version": 3, "name": raw["name"] + " (v3)"},
-        },
-    )
-    assert store.load("LR4C123456").name == "Upstairs (v2) (v3)"
-
-
-def test_a_version_with_no_migration_is_damage_rather_than_a_wrong_read(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A bumped PROFILE_VERSION with no entry beside it is a bug, and it must show
-    up as one profile that will not load — never as one that loads wrongly."""
-    store.save(make())
-    monkeypatch.setattr(profiles, "PROFILE_VERSION", 2)
-    with pytest.raises(ProfileError, match="no way to read it forward"):
-        store.load("LR4C123456")
-
-
 def test_load_accepts_a_differently_cased_serial(store: ProfileStore) -> None:
     store.save(make())
     assert store.load("lr4c123456").serial.value == "LR4C123456"
 
 
 def test_save_preserves_serial_verification(store: ProfileStore) -> None:
-    store.save(RobotProfile(serial=Serial("LR4C123456", verified=True), host="h"))
+    store.save(RobotProfile(serial=Serial("LR4C123456", verified=True), ))
     assert store.load("LR4C123456").serial.verified is True
 
 
 def test_load_is_helpful_when_the_robot_is_unknown(store: ProfileStore) -> None:
     with pytest.raises(ProfileError, match="run `whiskerless provision` first"):
         store.load("LR4C999999")
-
-
-def test_load_reports_corrupt_json(store: ProfileStore) -> None:
-    store.save(make())
-    (store.robots_dir / "LR4C123456" / "profile.json").write_text("{not json", encoding="utf-8")
-    with pytest.raises(ProfileError, match="could not read the profile"):
-        store.load("LR4C123456")
 
 
 def test_load_rejects_a_json_document_that_is_not_an_object(store: ProfileStore) -> None:
@@ -217,45 +110,11 @@ def test_load_rejects_a_json_document_that_is_not_an_object(store: ProfileStore)
         store.load("LR4C123456")
 
 
-@pytest.mark.parametrize("host", [None, "", 42])
-def test_load_rejects_a_profile_without_a_usable_host(store: ProfileStore, host: object) -> None:
-    store.save(make())
-    path = store.robots_dir / "LR4C123456" / "profile.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["host"] = host
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ProfileError, match="no broker host"):
-        store.load("LR4C123456")
-
-
-def test_load_reports_an_unreadable_ca(store: ProfileStore) -> None:
-    store.save(make())
-    ca_path = store.robots_dir / "LR4C123456" / "ca.pem"
-    ca_path.unlink()
-    ca_path.mkdir()  # a directory where the CA should be
-    with pytest.raises(ProfileError, match="could not read the stored CA"):
-        store.load("LR4C123456")
-
-
-def test_load_reports_an_unreadable_profile(store: ProfileStore) -> None:
-    directory = store.robots_dir / "LR4C123456"
-    (directory / "profile.json").mkdir(parents=True)
-    with pytest.raises(ProfileError, match="could not read the profile"):
-        store.load("LR4C123456")
-
-
-def test_a_profile_saved_without_a_ca_loads_with_none(store: ProfileStore) -> None:
-    store.save(RobotProfile(serial=Serial("LR4C123456"), host="h"))
-    assert store.load("LR4C123456").ca_pem is None
-
-
 def test_defaults_apply_when_optional_keys_are_absent(store: ProfileStore) -> None:
     directory = store.robots_dir / "LR4C123456"
     directory.mkdir(parents=True)
     (directory / "profile.json").write_text(json.dumps({"host": "h"}), encoding="utf-8")
     loaded = store.load("LR4C123456")
-    assert loaded.port == DEFAULT_TLS_PORT
-    assert loaded.verify_hostname is True
     assert loaded.name == ""
 
 
@@ -269,9 +128,9 @@ def test_the_directory_name_wins_over_a_hand_edited_serial(store: ProfileStore) 
 
 
 def test_saving_twice_replaces_rather_than_appends(store: ProfileStore) -> None:
-    store.save(make(host="192.168.1.10"))
-    store.save(make(host="10.0.0.5"))
-    assert store.load("LR4C123456").host == "10.0.0.5"
+    store.save(make())
+    store.save(make(name="Renamed"))
+    assert store.load("LR4C123456").name == "Renamed"
     assert len(store.list_profiles()) == 1
 
 
@@ -281,7 +140,7 @@ def test_stored_files_are_owner_only(store: ProfileStore) -> None:
     store.save(make())
     directory = store.robots_dir / "LR4C123456"
     assert stat.S_IMODE(directory.stat().st_mode) == 0o700
-    for name in ("profile.json", "ca.pem"):
+    for name in ("profile.json",):
         assert stat.S_IMODE((directory / name).stat().st_mode) == 0o600
 
 
@@ -292,26 +151,10 @@ def test_the_store_directories_themselves_are_owner_only(store: ProfileStore) ->
         assert stat.S_IMODE(directory.stat().st_mode) == 0o700
 
 
-def test_a_failed_overwrite_leaves_the_old_profile_intact(store: ProfileStore) -> None:
-    """The point of write-then-rename: a crash mid-save must not eat the old file."""
-    store.save(make(host="192.168.1.10"))
-
-    def refuse(*_args: object, **_kwargs: object) -> None:
-        raise OSError(28, "No space left on device")
-
-    with pytest.MonkeyPatch.context() as patcher:
-        patcher.setattr("whiskerless.profiles.os.replace", refuse)
-        with pytest.raises(OSError):
-            store.save(make(host="10.0.0.5"))
-    assert store.load("LR4C123456").host == "192.168.1.10"
-    leftovers = [p.name for p in (store.robots_dir / "LR4C123456").iterdir()]
-    assert sorted(leftovers) == ["ca.pem", "profile.json"]
-
-
 def test_no_temporary_files_survive_a_save(store: ProfileStore) -> None:
     store.save(make())
     leftovers = [p.name for p in (store.robots_dir / "LR4C123456").iterdir()]
-    assert sorted(leftovers) == ["ca.pem", "profile.json"]
+    assert sorted(leftovers) == ["profile.json"]
 
 
 # --- listing ------------------------------------------------------------------
@@ -337,50 +180,6 @@ def test_listing_ignores_stray_files_and_dot_directories(store: ProfileStore) ->
     (store.robots_dir / "README").write_text("hi", encoding="utf-8")
     (store.robots_dir / ".hidden").mkdir()
     assert [p.serial.value for p in store.list_profiles()] == ["LR4C123456"]
-
-
-def test_an_unusable_port_is_damage_not_a_crash(store: ProfileStore) -> None:
-    """A hand-edited port used to raise a bare ValueError past every caller
-    that speaks ProfileError, taking `robots`, `forget` and bare invocations
-    down with it — the exact commands that exist to recover from damage."""
-    store.save(make())
-    path = store.robots_dir / "LR4C123456" / "profile.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["port"] = "not-a-port"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ProfileError, match="unusable port"):
-        store.load("LR4C123456")
-    ((name, why),) = store.damaged()
-    assert name == "LR4C123456" and "unusable port" in why
-
-
-def test_saving_without_a_ca_removes_the_stale_one(store: ProfileStore) -> None:
-    """An overwrite with no CA must not leave the old one for load() to
-    resurrect — the connection would keep trusting a broker CA the profile no
-    longer claims."""
-    store.save(make())
-    store.save(RobotProfile(serial=Serial("LR4C123456"), host="10.0.0.5"))
-    assert store.load("LR4C123456").ca_pem is None
-    assert not (store.robots_dir / "LR4C123456" / "ca.pem").exists()
-
-
-def test_a_skipped_profile_is_reported_as_damaged(store: ProfileStore) -> None:
-    """An entry a user cannot see is one they can never repair or forget."""
-    store.save(make("LR4C111111"))
-    store.save(make("LR4C999999"))
-    (store.robots_dir / "LR4C999999" / "profile.json").write_text("{bad", encoding="utf-8")
-    ((name, why),) = store.damaged()
-    assert name == "LR4C999999"
-    assert "could not read" in why
-
-
-def test_a_healthy_store_reports_no_damage(store: ProfileStore) -> None:
-    store.save(make())
-    assert store.damaged() == ()
-
-
-def test_an_empty_store_reports_no_damage(store: ProfileStore) -> None:
-    assert store.damaged() == ()
 
 
 # --- resolve ------------------------------------------------------------------
@@ -479,31 +278,16 @@ def test_forget_keeps_a_directory_holding_files_it_did_not_write(store: ProfileS
 
 
 # --- from_env -----------------------------------------------------------------
-def test_from_env_honours_the_override(tmp_path: Path) -> None:
-    store = ProfileStore.from_env({HOME_ENV: str(tmp_path / "elsewhere")})
-    assert store.root == tmp_path / "elsewhere"
-
-
-def test_from_env_expands_a_tilde_in_the_override(tmp_path: Path) -> None:
-    store = ProfileStore.from_env({HOME_ENV: "~/custom", "HOME": str(tmp_path)})
-    assert store.root == tmp_path / "custom"
-
-
-def test_from_env_accepts_a_bare_tilde_override(tmp_path: Path) -> None:
-    store = ProfileStore.from_env({HOME_ENV: "~", "HOME": str(tmp_path)})
-    assert store.root == tmp_path
-
-
-def test_from_env_falls_back_to_a_dot_directory_in_home(tmp_path: Path) -> None:
+def test_from_env_falls_back_to_a_visible_directory_in_home(tmp_path: Path) -> None:
     store = ProfileStore.from_env({"HOME": str(tmp_path)})
-    assert store.root == tmp_path / ".whiskerless"
+    assert store.root == tmp_path / "whiskerless"
 
 
 def test_from_env_uses_the_real_home_when_the_variable_is_absent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    assert ProfileStore.from_env({}).root == tmp_path / ".whiskerless"
+    assert ProfileStore.from_env({}).root == tmp_path / "whiskerless"
 
 
 def test_from_env_reads_the_process_environment_by_default(
@@ -513,81 +297,188 @@ def test_from_env_reads_the_process_environment_by_default(
     assert ProfileStore.from_env().root == tmp_path / "from-environ"
 
 
-# --- SharedSetup --------------------------------------------------------------
-def test_nothing_saved_agrees_on_nothing() -> None:
-    shared = SharedSetup.from_profiles([])
-    assert (shared.host, shared.ca_pem, shared.wifi_ssid) == (None, None, None)
+# --- restored: store behaviour unrelated to the broker move --------------------
+def test_load_reports_corrupt_json(store: ProfileStore) -> None:
+    store.save(make())
+    (store.robots_dir / "LR4C123456" / "profile.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(ProfileError, match="could not read the profile"):
+        store.load("LR4C123456")
 
 
-def test_a_lone_robot_agrees_with_itself() -> None:
-    shared = SharedSetup.from_profiles([make(wifi_ssid="MyIoT")])
-    assert shared.host == "192.168.1.10"
-    assert shared.ca_pem == CA
-    assert shared.wifi_ssid == "MyIoT"
 
 
-def test_many_robots_on_one_broker_agree() -> None:
-    profiles = [make(f"LR4C00000{n}", wifi_ssid="MyIoT") for n in range(1, 6)]
-    shared = SharedSetup.from_profiles(profiles)
-    assert shared.host == "192.168.1.10"
-    assert shared.ca_pem == CA
+def test_load_reports_an_unreadable_profile(store: ProfileStore) -> None:
+    directory = store.robots_dir / "LR4C123456"
+    (directory / "profile.json").mkdir(parents=True)
+    with pytest.raises(ProfileError, match="could not read the profile"):
+        store.load("LR4C123456")
 
 
-def test_one_dissenter_is_enough_to_disagree() -> None:
-    shared = SharedSetup.from_profiles([make("LR4C000001"), make("LR4C000002", host="10.0.0.9")])
-    assert shared.host is None
-    assert shared.ca_pem == CA  # they still share the CA
 
 
-def test_fields_disagree_independently() -> None:
-    shared = SharedSetup.from_profiles([
-        make("LR4C000001", wifi_ssid="MyIoT"),
-        make("LR4C000002", wifi_ssid="Guest"),
-    ])
-    assert shared.host == "192.168.1.10"
-    assert shared.wifi_ssid is None
+def test_a_skipped_profile_is_reported_as_damaged(store: ProfileStore) -> None:
+    """An entry a user cannot see is one they can never repair or forget."""
+    store.save(make("LR4C111111"))
+    store.save(make("LR4C999999"))
+    (store.robots_dir / "LR4C999999" / "profile.json").write_text("{bad", encoding="utf-8")
+    ((name, why),) = store.damaged()
+    assert name == "LR4C999999"
+    assert "could not read" in why
 
 
-def test_a_missing_value_is_not_a_disagreement() -> None:
-    """A profile saved before a field existed must not veto an otherwise clear answer."""
-    shared = SharedSetup.from_profiles([
-        make("LR4C000001", wifi_ssid="MyIoT"),
-        make("LR4C000002", wifi_ssid=""),
-    ])
-    assert shared.wifi_ssid == "MyIoT"
 
 
-def test_a_profile_without_a_ca_does_not_veto_the_shared_one() -> None:
-    shared = SharedSetup.from_profiles([make("LR4C000001"), make("LR4C000002", ca_pem=None)])
-    assert shared.ca_pem == CA
+def test_a_healthy_store_reports_no_damage(store: ProfileStore) -> None:
+    store.save(make())
+    assert store.damaged() == ()
 
 
-# --- merge_overrides ----------------------------------------------------------
-def test_overrides_replace_only_what_was_given() -> None:
-    merged = merge_overrides(make(name="Upstairs"), host="10.0.0.9")
-    assert merged.host == "10.0.0.9"
-    assert merged.name == "Upstairs"
-    assert merged.ca_pem == CA
 
 
-def test_no_overrides_leaves_the_profile_untouched() -> None:
-    profile = make()
-    assert merge_overrides(profile) == profile
+def test_an_empty_store_reports_no_damage(store: ProfileStore) -> None:
+    assert store.damaged() == ()
 
 
-def test_a_false_override_is_applied_not_treated_as_absent() -> None:
-    """`verify_hostname=False` is a real choice; only None means "not given"."""
-    assert merge_overrides(make(), verify_hostname=False).verify_hostname is False
 
 
-def test_every_field_can_be_overridden() -> None:
-    merged = merge_overrides(
-        make(),
-        host="h2",
-        port=1883,
-        verify_hostname=False,
-        ca_pem="other",
+def test_from_env_honours_the_override(tmp_path: Path) -> None:
+    store = ProfileStore.from_env({HOME_ENV: str(tmp_path / "elsewhere")})
+    assert store.root == tmp_path / "elsewhere"
+
+
+
+
+def test_from_env_expands_a_tilde_in_the_override(tmp_path: Path) -> None:
+    store = ProfileStore.from_env({HOME_ENV: "~/custom", "HOME": str(tmp_path)})
+    assert store.root == tmp_path / "custom"
+
+
+
+
+def test_from_env_accepts_a_bare_tilde_override(tmp_path: Path) -> None:
+    store = ProfileStore.from_env({HOME_ENV: "~", "HOME": str(tmp_path)})
+    assert store.root == tmp_path
+
+
+
+
+# --- the one broker -----------------------------------------------------------
+def test_a_broker_round_trips(store: ProfileStore) -> None:
+    store.save_broker(Broker(host="192.0.2.10", port=1884, verify_hostname=False))
+    saved = store.load_broker()
+    assert (saved.host, saved.port, saved.verify_hostname) == ("192.0.2.10", 1884, False)
+
+
+def test_a_machine_with_no_broker_says_how_to_get_one(store: ProfileStore) -> None:
+    with pytest.raises(ProfileError, match="run `whiskerless provision`"):
+        store.load_broker()
+
+
+@pytest.mark.parametrize("body", ["[]", "null", '"a string"'])
+def test_broker_json_that_is_not_an_object_is_damage(store: ProfileStore, body: str) -> None:
+    """Valid JSON of the wrong shape would otherwise raise AttributeError and
+    bypass the CLI's one-line damaged-configuration handling."""
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.broker_path.write_text(body, encoding="utf-8")
+    with pytest.raises(ProfileError, match="not a JSON object"):
+        store.load_broker()
+
+
+def test_a_broker_file_that_is_not_json_is_damage(store: ProfileStore) -> None:
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.broker_path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(ProfileError, match="could not read"):
+        store.load_broker()
+
+
+@pytest.mark.parametrize("host", ["", 42, None])
+def test_a_broker_without_a_usable_host_is_damage(store: ProfileStore, host: object) -> None:
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.broker_path.write_text(json.dumps({"host": host}), encoding="utf-8")
+    with pytest.raises(ProfileError, match="no broker host"):
+        store.load_broker()
+
+
+def test_a_hand_edited_port_is_damage_not_a_crash(store: ProfileStore) -> None:
+    """Every caller speaks ProfileError; a bare ValueError here took them all down."""
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.broker_path.write_text(
+        json.dumps({"host": "192.0.2.10", "port": "eight-thousand"}), encoding="utf-8"
     )
-    assert (merged.host, merged.port) == ("h2", 1883)
-    assert merged.verify_hostname is False
-    assert merged.ca_pem == "other"
+    with pytest.raises(ProfileError, match="unusable port"):
+        store.load_broker()
+
+
+def test_settings_carry_the_ca_and_this_machines_identity(store: ProfileStore) -> None:
+    """One broker, one CA, one client certificate — none of it per-robot."""
+    from whiskerless import pki
+
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.save_ca(pki.generate_ca())
+    store.client_identity()
+    settings = store.settings(client_id="tool")
+    assert settings.host == "192.0.2.10"
+    assert settings.ca_cert_data == store.ca_path.read_text()
+    assert settings.client_cert_data and settings.client_key_data
+    assert settings.client_id == "tool", "never defaulted to a serial the robot is using"
+
+
+def test_settings_without_a_ca_or_identity_still_describe_the_broker(
+    store: ProfileStore,
+) -> None:
+    """The anonymous-listener setup: no CA key, no client certificate, still works."""
+    store.save_broker(Broker(host="192.0.2.10"))
+    settings = store.settings()
+    assert settings.host == "192.0.2.10"
+    assert settings.ca_cert_data is None
+    assert settings.client_cert_data is None
+
+
+def test_this_machines_identity_is_minted_from_the_ca_once(store: ProfileStore) -> None:
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    assert not store.has_client()
+    first = store.client_identity()
+    assert store.has_client()
+    assert store.client_identity().cert_pem == first.cert_pem
+
+
+def test_a_hidden_legacy_store_is_moved_rather_than_copied(tmp_path: Path) -> None:
+    """Two directories that both look like the store is where somebody edits the
+    wrong one."""
+    from whiskerless.profiles import DEFAULT_SUBDIR, LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR
+    ProfileStore(legacy).save(make(serial="LR4C111111"))
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.root == tmp_path / DEFAULT_SUBDIR
+    assert [p.serial.value for p in store.list_profiles()] == ["LR4C111111"]
+    assert not legacy.exists(), "the old directory is gone, not duplicated"
+
+
+def test_a_migration_that_cannot_move_the_old_store_refuses_to_carry_on(
+    tmp_path: Path,
+) -> None:
+    """Carrying on would start a second, empty store while the real one stays
+    hidden — every robot would look forgotten, and a second CA would be made
+    beside the one they already trust."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    ProfileStore(tmp_path / LEGACY_SUBDIR).save(make(serial="LR4C111111"))
+    with (
+        patch.object(Path, "rename", side_effect=PermissionError(13, "denied")),
+        pytest.raises(ProfileError, match="could not move"),
+    ):
+        ProfileStore.from_env({"HOME": str(tmp_path)})
+
+
+def test_a_layout_from_the_future_is_refused(store: ProfileStore) -> None:
+    """Never rewrite data we cannot read: a newer build may have reshaped
+    something, and a best-effort read would drop it and save the remains back."""
+    from whiskerless.profiles import LAYOUT_VERSION
+
+    store.save(make())
+    (store.root / ".layout").write_text(f"{LAYOUT_VERSION + 1}\n")
+    with pytest.raises(ProfileError, match="newer whiskerless"):
+        store.check_layout()

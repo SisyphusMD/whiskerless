@@ -18,7 +18,7 @@ import pytest
 from whiskerless.cli import main
 from whiskerless.devices.litter_robot_4.models import LitterRobot4State
 from whiskerless.devices.litter_robot_4.protocol import ActivityMessage, StateMessage
-from whiskerless.profiles import ProfileStore, RobotProfile, Serial
+from whiskerless.profiles import Broker, ProfileStore, RobotProfile, Serial
 
 SERIAL = "LR4C123456"
 IDLE = {
@@ -101,7 +101,8 @@ def _no_broker(_cli_loop: Any) -> Any:
 @pytest.fixture
 def saved() -> ProfileStore:
     store = ProfileStore.from_env()
-    store.save(RobotProfile(serial=Serial(SERIAL), host="192.0.2.10", name="Upstairs"))
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.save(RobotProfile(serial=Serial(SERIAL), name="Upstairs"))
     return store
 
 
@@ -181,17 +182,13 @@ def test_calibrate_refuses_a_reading_the_robot_is_not_making(
 
 
 def test_calibrate_needs_somewhere_to_keep_it(capsys: pytest.CaptureFixture[str]) -> None:
-    """Nothing saved for this robot, so there is no profile to write into."""
-    assert main(["calibrate", "full", "--serial", SERIAL, "--host", "192.0.2.10"]) == 1
+    """A broker to reach, but nothing saved for this robot, so there is no profile
+    to write the measurement into."""
+    from whiskerless.profiles import Broker, ProfileStore
+
+    ProfileStore.from_env().save_broker(Broker(host="192.0.2.10"))
+    assert main(["calibrate", "full", "--serial", SERIAL]) == 1
     assert "nowhere to keep a calibration" in capsys.readouterr().err
-
-
-def test_a_one_off_host_does_not_rewrite_the_saved_broker(saved: ProfileStore) -> None:
-    """`--host` points this run somewhere else; it is not a change of address."""
-    assert main(["calibrate", "full", "--serial", SERIAL, "--host", "198.51.100.7"]) == 0
-    stored = saved.load(SERIAL)
-    assert stored.host == "192.0.2.10"
-    assert stored.litter_full_mm == 446
 
 
 # --- panel-reset --------------------------------------------------------------
@@ -239,7 +236,6 @@ def test_a_hand_edited_calibration_loses_the_calibration_not_the_robot(
 
     stored = saved.load(SERIAL)
     assert stored.litter_full_mm is None
-    assert stored.host == "192.0.2.10"
 
 
 def test_status_never_reports_the_globe_fault_field_as_an_all_clear(
@@ -271,7 +267,6 @@ def test_an_impossible_stored_calibration_does_not_break_every_command(
 
     stored = saved.load(SERIAL)
     assert stored.litter_full_mm is None
-    assert stored.host == "192.0.2.10"
 
 
 def test_status_marks_a_reading_taken_while_a_cat_is_in_the_globe(

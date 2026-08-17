@@ -266,26 +266,6 @@ WiFi your saved robots already share — press enter to accept each.
 > On Linux the keychain needs `pip install 'whiskerless[keyring]'`; everywhere
 > else it is built in. Without it, whiskerless simply asks every time.
 
-**Already provisioned, before this version existed?** Nothing is saved for those
-robots, and re-provisioning purely to write a file would touch the robot for no
-reason. Tell whiskerless about one instead:
-
-```bash
-whiskerless adopt
-```
-
-It asks the same questions `provision` does — and offers the same answers from
-robots you already have — or take them all as flags if you prefer:
-
-```bash
-whiskerless adopt --serial LR4C123456 --host 192.168.1.10 \
-  --ca ~/certs/ca.crt --name Upstairs
-```
-
-Nothing is contacted — it writes the same profile `provision` would. Confirm with
-`whiskerless state`, since a mistyped serial produces a robot that never answers
-and says nothing about why.
-
 ## Everyday use
 
 Most people live in Home Assistant afterwards — see
@@ -295,7 +275,7 @@ everyday controls, the raw telemetry, and the derived view of what the robot is
 actually doing:
 
 > **Anything that talks to the robot needs a route to your broker.** Provisioning
-> is Bluetooth, and `robots`, `use`, `forget` and `adopt` only touch files on your
+> is Bluetooth, and `robots`, `use` and `forget` only touch files on your
 > machine — but `state`, `monitor`, `set`, `status` and the buttons all open an
 > MQTT connection. If your robots live on an isolated IoT VLAN, your everyday
 > machine may have no way in. A `cannot reach broker at …:8883 (timed out)` is

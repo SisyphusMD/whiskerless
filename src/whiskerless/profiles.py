@@ -31,76 +31,51 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
+from . import pki
 from .exceptions import ProfileError
 from .mqtt import DEFAULT_TLS_PORT, MqttSettings
+from .pki import KeyPair
 
 HOME_ENV = "WHISKERLESS_HOME"
-DEFAULT_SUBDIR = ".whiskerless"
+#: Deliberately NOT hidden. This directory holds the CA private key, and the one
+#: instruction that matters about it — back this up — is useless if the folder is
+#: invisible in a file manager. Matches the sibling dreame-valetudo project.
+DEFAULT_SUBDIR = "whiskerless"
+#: Where a pre-1 layout lived. Migrated forward on first sight, never read in place.
+LEGACY_SUBDIR = ".whiskerless"
+
+#: On-disk STRUCTURE version, deliberately separate from the release version: a
+#: stable build and a release candidate share a layout freely, and most releases
+#: do not touch it. Bumped only by a real structural change, and every bump ships
+#: with the migration that reaches it.
+LAYOUT_VERSION = 1
+_LAYOUT_FILE = ".layout"
 
 _PROFILE_FILE = "profile.json"
 _CA_FILE = "ca.pem"
 _DEFAULT_FILE = "default"
-
-#: Format version of ``profile.json``. Bump it ONLY together with an entry in
-#: :data:`_MIGRATIONS` that reshapes the previous version into this one.
-#:
-#: It exists because the alternative is guessing. A file with no version can be
-#: read wrongly in silence — a renamed field reads as absent, and absent has a
-#: default, so a robot loses its calibration or its port and nothing says so.
-#: Stamping the shape turns that into a question with an answer.
-PROFILE_VERSION = 1
-
-#: How to get from one stored version to the next: ``{from_version: upgrade}``.
-#: Each function takes the raw mapping at ``from_version`` and returns it at
-#: ``from_version + 1``, so a profile several versions old is walked forward one
-#: step at a time and no migration ever needs to know the whole history.
-#:
-#: Empty today, and correctly so: version 1 is the first shape there is. The
-#: machinery ships ahead of its first user because the moment it is needed is the
-#: moment a format has ALREADY changed, and by then the profiles in the field
-#: were written by something that could not stamp them.
-_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
-
-
-def _migrated(raw: dict[str, Any], serial: str) -> dict[str, Any]:
-    """Walk a stored profile forward to :data:`PROFILE_VERSION`.
-
-    A profile written before versioning existed has no ``version`` key and is
-    read as 1 — which is exactly what it is, since nothing about the shape
-    changed when the stamp was added.
-
-    A profile from the FUTURE is refused rather than read optimistically. An
-    unknown field is invisible to this reader, so a best-effort load quietly
-    discards whatever the newer version added and then saves the truncated result
-    back over it — the one failure mode that destroys data while appearing to
-    work.
-    """
-    version = raw.get("version", 1)
-    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        raise ProfileError(
-            f"the profile for {serial} has an unusable format version ({version!r})"
-        )
-    if version > PROFILE_VERSION:
-        raise ProfileError(
-            f"the profile for {serial} was written by a newer whiskerless "
-            f"(format {version}; this one reads {PROFILE_VERSION}) — upgrade whiskerless, "
-            f"or move that robot's folder aside and re-run `whiskerless adopt`"
-        )
-    while version < PROFILE_VERSION:
-        upgrade = _MIGRATIONS.get(version)
-        if upgrade is None:
-            raise ProfileError(
-                f"the profile for {serial} is format {version} and there is no way to "
-                f"read it forward — re-run `whiskerless adopt` for this robot"
-            )
-        raw = upgrade(dict(raw))
-        version += 1
-    return raw
+# One CA signs for every robot, the broker, and this machine, so it sits in its
+# own directory rather than under any one robot. File names are the ones that get
+# pasted into mosquitto.conf beside `cafile` / `certfile` / `keyfile`: names that
+# survive the copy beat names that look tidy in a listing.
+_CA_DIR, _CA_CERT, _CA_KEY = "ca", "ca.crt", "ca.key"
+# This machine's own client identity. Kept, unlike a robot's — we are the one
+# using it, on every command, and regenerating per run would both cost a keygen
+# each time and make the broker's log a list of strangers.
+_CLIENT_DIR, _CLIENT_CERT, _CLIENT_KEY = "client", "client.crt", "client.key"
+# Artifacts for the user to install on their broker. whiskerless never reads
+# these; they live here so "where did that file go" cannot happen, and they are
+# freely regenerable from the CA.
+_BROKER_DIR, _SERVER_CERT, _SERVER_KEY = "broker", "server.crt", "server.key"
+#: Where this machine's one broker is recorded. Store-level, not per-robot: every
+#: robot here talks to the same broker behind the same CA, and pretending
+#: otherwise cost a whole apparatus for reconciling values that never differ. A
+#: genuinely separate broker is a separate store — point WHISKERLESS_HOME at it.
+_BROKER_FILE = "broker.json"
 
 # A stored distance beyond this is damage, not a measurement — the robot is
 # knee-high. Kept deliberately loose: this rejects the absurd, and the device
@@ -137,15 +112,43 @@ class Serial:
 
 
 @dataclass(frozen=True, slots=True)
+class Broker:
+    """The one broker every robot in this store talks to."""
+
+    host: str
+    port: int = DEFAULT_TLS_PORT
+    verify_hostname: bool = True
+
+    def settings(
+        self,
+        *,
+        ca_pem: str | None = None,
+        identity: KeyPair | None = None,
+        client_id: str | None = None,
+    ) -> MqttSettings:
+        """Transport settings for this broker.
+
+        ``client_id`` is deliberately not defaulted to any robot's serial: the
+        robot is already connected as its serial, and a second client claiming
+        that id kicks the robot off its own broker connection.
+        """
+        return MqttSettings(
+            host=self.host,
+            port=self.port,
+            ca_cert_data=ca_pem,
+            verify_hostname=self.verify_hostname,
+            client_cert_data=identity.cert_pem if identity else None,
+            client_key_data=identity.key_pem if identity else None,
+            client_id=client_id,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class RobotProfile:
     """Everything needed to reach one robot's broker, minus what it can derive."""
 
     serial: Serial
-    host: str
-    port: int = DEFAULT_TLS_PORT
     name: str = ""
-    verify_hostname: bool = True
-    ca_pem: str | None = None
     # Not needed to reach the broker — kept so a second robot can be offered the
     # same network without the user hunting for it. The passphrase is never
     # stored anywhere: it is wanted once, while someone is standing at the robot,
@@ -157,58 +160,17 @@ class RobotProfile:
     # and "this is what full looks like" is a claim only a human can make.
     litter_full_mm: int | None = None
     litter_empty_mm: int | None = None
+    # The serial number of the client certificate last issued to this robot. Not
+    # secret, and the only trace kept of it — the certificate itself lives on the
+    # robot alone. Nothing reads this today; it exists so a revocation list can be
+    # built later by somebody who did not plan for one, which is the situation
+    # everybody is in when they suddenly want one.
+    cert_serial: str | None = None
 
     @property
     def display_name(self) -> str:
         """What to show a human — their chosen name, else the serial itself."""
         return self.name or self.serial.value
-
-    def settings(self, *, client_id: str | None = None) -> MqttSettings:
-        """The transport settings for this robot.
-
-        ``client_id`` is deliberately not defaulted to the serial: the robot is
-        already connected as the serial, and a second client claiming that id
-        kicks the robot off its own broker connection.
-        """
-        return MqttSettings(
-            host=self.host,
-            port=self.port,
-            ca_cert_data=self.ca_pem,
-            verify_hostname=self.verify_hostname,
-            client_id=client_id,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class SharedSetup:
-    """What every robot already set up here agrees on.
-
-    A household usually points all of its robots at one broker behind one CA, so
-    a new robot can be offered those without anyone naming a particular robot —
-    which would be arbitrary with three of them and misleading with one, since
-    none of this is per-robot.
-
-    A field is ``None`` when the robots disagree, and only then does the caller
-    have to fall back on naming where a value came from.
-    """
-
-    host: str | None = None
-    ca_pem: str | None = None
-    wifi_ssid: str | None = None
-
-    @classmethod
-    def from_profiles(cls, profiles: Sequence[RobotProfile]) -> SharedSetup:
-        def agreed(values: Iterable[str | None]) -> str | None:
-            # Robots that have no value recorded do not count as disagreement —
-            # a profile saved before a field existed should not veto the offer.
-            present = {value for value in values if value}
-            return present.pop() if len(present) == 1 else None
-
-        return cls(
-            host=agreed(profile.host for profile in profiles),
-            ca_pem=agreed(profile.ca_pem for profile in profiles),
-            wifi_ssid=agreed(profile.wifi_ssid for profile in profiles),
-        )
 
 
 def _home(environ: Mapping[str, str]) -> Path:
@@ -279,8 +241,57 @@ class ProfileStore:
         environ: Mapping[str, str] = os.environ if env is None else env
         override = environ.get(HOME_ENV)
         if override:
-            return cls(_expand(override, environ))
-        return cls(_home(environ) / DEFAULT_SUBDIR)
+            store = cls(_expand(override, environ))
+        else:
+            store = cls(_home(environ) / DEFAULT_SUBDIR)
+            store._migrate_legacy_home(_home(environ) / LEGACY_SUBDIR)
+        store.check_layout()
+        return store
+
+    def _migrate_legacy_home(self, legacy: Path) -> None:
+        """Move a pre-1 layout out of its hidden directory, once.
+
+        Renamed rather than copied or symlinked: two directories that both look
+        like the store is the state where somebody edits the wrong one. If the
+        new location already exists the old one is left alone — a merge is not
+        something to attempt silently around a private key.
+        """
+        if self.root.exists() or not legacy.is_dir():
+            return
+        try:
+            legacy.rename(self.root)
+        except OSError as exc:
+            # Carrying on would start a second, empty store while the real one
+            # stays hidden — every robot would look forgotten, and a second CA
+            # would be generated beside the one they already trust.
+            raise ProfileError(
+                f"could not move {legacy} to {self.root}: {exc.strerror}. Move it "
+                f"by hand, or set WHISKERLESS_HOME to point at it"
+            ) from exc
+
+    def layout_version(self) -> int:
+        """The structure version on disk. Absent marker means pre-versioning."""
+        try:
+            return int((self.root / _LAYOUT_FILE).read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return 0
+
+    def check_layout(self) -> None:
+        """Refuse a layout newer than this build understands.
+
+        Never rewrite data we cannot read: a newer whiskerless may have moved or
+        reshaped something, and a best-effort read would quietly drop whatever it
+        added and then save the truncated result back.
+        """
+        if not self.root.is_dir():
+            return
+        found = self.layout_version()
+        if found > LAYOUT_VERSION:
+            raise ProfileError(
+                f"{self.root} was written by a newer whiskerless "
+                f"(layout {found}; this build understands {LAYOUT_VERSION}) — upgrade "
+                f"whiskerless, or point WHISKERLESS_HOME somewhere else"
+            )
 
     @property
     def robots_dir(self) -> Path:
@@ -289,35 +300,176 @@ class ProfileStore:
     def _dir(self, serial: Serial) -> Path:
         return self.robots_dir / serial.value
 
+    # --- the certificate authority ------------------------------------------
+    @property
+    def ca_path(self) -> Path:
+        return self.root / _CA_DIR / _CA_CERT
+
+    @property
+    def ca_key_path(self) -> Path:
+        return self.root / _CA_DIR / _CA_KEY
+
+    @property
+    def broker_dir(self) -> Path:
+        return self.root / _BROKER_DIR
+
+    def has_ca(self) -> bool:
+        """Whether this machine can ISSUE — a certificate alone cannot sign."""
+        return self.ca_path.is_file() and self.ca_key_path.is_file()
+
+    def has_ca_cert(self) -> bool:
+        """Whether a trust anchor is on file, with or without its key."""
+        return self.ca_path.is_file()
+
+    def load_ca(self) -> KeyPair:
+        return pki.read_pair(self.ca_path, self.ca_key_path)
+
+    def save_ca(self, ca: KeyPair) -> None:
+        self._ensure_dir(_CA_DIR)
+        _write_private(self.ca_path, ca.cert_pem)
+        _write_private(self.ca_key_path, ca.key_pem)
+
+    def save_ca_cert_only(self, cert_pem: str) -> None:
+        """File a CA certificate with no key beside it.
+
+        A real arrangement, not a half-finished one: the key is deliberately kept
+        elsewhere — an offline root, a secrets manager, somebody else's cluster —
+        and this machine can still tell a robot what to trust, it just cannot
+        issue anything.
+        """
+        self._ensure_dir(_CA_DIR)
+        _write_private(self.ca_path, cert_pem)
+        self.ca_key_path.unlink(missing_ok=True)
+
+    # --- the one broker -----------------------------------------------------
+    @property
+    def broker_path(self) -> Path:
+        return self.root / _BROKER_FILE
+
+    def has_broker(self) -> bool:
+        return self.broker_path.is_file()
+
+    def load_broker(self) -> Broker:
+        try:
+            raw = json.loads(self.broker_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raise ProfileError(
+                "no broker is set up on this machine — run `whiskerless provision`"
+            ) from None
+        except (OSError, ValueError) as exc:
+            raise ProfileError(f"could not read {self.broker_path}: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise ProfileError(f"{self.broker_path} is not a JSON object")
+        host = raw.get("host")
+        if not isinstance(host, str) or not host:
+            raise ProfileError(f"{self.broker_path} has no broker host")
+        try:
+            port = int(raw.get("port", DEFAULT_TLS_PORT))
+        except (TypeError, ValueError) as exc:
+            raise ProfileError(f"{self.broker_path} has an unusable port") from exc
+        return Broker(
+            host=host, port=port, verify_hostname=bool(raw.get("verify_hostname", True))
+        )
+
+    def save_broker(self, broker: Broker) -> None:
+        self._ensure_root()
+        _write_private(
+            self.broker_path,
+            json.dumps(
+                {
+                    "host": broker.host,
+                    "port": broker.port,
+                    "verify_hostname": broker.verify_hostname,
+                },
+                indent=2,
+            )
+            + "\n",
+        )
+
+    def settings(self, *, client_id: str | None = None) -> MqttSettings:
+        """How to reach the broker, with whatever identity this machine has.
+
+        Assembled here rather than on a profile because none of it is per-robot:
+        one broker, one CA, one client certificate for this machine.
+        """
+        ca_pem = self.ca_path.read_text(encoding="utf-8") if self.has_ca_cert() else None
+        identity = self.load_client() if self.has_client() else None
+        return self.load_broker().settings(
+            ca_pem=ca_pem, identity=identity, client_id=client_id
+        )
+
+    def has_client(self) -> bool:
+        client = self.root / _CLIENT_DIR
+        return (client / _CLIENT_CERT).is_file() and (client / _CLIENT_KEY).is_file()
+
+    def load_client(self) -> KeyPair:
+        client = self.root / _CLIENT_DIR
+        return pki.read_pair(client / _CLIENT_CERT, client / _CLIENT_KEY)
+
+    def save_client(self, pair: KeyPair) -> None:
+        client = self._ensure_dir(_CLIENT_DIR)
+        _write_private(client / _CLIENT_CERT, pair.cert_pem)
+        _write_private(client / _CLIENT_KEY, pair.key_pem)
+
+    def save_broker_certs(self, pair: KeyPair) -> Path:
+        """Write the broker's own certificate, and return where it landed.
+
+        Deliberately NOT a copy of ``ca/ca.crt`` as well, tempting as a
+        self-contained folder is: two stored copies of one certificate raise the
+        question of which is authoritative, and there is no good answer.
+        """
+        broker = self._ensure_dir(_BROKER_DIR)
+        _write_private(broker / _SERVER_CERT, pair.cert_pem)
+        _write_private(broker / _SERVER_KEY, pair.key_pem)
+        return broker
+
+    def client_identity(self) -> KeyPair:
+        """This machine's client certificate, minting one the first time."""
+        if self.has_client():
+            return self.load_client()
+        pair = pki.issue_client(self.load_ca(), pki.client_common_name())
+        self.save_client(pair)
+        return pair
+
+    def _ensure_root(self) -> None:
+        # Created explicitly rather than by mkdir(parents=True), which would give
+        # the directory umask permissions — and this one holds the CA key.
+        # Parents get ordinary permissions; the store itself does not. Splitting
+        # the two is what lets WHISKERLESS_HOME point somewhere that does not
+        # exist yet without either failing or making its ancestors 0700.
+        self.root.parent.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(exist_ok=True)
+        self.root.chmod(0o700)
+        marker = self.root / _LAYOUT_FILE
+        if not marker.is_file():
+            _write_private(marker, f"{LAYOUT_VERSION}\n")
+
+    def _ensure_dir(self, name: str) -> Path:
+        self._ensure_root()
+        directory = self.root / name
+        directory.mkdir(exist_ok=True)
+        directory.chmod(0o700)
+        return directory
+
     def save(self, profile: RobotProfile) -> None:
         directory = self._dir(profile.serial)
-        # Created explicitly rather than left to mkdir(parents=True), which
-        # would give the root and robots/ umask permissions — and a listable
-        # robots/ advertises every serial in the house.
-        for ancestor in (self.root, self.robots_dir):
-            ancestor.mkdir(exist_ok=True)
-            ancestor.chmod(0o700)
+        # One path establishes the root, so the layout marker cannot be missed by
+        # whichever operation happens to run first on a fresh machine.
+        self._ensure_dir("robots")
         payload = {
-            # First key on purpose: a human opening this file to fix something
-            # should meet the format stamp before the values it governs.
-            "version": PROFILE_VERSION,
             "serial": profile.serial.value,
             "serial_verified": profile.serial.verified,
-            "host": profile.host,
-            "port": profile.port,
             "name": profile.name,
-            "verify_hostname": profile.verify_hostname,
             "wifi_ssid": profile.wifi_ssid,
             "litter_full_mm": profile.litter_full_mm,
             "litter_empty_mm": profile.litter_empty_mm,
+            "cert_serial": profile.cert_serial,
         }
         _write_private(directory / _PROFILE_FILE, json.dumps(payload, indent=2) + "\n")
-        if profile.ca_pem is not None:
-            _write_private(directory / _CA_FILE, profile.ca_pem)
-        else:
-            # An overwrite without a CA must not leave the old one behind for
-            # load() to silently resurrect against a broker it no longer matches.
-            (directory / _CA_FILE).unlink(missing_ok=True)
+        # There is one CA for the whole store now, so a per-robot copy is only
+        # ever a leftover from an older layout. Removed rather than left for
+        # load() to resurrect against a broker it no longer matches.
+        (directory / _CA_FILE).unlink(missing_ok=True)
 
     def load(self, serial: str) -> RobotProfile:
         parsed = Serial(serial)
@@ -333,42 +485,20 @@ class ProfileStore:
             raise ProfileError(f"could not read the profile for {parsed.value}: {exc}") from exc
         if not isinstance(raw, dict):
             raise ProfileError(f"the profile for {parsed.value} is not a JSON object")
-        raw = _migrated(raw, parsed.value)
 
-        ca_path = self._dir(parsed) / _CA_FILE
-        try:
-            ca_pem: str | None = ca_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            ca_pem = None
-        except OSError as exc:
-            raise ProfileError(f"could not read the stored CA for {parsed.value}: {exc}") from exc
-
-        host = raw.get("host")
-        if not isinstance(host, str) or not host:
-            raise ProfileError(f"the profile for {parsed.value} has no broker host")
-        try:
-            port = int(raw.get("port", DEFAULT_TLS_PORT))
-        except (TypeError, ValueError) as exc:
-            # A hand-edited port must surface as damage — list_profiles, damaged
-            # and forget all speak ProfileError, and a bare ValueError here took
-            # every one of them down with it.
-            raise ProfileError(f"the profile for {parsed.value} has an unusable port") from exc
         return RobotProfile(
             # The directory name is the identity — it is what `load` and `resolve`
             # key on. The serial inside the JSON is there to be readable, and a
             # hand-edited mismatch must not make a robot answer to two names.
             serial=Serial(parsed.value, bool(raw.get("serial_verified"))),
-            host=host,
-            port=port,
             name=str(raw.get("name") or ""),
-            verify_hostname=bool(raw.get("verify_hostname", True)),
-            ca_pem=ca_pem,
             wifi_ssid=str(raw.get("wifi_ssid") or ""),
             # Hand-edited garbage here loses the calibration, not the robot:
             # an unreachable profile is a far worse outcome than an unanchored
             # percentage, which the next `calibrate` press restores.
             litter_full_mm=_optional_int(raw.get("litter_full_mm")),
             litter_empty_mm=_optional_int(raw.get("litter_empty_mm")),
+            cert_serial=raw.get("cert_serial") if isinstance(raw.get("cert_serial"), str) else None,
         )
 
     def list_profiles(self) -> tuple[RobotProfile, ...]:
@@ -475,27 +605,3 @@ def _optional_int(value: object) -> int | None:
     # inside the first float division that touches it. Nothing about a litter
     # box is measured in kilometres.
     return number if 0 <= number <= _MAX_DISTANCE_MM else None
-
-
-def merge_overrides(
-    profile: RobotProfile,
-    *,
-    host: str | None = None,
-    port: int | None = None,
-    verify_hostname: bool | None = None,
-    ca_pem: str | None = None,
-) -> RobotProfile:
-    """Lay command-line flags over a stored profile; ``None`` means "not given".
-
-    Spelled out rather than ``**kwargs`` so a typo is a type error instead of a
-    silently ignored flag.
-    """
-    return replace(
-        profile,
-        host=profile.host if host is None else host,
-        port=profile.port if port is None else port,
-        verify_hostname=(
-            profile.verify_hostname if verify_hostname is None else verify_hostname
-        ),
-        ca_pem=profile.ca_pem if ca_pem is None else ca_pem,
-    )

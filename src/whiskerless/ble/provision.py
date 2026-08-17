@@ -26,7 +26,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ..exceptions import ProvisioningError
+from ..exceptions import ProvisioningError, WhiskerlessError
 from . import messages as m
 from .messages import PROV_SERVICE_UUID
 from .transport import ProtocommBLE, translated
@@ -113,6 +113,12 @@ class ProvisioningConfig:
     ca_pem: str
     wifi_ssid: str = ""
     wifi_pass: str = ""
+    # The robot's own identity, when there is one to give it. Both or neither:
+    # a certificate without its key leaves the robot unable to complete a
+    # handshake it now claims it can. Never stored anywhere — the robot keeps
+    # the only copy, and a replacement is one re-provision away.
+    client_cert: str | None = None
+    client_key: str | None = None
     command_topic: str | None = None
     device_topic: str | None = None
     swap_topics: bool = False
@@ -125,6 +131,21 @@ class ProvisioningConfig:
 
     def __post_init__(self) -> None:
         self.serial = self.check_serial(self.serial)
+        if bool(self.client_cert) != bool(self.client_key):
+            raise ProvisioningError(
+                "a client certificate needs its private key, and vice versa — "
+                "half an identity leaves the robot unable to connect at all"
+            )
+        if self.client_cert and self.client_key:
+            # Both present is not the same as both belonging together. A
+            # mismatched pair provisions cleanly and then fails every handshake,
+            # and the only cure is another trip to the robot with a laptop.
+            from ..pki import KeyPair, check_pair
+
+            try:
+                check_pair(KeyPair(cert_pem=self.client_cert, key_pem=self.client_key))
+            except WhiskerlessError as exc:
+                raise ProvisioningError(f"the robot's identity is unusable: {exc}") from exc
 
     @staticmethod
     def check_serial(value: str) -> str:
@@ -296,9 +317,22 @@ async def provision_robot(
         await _mqtt(transport, m.mqtt_endpoint_write(m.EndpointType.DEVICE_ENDPOINT, device_value), "ENDPOINT_DEVICE", dry_run)
         step(f"endpoints: host={config.host} sub={cloud_value} pub={device_value}")
 
-        # 4. our CA into the root-CA slot (device cert/key untouched).
+        # 4. our CA into the root-CA slot, then — if we have one to give — an
+        # identity of our own into the device slots. Order and staging copy the
+        # Whisker app exactly: CA, certificate, key, and only then one apply.
         await _write_cert(transport, config.ca_pem, chunk_size, dry_run)
         step(f"CERT_AWS_ROOT_CERT written ({len(config.ca_pem.encode())} bytes)")
+        if config.client_cert and config.client_key:
+            await _write_cert(
+                transport, config.client_cert, chunk_size, dry_run,
+                m.CertificateType.CERT_DEVICE_CERT,
+            )
+            step(f"CERT_DEVICE_CERT written ({len(config.client_cert.encode())} bytes)")
+            await _write_cert(
+                transport, config.client_key, chunk_size, dry_run,
+                m.CertificateType.CERT_DEVICE_KEY,
+            )
+            step(f"CERT_DEVICE_KEY written ({len(config.client_key.encode())} bytes)")
 
         # 5. commit, then reboot.
         await _mqtt(transport, m.mqtt_apply_config(), "APPLY_CONFIG", dry_run)
@@ -384,13 +418,19 @@ async def _verify_wifi(
         )
 
 
-async def _write_cert(transport: ProtocommBLE, pem: str, chunk_size: int, dry_run: bool) -> None:
+async def _write_cert(
+    transport: ProtocommBLE,
+    pem: str,
+    chunk_size: int,
+    dry_run: bool,
+    cert_type: m.CertificateType = m.CertificateType.CERT_AWS_ROOT_CERT,
+) -> None:
     total = len(pem.encode("utf-8"))
     offset = 0
     while offset < total:
         piece = pem[offset : offset + chunk_size]
         request = m.mqtt_cert_write(
-            m.CertificateType.CERT_AWS_ROOT_CERT,
+            cert_type,
             piece,
             total_size=total,
             offset=offset,

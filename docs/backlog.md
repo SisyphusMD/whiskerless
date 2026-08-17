@@ -334,6 +334,10 @@ which reports the timeout without suggesting the likely cause.
 
 ### #70 — Write our own client identity to the robot, and drop the anonymous listener
 
+*In progress. The decisions and their reasoning are recorded in
+[design/authentication.md](design/authentication.md) — read that before changing
+anything here, because several of them reverse an earlier position in this project.*
+
 `CERT_DEVICE_CERT` (2) and `CERT_DEVICE_KEY` (3) are writable slots on the same
 `mqtt-config` CERT_WRITE mechanism whiskerless already uses to install the root CA. The
 robot's factory identity is therefore replaceable, not merely unreadable — we have

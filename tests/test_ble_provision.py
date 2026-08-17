@@ -601,3 +601,73 @@ def test_an_open_network_needs_no_passphrase() -> None:
     inner = read_fields(fields[12][0])
     assert inner[1][0] == b"Cafe"
     assert 2 not in inner, "no passphrase field at all, rather than an empty one"
+
+
+# --- writing an identity of our own into the robot ----------------------------
+def _cert_writes(robot: FakeRobot) -> list[tuple[int, int]]:
+    """(certificate type, chunk length) for every CERT_WRITE, in order."""
+    seen = []
+    for endpoint, payload in robot.requests:
+        if endpoint != m.EP_MQTT:
+            continue
+        arm = read_fields(payload).get(10)
+        if not arm or not isinstance(arm[0], bytes):
+            continue
+        inner = read_fields(arm[0])
+        seen.append((int(inner[1][0]) if 1 in inner else 0,
+                     int(inner[5][0]) if 5 in inner else 0))
+    return seen
+
+
+async def test_the_robot_gets_our_identity_in_the_apps_order() -> None:
+    """CA, then certificate, then key, then one apply — copied from a decoded
+    onboarding rather than invented."""
+    from whiskerless import pki
+
+    identity = pki.issue_client(pki.generate_ca(), "LR4C123456")
+    robot = FakeRobot()
+    with _bleak(robot):
+        await provision_robot(
+            "AA:BB",
+            _config(client_cert=identity.cert_pem, client_key=identity.key_pem),
+        )
+    types = [kind for kind, _size in _cert_writes(robot)]
+    assert types, "certificates were written"
+    # 1 = AWS root CA, 2 = device certificate, 3 = device key
+    assert sorted(set(types)) == [1, 2, 3]
+    assert types.index(1) < types.index(2) < types.index(3), "CA, cert, key"
+
+    order = [endpoint for endpoint, _payload in robot.requests]
+    apply_at = [i for i, (ep, pl) in enumerate(robot.requests)
+                if ep == m.EP_MQTT and 14 in read_fields(pl)]
+    last_cert = max(i for i, (ep, pl) in enumerate(robot.requests)
+                    if ep == m.EP_MQTT and 10 in read_fields(pl))
+    assert apply_at and apply_at[0] > last_cert, "every chunk is staged before the apply"
+    assert order  # keeps the linter honest about the unused binding
+
+
+async def test_a_robot_with_no_identity_to_give_keeps_its_own() -> None:
+    robot = FakeRobot()
+    with _bleak(robot):
+        await provision_robot("AA:BB", _config())
+    assert {kind for kind, _ in _cert_writes(robot)} == {1}, "only the CA is written"
+
+
+def test_half_an_identity_is_refused_before_anything_is_written() -> None:
+    """A certificate without its key leaves the robot claiming it can complete a
+    handshake it cannot."""
+    with pytest.raises(ProvisioningError, match="needs its private key"):
+        _config(client_cert=CA_PEM)
+    with pytest.raises(ProvisioningError, match="vice versa"):
+        _config(client_key="-----BEGIN RSA PRIVATE KEY-----\nk\n")
+
+
+def test_a_mismatched_identity_is_refused_before_anything_is_written() -> None:
+    """Both present is not the same as both belonging together, and the only cure
+    for writing a mismatched pair is another trip to the robot with a laptop."""
+    from whiskerless import pki
+
+    ca = pki.generate_ca()
+    one, other = pki.issue_client(ca, "LR4C123456"), pki.issue_client(ca, "LR4C999999")
+    with pytest.raises(ProvisioningError, match="not a pair"):
+        _config(client_cert=one.cert_pem, client_key=other.key_pem)

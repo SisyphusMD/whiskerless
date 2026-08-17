@@ -17,13 +17,13 @@ import sys
 from collections.abc import Callable, Sequence
 from contextlib import aclosing, suppress
 from dataclasses import asdict, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
 import aiomqtt
 
-from . import __version__
+from . import __version__, pki
 from .ble.messages import WifiNetwork as DiscoveredNetwork
 from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
@@ -41,7 +41,8 @@ from .devices.litter_robot_4.models import LitterRobot4State, litter_level_perce
 from .devices.litter_robot_4.protocol import ActivityMessage, StateMessage
 from .exceptions import ProfileError, SafetyError, WhiskerlessError
 from .mqtt import DEFAULT_TLS_PORT
-from .profiles import ProfileStore, RobotProfile, Serial, SharedSetup, merge_overrides
+from .pki import KeyPair
+from .profiles import Broker, ProfileStore, RobotProfile, Serial
 from .safety import classify_code
 
 log = logging.getLogger("whiskerless")
@@ -79,30 +80,20 @@ def _read_pem(raw: str) -> str:
 
 
 def _profile(args: argparse.Namespace) -> RobotProfile:
-    """The robot to act on: whatever was saved, with command-line flags laid over it."""
+    """Which robot to act on. Everything else about the connection is the store's.
+
+    There is one broker per store now, so there is nothing to lay flags over: a
+    robot is a serial, a name, and what somebody measured at the machine.
+    """
     store = ProfileStore.from_env()
     try:
-        saved = store.resolve(args.serial)
+        return store.resolve(args.serial)
     except ProfileError:
-        # Nothing saved for this robot. A fully-explicit invocation still has to
-        # work: it is how this behaved before there was a store, and it is what
-        # scripts and one-off connections to somebody else's broker rely on.
-        if not (args.serial and args.host):
-            if args.host and not args.serial:
-                raise WhiskerlessError(
-                    "--host alone is not enough for a robot not saved here — add "
-                    "--serial too (it names the MQTT topics)"
-                ) from None
-            raise
-        saved = RobotProfile(serial=Serial(args.serial), host=args.host)
-    profile = merge_overrides(
-        saved,
-        host=args.host,
-        port=args.port,
-        verify_hostname=None if args.insecure is None else not args.insecure,
-        ca_pem=None if args.ca is None else _read_pem(args.ca),
-    )
-    return profile
+        # A fully explicit invocation still has to work: it is how this behaved
+        # before there was a store, and it is what one-off connections rely on.
+        if args.serial:
+            return RobotProfile(serial=Serial(args.serial))
+        raise
 
 
 def _link(
@@ -111,10 +102,15 @@ def _link(
     subscribe: bool = True,
     profile: RobotProfile | None = None,
 ) -> LitterRobot4Link:
+    # No per-command broker overrides. Everything needed is in the store, and a
+    # flag pointing at a different broker would still present this store's CA and
+    # client certificate — so it could only fail, confusingly. A genuinely
+    # different broker is a different store: point WHISKERLESS_HOME at it.
+    store = ProfileStore.from_env()
     if profile is None:
         profile = _profile(args)
     return LitterRobot4Link(
-        profile.settings(client_id=args.client_id), profile.serial.value, subscribe=subscribe
+        store.settings(client_id=args.client_id), profile.serial.value, subscribe=subscribe
     )
 
 
@@ -505,7 +501,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # Another robot almost always lands on the same broker, behind the same CA,
     # on the same WiFi as the ones already here — so offer that rather than making
     # someone find the CA path again.
-    prior, shared = _prior_setup()
+    prior = _prior_robot()
     if prior is not None:
         print("  press enter at any prompt to accept the setup already in use here\n")
 
@@ -520,19 +516,38 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         args.serial,
         ble.ProvisioningConfig.check_serial,
     )
-    # Host and SSID show their own value, so they are unambiguous however many
-    # robots are saved. A CA is a blob of PEM that cannot go in a prompt, so it
-    # needs describing — and only when the robots disagree is naming one of them
-    # meaningful rather than arbitrary.
-    host = _ask(
-        "broker IP (e.g. 192.168.1.10): ", args.host_ip, _check_host,
-        default=shared.host or (prior.host if prior else None),
+    # The broker is asked ONCE, on the first robot, and remembered for the store.
+    # Every robot here talks to the same broker behind the same CA — a genuinely
+    # separate broker is a separate store, reached with WHISKERLESS_HOME.
+    store = ProfileStore.from_env()
+    saved = store.load_broker() if store.has_broker() else None
+    if saved is not None and not args.host_ip:
+        host = saved.host
+    else:
+        host = _ask("broker IP (e.g. 192.168.1.10): ", args.host_ip, _check_host)
+    # Each flag laid on independently: --port alone must not be ignored, and
+    # --host-ip alone must not silently reset a port somebody chose.
+    broker = Broker(
+        host=host,
+        port=args.port or (saved.port if saved else DEFAULT_TLS_PORT),
+        verify_hostname=(
+            not args.insecure
+            if args.insecure is not None
+            else (saved.verify_hostname if saved else True)
+        ),
     )
-    ca_default = shared.ca_pem or (prior.ca_pem if prior else None)
-    ca_pem = _ask(
-        "path to your CA PEM: ", args.ca, _read_pem,
-        default=ca_default,
-        default_label=_ca_label(shared, prior) if ca_default else None,
+    # The CA question comes AFTER the offer to generate one, and disappears
+    # entirely once whiskerless has a CA: the certificate it signs with and the
+    # certificate the robot trusts are the same certificate, so asking again
+    # would be asking someone to re-state what they just agreed to.
+    can_issue = _ensure_pki(args, store, host) and not args.no_client_cert
+    # One CA per machine now, established above — so there is nothing left to ask
+    # about here. The only way to reach the second branch is an unattended run
+    # supplying --ca, which _ensure_pki has already insisted on.
+    ca_pem = (
+        store.ca_path.read_text(encoding="utf-8")
+        if store.has_ca_cert()
+        else _read_pem(args.ca)
     )
     # Deliberately NOT asked here when there is a human to ask later. The robot
     # can list the networks IT can see, and asking before the BLE link is open
@@ -543,7 +558,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     ssid = (
         _ask(
             "WiFi SSID: ", args.wifi_ssid, _check_ssid,
-            default=shared.wifi_ssid or (prior.wifi_ssid or None if prior else None),
+            default=prior.wifi_ssid or None if prior else None,
         )
         if ask_now
         else ""
@@ -555,8 +570,14 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # Not part of ProvisioningConfig: the robot authenticates to the broker with
     # its own factory certificate, so this login is whiskerless's, not the
     # robot's, and nothing about it is written over BLE.
+    # Minted here, written to the robot, and never stored: the robot keeps the
+    # only copy, and a replacement is one re-provision away. The CN is the serial,
+    # so `use_identity_as_username` makes the broker log the robot by name.
+    identity = pki.issue_client(store.load_ca(), serial) if can_issue else None
     config = ble.ProvisioningConfig(
         serial=serial, host=host, ca_pem=ca_pem, wifi_ssid=ssid, wifi_pass=wifi_pass,
+        client_cert=identity.cert_pem if identity else None,
+        client_key=identity.key_pem if identity else None,
     )
 
     # The scan is the one stretch a first-time user stares at with nothing
@@ -575,6 +596,12 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         return 1
     target = _pick_robot(robots, args.address)
 
+    identity_note = (
+        f"issued by your CA, CN={config.serial}"
+        if can_issue
+        else "Whisker factory certificate (unchanged)"
+    )
+
     mac = await ble.read_device_mac(target.address)
     # The one screen a first-time user reads carefully, so the values THEY typed
     # are the ones highlighted — a wrong serial or broker here is the mistake
@@ -588,7 +615,23 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     print(f"    serial  {_console.accent(config.serial)}")
     print(f"    broker  {_console.accent(host)}")
     print(f"    wifi    {_console.accent(ssid)}")
+    print(f"    identity {_console.accent(identity_note)}")
     print(_console.dim("    reversible — re-onboard the robot in the Whisker app\n"))
+    if not can_issue:
+        # Said plainly and before the confirmation, not buried in a log line
+        # afterwards. Someone who expected mutual TLS and gets an anonymous
+        # listener has a broker standing open, and the only moment that is
+        # cheap to discover is now.
+        _console.banner("NO CA KEY — this robot will keep its Whisker identity")
+        print(
+            "  Nothing was available to sign a certificate with, so the robot's factory\n"
+            "  identity is left untouched and it will present that to your broker.\n\n"
+            "  Your broker's listener MUST therefore accept anonymous clients\n"
+            "  (mosquitto: `allow_anonymous true` with `require_certificate false`).\n"
+            "  A listener that requires client certificates will refuse this robot.\n\n"
+            "  To get a certificate instead, supply a CA key with --ca-key, or let\n"
+            "  whiskerless generate a CA for you.\n"
+        )
     if args.dry_run:
         print(_console.dim(
             "  DRY RUN — the BLE connect, endpoint discovery and reads below are real;\n"
@@ -628,8 +671,11 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     print(_console.accent(result.message))
 
     # Written only after the robot accepted it, so a failed run never leaves a
-    # profile claiming a robot is reachable somewhere it is not.
-    _save_profile(config, args)
+    # profile claiming a robot is reachable somewhere it is not — and the broker
+    # only becomes the one every other command targets once a robot is actually
+    # on it. An abort or a failed join must not retarget the whole machine.
+    store.save_broker(broker)
+    _save_profile(config, args, pki.issued_serial(identity) if identity else None)
     return 0
 
 
@@ -676,28 +722,226 @@ async def _choose_network(
     return ssid, supplied_pass or _ask_secret(f"WiFi password for {ssid!r}: ")
 
 
-def _prior_setup() -> tuple[RobotProfile | None, SharedSetup]:
-    """What a newly provisioned robot can inherit from the ones already here.
+def _ensure_pki(args: argparse.Namespace, store: ProfileStore, host: str) -> bool:
+    """Make sure this machine can issue certificates, offering to set it up.
 
-    Returns both what every robot agrees on and one robot to fall back on for
-    the fields where they disagree.
+    Returns whether a robot certificate can be signed. False is a supported
+    outcome, not a failure: it is how whiskerless has always worked, and it means
+    the robot keeps its factory identity and the broker's listener stays
+    anonymous. The caller says so loudly before anything is written.
+
+    Everything here is idempotent. A CA is generated once and reused forever —
+    regenerating would strand every robot already provisioned to trust the old
+    one, which is a bench visit each.
     """
+    # This machine's own identity, for someone whose CA key lives elsewhere and
+    # who therefore cannot have one issued here. Copied in under our own names,
+    # so nothing downstream cares where it came from.
+    if args.client_cert or args.client_key:
+        if not (args.client_cert and args.client_key):
+            raise WhiskerlessError("--client-cert and --client-key go together; supply both")
+        store.save_client(pki.read_pair(Path(args.client_cert), Path(args.client_key)))
+        print(f"  client identity copied to {store.root / 'client'}")
+
+    if args.ca_key:
+        if not args.ca:
+            raise WhiskerlessError(
+                "--ca-key needs --ca as well: the key signs certificates, and the "
+                "certificate is what the robot is told to trust"
+            )
+        brought = pki.read_pair(Path(args.ca), Path(args.ca_key))
+        _check_ca(brought)
+        _refuse_a_different_ca(store, brought.cert_pem)
+        store.save_ca(brought)
+        store.client_identity()
+        print(f"  using the CA you supplied, copied to {store.ca_path}")
+        return True
+
+    if args.ca and not store.has_ca_cert():
+        _refuse_a_different_ca(store, _read_pem(args.ca))
+        # Honoured BEFORE the menu. Otherwise an interactive run that named a CA
+        # would be offered a shiny new one, and accepting the default would
+        # provision a robot that cannot verify the broker the named CA signs for.
+        store.save_ca_cert_only(_read_pem(args.ca))
+        print(f"  using the CA you supplied, copied to {store.ca_path}")
+        return False
+
+    if store.has_ca():
+        return True
+    # A trust anchor with no key is a deliberate arrangement, not an unfinished
+    # one — asking again every provision would be nagging about a settled choice.
+    if store.has_ca_cert():
+        return False
+    if not sys.stdin.isatty():
+        # --ca still satisfies this: the question below reads it. Only a run with
+        # neither a stored CA nor a supplied one has nothing to give the robot,
+        # and it should say which flags fix that rather than die on a prompt
+        # nobody could have answered.
+        raise WhiskerlessError(
+            "no certificate authority: the robot has to be told which broker "
+            "certificate to trust. Pass --ca (and --ca-key to issue the robot "
+            "its own certificate), or run this in a terminal to be offered one"
+        )
+
+    print()
+    _console.banner("NO CERTIFICATE AUTHORITY ON THIS MACHINE")
+    # Two options, not three. The robot verifies your broker against whatever is
+    # written into its trust slot, so a certificate authority is not optional —
+    # there is no provisioning without one. Whether the robot gets an identity of
+    # its own is a CONSEQUENCE of handing over the signing key, asked below, not
+    # a third choice here.
+    print(
+        "  Your robot has to be told which broker certificate to trust, and that\n"
+        "  means a certificate authority. There is no way around it.\n\n"
+        f"   {_console.dim(' 1')}  Generate one for me {_console.dim('(recommended)')}\n"
+        f"   {_console.dim(' 2')}  I already have one — I will give you the files\n"
+    )
+    try:
+        answer = input("  Which? [1]: ").strip()
+    except EOFError as exc:
+        raise WhiskerlessError(
+            "a certificate authority is required and there was nobody to ask — "
+            "pass --ca (and --ca-key to issue robot certificates)"
+        ) from exc
+    if answer == "2":
+        return _import_ca(store)
+
+    with _console.progress("generating a certificate authority"):
+        ca = pki.generate_ca()
+        store.save_ca(ca)
+        server = pki.issue_server(ca, host)
+        broker = store.save_broker_certs(server)
+        store.client_identity()
+    _report_pki(store, broker)
+    return True
+
+
+def _import_ca(store: ProfileStore) -> bool:
+    """Take a CA the user already has, and file it where everything else looks.
+
+    Copied under our own names rather than remembered by path: a path breaks when
+    the USB stick is unplugged or the folder is tidied, and it breaks later, at a
+    moment nobody connects to the decision made here.
+    """
+    cert_path = _ask("path to your CA certificate: ", None, _readable_path)
+    print(
+        "\n  And the CA private key, if you are willing to keep it here. With it,\n"
+        "  whiskerless issues a certificate for each robot itself. Without it, you\n"
+        "  supply one per robot yourself.\n"
+    )
+    key_path = _ask("path to the CA private key (enter to skip): ", None,
+                    _readable_path, allow_skip=True)
+    if not key_path:
+        ca_pem = _read_pem(cert_path)
+        store.save_ca_cert_only(ca_pem)
+        print(f"  CA certificate copied to {store.ca_path} — no key, so no "
+              f"certificates can be issued here")
+        return False
+    brought = pki.read_pair(Path(cert_path), Path(key_path))
+    _check_ca(brought)
+    _refuse_a_different_ca(store, brought.cert_pem)
+    store.save_ca(brought)
+    # Without this the robot gets a certificate and the CLI does not, so a broker
+    # running `require_certificate true` would refuse every command afterwards.
+    store.client_identity()
+    print(f"  CA copied to {store.root / 'ca'}")
+    return True
+
+
+def _refuse_a_different_ca(store: ProfileStore, incoming: str) -> None:
+    """Never swap the CA out from under robots that already trust it.
+
+    Replacing it would leave every provisioned robot trusting a certificate the
+    broker no longer presents, and each rescue is a walk to the robot with a
+    laptop. Rotating deliberately means starting a fresh store.
+    """
+    if not store.has_ca_cert():
+        return
+    if store.ca_path.read_text(encoding="utf-8").strip() == incoming.strip():
+        return
+    robots = ", ".join(p.display_name for p in store.list_profiles())
+    raise WhiskerlessError(
+        "this machine already has a different certificate authority"
+        + (f", and {robots} already trust it" if robots else "")
+        + f". Replacing it would strand them. To start over, move {store.root} "
+        f"aside or point WHISKERLESS_HOME somewhere else"
+    )
+
+
+def _readable_path(raw: str) -> str:
+    """A path that exists, checked at the prompt rather than five answers later."""
+    path = Path(raw).expanduser()
+    if not path.is_file():
+        raise WhiskerlessError(f"no such file: {path}")
+    return str(path)
+
+
+def _check_ca(ca: KeyPair) -> None:
+    """Refuse a CA that cannot work, warn about one that will bite later."""
+    from cryptography import x509
+
+    cert = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+    try:
+        basic = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
+    except x509.ExtensionNotFound:
+        basic = None
+    if basic is None or not basic.ca:
+        # The "I handed you my server certificate" mistake, which otherwise fails
+        # much later as an unexplained TLS error.
+        raise WhiskerlessError(
+            "that certificate is not a certificate authority — it cannot sign anything"
+        )
+    if cert.not_valid_after_utc <= datetime.now(UTC):
+        raise WhiskerlessError("that CA has already expired")
+    try:
+        cert.extensions.get_extension_for_class(x509.KeyUsage)
+    except x509.ExtensionNotFound:
+        # Works for the robot's mbedTLS and then breaks our own CLI under Python
+        # 3.13's VERIFY_X509_STRICT. Warned rather than refused: the robot half
+        # still works, and refusing would strand someone whose CA serves them.
+        print(
+            "  ! this CA has no keyUsage extension. The robot will accept it, but\n"
+            "    `whiskerless state` on Python 3.13+ will fail with\n"
+            "    'CA cert does not include key usage extension'.",
+            file=sys.stderr,
+        )
+    if (cert.not_valid_after_utc - datetime.now(UTC)).days < 365:
+        print("  ! this CA expires within a year; renewing it means re-provisioning "
+              "every robot", file=sys.stderr)
+
+
+def _report_pki(store: ProfileStore, broker: Path) -> None:
+    """Say what was made, where it goes, and what losing it costs."""
+    print(f"\n  Certificate authority created in {_console.accent(str(store.root))}\n")
+    print("  Your broker needs three files:\n")
+    for path, directive in (
+        (store.ca_path, "cafile"),
+        (broker / "server.crt", "certfile"),
+        (broker / "server.key", "keyfile"),
+    ):
+        print(f"    {path}  {_console.dim('→')}  {directive}")
+    print(
+        f"\n  {_console.accent('Back up ' + str(store.root) + ' somewhere safe.')}\n"
+        "  It holds the key that signs certificates for your robots. Losing it does\n"
+        "  not stop robots that already work — it costs you the ability to add or\n"
+        "  re-provision one without visiting every robot you own.\n"
+    )
+
+
+def _prior_robot() -> RobotProfile | None:
+    """One robot already here, to offer its WiFi network from. Nothing else is
+    per-robot any more."""
     store = ProfileStore.from_env()
     known = store.list_profiles()
     if not known:
-        return None, SharedSetup()
+        return None
     default = store.get_default()
-    fallback = next((p for p in known if p.serial.value == default), known[0])
-    return fallback, SharedSetup.from_profiles(known)
+    return next((p for p in known if p.serial.value == default), known[0])
 
 
-def _ca_label(shared: SharedSetup, prior: RobotProfile | None) -> str:
-    if shared.ca_pem is not None:
-        return "the CA already in use here"
-    return f"the CA saved for {prior.display_name}" if prior else "the saved CA"
-
-
-def _save_profile(config: ProvisioningConfig, args: argparse.Namespace) -> None:
+def _save_profile(
+    config: ProvisioningConfig, args: argparse.Namespace, cert_serial: str | None
+) -> None:
     store = ProfileStore.from_env()
     try:
         prior = store.load(config.serial)
@@ -706,22 +950,20 @@ def _save_profile(config: ProvisioningConfig, args: argparse.Namespace) -> None:
     if prior is None:
         profile = RobotProfile(
             serial=Serial(config.serial),
-            host=config.host,
             name=args.name or "",
-            ca_pem=config.ca_pem,
             wifi_ssid=config.wifi_ssid,
+            cert_serial=cert_serial,
         )
     else:
-        # Reprovisioning replaces only what provisioning collected. The name,
-        # broker credentials and port were never asked for, so writing defaults
-        # over them would silently erase what the user set up.
+        # Reprovisioning replaces only what provisioning collected. The name and
+        # the litter reference somebody measured at the machine were never asked
+        # for, so writing defaults over them would silently erase them.
         profile = replace(
             prior,
             serial=Serial(config.serial),
-            host=config.host,
             name=args.name or prior.name,
-            ca_pem=config.ca_pem,
             wifi_ssid=config.wifi_ssid,
+            cert_serial=cert_serial or prior.cert_serial,
         )
     try:
         store.save(profile)
@@ -749,100 +991,13 @@ async def _cmd_robots(args: argparse.Namespace) -> int:
     for profile in known:
         marker = "*" if profile.serial.value == default else " "
         confirmed = "" if profile.serial.verified else "  (serial as typed, unconfirmed)"
-        print(f" {marker} {profile.display_name:<20} {profile.host}:{profile.port}{confirmed}")
+        print(f" {marker} {profile.display_name:<20}{confirmed}")
     for name, why in broken:
         print(f" ! {name:<20} unreadable — {why}")
     if broken:
         print("\n  ! damaged — re-run `whiskerless provision`, or drop it with `whiskerless forget`")
     if default:
         print("\n  * default — override per command with --serial")
-    return 0
-
-
-async def _cmd_adopt(args: argparse.Namespace) -> int:
-    """Save a profile for a robot that is ALREADY provisioned, without touching it.
-
-    The store only fills itself on a successful `provision`, so anyone whose
-    robots predate it has no profiles and gets none by upgrading — they either
-    pass `--serial/--host/--ca` forever or re-provision purely to write a file,
-    and re-provisioning is the one step that changes the robot. This writes the
-    same profile from flags and goes nowhere near BLE or the broker.
-
-    It cannot verify any of it. The serial is recorded as UNVERIFIED for exactly
-    that reason: a typo here produces a profile that talks to a topic no robot
-    publishes, with no error to see — so the command says what it wrote and how
-    to check it, rather than implying the robot was found.
-
-    It asks the same way `provision` does when it is short of an answer. Someone
-    reaching for `adopt` is usually meeting the tool for the first time, and a
-    command that answers a bare invocation with argparse's "the following
-    arguments are required" teaches them nothing about which arguments those are.
-    """
-    store = ProfileStore.from_env()
-    if not sys.stdin.isatty() and not (args.serial and args.host):
-        # Failing on the missing FLAGS, not on the EOF of a prompt nobody could
-        # ever have answered.
-        raise WhiskerlessError(
-            "adopt needs --serial and --host when there is nobody to ask "
-            "(run it in a terminal to be prompted instead)"
-        )
-    known, shared = _prior_setup()
-    if known is not None and not (args.serial and args.host and args.ca):
-        print("  press enter at any prompt to accept the setup already in use here\n")
-    # The SAME check the provision prompt uses, not the store's shape rule: the
-    # store only enforces filesystem-safe characters, which happily accepts the
-    # model designator (LR4-0301-00-US) printed on the label beside the serial.
-    # That is the exact mistake this command would otherwise persist forever.
-    serial = Serial(
-        _ask(
-            "robot serial (the unhyphenated LR4C… line on the label, e.g. LR4C123456 — "
-            "NOT the LR4-…-US model number): ",
-            args.serial,
-            ProvisioningConfig.check_serial,
-        )
-    )
-    host = _ask(
-        "broker IP (e.g. 192.168.1.10): ", args.host, _check_host,
-        default=shared.host or (known.host if known else None),
-    )
-    ca_default = shared.ca_pem or (known.ca_pem if known else None)
-    ca_pem = _ask(
-        "path to your CA PEM: ", args.ca, _read_pem,
-        default=ca_default,
-        default_label=_ca_label(shared, known) if ca_default else None,
-        allow_skip=True,
-    ) or None
-    name = _ask_optional("what to call this robot, e.g. 'Upstairs'", args.name, None)
-    try:
-        # Re-running adopt to correct one field must not silently drop the rest.
-        # A saved robot may already carry a name, a username, a non-default port
-        # and the litter calibration someone measured at the machine.
-        prior = store.load(serial.value)
-    except ProfileError:
-        profile = RobotProfile(
-            serial=serial,
-            host=host,
-            port=args.port or DEFAULT_TLS_PORT,
-            name=name or "",
-            ca_pem=ca_pem,
-        )
-    else:
-        profile = replace(
-            prior,
-            serial=serial,
-            host=host,
-            port=args.port or prior.port,
-            name=name or prior.name,
-            ca_pem=ca_pem or prior.ca_pem,
-        )
-    store.save(profile)
-    if store.get_default() is None:
-        store.set_default(serial.value)
-    print(
-        f"saved {profile.display_name} — later commands need no flags.\n"
-        f"Nothing was contacted, so confirm it is right:\n"
-        f"    whiskerless state"
-    )
     return 0
 
 
@@ -976,41 +1131,6 @@ def _parse_time(value: str) -> int:
     return int(value)
 
 
-def _ask_optional(
-    prompt: str, supplied: str | None, default: str | None, *, unattended: str | None = None
-) -> str | None:
-    """Ask something the robot may legitimately not have.
-
-    Distinct from :func:`_ask`, where an empty answer means "use the default":
-    here it can also mean "there is no such thing", and the two have to be
-    expressible separately or an anonymous broker could never be described once
-    a previous robot had recorded a login.
-
-    ``unattended`` is what to use when there is nobody to ask, and it is
-    deliberately allowed to be narrower than ``default``. A value offered from
-    OTHER robots is a suggestion someone reads and accepts; taking that same
-    suggestion silently, in a script, would write another broker's login into
-    this robot's profile and leave it failing to connect with no sign why.
-    """
-    if supplied is not None:
-        return supplied or None
-    if not sys.stdin.isatty():
-        # A scripted run supplies what it wants on the command line, and an
-        # OPTIONAL question must never be the thing that makes an otherwise
-        # fully-flagged invocation hang or fail. The required questions still
-        # prompt (and still fail loudly on EOF) because there is no sane
-        # substitute for a missing serial.
-        return unattended
-    hint = f" [{default}, or '-' for none]" if default else " (enter to skip)"
-    try:
-        answer = input(f"{prompt.rstrip(': ')}{hint}: ").strip()
-    except EOFError:
-        raise WhiskerlessError("no answer given (input ended)") from None
-    if not answer:
-        return default
-    return None if answer == "-" else answer
-
-
 def _ask(
     prompt: str,
     supplied: str | None,
@@ -1134,12 +1254,9 @@ def build_parser() -> argparse.ArgumentParser:
         # Everything here defaults to None so "not given" stays distinguishable
         # from "given the same value the saved profile holds" — otherwise every
         # flag would silently override the stored profile with argparse defaults.
+        # Only what identifies the robot and this client. The broker, its CA and
+        # this machine's certificate all come from the store — see _link.
         p.add_argument("--serial", help="which robot (default: the only one saved, or `use`)")
-        p.add_argument("--host", help="broker host/IP (overrides the saved profile)")
-        p.add_argument("--port", type=int, default=None)
-        p.add_argument("--ca", help="path to the broker CA PEM (overrides the saved profile)")
-        p.add_argument("--insecure", action="store_true", default=None,
-                       help="skip TLS hostname check (CA still verified)")
         p.add_argument("--client-id", default=None, help="MQTT client-id for THIS tool (not the robot)")
 
     p_status = add_parser("status", "the derived view: what this robot is doing, in plain terms")
@@ -1225,6 +1342,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_prov.add_argument("--wifi-pass", default=None, help="WiFi password (prompted securely if omitted)")
     p_prov.add_argument("--address", help="BLE MAC to target directly (skip the picker)")
     p_prov.add_argument("--scan-timeout", type=float, default=15.0)
+    p_prov.add_argument("--port", type=int, default=None, help="broker port (default 8883)")
+    p_prov.add_argument("--insecure", action="store_true", default=None,
+                        help="skip TLS hostname check (CA still verified)")
+    p_prov.add_argument("--ca-key", help="the matching CA private key, so certificates can be issued")
+    p_prov.add_argument("--client-cert", help="this machine's client certificate (if you issue your own)")
+    p_prov.add_argument("--client-key", help="the matching private key for --client-cert")
+    p_prov.add_argument(
+        "--no-client-cert", action="store_true",
+        help="leave the robot's factory identity alone (broker must allow anonymous)",
+    )
     p_prov.add_argument("--dry-run", action="store_true", help="scan/connect and print steps, write nothing")
     p_prov.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_prov.add_argument("--name", help="what to call this robot afterwards, e.g. 'Upstairs'")
@@ -1232,19 +1359,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_robots = add_parser("robots", "list the robots set up on this machine")
     p_robots.set_defaults(func=_cmd_robots)
-
-    p_adopt = add_parser(
-        "adopt", "save a robot that is already provisioned, without re-provisioning it"
-    )
-    # Not `required`: a bare `whiskerless adopt` prompts, the way `provision`
-    # does. argparse's "the following arguments are required" is the worst answer
-    # available to someone meeting the command for the first time.
-    p_adopt.add_argument("--serial", help="the robot's serial, e.g. LR4C123456")
-    p_adopt.add_argument("--host", help="broker host/IP the robot publishes to")
-    p_adopt.add_argument("--ca", help="path to the broker CA PEM")
-    p_adopt.add_argument("--port", type=int, default=None)
-    p_adopt.add_argument("--name", help="what to call this robot, e.g. 'Upstairs'")
-    p_adopt.set_defaults(func=_cmd_adopt)
 
     p_use = add_parser("use", "choose which robot commands act on by default")
     p_use.add_argument("robot", help="serial of a robot from `whiskerless robots`")
