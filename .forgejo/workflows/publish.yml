@@ -350,43 +350,52 @@ jobs:
             *-rc.*) expected=4 ;;
             *)      expected=8 ;;
           esac
-          echo "waiting for $expected bottle manifest(s)"
-          mkdir -p manifests
-          # Up to 60 minutes: the macOS legs build cryptography from source
-          # twice on a stable tag, on the slowest runners in the fleet.
+          echo "waiting for $expected bottle manifest(s) and the archives they name"
+          # The readiness condition is NOT "the manifests arrived". They are
+          # uploaded in the same pass as the archives and their double-dash names
+          # sort first, so the manifests are normally there while tarballs are
+          # still in flight — a one-shot check would fail on a perfectly healthy
+          # release. And names alone are not enough either: a re-run replaces an
+          # archive in place, so a same-named file from the previous attempt can
+          # be sitting there while the manifest already describes the new one.
+          #
+          # So the loop waits until every manifest is present AND every archive it
+          # names hashes to the sha256 recorded for it. That is exactly the claim
+          # the published formula makes, checked before making it — a formula
+          # whose sha256 does not match the served file fails every install, and
+          # unlike a missing block it does not fall back to building from source.
+          #
+          # Up to 60 minutes: the macOS legs build cryptography from source, twice
+          # on a stable tag, on the slowest runners in the fleet.
+          ready=""
           for _ in $(seq 1 180); do
-            urls=$(curl -sf "$API/releases/tags/$GITHUB_REF_NAME" \
-              | jq -r '.assets[]? | select(.name | endswith(".bottle.json")) | .browser_download_url' || true)
-            [ "$(printf '%s\n' "$urls" | grep -c . || true)" -ge "$expected" ] && break
+            assets=$(curl -sf "$API/releases/tags/$GITHUB_REF_NAME" \
+              | jq -r '.assets[]? | "\(.name)\t\(.browser_download_url)"' || true)
+            urls=$(printf '%s\n' "$assets" | awk -F'\t' '$1 ~ /\.bottle\.json$/ {print $2}')
+            if [ "$(printf '%s\n' "$urls" | grep -c . || true)" -lt "$expected" ]; then
+              sleep 20; continue
+            fi
+            rm -rf manifests && mkdir -p manifests
+            printf '%s\n' "$urls" | while read -r u; do
+              [ -n "$u" ] && curl -sSL -o "manifests/$(basename "$u")" "$u"
+            done
+            ok=true
+            while read -r name want; do
+              [ -n "$name" ] || continue
+              url=$(printf '%s\n' "$assets" | awk -F'\t' -v n="$name" '$1 == n {print $2}')
+              if [ -z "$url" ]; then ok=false; break; fi
+              got=$(curl -sSL "$url" | sha256sum | cut -d' ' -f1)
+              if [ "$got" != "$want" ]; then ok=false; break; fi
+            done < <(jq -r '.[].bottle.tags[] | "\(.filename)\t\(.sha256)"' manifests/*.json)
+            if [ "$ok" = true ]; then ready=1; break; fi
             sleep 20
           done
-          found="$(printf '%s\n' "$urls" | grep -c . || true)"
-          if [ "$found" -lt "$expected" ]; then
-            echo "::error::only ${found}/${expected} bottle manifests after 60m — the tap keeps its unbottled formula"
+          if [ -z "$ready" ]; then
+            echo "::error::the bottles never arrived intact after 60m — the tap keeps its unbottled formula"
             exit 1
           fi
-          printf '%s\n' "$urls" | while read -r u; do
-            [ -n "$u" ] && curl -sSL -o "manifests/$(basename "$u")" "$u"
-          done
           ls -l manifests/
-          # The manifests arriving does not mean the BOTTLES did. They are
-          # uploaded in one pass, and the double-dash manifest names sort ahead of
-          # the single-dash archives — so the count above can be satisfied while a
-          # tarball is still in flight or failed outright. Publishing then gives
-          # the tap a block full of sha256s for files nobody can download, which
-          # is worse than no block at all: Homebrew stops falling back to source
-          # and just fails.
-          assets=$(curl -sf "$API/releases/tags/$GITHUB_REF_NAME" | jq -r '.assets[]?.name')
-          missing=""
-          while read -r want; do
-            [ -n "$want" ] || continue
-            printf '%s\n' "$assets" | grep -Fqx "$want" || missing="$missing $want"
-          done < <(jq -r '.[].bottle.tags[].filename' manifests/*.json)
-          if [ -n "$missing" ]; then
-            echo "::error::the release is missing bottle archives:$missing"
-            exit 1
-          fi
-          echo "every bottle the manifests name is on the release"
+          echo "every bottle the manifests name is present and matches its sha256"
       - name: Re-render the formula with the bottle block and push
         env:
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_TAP_WRITE_PAT }}

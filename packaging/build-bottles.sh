@@ -61,7 +61,12 @@ tapdir="$(brew --repo sisyphusmd/tap)"
 # Anything else produces bottles named for a version whose release will never
 # carry them.
 for _ in $(seq 1 90); do
-  git -C "$tapdir" fetch --quiet origin && git -C "$tapdir" reset --quiet --hard origin/HEAD
+  # `pull --ff-only`, not `reset --hard origin/HEAD`: a Homebrew tap clone does not
+  # reliably carry the origin/HEAD symbolic ref, and resolving it is the kind of
+  # thing that works here and dies on a runner. Failures are swallowed because
+  # this loop is a WAIT — the assertion after it is what has to be strict, and a
+  # transient fetch error should cost one iteration, not the release.
+  git -C "$tapdir" pull --quiet --ff-only >/dev/null 2>&1 || true
   ready=true
   for formula in $formulae; do
     grep -Fq "whiskerless-${pypi_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || ready=false

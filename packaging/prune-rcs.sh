@@ -160,6 +160,36 @@ pkg_tag() { printf 'v%s\n' "$(printf '%s' "$1" | sed -E 's/-[0-9]+$//; s/~rc\./-
 #
 # Getting this backwards is invisible at the API — every call still returns 204 —
 # and shows up only as a user being offered a version that cannot be downloaded.
+# The architectures a registry version actually carries, from its own file list.
+arches_of() {  # arches_of <type> <version>
+  curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 120 -sSf \
+    -H "$PKG_AUTH" "$PKG/$1/$PKG_NAME/$2/files" | jq -r '.[].name' | while read -r n; do
+      case "$1" in
+        debian) n="${n##*_}"; printf '%s\n' "${n%.deb}" ;;
+        rpm)    n="${n%.rpm}"; printf '%s\n' "${n##*.}" ;;
+      esac
+    done | sort -u
+}
+
+# Whether a version is being SERVED from a distribution — read off the published
+# index, because that is the only thing a user's package manager ever sees. The
+# registry listing says a version exists somewhere; it does not say it reached
+# the distribution whose subscribers are about to lose the candidate.
+index_has() {  # index_has <type> <distribution> <arch> <version>
+  case "$1" in
+    debian)
+      curl --max-time 60 -sf "$REG/debian/dists/$2/main/binary-$3/Packages" 2>/dev/null \
+        | grep -Fqx "Version: $4"
+      ;;
+    rpm)
+      # rpm's index is per group rather than per architecture; the arch set is
+      # compared separately, off the file list.
+      curl --max-time 60 -sf "$REG/rpm/$2/repodata/primary.xml.gz" 2>/dev/null \
+        | gunzip -c 2>/dev/null | grep -Fq "ver=\"${4%-*}\""
+      ;;
+  esac
+}
+
 delete_package() {  # delete_package <type> <version>
   local type="$1" version="$2" files arch dist
   case "$type" in
@@ -251,18 +281,38 @@ while read -r tag; do
   #
   # Only the types this candidate actually has are required, so the candidates
   # that predate the repositories still prune on the release check alone.
+  # Existing SOMEWHERE is not the test. The candidate must be replaced everywhere
+  # it is currently being served: same distributions, same architectures. A stable
+  # whose `testing` upload failed while `stable` succeeded still shows up in the
+  # registry listing, and deleting the candidate on that evidence strands exactly
+  # the testers the `testing` distribution exists for.
   missing_stable=""
   for entry in $pkgs; do
-    ptype="${entry%%:*}"
-    found=false
+    ptype="${entry%%:*}"; pversion="${entry#*:}"
+    sversion=""
     while read -r qtype qversion; do
       [ -n "$qversion" ] || continue
-      if [ "$qtype" = "$ptype" ] && [ "$(pkg_tag "$qversion")" = "$stable" ]; then found=true; fi
+      if [ "$qtype" = "$ptype" ] && [ "$(pkg_tag "$qversion")" = "$stable" ]; then sversion="$qversion"; fi
     done < "$work/packages"
-    [ "$found" = true ] || missing_stable="$missing_stable $ptype"
+    if [ -z "$sversion" ]; then
+      missing_stable="$missing_stable $ptype"
+      continue
+    fi
+    for parch in $(arches_of "$ptype" "$pversion"); do
+      arches_of "$ptype" "$sversion" | grep -Fqx "$parch" \
+        || missing_stable="$missing_stable $ptype/$parch"
+      for pdist in testing stable; do
+        if index_has "$ptype" "$pdist" "$parch" "$pversion" \
+          && ! index_has "$ptype" "$pdist" "$parch" "$sversion"; then
+          missing_stable="$missing_stable $ptype/$pdist"
+        fi
+      done
+    done
   done
   if [ -n "$missing_stable" ]; then
-    echo "keep    $tag — $stable is not in the$missing_stable registry yet"
+    # Deduplicated: the checks run per architecture, so one missing distribution
+    # is otherwise reported once for each.
+    echo "keep    $tag — $stable does not yet replace it in:$(printf '%s' "$missing_stable" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/^ */ /')"
     continue
   fi
 
