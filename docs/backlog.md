@@ -476,6 +476,20 @@ says why.
 fakes and one decoded capture, and both suites are green, but the identity write
 has never gone over BLE to a real LR4.
 
+**`0.2.0-rc.25` is a burned number — never reuse it.** Its first cut carried a
+real robot serial in `tests/test_profiles.py`, which reached the PyPI sdist
+before it was caught. PyPI has no delete API and never permits re-uploading a
+version, so `whiskerless==0.2.0rc25` is permanently the contaminated artifact.
+
+The tag was deleted, and that turned out to be the wrong move on its own:
+`packaging/next-version.sh` derives the next candidate from the numeric max of
+existing `v0.2.0-rc.*` tags, so deleting rc.25 made the very next dispatch
+compute rc.25 *again*. That second cut was cancelled before it published
+anything. **The rc.25 tag is therefore deliberately left in place with no
+release attached** — it exists only so the counter advances past a number whose
+PyPI slot can never be replaced. Any future forced-skip of a version needs the
+same treatment: keep the tag, delete the releases.
+
 **The rc comes first, decided 2026-08-16.** An earlier draft of this item called
 the hardware test the gate *before* cutting one, which had it backwards: a
 release candidate is the thing you install in order to run the test.
@@ -496,7 +510,7 @@ nothing is the check.
 
 **State of the two robots as of 2026-08-16:** upstairs is on **Whisker's cloud**
 (left there by the app-onboarding capture); downstairs is on the local broker at
-192.0.2.10, provisioned by an rc build, trusting the OpenBao-backed
+your broker, provisioned by an rc build, trusting the OpenBao-backed
 `LR4 Local Control Root CA`.
 
 #### Test the identity write first — this needs no broker change at all
@@ -506,7 +520,7 @@ that with the **existing** CA means the broker's configuration never changes and
 downstairs is never at risk:
 
 1. Export the `lr4-mqtt-ca` certificate **and key** from OpenBao to the Mac.
-2. `whiskerless setup --host 192.0.2.10 --ca ca.crt --ca-key ca.key` — imports
+2. `whiskerless setup --host <your-broker-ip> --ca ca.crt --ca-key ca.key` — imports
    them, so whiskerless can now issue from the CA the broker already trusts.
 3. Put **upstairs** in pairing mode and `whiskerless provision`. It is on
    Whisker's cloud, so nothing local depends on it.
