@@ -40,6 +40,9 @@ ProgressCallback = Callable[[str], None]
 #: Given the networks the robot can see, return the (ssid, passphrase) to use.
 #: Async because the human is in the loop and the BLE link stays open meanwhile.
 NetworkChooser = Callable[[list["m.WifiNetwork"]], Awaitable[tuple[str, str]]]
+#: Last chance to stop, called once everything to be written is known and before
+#: the first write. Returning False aborts with the robot untouched.
+Confirm = Callable[["ProvisioningConfig"], bool]
 
 # GetStatus poll cadence during the WiFi join verify. An auth failure typically
 # reports within a few seconds; a successful join (through DHCP) in 3-10 s.
@@ -228,6 +231,7 @@ async def provision_robot(
     dry_run: bool = False,
     on_step: ProgressCallback | None = None,
     choose_network: NetworkChooser | None = None,
+    confirm: Confirm | None = None,
 ) -> ProvisioningResult:
     """Re-provision the robot at BLE ``address`` onto your broker.
 
@@ -292,6 +296,13 @@ async def provision_robot(
             config.wifi_ssid, config.wifi_pass = await choose_network(networks)
             if not config.wifi_ssid:
                 raise ProvisioningError("no WiFi network chosen")
+
+        # Everything that will be written is settled by here — including the
+        # network, which could not be known before the BLE link was open. Asking
+        # earlier would have shown a confirmation screen with a blank WiFi row.
+        if confirm is not None and not confirm(config):
+            result.message = "aborted before anything was written"
+            return result
 
         # 1. client-id = serial (must precede the WiFi finalize).
         await _whisker(transport, m.whisker_device_id_set(config.serial), "DEVICE_ID_SET", dry_run)

@@ -41,20 +41,25 @@ Three consequences:
   provisioning writes only the CA it should *trust* — its own client certificate
   and key are Whisker's, are never touched, and are signed by a CA you do not
   have, so you cannot validate them either. A listener that demands a password
-  therefore locks the robot out, and one that demands a client certificate
-  rejects the one it presents. **The robot's listener has to be anonymous.**
+  therefore locks the robot out. A listener demanding a *client certificate* is a
+  different matter: out of the box the robot presents Whisker's factory
+  certificate, which your CA did not sign, so it is refused — but whiskerless can
+  give the robot a certificate of your own instead, and then it is accepted. See
+  [Requiring certificates](#requiring-certificates-instead-recommended).
+
+  **So the listener has to be anonymous unless you let whiskerless issue the
+  robot an identity.** Passwords are out either way.
 
   That is a limit on the *robot's* listener, not on your broker. Any login
   whiskerless or Home Assistant uses is a separate client on a separate,
   authenticated listener — see [below](#keeping-a-separate-authenticated-listener-for-home-assistant),
   which is the recommended shape for exactly this reason.
 
-> **If you cannot give the robot an anonymous listener, you cannot use that broker.**
-> This is the one hard requirement in the whole project. A managed or hosted broker
-> you do not control, or one whose policy forbids anonymous clients outright, has no
-> workaround available from this side: the robot has nothing to authenticate *with*.
-> Run your own Mosquitto for the robot instead — it can be a second listener on the
-> broker you already have, or a second instance on the same box.
+> **A broker you cannot configure is still a problem.** Whether you go anonymous
+> or mutual-TLS, the robot's listener needs settings only its administrator can
+> apply, and it must trust your CA. A managed or hosted broker you do not control
+> is therefore out. Run your own Mosquitto for the robot — a second listener on
+> the broker you already have, or a second instance on the same box.
 
 **Ports are a convention, not a policy.** 1883 and 8883 are the registered ports for
 plain MQTT and MQTT-over-TLS, and that is *all* they mean — neither one implies
@@ -125,6 +130,38 @@ mosquitto_passwd -c /mosquitto/passwd homeassistant
 > block (and `per_listener_settings true`) to your existing config and reload. A
 > message the robot publishes on 8883 is visible to your other clients on 1883
 > because it's the same broker.
+
+## Requiring certificates instead (recommended)
+
+Everything above assumes the robot has only its Whisker factory certificate,
+which your CA did not sign and cannot validate — hence `allow_anonymous true`.
+
+If you let whiskerless issue each robot a certificate (it offers on the first
+`provision`, and needs your CA's private key to do it), that changes: the robot
+presents a certificate **your** CA signed, so the listener can demand one.
+
+```conf
+listener 8883
+allow_anonymous false
+cafile   /mosquitto/certs/ca.crt
+certfile /mosquitto/certs/server.crt
+keyfile  /mosquitto/certs/server.key
+require_certificate true
+use_identity_as_username true
+```
+
+`use_identity_as_username` makes the certificate's common name the MQTT
+username — and whiskerless names each robot's certificate after its serial, so
+the broker log says `LR4C123456` rather than "anonymous".
+
+**Order matters, and getting it wrong locks the robots out.** Provision every
+robot first, confirm each one is talking, and only then flip the listener. A
+robot still holding its factory certificate is refused by `require_certificate
+true` with nothing on the robot to indicate why.
+
+The CLI needs a certificate too, and gets one automatically — whiskerless issues
+this machine an identity the first time it sets up or imports a CA, named
+`whiskerless-<hostname>`.
 
 ## Restrict the robot to its own topics (optional)
 

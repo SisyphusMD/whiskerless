@@ -603,52 +603,48 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     )
 
     mac = await ble.read_device_mac(target.address)
-    # The one screen a first-time user reads carefully, so the values THEY typed
-    # are the ones highlighted — a wrong serial or broker here is the mistake
-    # that provisions cleanly and then never appears anywhere.
-    print()
-    _console.banner("RE-PROVISION — this re-points the robot away from Whisker's cloud")
-    # Firmware that will not answer the device-id read leaves this unset; a
-    # literal "MAC None" beside the address is worse than no MAC at all.
-    mac_note = _console.dim(f"(MAC {mac})") if mac else ""
-    print(f"    robot   {_console.accent(target.address)} {mac_note}".rstrip())
-    print(f"    serial  {_console.accent(config.serial)}")
-    print(f"    broker  {_console.accent(host)}")
-    print(f"    wifi    {_console.accent(ssid)}")
-    print(f"    identity {_console.accent(identity_note)}")
-    print(_console.dim("    reversible — re-onboard the robot in the Whisker app\n"))
-    if not can_issue:
-        # Said plainly and before the confirmation, not buried in a log line
-        # afterwards. Someone who expected mutual TLS and gets an anonymous
-        # listener has a broker standing open, and the only moment that is
-        # cheap to discover is now.
-        _console.banner("NO CA KEY — this robot will keep its Whisker identity")
-        print(
-            "  Nothing was available to sign a certificate with, so the robot's factory\n"
-            "  identity is left untouched and it will present that to your broker.\n\n"
-            "  Your broker's listener MUST therefore accept anonymous clients\n"
-            "  (mosquitto: `allow_anonymous true` with `require_certificate false`).\n"
-            "  A listener that requires client certificates will refuse this robot.\n\n"
-            "  To get a certificate instead, supply a CA key with --ca-key, or let\n"
-            "  whiskerless generate a CA for you.\n"
-        )
-    if args.dry_run:
-        print(_console.dim(
-            "  DRY RUN — the BLE connect, endpoint discovery and reads below are real;\n"
-            "  nothing is written to the robot.\n"
-        ))
-    if not args.yes and not _confirm("Proceed? Type 'yes': "):
-        print("aborted", file=sys.stderr)
-        return 1
+
+    def _confirm_write(settled: ProvisioningConfig) -> bool:
+        """The one screen a first-time user reads carefully.
+
+        Shown only once every value is known — the network is chosen over the
+        open BLE link, so asking any earlier would print a blank WiFi row and ask
+        somebody to approve a thing they had not chosen yet.
+        """
+        print()
+        _console.banner("RE-PROVISION — this re-points the robot away from Whisker's cloud")
+        # Firmware that will not answer the device-id read leaves this unset; a
+        # literal "MAC None" beside the address is worse than no MAC at all.
+        mac_note = _console.dim(f"(MAC {mac})") if mac else ""
+        print(f"    robot   {_console.accent(target.address)} {mac_note}".rstrip())
+        print(f"    serial  {_console.accent(settled.serial)}")
+        print(f"    broker  {_console.accent(settled.host)}")
+        print(f"    wifi    {_console.accent(settled.wifi_ssid)}")
+        print(f"    identity {_console.accent(identity_note)}")
+        print(_console.dim("    reversible — re-onboard the robot in the Whisker app\n"))
+        if not can_issue:
+            _console.banner("NO CA KEY — this robot will keep its Whisker identity")
+            print(
+                "  Nothing was available to sign a certificate with, so the robot's factory\n"
+                "  identity is left untouched and it will present that to your broker.\n\n"
+                "  Your broker's listener MUST therefore accept anonymous clients\n"
+                "  (mosquitto: `allow_anonymous true` with `require_certificate false`).\n"
+                "  A listener that requires client certificates will refuse this robot.\n"
+            )
+        if args.dry_run:
+            print(_console.dim(
+                "  DRY RUN — the BLE connect, endpoint discovery and reads below are real;\n"
+                "  nothing is written to the robot.\n"
+            ))
+        return bool(args.yes) or _confirm("Proceed? Type 'yes': ")
 
     # Numbered rather than bulleted: provisioning is a SEQUENCE whose order is
-    # load-bearing, and when one fails the useful question is which.
+    # load-bearing, and when one step fails the useful question is which.
     #
     # The marker is deliberately NEUTRAL, not a tick. These callbacks carry no
-    # status — some announce work about to happen ("verifying join") and some
-    # warn ("WiFi still connecting") — so a success mark would put a green tick
-    # immediately above a failure, and it would do it precisely when someone is
-    # reading the sequence to find out what went wrong. Success is the closing
+    # status — some announce work about to happen, some warn — so a success mark
+    # would put a green tick immediately above a failure, precisely when someone
+    # is reading the sequence to find out what went wrong. Success is the closing
     # line's job, because only that knows.
     written = 0
 
@@ -660,8 +656,14 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     result = await ble.provision_robot(
         target.address, config, dry_run=args.dry_run, on_step=_step,
         choose_network=lambda networks: _choose_network(networks, wifi_pass),
+        confirm=_confirm_write,
     )
     print()
+    # The abort check comes FIRST: declining a dry run is still a decline, and a
+    # script reading the exit code should not be told it succeeded.
+    if result.message.startswith("aborted"):
+        print(result.message, file=sys.stderr)
+        return 1
     if args.dry_run:
         print(result.message)
         return 0

@@ -31,6 +31,17 @@ your CA  ──signs──▶  broker server cert (SAN = <broker-ip>)
  robot ───────TLS verify────┘   ✔ trusts the broker
 ```
 
+## whiskerless can do all of this for you
+
+The first `whiskerless provision` on a machine offers to generate the CA **and**
+your broker's server certificate, then prints which file goes with which
+mosquitto directive. Everything below is what it does on your behalf — worth
+reading if you want to understand the model, and worth following by hand if you
+would rather keep the CA somewhere whiskerless never sees.
+
+If you already have a CA, pass `--ca` (and `--ca-key` if you want whiskerless to
+issue robot certificates from it), or choose "I already have one" at the prompt.
+
 ## Generate the CA
 
 A long-lived CA (10 years here) so you don't have to revisit the robot often.

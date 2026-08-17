@@ -50,30 +50,59 @@ One guided session, next to the robot, and you never touch it again:
 $ whiskerless provision
 robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
 broker IP (e.g. 192.168.1.10): 192.168.1.10
-path to your CA PEM: ~/certs/ca.crt
-broker username (enter to skip):
-WiFi SSID: MyIoT
-WiFi password for 'MyIoT':
-  remember this in your keychain? [Y/n]:
-  stored as whiskerless / wifi:MyIoT — `whiskerless forget` clears it
+
+  NO CERTIFICATE AUTHORITY ON THIS MACHINE
+
+  Your robot has to be told which broker certificate to trust, and that
+  means a certificate authority. There is no way around it.
+
+    1  Generate one for me (recommended)
+    2  I already have one — I will give you the files
+
+  Which? [1]:
+✓ generating a certificate authority — done
+
+  Your broker needs three files:
+
+    ~/whiskerless/ca/ca.crt          →  cafile
+    ~/whiskerless/broker/server.crt  →  certfile
+    ~/whiskerless/broker/server.key  →  keyfile
+
+  Back up ~/whiskerless somewhere safe. It holds the key that signs
+  certificates for your robots.
+
 ⠹ scanning for robots over BLE (3s)
+
+  networks the robot can see, strongest first:
+
+    0  MyIoT                            * ||||  ch 6
+    1  HomeNet                       * ||||  ch 1
+    2  Guest                              ||    ch 11
+    -  not listed (hidden network)
+
+select [0-2, or -]: 0
+WiFi password for 'MyIoT':
 
   RE-PROVISION — this re-points the robot away from Whisker's cloud
     robot   F8:B3:B7:xx:xx:xx (MAC f8:b3:b7:xx:xx:xx)
     serial  LR4C123456
     broker  192.168.1.10
     wifi    MyIoT
+    identity issued by your CA, CN=LR4C123456
     reversible — re-onboard the robot in the Whisker app
 
 Proceed? Type 'yes': yes
-   1 ▸ connected (MTU=500, cert chunk=460)
-   2 ▸ DEVICE_ID_SET LR4C123456
-   3 ▸ WiFi SetConfig+Apply ssid=MyIoT; verifying join (≤20s)
-   4 ▸ WiFi connected (ip=192.168.1.42)
-   5 ▸ endpoints: host=192.168.1.10 sub=prod/LR4/LR4C123456/command
-   6 ▸ CERT_AWS_ROOT_CERT written (1310 bytes)
-   7 ▸ APPLY_CONFIG committed
-   8 ▸ DEVICE_REBOOT
+   1 ▸ connected to F8:B3:B7:xx:xx:xx (MTU=500, cert chunk=100)
+   2 ▸ device MAC: f8:b3:b7:xx:xx:xx
+   3 ▸ DEVICE_ID_SET LR4C123456
+   4 ▸ WiFi SetConfig+Apply ssid=MyIoT; verifying join (≤20s)
+   5 ▸ WiFi connected (ip=192.168.1.42)
+   6 ▸ endpoints: host=192.168.1.10 sub=prod/LR4/LR4C123456/command
+   7 ▸ CERT_AWS_ROOT_CERT written (1188 bytes)
+   8 ▸ CERT_DEVICE_CERT written (1493 bytes)
+   9 ▸ CERT_DEVICE_KEY written (1704 bytes)
+  10 ▸ APPLY_CONFIG committed
+  11 ▸ DEVICE_REBOOT
 
 reprovisioned; the robot should reconnect MQTT to 192.168.1.10
 
@@ -81,8 +110,8 @@ reprovisioned; the robot should reconnect MQTT to 192.168.1.10
     whiskerless state
 ```
 
-(Abridged; a second robot is even shorter — every prompt offers the setup the
-saved robots already share, so pressing enter accepts it.)
+(A second robot is much shorter — the broker and the certificate authority are
+already settled, so it asks only for the serial and which network to join.)
 
 The robot reboots, joins *your* broker, and from then on every check and every
 button press is local:
@@ -233,38 +262,35 @@ touching anything. When it finishes, the robot reboots onto your broker;
 `whiskerless state` is the proof. Add `--dry-run` to watch the whole flow with
 nothing written.
 
-That's the only step that needs details. whiskerless remembers the robot, your
-broker and your CA under `~/.whiskerless`, so everything afterwards is bare.
-Provisioning a second robot? Each later `provision` offers the broker, CA and
-WiFi your saved robots already share — press enter to accept each.
+That's the only step that needs details. whiskerless remembers your broker, your
+CA and each robot under `~/whiskerless`, so everything afterwards is bare.
+Provisioning a second robot only asks for its serial and which network it should
+join — the broker and the CA are already settled.
 
-> **The robot never logs in, and whiskerless might.** The Litter-Robot has no
-> field for a broker username or password — it was built for AWS IoT, which
-> authenticates by certificate — so the listener it connects to has to be
-> anonymous. Any credentials here are **whiskerless's own**, for the separate
-> authenticated listener your other clients use;
-> [docs/setup/mqtt-broker.md](docs/setup/mqtt-broker.md) sets up both on one
-> broker. On the minimal single-listener setup there is no login at all, and
-> whiskerless never asks for one: the prompt appears only if a username is
-> configured.
+> **whiskerless sets up the certificates for you.** The robot cannot send a
+> username or a password — it was built for AWS IoT, which authenticates by
+> certificate — so certificates are the only authentication it has. The first
+> `provision` on a machine offers to create a certificate authority, your
+> broker's server certificate, and an identity for this machine. Press enter and
+> it is done; it then prints the three files your broker needs:
 >
-> **No secret is written to `~/.whiskerless`.** Passwords go in your OS keychain
-> or nowhere. When there is a login, whiskerless asks for the password the first
-> time and offers to remember it — say yes and no command needs it again, say no
-> and it asks each run. The WiFi passphrase works the same
-> way, keyed by network, so re-provisioning a second robot onto the same WiFi
-> doesn't ask twice. `provision` also saves the broker *username* with the robot,
-> so later commands need no `--username`; the flag still overrides it. The
-> robot's factory certificate and private key are neither read nor written.
-> Files are still owner-only (0600), since a broker address and username are
-> worth keeping to yourself.
+> ```
+>   ~/whiskerless/ca/ca.crt          →  cafile
+>   ~/whiskerless/broker/server.crt  →  certfile
+>   ~/whiskerless/broker/server.key  →  keyfile
+> ```
 >
-> `whiskerless forget <robot>` clears the keychain entries no other saved robot
-> is still using. `WHISKERLESS_NO_KEYRING=1` turns storage off entirely, and
-> `WHISKERLESS_PASSWORD` / `--password` still work for scripts — though a flag
-> lands in your shell history and in `ps`, so prefer the env var of the two.
-> On Linux the keychain needs `pip install 'whiskerless[keyring]'`; everywhere
-> else it is built in. Without it, whiskerless simply asks every time.
+> **Already have a CA?** Choose "I already have one" and give it the files, or
+> pass `--ca`. Add `--ca-key` and whiskerless will issue each robot a certificate
+> of its own; leave it out and the robot keeps its Whisker certificate, which
+> works — but then your broker's listener has to accept anonymous clients, and
+> provisioning says so before it writes anything.
+>
+> **Back up `~/whiskerless`.** It holds the key that signs certificates for your
+> robots. Losing it does not stop robots that already work; it costs you the
+> ability to add or re-provision one without visiting every robot you own. The
+> WiFi passphrase is never stored anywhere — it is asked for while you are
+> standing at the robot, and that is the only time it is needed.
 
 ## Everyday use
 
@@ -345,8 +371,9 @@ the tools:
 - **.deb / .rpm**: `sudo apt remove whiskerless` / `sudo dnf remove whiskerless`.
 - **PyPI**: `pipx uninstall whiskerless` / `pip uninstall whiskerless`.
 
-Saved robot profiles stay in `~/.whiskerless` (they hold no secrets); delete
-that folder to remove them. To put a robot back on the Whisker cloud, re-onboard
+Your certificate authority and saved robots stay in `~/whiskerless`; delete that
+folder to remove them. Keep a backup first if you ever want to add a robot
+without re-provisioning every one you own. To put a robot back on the Whisker cloud, re-onboard
 it in the Whisker app — the round trip is proven and documented in
 [docs/recovery.md](docs/recovery.md).
 

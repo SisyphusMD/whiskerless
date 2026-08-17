@@ -23,6 +23,23 @@ on ESP 1.4.4 is behind much of what's below. Protocol detail lives in
 
 Worth reading before you upgrade; the rest of the list is safe to skim.
 
+- **Broker usernames and passwords are gone.** `--username`, `--password` and
+  `WHISKERLESS_PASSWORD` no longer exist, and neither does the profile field. The
+  robot cannot send credentials at all, so running two authentication schemes
+  against one broker only bought complexity — everything identifies by
+  certificate now, the CLI included.
+- **One broker per machine.** The broker, its port and its CA moved off each
+  robot and into the store, because every robot in a house talks to the same one.
+  `--host`, `--port`, `--ca` and `--insecure` are gone from the everyday commands
+  and live on `provision`, which is where the broker is established. A genuinely
+  separate broker is a separate store: point `WHISKERLESS_HOME` at it.
+- **`whiskerless adopt` is removed.** With the broker no longer per-robot it only
+  recorded a serial, and it could never give the robot the certificate it now
+  needs. Re-provision instead.
+- **The store moved to `~/whiskerless`** — no leading dot, so the folder you are
+  told to back up is one you can find. Your existing `~/.whiskerless` is moved
+  there automatically the first time you run anything.
+
 - **`binary_sensor.<robot>_waste_drawer_removed` → `sensor.<robot>_waste_drawer_last_moved`.**
   The robot reports *that* the drawer moved and never which way, so a binary
   sensor was claiming more than the hardware says.
@@ -59,25 +76,31 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   join prints the robot's IP and moves on early. Firmware that stays silent gets
   the old wait.
 - **The CLI remembers your robots.** `provision` saves the serial, broker and CA
-  under `~/.whiskerless`; later commands run bare, and every flag still overrides.
+  under `~/whiskerless`; later commands run bare.
   **`robots`, `use` and `forget`** list, pick and drop them — damaged profiles are
   shown as such and can still be removed.
 - **A second robot inherits the saved setup** — each prompt offers what your
   robots already share, so you type only the serial and the WiFi password.
-- **Passwords go in your OS keychain, or nowhere.** Nothing secret is written to
-  `~/.whiskerless`, and needing an environment variable to run an ordinary command
-  was a chore the tool invented — the workaround people reached for was
-  `--password`, the one place the secret genuinely leaks. The CLI now asks once,
-  offers to remember, and never asks again. The WiFi passphrase is stored the same
-  way, keyed by network rather than by robot, so provisioning a second robot onto
-  the same WiFi doesn't ask twice; `forget` clears the entries no other saved robot
-  is still using. `WHISKERLESS_NO_KEYRING=1` opts out, and `WHISKERLESS_PASSWORD`
-  and `--password` still work for scripts. Baseline on macOS and Windows; on Linux
-  it is the `keyring` extra, because there it drags in a compiled stack to reach a
-  Secret Service a headless box does not run — without it, whiskerless asks every
-  time, exactly as before. `provision` also now asks for the broker *username*
-  (optional, offered from what your other robots use), so an authenticated broker
-  no longer needs `--username` on every later command.
+- **whiskerless runs a certificate authority for you.** The Litter-Robot cannot
+  send a username or a password — its firmware has no field for one, because it
+  was built for AWS IoT, which authenticates clients by certificate. So
+  certificates are the only authentication it has, and the first `provision` on a
+  machine offers to set the whole thing up: a CA, your broker's server
+  certificate, and an identity for this machine. Press enter and it is done. It
+  prints the three files your broker needs and which mosquitto directive each one
+  goes with. Already have a CA? Point at it with `--ca`, add `--ca-key` if you
+  want certificates issued here, and it is copied into place under our names.
+- **Each robot gets its own certificate, signed by your CA**, written over BLE
+  exactly the way the Whisker app writes its own — same order, same 100-byte
+  chunks, same single apply. Its common name is the robot's serial, so
+  `use_identity_as_username` makes your broker log the robot by name. Nothing
+  keeps a copy: the robot holds the only one, and a replacement is one
+  re-provision away.
+- **Your broker can stop accepting anonymous clients.** That was never a
+  workaround for a missing feature — it was the only option when the robot had no
+  identity of its own to present. Now it has one. Without a CA key to sign with,
+  provisioning says so loudly and leaves the robot's factory certificate alone,
+  which is exactly how whiskerless worked before.
 - **Litter level as a percentage** — self-calibrating over time, or pinned
   instantly by one button press with the globe filled the way you consider full.
 - **LitterHopper support**: connected, fill gauge, and an out-of-litter alert the

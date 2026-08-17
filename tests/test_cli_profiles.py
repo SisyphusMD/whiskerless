@@ -707,9 +707,26 @@ async def _fake_mac(*_: object, **__: object) -> str:
 
 
 def _fake_provision(*, success: bool) -> Any:
-    async def _provision(*_: object, **kwargs: object) -> Any:
+    """Stands in for the BLE work, but still drives the callbacks the CLI passes.
+
+    The confirmation screen and the network chooser both live inside
+    `provision_robot` now — the network cannot be known until the BLE link is
+    open — so a fake that ignored them would silently skip the very output these
+    tests assert on.
+    """
+
+    async def _provision(*_a: object, **kwargs: object) -> Any:
         from whiskerless.ble.provision import ProvisioningResult
 
+        config = _a[1] if len(_a) > 1 else kwargs.get("config")
+        chooser = kwargs.get("choose_network")
+        if chooser is not None and config is not None and not config.wifi_ssid:
+            config.wifi_ssid, config.wifi_pass = await chooser([])  # type: ignore[operator]
+        confirm = kwargs.get("confirm")
+        if confirm is not None and config is not None and not confirm(config):  # type: ignore[operator]
+            return ProvisioningResult(
+                success=False, message="aborted before anything was written"
+            )
         return ProvisioningResult(
             success=success, message="done" if success else "failed"
         )
@@ -1305,3 +1322,24 @@ def test_a_broker_flag_applies_without_restating_the_host(
     saved = store.load_broker()
     assert (saved.port, saved.verify_hostname) == expected
     assert saved.host == "192.0.2.10"
+
+
+def test_declining_a_dry_run_is_still_a_decline(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A script reading the exit code must not be told a run it declined
+    succeeded, dry or not."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("builtins.input", lambda _p="": "no"),
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ):
+        code = main(["provision", "--serial", "LR4C123456", "--host-ip", "192.0.2.10",
+                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--dry-run"])
+    assert code == 1
+    assert "aborted" in capsys.readouterr().err

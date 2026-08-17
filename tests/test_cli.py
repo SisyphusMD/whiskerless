@@ -394,6 +394,15 @@ def _ble(robots: list[Any], *, result: Any = None, mac: str | None = "aa:bb") ->
         return mac
 
     async def _provision(*_a: object, on_step: Any = None, **_k: object) -> Any:
+        # The confirmation screen lives inside provision_robot now, because the
+        # network is only known once the BLE link is open. A fake that skipped it
+        # would make every prompt test pass without a prompt.
+        confirm = _k.get("confirm")
+        config = _a[1] if len(_a) > 1 else None
+        if confirm is not None and config is not None and not confirm(config):
+            return SimpleNamespace(
+                success=False, message="aborted before anything was written", steps=[]
+            )
         if on_step:
             on_step("connected")
         return outcome

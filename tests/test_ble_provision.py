@@ -671,3 +671,39 @@ def test_a_mismatched_identity_is_refused_before_anything_is_written() -> None:
     one, other = pki.issue_client(ca, "LR4C123456"), pki.issue_client(ca, "LR4C999999")
     with pytest.raises(ProvisioningError, match="not a pair"):
         _config(client_cert=one.cert_pem, client_key=other.key_pem)
+
+
+async def test_declining_at_the_confirmation_writes_nothing() -> None:
+    """The confirmation fires once everything is settled — including the network,
+    which cannot be known before the BLE link is open — and before the first
+    write, so backing out leaves the robot untouched."""
+    robot = FakeRobot()
+    with _bleak(robot):
+        result = await provision_robot("AA:BB", _config(), confirm=lambda _c: False)
+    assert not result.success
+    assert result.message == "aborted before anything was written"
+    assert not [p for ep, p in robot.requests if ep == m.EP_MQTT], "no config written"
+
+
+async def test_the_confirmation_sees_the_network_that_was_chosen() -> None:
+    """Asking any earlier showed a blank WiFi row and asked somebody to approve a
+    thing they had not chosen yet."""
+    robot = FakeRobot()
+    seen: list[str] = []
+
+    async def chooser(_networks: list[m.WifiNetwork]) -> tuple[str, str]:
+        return "PickedFromList", "pw"
+
+    def confirm(config: Any) -> bool:
+        seen.append(config.wifi_ssid)
+        return True
+
+    async def fake_scan(_transport: Any) -> list[m.WifiNetwork]:
+        return []
+
+    with _bleak(robot), patch("whiskerless.ble.provision.scan_networks", fake_scan):
+        await provision_robot(
+            "AA:BB", _config(wifi_ssid="", wifi_pass=""),
+            choose_network=chooser, confirm=confirm,
+        )
+    assert seen == ["PickedFromList"]
