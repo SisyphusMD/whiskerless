@@ -62,6 +62,8 @@ jobs:
             [registry."docker.io"]
               mirrors = ["dockerhub-mirror.nas.bryantserver.com"]
       - name: Build the Linux binaries, .debs and .rpms (buildx, both arches)
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
         run: |
           set -euo pipefail
           export VERSION ARCH
@@ -95,14 +97,38 @@ jobs:
           # ARCH is nfpm's internal arch (amd64/arm64) for BOTH formats — nfpm maps it to the .deb
           # arch and to the .rpm arch (x86_64/aarch64). nfpm is arch-independent, so it runs
           # natively here via docker create+cp rather than a bind mount.
+          # The signing key is copied in SEPARATELY, never into /w. `docker cp . :/w`
+          # sends the whole workspace, so a key sitting in the repo tree would be
+          # one stray `git add` from being committed — and would land in anything
+          # else built from that directory.
+          : "${GPG_SIGNING_KEY:?the signing key secret is missing — refusing to publish unsigned packages}"
+          KEYFILE="$(mktemp)"; chmod 600 "$KEYFILE"
+          printf '%s' "$GPG_SIGNING_KEY" > "$KEYFILE"
+          # Containers are tracked and force-removed on EXIT, not just on success.
+          # `set -e` skips the trailing `docker rm` when a build fails, and this
+          # runner's Docker host is reused — so a failure would leave the private
+          # key sitting in a stopped container, recoverable by anyone with access.
+          # Generated here, never committed: a checked-in .gz drifts from its
+          # source the first time the page is edited and nobody regenerates it.
+          # -n so the timestamp does not make the package non-reproducible.
+          gzip -9 -n -c packaging/whiskerless.1 > packaging/whiskerless.1.gz
+          CIDS=""
+          cleanup() {
+            rm -f "$KEYFILE"
+            for c in $CIDS; do docker rm -f "$c" >/dev/null 2>&1 || true; done
+          }
+          trap cleanup EXIT
           nfpm_pkg() { # nfpm_pkg <deb|rpm> <output-filename>
             local fmt="$1" name="$2" cid
-            cid=$(docker create -e ARCH -e VERSION -w /w "$NFPM" \
+            cid=$(docker create -e ARCH -e VERSION \
+              -e NFPM_SIGNING_KEY_FILE=/signing-key.asc -w /w "$NFPM" \
               package -p "$fmt" -f packaging/nfpm.yaml -t "/w/$name")
+            CIDS="$CIDS $cid"
             docker cp . "$cid":/w
+            docker cp "$KEYFILE" "$cid":/signing-key.asc
             docker start -a "$cid"
             docker cp "$cid":"/w/$name" .
-            docker rm "$cid" >/dev/null
+            docker rm -f "$cid" >/dev/null
           }
           build_arch() { # build_arch <docker-platform> <deb-arch> <rpm-arch> <binary-suffix> <builder-image>
             local plat="$1" rpmarch="$3" suffix="$4" builder="$5"

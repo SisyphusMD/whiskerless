@@ -1,0 +1,159 @@
+.\" Man page for whiskerless. Debian policy expects one for anything in
+.\" /usr/bin, and lintian flags its absence — which matters now that the
+.\" packages go into a repository rather than only onto a release page.
+.\"
+.\" A repo invariant (tests/test_repo_invariants.py) asserts every CLI
+.\" subcommand appears here, so the two cannot drift silently.
+.TH WHISKERLESS 1 "2026-08-17" "whiskerless" "User Commands"
+.SH NAME
+whiskerless \- fully-local MQTT control for the Whisker Litter-Robot 4
+.SH SYNOPSIS
+.B whiskerless
+.RI [ options ]
+.I command
+.RI [ args ]
+.SH DESCRIPTION
+.B whiskerless
+re-points a Whisker Litter\-Robot 4 away from Whisker's cloud and onto an MQTT
+broker you control, then reads its telemetry and changes its settings over that
+broker. The robot keeps its firmware; nothing is opened, soldered or reflashed,
+and re-onboarding it in the Whisker app puts it back.
+.PP
+The robot cannot send a username or a password \(em its firmware has no field
+for one, because it was built for AWS IoT, which authenticates clients by
+certificate. Certificates are therefore the only authentication available, and
+.B whiskerless
+runs a small certificate authority on your behalf to provide them.
+.SH SETUP COMMANDS
+.TP
+.B setup
+Prepare this machine: the broker it talks to, and the certificates for it.
+Offers to create a certificate authority, issues your broker's server
+certificate and this machine's own identity, and prints the three files to
+install on the broker. Run once, before any robot.
+.TP
+.B provision
+Re-provision a robot onto your broker over Bluetooth. Prompts for the serial,
+lists the networks the robot can see, and writes your CA, an identity for the
+robot, and your broker's address into its flash. Refuses on a machine that has
+not been through
+.BR setup .
+.TP
+.B backup " [\fIpath\fR]"
+Save this machine's setup \(em the certificate authority, the broker and every
+robot profile \(em to one file. Offers to encrypt it. The CA private key is the
+only thing here that cannot be regenerated.
+.TP
+.B restore " \fIfile\fR"
+Put a backup back. Refuses to replace an existing setup without
+.BR \-\-force ,
+and names the robots that would stop trusting your broker if it did.
+.SH EVERYDAY COMMANDS
+.TP
+.B status
+The derived view: what this robot is doing, in plain terms.
+.TP
+.B state
+Request and decode the full state document.
+.TP
+.B monitor
+Watch state and activity as they arrive. Read\-only.
+.TP
+.B set " \fIname\fR \fIvalue\fR"
+Change a setting. Writes, then reads back to confirm it committed.
+.TP
+.B calibrate " full|empty"
+Record what a full (or empty) globe looks like on this robot, so the litter
+percentage means something.
+.SH PANEL COMMANDS
+These emit the same code the physical panel does, so the firmware's pinch,
+cat\-detect and bonnet interlocks apply exactly as they do to a finger.
+.TP
+.B clean-cycle
+Run a clean cycle. Turns the globe.
+.TP
+.B panel-reset
+Press Reset \(em acknowledge a full\-drawer alarm, or release a stalled cycle.
+.TP
+.B empty-cycle
+Empty the globe into the waste drawer. Costs a litter refill.
+.TP
+.B wifi-toggle
+Toggle the robot's WiFi. It may not come back: a robot with WiFi off has left
+the network, and only a physical press returns it.
+.TP
+.B power
+Toggle robot power. Same warning \(em nothing over MQTT can undo it.
+.SH SAVED ROBOTS
+.TP
+.B robots
+List the robots set up on this machine. Damaged profiles are shown as such.
+.TP
+.B use " \fIserial\fR"
+Choose which robot the bare commands act on.
+.TP
+.B forget " \fIserial\fR"
+Remove a robot's saved details from this machine. The robot keeps running.
+.SH PROTOCOL COMMANDS
+.TP
+.B read " \fIregister\fR"
+Type\-1 read of a register.
+.TP
+.B send " \fIcode\fR"
+Send a raw
+.I 0xTTRRVVVV
+code. Passes through the safety guard, which refuses brick and reset\-class
+opcodes unconditionally \(em there is no override flag.
+.SH OPTIONS
+.TP
+.B \-v ", " \-\-verbose
+Increase logging;
+.B \-vv
+for debug.
+.TP
+.B \-\-debug
+Show the full traceback on failure, for bug reports.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH FILES
+.TP
+.I ~/whiskerless/
+Everything this machine knows: the certificate authority, the one broker it
+talks to, this machine's client identity, and one directory per robot. Deliberately
+not hidden, because it holds a key you are told to back up.
+.TP
+.I ~/whiskerless/ca/ca.key
+The private key that signs certificates for your robots. Losing it does not stop
+robots that already work; it costs you the ability to add or re\-provision one
+without visiting every robot you own.
+.SH ENVIRONMENT
+.TP
+.B WHISKERLESS_HOME
+Use a different store. A genuinely separate broker is a separate store.
+.TP
+.B WHISKERLESS_BACKUP_PASSWORD
+Passphrase for
+.B backup
+and
+.BR restore ,
+for unattended use.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+An error, reported as one line rather than a traceback.
+.TP
+.B 2
+Refused by the safety guard.
+.TP
+.B 130
+Interrupted.
+.SH SEE ALSO
+Full documentation, the protocol reference and the Home Assistant integration:
+.UR https://github.com/SisyphusMD/whiskerless
+.UE
+.SH AUTHOR
+Whiskerless <whiskerless@bryantserver.com>

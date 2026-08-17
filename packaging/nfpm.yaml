@@ -16,7 +16,7 @@ version: ${VERSION}
 version_schema: none
 section: net
 priority: optional
-maintainer: Cody Bryant <cody@casabryant.com>
+maintainer: Whiskerless <whiskerless@bryantserver.com>
 description: |
   Fully-local MQTT control and telemetry for the Whisker Litter-Robot 4.
   Includes the one-time BLE provisioner that re-points a robot at your own
@@ -33,7 +33,46 @@ contents:
     dst: /usr/share/doc/whiskerless/LICENSE
     file_info:
       mode: 0644
+  # Debian policy expects a man page for anything in /usr/bin, and lintian flags
+  # its absence — which starts mattering the moment these go into a repository.
+  #
+  # Shipped PRE-COMPRESSED. dpkg does not gzip man pages; debhelper does that at
+  # build time and nfpm is not debhelper, so an uncompressed page here trades the
+  # missing-manual-page warning for `uncompressed-manual-page`. rpm is happy with
+  # a .gz either way.
+  - src: ./packaging/whiskerless.1.gz
+    dst: /usr/share/man/man1/whiskerless.1.gz
+    file_info:
+      mode: 0644
   - src: ./README.md
     dst: /usr/share/doc/whiskerless/README.md
     file_info:
       mode: 0644
+
+# GPG signing. The key is RSA 4096 with no expiry and no passphrase — matching
+# what every major third-party repo ships (Docker, PostgreSQL and NodeSource all
+# use non-expiring RSA 4096; HashiCorp chose RSA as recently as 2023). RSA rather
+# than Ed25519 because `rpm` on older enterprise distros cannot verify EdDSA, and
+# an unverifiable signature is worse than none — it turns a security feature into
+# an install failure. No passphrase because it would live beside the key in every
+# store that holds it, protecting nothing while pretending otherwise.
+#
+# What each format actually does with this, because the two differ and the
+# difference decides whether any of it matters:
+#
+#   rpm  — verifies the PACKAGE's own signature against imported keys. `rpm -K`
+#          fails without ours and passes with it (checked). This is the real
+#          mechanism and the reason the key exists.
+#   deb  — apt authenticates the repository's signed InRelease/Release metadata,
+#          NOT the per-package `_gpgorigin` this produces. Verifying that member
+#          needs `debsig-verify` with a policy almost nobody deploys, and
+#          `dpkg -i` ignores signatures entirely. So on the apt side this is
+#          belt-and-braces; whoever publishes the repository signs the metadata.
+#
+# NFPM_SIGNING_KEY_FILE is written by the workflow from the Forgejo org secret.
+deb:
+  signature:
+    key_file: ${NFPM_SIGNING_KEY_FILE}
+rpm:
+  signature:
+    key_file: ${NFPM_SIGNING_KEY_FILE}

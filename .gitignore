@@ -32,3 +32,7 @@ secrets.yaml
 
 # OS
 .DS_Store
+
+# Generated from packaging/whiskerless.1 at build time, never committed —
+# a checked-in copy drifts the first time the page is edited.
+packaging/whiskerless.1.gz

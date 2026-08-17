@@ -343,3 +343,37 @@ def test_there_are_workflows_to_check() -> None:
 def test_every_workflow_parses_without_duplicate_keys(path: Path) -> None:
     loaded = yaml.load(path.read_text(encoding="utf-8"), Loader=_NoDuplicates)
     assert isinstance(loaded, dict) and loaded.get("jobs"), f"{path.name} declares no jobs"
+
+
+# --- the man page cannot silently fall behind the CLI -----------------------------
+def test_the_man_page_documents_every_subcommand() -> None:
+    """A man page is only worth shipping if it is true. Adding a subcommand and
+    forgetting the page is invisible in review — and once the packages are in a
+    repository, lintian checks the page EXISTS but never that it is complete."""
+    from whiskerless.cli import build_parser
+
+    page = (REPO / "packaging" / "whiskerless.1").read_text(encoding="utf-8")
+    sub = next(a for a in build_parser()._actions if getattr(a, "_name_parser_map", None))
+    # Only .TP entries count as documentation. A bare `.B backup` mention in
+    # ENVIRONMENT is a cross-reference, not an entry — matching on those meant
+    # deleting a command's actual entry still passed.
+    entries = set()
+    lines = page.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() == ".TP" and index + 1 < len(lines):
+            following = lines[index + 1]
+            if following.startswith(".B "):
+                entries.add(following[3:].split()[0].strip('"'))
+    missing = sorted(set(sub.choices) - entries)
+    assert not missing, f"no .TP entry in whiskerless.1 for: {missing}"
+
+
+def test_the_man_page_is_installed_by_the_packages() -> None:
+    """Writing it is half the job; lintian cares that it reaches
+    /usr/share/man/man1."""
+    recipe = yaml.safe_load((REPO / "packaging" / "nfpm.yaml").read_text(encoding="utf-8"))
+    destinations = {entry["dst"] for entry in recipe["contents"]}
+    assert "/usr/share/man/man1/whiskerless.1.gz" in destinations, (
+        "Debian policy requires man pages compressed; dpkg does not gzip them and "
+        "nfpm is not debhelper, so the recipe must install the .gz"
+    )
