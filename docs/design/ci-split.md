@@ -73,7 +73,20 @@ in the repository's history comes from `.forgejo/workflows/` — but the guard c
 nothing and is what makes a workflow safe to read from either side, including one
 whose actions Forgejo could not resolve.
 
-The two install matrices share the filename `install-matrix.yml`, and Forgejo's
-API reports the BARE filename as `workflow_id`. `check-rc-install-matrix.sh`
-therefore also matches on the run-name, which is why each half's `run-name:` names
-its own platform.
+## How the gate finds a matrix run
+
+`check-rc-install-matrix.sh` requires BOTH halves to be green before a candidate
+can be promoted, and each forge records "which tag did this test" differently:
+
+- **GitHub** — a tag push sets `head_branch`; a re-dispatch (from main, on purpose,
+  so a fix to the scripts is what re-runs) records the tag in the **run-name**.
+  Hence `run-name: Install matrix (macOS) …`.
+- **Forgejo** — a tag push sets `prettyref`. Forgejo **ignores `run-name`**: a
+  dispatched run's title is just the workflow `name:`, and a tag push's is the
+  commit message, so neither says which tag was tested. It does evaluate **job**
+  names, so the tag lives in the `wait` job's name and the gate reads
+  `runs/{id}/jobs` to recognise a re-dispatch.
+
+Both matrices are also called `install-matrix.yml`, and Forgejo reports the bare
+filename as `workflow_id`, so the Forgejo lookup additionally excludes anything
+whose title names the macOS half.

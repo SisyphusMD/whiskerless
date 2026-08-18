@@ -100,33 +100,42 @@ case "$macos" in
 esac
 
 # --- the Linux half, on Forgejo -----------------------------------------------------
-# Read unauthenticated: this instance serves run status publicly, so the gate
-# keeps holding no credential. Forgejo's run objects carry neither head_branch nor
-# a separate conclusion — `prettyref` is the ref, `status` is already the verdict,
-# and `title` is the run-name, which is the only thing a dispatch from main
-# records about which tag it tested.
-# Scoped to this workflow server-side. The repo-wide listing is every run there
-# has ever been, and Forgejo ignores `limit` today — which is exactly the kind of
-# undocumented generosity a promotion gate should not depend on. `workflow_id`
-# bounds it to install-matrix runs, of which there is about one per tag.
+# Read unauthenticated: this instance serves run status publicly, so the gate keeps
+# holding no credential. Scoped to this workflow server-side — the repo-wide listing
+# is every run there has ever been, and Forgejo ignores `limit` today, which is the
+# kind of undocumented generosity a promotion gate should not depend on.
 #
-# Not also filtered by `ref`: that wants the full `refs/tags/...` form and would
-# drop a re-dispatch, which runs from main and names its tag only in the run-name.
-fj_runs="$(curl --max-time 30 --retry 3 --retry-connrefused --retry-max-time 120 -sSf \
-  "$FORGE/api/v1/repos/$REPO/actions/runs?workflow_id=install-matrix.yml")" || {
+# Forgejo's run objects carry neither head_branch nor a separate conclusion:
+# `prettyref` is the ref, `status` is already the verdict. And it IGNORES
+# `run-name`, so a run's title is the workflow name (dispatch) or the commit
+# message (tag push) — neither says which tag was tested. A tag push is still
+# recognisable by its ref; a re-dispatch runs from main and is recognisable only by
+# the JOB name, which Forgejo does evaluate and which carries the tag on purpose.
+fj_url="$FORGE/api/v1/repos/$REPO/actions/runs?workflow_id=install-matrix.yml"
+fj_runs="$(curl --max-time 30 --retry 3 --retry-connrefused --retry-max-time 120 -sSf "$fj_url")" || {
   echo "::error::could not read the Linux install-matrix runs — refusing to guess" >&2; exit 1; }
-# The `(macOS)` exclusion is belt and braces. `workflow_id` is the BARE filename,
-# and both halves are called install-matrix.yml — so if this instance ever served
-# runs for .github/workflows too (it serves none today, across every run in the
-# repo's history), the twin would match this tag as well and `last` could answer
-# with a run whose jobs were all skipped. The run-names are what tell them apart.
-linux="$(printf '%s' "$fj_runs" | jq -r --arg t "$TAG" --arg rn "Install matrix (Linux) $TAG" '
-  [.workflow_runs[]
-   | select(.workflow_id == "install-matrix.yml")
-   | select(.title | contains("(macOS)") | not)
-   | select(.prettyref == $t or .title == $rn)]
-  | sort_by(.started // .created) | last
-  | if . == null then "missing" else .status end')"
+
+linux="missing"
+# Newest first, so the most recent attempt for this tag is the one that counts.
+for run in $(printf '%s' "$fj_runs" | jq -r '.workflow_runs | sort_by(.started // .created) | reverse | .[] | "\(.id):\(.prettyref):\(.status)"'); do
+  run_id="${run%%:*}"; rest="${run#*:}"; ref="${rest%%:*}"; status="${rest#*:}"
+  if [ "$ref" != "$TAG" ]; then
+    # Not a push for this tag — the only other thing it can be is a dispatch that
+    # named the tag in its job names.
+    #
+    # A failure to READ those names is not the same as "unrelated", and treating
+    # it as such is a fail-open with teeth: this loop would walk past a newer
+    # re-dispatch it could not classify and qualify the release on an OLDER green
+    # tag-push run. So a run that cannot be classified stops the gate.
+    jobs="$(curl --max-time 30 --retry 3 --retry-connrefused -sSf \
+      "$FORGE/api/v1/repos/$REPO/actions/runs/$run_id/jobs")" || {
+      echo "::error::could not read the jobs of Forgejo run $run_id, so it cannot be told apart from a re-dispatch for $TAG — refusing to promote on an unclassified run" >&2
+      exit 1; }
+    printf '%s' "$jobs" | jq -e --arg t "$TAG" 'any(.[]?; .name | contains($t))' >/dev/null 2>&1 || continue
+  fi
+  linux="$status"
+  break
+done
 case "$linux" in
   success) echo "  Linux  $TAG passed" ;;
   *)       failures="$failures Linux=$linux" ;;

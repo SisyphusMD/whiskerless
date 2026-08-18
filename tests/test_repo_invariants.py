@@ -457,18 +457,30 @@ def test_the_candidate_gate_checks_out_the_tags_it_reasons_about() -> None:
 
 
 def test_both_install_matrices_record_which_tag_they_tested() -> None:
-    """A tag push carries the tag in head_branch (GitHub) or prettyref (Forgejo);
-    a DISPATCH is made from main on purpose and carries it nowhere else. The gate
-    matches on these run-names, so a re-dispatched green matrix is only findable
-    while they are here — and the two halves must not answer to the same name."""
+    """Each forge keeps it in a different place, and the gate reads both.
+
+    A tag PUSH is self-describing (head_branch on GitHub, prettyref on Forgejo). A
+    re-dispatch is not: it runs from main on purpose, so a fix to these scripts is
+    what re-runs rather than the copies frozen at the tag. GitHub records the
+    subject in the run-name; Forgejo IGNORES run-name entirely — a dispatched run's
+    title is just the workflow name — so there it has to live in a job name, which
+    Forgejo does evaluate. Lose either and a re-dispatched green matrix becomes
+    unfindable, and the gate blocks a release that is fine."""
     gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
-    for path, half in ((INSTALL_MATRIX, "macOS"), (INSTALL_MATRIX_LINUX, "Linux")):
-        run_name = yaml.safe_load(path.read_text(encoding="utf-8")).get("run-name", "")
-        assert run_name.startswith(f"Install matrix ({half})"), f"{path.name}: {run_name}"
-        assert "inputs.tag" in run_name and "github.ref_name" in run_name, run_name
-        assert f"Install matrix ({half}) $TAG" in gate, (
-            f"the gate no longer matches the {half} run-name it is given"
-        )
+
+    macos = yaml.safe_load(INSTALL_MATRIX.read_text(encoding="utf-8"))
+    run_name = macos.get("run-name", "")
+    assert run_name.startswith("Install matrix (macOS)"), run_name
+    assert "inputs.tag" in run_name and "github.ref_name" in run_name, run_name
+    assert "Install matrix (macOS) $TAG" in gate, "the gate stopped matching the macOS run-name"
+
+    linux = yaml.safe_load(INSTALL_MATRIX_LINUX.read_text(encoding="utf-8"))
+    assert "run-name" not in linux, "Forgejo ignores run-name; it would be a decoy here"
+    wait_name = linux["jobs"]["wait"]["name"]
+    assert "inputs.tag" in wait_name and "github.ref_name" in wait_name, wait_name
+    assert "/jobs" in gate and "contains($t)" in gate, (
+        "the gate stopped reading job names, which is the only place Forgejo keeps the tag"
+    )
 
 
 def test_a_stable_cut_requires_both_halves_of_the_install_matrix() -> None:
@@ -478,7 +490,10 @@ def test_a_stable_cut_requires_both_halves_of_the_install_matrix() -> None:
     gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
     assert "api.github.com" in gate, "the gate stopped asking GitHub about the macOS half"
     assert "forgejo.bryantserver.com" in gate, "the gate stopped asking Forgejo about the Linux half"
-    assert 'select(.workflow_id == "install-matrix.yml")' in gate
+    # Scoped server-side on both forges. Unscoped, each asks for a page of every
+    # run there has ever been and stops containing the one it wants.
+    assert "actions/workflows/install-matrix.yml/runs" in gate, "the macOS query lost its scope"
+    assert "workflow_id=install-matrix.yml" in gate, "the Linux query lost its scope"
 
 
 def test_every_install_channel_is_actually_run() -> None:

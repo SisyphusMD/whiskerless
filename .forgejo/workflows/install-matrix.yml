@@ -16,7 +16,11 @@ name: Install matrix (Linux)
 # What it gates is the next STABLE cut: release.yml's `candidate-gate` requires
 # this AND the macOS matrix to be green before a candidate can be promoted.
 
-run-name: Install matrix (Linux) ${{ inputs.tag || github.ref_name }}
+# No `run-name:` here, deliberately: Forgejo ignores it — a dispatched run's title
+# is just the workflow name, and a tag push's is the commit message, so neither
+# records WHICH tag was tested. The tag goes in a JOB name instead, which Forgejo
+# does evaluate, and that is what `check-rc-install-matrix.sh` reads to recognise
+# a re-dispatch (dispatches run from main, so their ref says `main`).
 
 on:
   push:
@@ -39,7 +43,8 @@ jobs:
   # One poll for both legs. Each waiting separately would spend twice the API
   # budget to learn the same fact.
   wait:
-    name: Wait for the release to be installable
+    # The tag is in the name because this is the only place Forgejo keeps it.
+    name: Wait for ${{ inputs.tag || github.ref_name }} to be installable
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
