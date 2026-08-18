@@ -27,7 +27,7 @@ command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 2; }
 
 # renovate: datasource=docker depName=eclipse-mosquitto
 BROKER_IMAGE="eclipse-mosquitto:2.0.22"
-SERIAL="LR4C000042"
+SERIAL="LR4C000000"
 PORT=18883
 
 fails=0
