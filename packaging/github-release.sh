@@ -58,7 +58,21 @@ for f in "$@"; do
   gh_name="${name//\~/.}"
   old=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -sf "${auth[@]}" "$api/releases/$id/assets" 2>/dev/null \
     | jq -r --arg n "$gh_name" '.[] | select(.name==$n) | .id' || true)
-  [ -n "$old" ] && curl --max-time 300 -sf "${auth[@]}" -X DELETE "$api/releases/$id/assets/$old" >/dev/null || true
+  if [ -n "$old" ]; then
+    # `/releases/assets/{asset_id}` — the asset id is global, and GitHub's delete
+    # endpoint does NOT take the release id, even though the LIST endpoint beside
+    # it does. Addressed the natural-looking way it 404s, the replace becomes a
+    # silent no-op, and the re-upload then hits 422 already_exists.
+    #
+    # Checked rather than swallowed: a delete that fails stops the upload that
+    # would 422 anyway, and names the asset.
+    code=$(curl --max-time 300 -sS -o /dev/null -w '%{http_code}' "${auth[@]}" \
+      -X DELETE "$api/releases/assets/$old")
+    case "$code" in
+      20*|404) ;;
+      *) echo "could not replace the existing $gh_name on GitHub (DELETE returned $code)" >&2; exit 1 ;;
+    esac
+  fi
   curl --max-time 300 -sSf -H "Authorization: Bearer $token" -H "Content-Type: application/octet-stream" \
     --data-binary @"$f" "https://uploads.github.com/repos/$repo/releases/$id/assets?name=$gh_name" >/dev/null
   echo "  uploaded $gh_name → GitHub"

@@ -110,9 +110,17 @@ done
 # because the failure this guards against — a release that looks published and
 # serves nothing — is invisible until a user runs `apt install`.
 #
-# rpm reports its version with the release suffix (`0.2.0~rc.28-1`) while debian
-# reports it bare, so each is queried on its own terms rather than a shared
-# guess.
+# Each format is asked on its own terms, because they differ twice over:
+#
+#   version   rpm reports the release suffix (`0.2.0~rc.28-1`), debian is bare.
+#   filename  rpm is RENAMED on ingest to its canonical
+#             `<name>-<version>-<release>.<arch>.rpm`, so what was uploaded as
+#             `whiskerless-0.2.0~rc.28.x86_64.rpm` is stored as
+#             `whiskerless-0.2.0~rc.28-1.x86_64.rpm`. debian keeps the name it was
+#             given, so comparing the local basename passes there and fails here.
+#
+# The `-1` comes from the same place as the version suffix above, so if nfpm's
+# release ever moves, both move together.
 verify() {  # verify <type> <registry-version> <expected-file>...
   local type="$1" rv="$2" listed missing=""
   shift 2
@@ -142,8 +150,10 @@ if [ -n "$debs" ]; then
   verify debian "$version" $debs || failed="$failed debian-verify"
 fi
 if [ -n "$rpms" ]; then
+  # whiskerless-0.2.0~rc.28.x86_64.rpm -> whiskerless-0.2.0~rc.28-1.x86_64.rpm
+  stored_rpms=$(printf '%s' "$rpms" | tr ' ' '\n' | sed -E '/^$/d; s/\.([^.]+)\.rpm$/-1.\1.rpm/' | tr '\n' ' ')
   # shellcheck disable=SC2086
-  verify rpm "$version-1" $rpms || failed="$failed rpm-verify"
+  verify rpm "$version-1" $stored_rpms || failed="$failed rpm-verify"
 fi
 
 if [ -n "$failed" ]; then
