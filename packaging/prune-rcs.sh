@@ -175,19 +175,35 @@ arches_of() {  # arches_of <type> <version>
 # index, because that is the only thing a user's package manager ever sees. The
 # registry listing says a version exists somewhere; it does not say it reached
 # the distribution whose subscribers are about to lose the candidate.
+# 0 = being served here, 1 = definitely not, 2 = could not tell. The third state
+# is the point: `-sf` alone collapses "the index says no" and "the index did not
+# load" into the same answer, and this guard's whole job is to keep a candidate
+# alive until its replacement is demonstrably serving. A timeout must read as
+# keep, never as prune.
 index_has() {  # index_has <type> <distribution> <arch> <version>
+  local url code body="$work/index-body"
   case "$1" in
-    debian)
-      curl --max-time 60 -sf "$REG/debian/dists/$2/main/binary-$3/Packages" 2>/dev/null \
-        | grep -Fqx "Version: $4"
-      ;;
-    rpm)
-      # rpm's index is per group rather than per architecture; the arch set is
-      # compared separately, off the file list.
-      curl --max-time 60 -sf "$REG/rpm/$2/repodata/primary.xml.gz" 2>/dev/null \
-        | gunzip -c 2>/dev/null | grep -Fq "ver=\"${4%-*}\""
-      ;;
+    debian) url="$REG/debian/dists/$2/main/binary-$3/Packages" ;;
+    rpm)    url="$REG/rpm/$2/repodata/primary.xml.gz" ;;
+    *) return 2 ;;
   esac
+  code=$(curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 120 \
+    -sS -o "$body" -w '%{http_code}' "$url") || return 2
+  case "$code" in
+    404) return 1 ;;   # nothing has ever been published to that index
+    200) ;;
+    *) return 2 ;;
+  esac
+  if [ "$1" = rpm ]; then
+    # Decompressed to a file first, deliberately. Piping gunzip into grep loses
+    # gunzip's failure — a truncated or corrupt index would come back as "no
+    # match", which the caller reads as "definitely not served here" and treats
+    # as licence to delete. An index it cannot read has to stay unknown.
+    gunzip -c "$body" > "$body.xml" 2>/dev/null || return 2
+    grep -Fq "ver=\"${4%-*}\"" "$body.xml"
+  else
+    grep -Fqx "Version: $4" "$body"
+  fi
 }
 
 delete_package() {  # delete_package <type> <version>
@@ -298,12 +314,37 @@ while read -r tag; do
       missing_stable="$missing_stable $ptype"
       continue
     fi
-    for parch in $(arches_of "$ptype" "$pversion"); do
-      arches_of "$ptype" "$sversion" | grep -Fqx "$parch" \
+    # Captured, not iterated inline: bash discards the exit status of a command
+    # substitution in a `for` word list, so a failed lookup would silently
+    # produce an empty list, skip every check below, and license the delete this
+    # guard exists to prevent.
+    if ! parches=$(arches_of "$ptype" "$pversion"); then
+      echo "::error::could not list $ptype files for $PKG_NAME $pversion"
+      exit 1
+    fi
+    if ! sarches=$(arches_of "$ptype" "$sversion"); then
+      echo "::error::could not list $ptype files for $PKG_NAME $sversion"
+      exit 1
+    fi
+    if [ -z "$parches" ]; then
+      missing_stable="$missing_stable $ptype/no-files"
+      continue
+    fi
+    for parch in $parches; do
+      printf '%s\n' "$sarches" | grep -Fqx "$parch" \
         || missing_stable="$missing_stable $ptype/$parch"
       for pdist in testing stable; do
-        if index_has "$ptype" "$pdist" "$parch" "$pversion" \
-          && ! index_has "$ptype" "$pdist" "$parch" "$sversion"; then
+        if index_has "$ptype" "$pdist" "$parch" "$pversion"; then
+          here=0
+        else
+          here=$?
+        fi
+        [ "$here" -eq 1 ] && continue          # candidate not served here
+        if [ "$here" -eq 2 ]; then
+          missing_stable="$missing_stable $ptype/$pdist(unreadable)"
+          continue
+        fi
+        if index_has "$ptype" "$pdist" "$parch" "$sversion"; then :; else
           missing_stable="$missing_stable $ptype/$pdist"
         fi
       done

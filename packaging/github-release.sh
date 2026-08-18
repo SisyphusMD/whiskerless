@@ -47,10 +47,19 @@ echo "GitHub release id: $id"
 
 for f in "$@"; do
   name=$(basename "$f")
+  # GitHub rewrites `~` to `.` in the STORED asset name, and enforces uniqueness
+  # on that rewritten name. Looking up the local spelling therefore never matches
+  # an asset already there, the delete is skipped, and the re-upload comes back
+  # 422 already_exists — which under `set -e` aborts this script partway through
+  # its asset list. That is the difference between "re-running a partial publish
+  # completes it" (which this workflow is dispatchable in order to do) and a
+  # re-run that replaces the raw binaries and then dies before SHA256SUMS,
+  # leaving a checksum file that does not describe the binaries beside it.
+  gh_name="${name//\~/.}"
   old=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -sf "${auth[@]}" "$api/releases/$id/assets" 2>/dev/null \
-    | jq -r ".[] | select(.name==\"$name\") | .id" || true)
+    | jq -r --arg n "$gh_name" '.[] | select(.name==$n) | .id' || true)
   [ -n "$old" ] && curl --max-time 300 -sf "${auth[@]}" -X DELETE "$api/releases/$id/assets/$old" >/dev/null || true
   curl --max-time 300 -sSf -H "Authorization: Bearer $token" -H "Content-Type: application/octet-stream" \
-    --data-binary @"$f" "https://uploads.github.com/repos/$repo/releases/$id/assets?name=$name" >/dev/null
-  echo "  uploaded $name → GitHub"
+    --data-binary @"$f" "https://uploads.github.com/repos/$repo/releases/$id/assets?name=$gh_name" >/dev/null
+  echo "  uploaded $gh_name → GitHub"
 done

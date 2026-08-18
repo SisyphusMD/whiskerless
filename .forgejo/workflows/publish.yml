@@ -84,6 +84,7 @@ jobs:
             [registry."docker.io"]
               mirrors = ["dockerhub-mirror.nas.bryantserver.com"]
       - name: Build the Linux binaries, .debs and .rpms (buildx, both arches)
+        id: build
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
         run: |
@@ -253,17 +254,24 @@ jobs:
             exit 1
           fi
       - name: Publish the .deb/.rpm into the apt/dnf repositories
-        # Runs even when a release upload failed. The repository is a fourth
-        # destination with its own failure modes, and #76's lesson was exactly
-        # this: a job that publishes to independent places must not let the
-        # first failure skip the rest.
+        # Runs even when a release UPLOAD failed — the repository is a fourth
+        # destination with its own failure modes, and #76's lesson was that a job
+        # publishing to independent places must not let the first failure skip
+        # the rest.
+        #
+        # But NOT when the build failed, which `!cancelled()` alone would allow.
+        # The .deb/.rpm this uploads are that step's output, and it builds amd64
+        # fully before starting arm64 and smoke-tests nothing until both are
+        # done — so an arm64 failure leaves two amd64 packages on disk that no
+        # smoke test ever installed. Uploading those publishes a half-architecture
+        # release to every apt and dnf subscriber, and reports success doing it.
         #
         # A SEPARATE token from the release PAT: Forgejo scopes the package
         # registry on its own, and `write:repository` — everything the release
         # helpers need — cannot upload a package. Checked before writing this:
         # the release token carries only `write:repository`, so it would have
         # 403d here.
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           set -euo pipefail
           chmod +x packaging/publish-registry.sh

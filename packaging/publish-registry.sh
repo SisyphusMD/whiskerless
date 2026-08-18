@@ -48,6 +48,36 @@ trap 'rm -f "$body"' EXIT
 version="${tag#v}"
 version="${version/-rc./~rc.}"
 
+# A repository is not a release page: whatever lands here is what `apt install`
+# and `dnf install` hand people, immediately, with no way to tell that the set is
+# short. So the COMPLETE set is required before anything is uploaded — every
+# architecture, both formats — rather than trusting the caller to pass it.
+#
+# The workflow builds amd64 fully before it starts arm64 and smoke-tests neither
+# until both are done, so "some of the packages exist" is a real state on disk
+# after a failed build, not a hypothetical.
+expected_files() {
+  printf '%s\n' \
+    "whiskerless_${version}_amd64.deb" \
+    "whiskerless_${version}_arm64.deb" \
+    "whiskerless-${version}.x86_64.rpm" \
+    "whiskerless-${version}.aarch64.rpm"
+}
+given=""
+for pkg in "$@"; do given="$given $(basename "$pkg")"; done
+short=""
+while read -r want; do
+  case " $given " in
+    *" $want "*) ;;
+    *) short="$short $want" ;;
+  esac
+done < <(expected_files)
+if [ -n "$short" ]; then
+  echo "::error::refusing to publish a partial package set for $tag — missing:$short" >&2
+  echo "  given:$given" >&2
+  exit 1
+fi
+
 upload() {  # upload <file> <url>
   local code
   code=$(curl --max-time 300 -sS -o "$body" -w '%{http_code}' -X PUT \
