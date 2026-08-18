@@ -1317,27 +1317,20 @@ def test_an_imported_ca_also_gives_this_machine_an_identity(
     assert store.has_client(), "the CLI can identify itself too"
 
 
-@pytest.mark.parametrize(
-    ("flags", "expected"),
-    [
-        (["--port", "1884"], (1884, True)),
-        (["--insecure"], (8883, False)),
-    ],
-)
-def test_a_broker_flag_applies_without_restating_the_host(
-    store: ProfileStore, flags: list[str], expected: tuple[int, bool]
+@pytest.mark.parametrize("flag", [["--port", "1884"], ["--insecure"]])
+def test_setup_refuses_to_point_the_cli_where_the_robot_cannot_follow(
+    store: ProfileStore, flag: list[str]
 ) -> None:
-    """--port alone must not be ignored, and --host-ip alone must not silently
-    reset a port somebody chose."""
-    from whiskerless import pki
-    from whiskerless.profiles import Broker
+    """Both are gone, and being gone is the feature.
 
-    store.save_broker(Broker(host="192.0.2.10"))
-    store.save_ca(pki.generate_ca())
-    assert _flag_run(store, *flags) == 0
-    saved = store.load_broker()
-    assert (saved.port, saved.verify_hostname) == expected
-    assert saved.host == "192.0.2.10"
+    The robot's port is a compile-time constant with no provisioning field, and
+    the robot verifies the broker's name — so either flag could only ever aim the
+    CLI at something the robot is not using. Accepting them again silently would
+    reintroduce a split nobody would notice until a command went to the wrong
+    listener."""
+    with pytest.raises(SystemExit) as exc:
+        main(["setup", "--host", "192.0.2.10", *flag])
+    assert exc.value.code != 0
 
 
 def test_declining_a_dry_run_is_still_a_decline(
@@ -1362,28 +1355,16 @@ def test_declining_a_dry_run_is_still_a_decline(
     assert "aborted" in capsys.readouterr().err
 
 
-def test_rerunning_setup_keeps_a_deliberate_insecure_setting(
+def test_rerunning_setup_keeps_the_saved_host_without_being_asked(
     store: ProfileStore, tmp_path: Path
 ) -> None:
-    """An omitted flag means "leave it alone", not "back to the default" — a
-    broker whose certificate does not match its address would start failing."""
-    cert, key = _ca_files(tmp_path)
-    assert _setup_run("--insecure", "--ca", cert, "--ca-key", key) == 0
-    assert store.load_broker().verify_hostname is False
-    assert _setup_run() == 0
-    assert store.load_broker().verify_hostname is False
-
-
-def test_setup_can_change_a_port_without_restating_the_host(
-    store: ProfileStore, tmp_path: Path
-) -> None:
-    """And without prompting: a scripted run cannot answer a question."""
+    """A scripted run cannot answer a question, so a re-run with nothing new must
+    fall back to what is saved rather than prompting for a host it already has."""
     cert, key = _ca_files(tmp_path)
     assert _setup_run("--ca", cert, "--ca-key", key) == 0
     with patch("whiskerless.cli.sys.stdin.isatty", lambda: False):
-        assert main(["setup", "--port", "1884"]) == 0
-    saved = store.load_broker()
-    assert (saved.host, saved.port) == ("192.0.2.10", 1884)
+        assert main(["setup"]) == 0
+    assert store.load_broker().host == "192.0.2.10"
 
 
 def test_setup_asks_for_the_broker_when_there_is_nothing_saved(
@@ -1436,15 +1417,15 @@ def test_moving_the_broker_reissues_its_certificate(
 
 
 def test_the_same_broker_keeps_the_certificate_it_already_has(store: ProfileStore) -> None:
-    """Re-running setup to change a port must not churn a certificate somebody
-    has already installed on their broker."""
+    """Re-running setup must not churn a certificate somebody has already
+    installed on their broker."""
     with (
         patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
         patch("builtins.input", lambda _p="": ""),
     ):
         assert main(["setup", "--host", "192.0.2.10"]) == 0
     before = (store.broker_dir / "server.crt").read_text()
-    assert main(["setup", "--host", "192.0.2.10", "--port", "9883"]) == 0
+    assert main(["setup", "--host", "192.0.2.10"]) == 0
     assert (store.broker_dir / "server.crt").read_text() == before
 
 

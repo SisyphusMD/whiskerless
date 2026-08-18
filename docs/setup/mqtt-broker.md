@@ -32,8 +32,9 @@ Three consequences:
 - **The broker must listen on 8883.** The port is not provisionable and not
   configurable: it is a compile-time constant in the firmware, loaded at exactly one
   place, and 443 and 1883 appear nowhere in the image. Only the *host* is written
-  during provisioning. (whiskerless's own `--port` is unrelated — that is the CLI's
-  connection to your broker, not the robot's.)
+  during provisioning — and the CLI has no port of its own either, for the same
+  reason: a whiskerless pointed at another listener would not be pointed at the
+  robot.
 - **The robot cannot log in with a username and password.** There is no field for
   one anywhere: not in the provisioning schema, not among the NVS keys the
   provisioning component persists, and not as a string in the firmware. It was built

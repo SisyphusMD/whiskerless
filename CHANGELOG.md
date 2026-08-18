@@ -18,9 +18,12 @@ is behind much of the hopper work. Protocol detail lives in
 
 - **Broker usernames and passwords are gone** — `--username`, `--password` and
   `WHISKERLESS_PASSWORD`. Everything authenticates by certificate now.
-- **One broker per machine.** `--host`, `--port`, `--ca` and `--insecure` moved off
-  the everyday commands onto `setup`. A separate broker is a separate store: point
-  `WHISKERLESS_HOME` at it.
+- **One broker per machine.** `--host` and `--ca` moved off the everyday commands
+  onto `setup`. A separate broker is a separate store: point `WHISKERLESS_HOME` at
+  it.
+- **`--port` and `--insecure` are gone.** The robot's port is fixed in its firmware
+  and it always checks the broker's name, so both could only point the CLI somewhere
+  the robot cannot follow. A saved port is ignored, not an error.
 - **`whiskerless adopt` is removed.** Re-provision instead.
 - **The store moved to `~/whiskerless`.** Your old `~/.whiskerless` is moved there
   on first run.

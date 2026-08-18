@@ -139,15 +139,22 @@ class Archive:
     def ca_cert_pem(self) -> str | None:
         return self.text("ca/ca.crt")
 
-    def broker(self) -> tuple[str, int] | None:
+    def broker(self) -> str | None:
+        """The broker host this backup was taken from.
+
+        The host and nothing else, matching the store: a `port` in an archive
+        written before the field was dropped describes a listener nothing will
+        connect to after restoring, and reading it made an unusable one hide the
+        broker completely rather than merely being wrong.
+        """
         raw = self.text("broker.json")
         if raw is None:
             return None
         try:
-            parsed = json.loads(raw)
-            return str(parsed["host"]), int(parsed.get("port", 8883))
+            host = json.loads(raw)["host"]
         except (ValueError, TypeError, KeyError):
             return None
+        return str(host) if host else None
 
     def robots(self) -> tuple[str, ...]:
         return tuple(

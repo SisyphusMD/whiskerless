@@ -116,11 +116,13 @@ port-forward where the SNI no longer matches the cert SAN):
 - **Home Assistant** reaches the broker through *its own* MQTT integration —
   configure that integration's TLS/CA there (Whiskerless itself takes no broker
   details; it discovers the robot over HA's MQTT connection).
-- **CLI:** `whiskerless setup --insecure` skips only the hostname match (the CA
-  is still verified) when you reach the broker by IP/tunnel. It is a property of
-  the broker, recorded once, not a per-command flag.
-
-For a normal same-subnet setup with a matching IP SAN, leave verification on.
+- **The CLI** verifies the same things the robot does, and has no flag to stop.
+  It connects to the host in your store, and `setup` guarantees that host is what
+  the broker's certificate names — so there is nothing left for a skip flag to
+  rescue. Reaching the broker at some *other* address (a tunnel, a port-forward)
+  is not something to wave through: the robot will be reaching it at the
+  provisioned address, and a certificate that does not name that address fails
+  every handshake the robot attempts.
 
 ## Keeping the CA
 

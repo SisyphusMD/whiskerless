@@ -57,7 +57,7 @@ def test_everything_that_went_in_comes_back_out(store: Path, tmp_path: Path) -> 
 def test_a_password_round_trips_too(store: Path) -> None:
     sealed = backup.create(store, password="hunter2")
     assert backup.is_encrypted(sealed)
-    assert backup.read(sealed, password="hunter2").broker() == ("192.0.2.10", 8883)
+    assert backup.read(sealed, password="hunter2").broker() == "192.0.2.10"
 
 
 def test_a_plain_archive_is_an_ordinary_tarball(store: Path) -> None:
@@ -125,10 +125,18 @@ def test_a_missing_layout_marker_reads_as_pre_versioning(store: Path) -> None:
     assert backup.read(backup.create(store)).layout_version() == 0
 
 
-@pytest.mark.parametrize("broker", ['{"port": 1}', "not json", "[]", '{"host": "x", "port": "?"}'])
+@pytest.mark.parametrize("broker", ['{"port": 1}', "not json", "[]", '{"host": ""}'])
 def test_an_unreadable_broker_reads_as_none(store: Path, broker: str) -> None:
     (store / "broker.json").write_text(broker)
     assert backup.read(backup.create(store)).broker() is None
+
+
+def test_a_backup_from_before_the_port_was_dropped_still_shows_its_broker(store: Path) -> None:
+    """The old field is not merely stale, it was load-bearing for the wrong
+    answer: an unusable port made `int()` raise and hid a perfectly good host, so
+    a restore preview showed no broker at all."""
+    (store / "broker.json").write_text('{"host": "192.0.2.10", "port": "?"}')
+    assert backup.read(backup.create(store)).broker() == "192.0.2.10"
 
 
 def test_a_missing_broker_reads_as_none(store: Path) -> None:

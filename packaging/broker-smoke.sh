@@ -28,7 +28,11 @@ command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 2; }
 # renovate: datasource=docker depName=eclipse-mosquitto
 BROKER_IMAGE="eclipse-mosquitto:2.0.22"
 SERIAL="LR4C000000"
-PORT=18883
+# 8883, because that is the only port there is. The robot's port is a
+# compile-time constant in its firmware and the CLI has no flag to move off it,
+# so a smoke on some convenient high port would be testing a configuration
+# nothing can actually be in.
+PORT=8883
 
 fails=0
 pass() { printf '  ok    %s\n' "$1"; }
@@ -52,7 +56,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout "$ca/ca.key" -out "$ca/ca.crt"
 store="$work/store"
 # 127.0.0.1 rather than a name: the certificate has to carry whatever the client
 # will verify, and this is the address the CLI is about to connect to.
-if WHISKERLESS_HOME="$store" "$CLI" setup --host 127.0.0.1 --port "$PORT" \
+if WHISKERLESS_HOME="$store" "$CLI" setup --host 127.0.0.1 \
      --ca "$ca/ca.crt" --ca-key "$ca/ca.key" </dev/null >/dev/null 2>&1; then
   pass "whiskerless issued the broker's certificate and this machine's identity"
 else

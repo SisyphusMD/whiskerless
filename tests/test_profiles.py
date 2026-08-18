@@ -364,9 +364,18 @@ def test_from_env_accepts_a_bare_tilde_override(tmp_path: Path) -> None:
 
 # --- the one broker -----------------------------------------------------------
 def test_a_broker_round_trips(store: ProfileStore) -> None:
-    store.save_broker(Broker(host="192.0.2.10", port=1884, verify_hostname=False))
-    saved = store.load_broker()
-    assert (saved.host, saved.port, saved.verify_hostname) == ("192.0.2.10", 1884, False)
+    store.save_broker(Broker(host="192.0.2.10"))
+    assert store.load_broker().host == "192.0.2.10"
+
+
+def test_a_broker_is_only_ever_a_host(store: ProfileStore) -> None:
+    """Anything else is a way to point the CLI where the robot cannot follow: the
+    port is a compile-time constant in the firmware and hostname verification is
+    what the robot itself does."""
+    store.save_broker(Broker(host="192.0.2.10"))
+    assert json.loads(store.broker_path.read_text(encoding="utf-8")) == {"host": "192.0.2.10"}
+    settings = store.load_broker().settings()
+    assert (settings.port, settings.verify_hostname) == (8883, True)
 
 
 def test_a_machine_with_no_broker_says_how_to_get_one(store: ProfileStore) -> None:
@@ -399,14 +408,25 @@ def test_a_broker_without_a_usable_host_is_damage(store: ProfileStore, host: obj
         store.load_broker()
 
 
-def test_a_hand_edited_port_is_damage_not_a_crash(store: ProfileStore) -> None:
-    """Every caller speaks ProfileError; a bare ValueError here took them all down."""
+def test_a_store_written_before_the_port_was_dropped_still_opens(store: ProfileStore) -> None:
+    """Refusing to open a store over a key that no longer means anything would
+    strand the one thing in it that cannot be regenerated — the CA key."""
     store.save_broker(Broker(host="192.0.2.10"))
     store.broker_path.write_text(
-        json.dumps({"host": "192.0.2.10", "port": "eight-thousand"}), encoding="utf-8"
+        json.dumps({"host": "192.0.2.10", "port": 1884, "verify_hostname": False}),
+        encoding="utf-8",
     )
-    with pytest.raises(ProfileError, match="unusable port"):
-        store.load_broker()
+    settings = store.load_broker().settings()
+    assert (settings.host, settings.port, settings.verify_hostname) == ("192.0.2.10", 8883, True)
+
+
+def test_reopening_such_a_store_rewrites_it_host_only(store: ProfileStore) -> None:
+    store.broker_path.parent.mkdir(parents=True, exist_ok=True)
+    store.broker_path.write_text(
+        json.dumps({"host": "192.0.2.10", "port": 1884}), encoding="utf-8"
+    )
+    store.save_broker(store.load_broker())
+    assert json.loads(store.broker_path.read_text(encoding="utf-8")) == {"host": "192.0.2.10"}
 
 
 def test_settings_carry_the_ca_and_this_machines_identity(store: ProfileStore) -> None:
@@ -503,7 +523,7 @@ def test_a_pre_layout_store_keeps_its_broker_and_its_ca(tmp_path: Path) -> None:
 
     store = ProfileStore.from_env({"HOME": str(tmp_path)})
     broker = store.load_broker()
-    assert (broker.host, broker.port) == ("192.0.2.10", 8883)
+    assert broker.host == "192.0.2.10"
     assert store.has_ca_cert(), "the certificate the robots already trust"
     assert store.ca_path.read_text() == CA
     assert not store.has_ca(), "no key came with it, so nothing can be issued here"
@@ -619,7 +639,7 @@ def test_a_legacy_profile_of_the_wrong_shape_does_not_break_every_command(
     assert store.ca_path.read_text() == CA, "the CA still came across"
 
 
-def test_a_legacy_port_that_is_not_a_number_falls_back(tmp_path: Path) -> None:
+def test_a_legacy_profile_with_an_unusable_port_still_hoists(tmp_path: Path) -> None:
     from whiskerless.profiles import LEGACY_SUBDIR
 
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
@@ -627,4 +647,6 @@ def test_a_legacy_port_that_is_not_a_number_falls_back(tmp_path: Path) -> None:
     (robot / "profile.json").write_text(
         json.dumps({"serial": "LR4C654321", "host": "192.0.2.10", "port": "eight"})
     )
-    assert ProfileStore.from_env({"HOME": str(tmp_path)}).load_broker().port == 8883
+    # The port it carried was never usable and is no longer read at all; what has
+    # to survive the hoist is the host, because the CA travels with it.
+    assert ProfileStore.from_env({"HOME": str(tmp_path)}).load_broker().host == "192.0.2.10"

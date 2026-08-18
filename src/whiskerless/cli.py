@@ -522,18 +522,7 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
         )
     else:
         host = _ask("broker IP (e.g. 192.168.1.10): ", None, _check_host)
-    # Each setting falls back to what is already saved, not to the literal
-    # default: re-running plain `setup` must not quietly re-enable hostname
-    # verification for a broker somebody deliberately set --insecure.
-    broker = Broker(
-        host=host,
-        port=args.port or (saved.port if saved else DEFAULT_TLS_PORT),
-        verify_hostname=(
-            not args.insecure
-            if args.insecure is not None
-            else (saved.verify_hostname if saved else True)
-        ),
-    )
+    broker = Broker(host=host)
     can_issue = _ensure_pki(args, store, host)
     # Usable, not merely present: a certificate we just warned about — foreign CA,
     # or the wrong host with no key to reissue — must not then be recommended.
@@ -548,7 +537,8 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
     if made_files:
         _report_files(store)
 
-    print(f"\n  This machine is set up for the broker at {_console.accent(host)}.\n")
+    print(f"\n  This machine is set up for the broker at "
+          f"{_console.accent(f'{host}:{DEFAULT_TLS_PORT}')}.\n")
     if not can_issue:
         print(
             "  No CA private key here, so robots keep their Whisker certificate and\n"
@@ -1360,7 +1350,7 @@ def _describe(archive: backup.Archive) -> None:
         print(f"    certificate authority   {name}{'' if archive.files.get('ca/ca.key') else '  (certificate only, cannot issue)'}")
     broker = archive.broker()
     if broker is not None:
-        print(f"    broker                  {broker[0]}:{broker[1]}")
+        print(f"    broker                  {broker}:{DEFAULT_TLS_PORT}")
     robots = archive.robots()
     if robots:
         print(f"    robots                  {', '.join(robots)}")
@@ -1898,9 +1888,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_setup = add_parser("setup", "prepare this machine: your broker and its certificates")
     p_setup.add_argument("--host", help="broker IP or hostname the robots will publish to")
-    p_setup.add_argument("--port", type=int, default=None, help="broker port (default 8883)")
-    p_setup.add_argument("--insecure", action="store_true", default=None,
-                         help="skip TLS hostname check (CA still verified)")
     p_setup.add_argument("--ca", help="use this CA certificate instead of generating one")
     p_setup.add_argument("--ca-key", help="its private key, so robot certificates can be issued")
     p_setup.add_argument("--client-cert", help="this machine's client certificate, if you issue your own")

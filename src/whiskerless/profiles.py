@@ -117,11 +117,18 @@ class Serial:
 
 @dataclass(frozen=True, slots=True)
 class Broker:
-    """The one broker every robot in this store talks to."""
+    """The one broker every robot in this store talks to.
+
+    Host and nothing else. The robot's port is a compile-time constant in its
+    firmware — provisioning has no field for one — so a CLI pointed anywhere else
+    is pointed away from the robot it exists to talk to. Hostname verification is
+    likewise not optional: the robot checks the broker's name against what it was
+    provisioned with, and `setup` reissues the server certificate whenever that
+    name changes, so a store whose CLI needed the check off would be a store whose
+    robots could not connect at all.
+    """
 
     host: str
-    port: int = DEFAULT_TLS_PORT
-    verify_hostname: bool = True
 
     def settings(
         self,
@@ -138,9 +145,9 @@ class Broker:
         """
         return MqttSettings(
             host=self.host,
-            port=self.port,
+            port=DEFAULT_TLS_PORT,
             ca_cert_data=ca_pem,
-            verify_hostname=self.verify_hostname,
+            verify_hostname=True,
             client_cert_data=identity.cert_pem if identity else None,
             client_key_data=identity.key_pem if identity else None,
             client_id=client_id,
@@ -316,18 +323,8 @@ class ProfileStore:
             if not isinstance(raw, dict):
                 raw = {}
             host = raw.get("host")
-            try:
-                port = int(raw.get("port", DEFAULT_TLS_PORT))
-            except (TypeError, ValueError):
-                port = DEFAULT_TLS_PORT
             if isinstance(host, str) and host:
-                self.save_broker(
-                    Broker(
-                        host=host,
-                        port=port,
-                        verify_hostname=bool(raw.get("verify_hostname", True)),
-                    )
-                )
+                self.save_broker(Broker(host=host))
 
         if not self.has_ca_cert():
             # A stray ca.crt at the root predates the ca/ directory; a per-robot
@@ -432,24 +429,18 @@ class ProfileStore:
         host = raw.get("host")
         if not isinstance(host, str) or not host:
             raise ProfileError(f"{self.broker_path} has no broker host")
-        try:
-            port = int(raw.get("port", DEFAULT_TLS_PORT))
-        except (TypeError, ValueError) as exc:
-            raise ProfileError(f"{self.broker_path} has an unusable port") from exc
-        return Broker(
-            host=host, port=port, verify_hostname=bool(raw.get("verify_hostname", True))
-        )
+        # A store written before these were dropped still carries `port` and
+        # `verify_hostname`. They are ignored rather than rejected: the file is
+        # rewritten host-only on the next save, and refusing to open a store over a
+        # key that no longer means anything would strand somebody's CA.
+        return Broker(host=host)
 
     def save_broker(self, broker: Broker) -> None:
         self._ensure_root()
         _write_private(
             self.broker_path,
             json.dumps(
-                {
-                    "host": broker.host,
-                    "port": broker.port,
-                    "verify_hostname": broker.verify_hostname,
-                },
+                {"host": broker.host},
                 indent=2,
             )
             + "\n",
