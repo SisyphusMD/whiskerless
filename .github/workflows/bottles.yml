@@ -21,10 +21,27 @@ on:
   # no rerun API and GitHub's is not reachable from the release, so one leg
   # failing on infrastructure must not cost a whole candidate. Re-running is
   # safe — the release helpers replace an asset rather than duplicating it.
+  #
+  # The tag is an INPUT rather than the dispatch ref, because those are two
+  # different things when the reason for re-running is a fix to the build script
+  # itself: a dispatch at the tag would faithfully re-run the broken version of
+  # this workflow. Dispatching from a branch runs the CURRENT scripts against the
+  # named release, which is what recovery actually needs. Nothing about the
+  # bottle's contents comes from this checkout — it is built by installing the
+  # published formula, which points at the published sdist.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build bottles for, e.g. v0.2.0-rc.28"
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  # The push trigger has no inputs; the dispatch trigger has no meaningful ref.
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -58,7 +75,7 @@ jobs:
           persist-credentials: false
       - name: Build the bottles (macOS — the runner's own Homebrew)
         if: ${{ runner.os == 'macOS' }}
-        run: bash packaging/build-bottles.sh "$GITHUB_REF_NAME" "$GITHUB_WORKSPACE/bottles"
+        run: bash packaging/build-bottles.sh "$TAG" "$GITHUB_WORKSPACE/bottles"
       - name: Build the bottles (Linux — the pinned linuxbrew image)
         # Not the runner's Homebrew: GitHub documents no Homebrew on the arm64
         # Ubuntu image, and installing it from the upstream one-liner would be
@@ -73,9 +90,9 @@ jobs:
           mkdir -p bottles && chmod 777 bottles
           # renovate: datasource=docker depName=homebrew/brew
           IMAGE="homebrew/brew:latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd"
-          docker run --rm -e GITHUB_REF_NAME \
+          docker run --rm -e TAG \
             -v "$PWD:/repo:ro" -v "$PWD/bottles:/out" "$IMAGE" \
-            bash -lc 'bash /repo/packaging/build-bottles.sh "$GITHUB_REF_NAME" /out'
+            bash -lc 'bash /repo/packaging/build-bottles.sh "$TAG" /out'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bottle-${{ matrix.label }}
@@ -101,7 +118,7 @@ jobs:
           path: bottles
           merge-multiple: true
       - name: Release notes from CHANGELOG
-        run: bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
+        run: bash packaging/changelog-section.sh "${TAG#v}" > notes.md
       - name: Append the bottles + their manifests to both releases
         # The .json manifests ride along deliberately: publish.yml's second tap
         # pass reads them back off the Forgejo release to build the block, and
@@ -118,9 +135,9 @@ jobs:
           # nothing to do with the tap.
           failed=""
           packaging/github-release.sh "${{ secrets.GITHUB_TOKEN }}" \
-            "$GITHUB_REF_NAME" notes.md bottles/* || failed="$failed github.com"
+            "$TAG" notes.md bottles/* || failed="$failed github.com"
           packaging/forgejo-release.sh forgejo.bryantserver.com \
-            "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md bottles/* \
+            "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$TAG" notes.md bottles/* \
             || failed="$failed forgejo.bryantserver.com"
           if [ -n "$failed" ]; then
             echo "::error::bottle publishing failed for:$failed"

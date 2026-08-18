@@ -45,6 +45,15 @@ mkdir -p "$outdir"
 outdir="$(cd "$outdir" && pwd)"
 
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1
+# One deliberate update, up front, and no surprise ones later — which is what
+# NO_AUTO_UPDATE is actually for. Skipping it entirely is not an option on the
+# pinned linuxbrew image: its baked-in homebrew-core metadata and cached bottle
+# manifests go stale against what ghcr.io serves, and installing a DEPENDENCY
+# then dies in `Utils::Bottles.load_tab` with `undefined method '[]' for nil`.
+# Reproduced in that image both ways. homebrew-smoke.Dockerfile has always done
+# this; the bottle build had not, and that is the whole of why its Linux legs
+# failed while the self-updating macOS runners passed.
+brew update --quiet
 # `brew tap-new`/`brew bottle` are developer commands and shell out to git for a
 # commit; a runner has no identity configured and the command dies on it.
 git config --global user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
