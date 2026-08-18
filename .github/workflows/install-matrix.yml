@@ -179,6 +179,21 @@ jobs:
           echo
           if [ -n "$failed" ]; then echo "::error::Linux channels failed:$failed"; exit 1; fi
           echo "every Linux channel installed and passed the smoke"
+      - name: Talk to a real broker, over TLS, with certificates it issued itself
+        env:
+          VERSION: ${{ needs.wait.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Runs on the runner itself rather than in a container: the broker is
+          # started with `docker run -p`, and a job that is itself containerised
+          # cannot reach a port published on the docker host.
+          #
+          # Against the SHIPPED binary, not a source install — the question is
+          # whether the artifact people download can still hold a TLS session and
+          # decode what a robot sends.
+          curl -fsSL -o /tmp/whiskerless "$FORGE/SisyphusMD/whiskerless/releases/download/$TAG/whiskerless-${VERSION}-linux-${{ matrix.arch }}"
+          chmod +x /tmp/whiskerless
+          bash packaging/broker-smoke.sh /tmp/whiskerless
 
   macos:
     name: macOS installs (${{ matrix.os }})
