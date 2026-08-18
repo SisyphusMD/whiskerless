@@ -280,6 +280,12 @@ jobs:
 
   homebrew-tap:
     name: Update the Homebrew tap formula (stable or -rc per tag)
+    # Shared with homebrew-bottles and tap-bottles.yml: three jobs write this one
+    # repository, and two of them cloning the same tip means the loser pushes a
+    # non-fast-forward and the tap keeps whichever block lost the race.
+    concurrency:
+      group: tap-write
+      cancel-in-progress: false
     # After pypi: update-tap.sh requires PyPI to already serve bytes identical to
     # the sdist it builds locally, which is the whole point of the check.
     needs: pypi
@@ -331,6 +337,9 @@ jobs:
 
   homebrew-bottles:
     name: Add the bottle block to the tap (second pass)
+    concurrency:
+      group: tap-write
+      cancel-in-progress: false
     # The tap must already hold this version (the bottles were built by
     # installing it) and the release must exist (the bottles are its assets).
     needs: [homebrew-tap, releases]

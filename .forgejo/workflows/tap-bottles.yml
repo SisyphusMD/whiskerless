@@ -1,0 +1,103 @@
+name: Refresh the tap's bottle block
+
+# The paired half of rebuilding bottles, and the reason it exists is that the
+# pairing is not automatic and its absence is silent.
+#
+# `bottles.yml` (on GitHub) builds the bottles and attaches them to the release.
+# A separate job writes the `bottle do` block naming their sha256s. On a tag push
+# those chain correctly. But bottles.yml is deliberately DISPATCHABLE so a failed
+# platform can be rebuilt without cutting a new candidate — and a rebuild
+# produces different bytes, because a bottle is not reproducible. Rebuild without
+# re-running this and the tap goes on advertising checksums for files that no
+# longer exist: `brew install` then fails outright with "Bottle reports different
+# checksum", for everyone, until someone notices.
+#
+# bottles.yml cannot do this itself. Writing the tap needs a Forgejo credential,
+# which is why the step lives here and not beside the build.
+#
+# So: after ANY bottle rebuild, dispatch this with the same tag.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag whose bottles the tap should point at, e.g. v0.2.0-rc.28"
+        required: true
+        type: string
+
+concurrency:
+  # Two of these racing would have them fetch different manifest sets and the
+  # loser would publish checksums for assets the winner replaced.
+  group: tap-write
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Point the tap at the bottles now on the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Collect the manifests currently on the release
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) : ;;
+            *) echo "::error::not a release tag: $TAG"; exit 1 ;;
+          esac
+          API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
+          case "$TAG" in
+            *-rc.*) expected=4 ;;
+            *)      expected=8 ;;
+          esac
+          mkdir -p manifests
+          urls=$(curl -sf "$API/releases/tags/$TAG" \
+            | jq -r '.assets[]? | select(.name | endswith(".bottle.json")) | .browser_download_url')
+          found=$(printf '%s\n' "$urls" | grep -c . || true)
+          if [ "$found" -lt "$expected" ]; then
+            echo "::error::only ${found}/${expected} bottle manifests on $TAG — rebuild the bottles first"
+            exit 1
+          fi
+          printf '%s\n' "$urls" | while read -r u; do
+            [ -n "$u" ] && curl -sSL -o "manifests/$(basename "$u")" "$u"
+          done
+          # Names alone are not enough: a rebuild replaces an asset in place, so a
+          # manifest can be newer than the archive sitting beside it. What the tap
+          # is about to promise has to be what the release actually serves.
+          assets=$(curl -sf "$API/releases/tags/$TAG" | jq -r '.assets[]? | "\(.name)\t\(.browser_download_url)"')
+          bad=""
+          while read -r name want; do
+            [ -n "$name" ] || continue
+            url=$(printf '%s\n' "$assets" | awk -F'\t' -v n="$name" '$1 == n {print $2}')
+            if [ -z "$url" ]; then bad="$bad $name(absent)"; continue; fi
+            got=$(curl -sSL "$url" | sha256sum | cut -d' ' -f1)
+            [ "$got" = "$want" ] || bad="$bad $name(sha)"
+          done < <(jq -r '.[].bottle.tags[] | "\(.filename)\t\(.sha256)"' manifests/*.json)
+          if [ -n "$bad" ]; then
+            echo "::error::the release does not serve what the manifests describe:$bad"
+            exit 1
+          fi
+          echo "every manifest matches the archive on the release"
+      - name: Re-render the formula and push
+        env:
+          TAG: ${{ inputs.tag }}
+          TOKEN: ${{ secrets.CLUSTER_FORGEJO_TAP_WRITE_PAT }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          AUTH="http.extraheader=Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          # Outside the checkout: update-tap.sh builds an sdist to compare against
+          # PyPI, and anything beside the source is swept into it.
+          tap="$(mktemp -d)/tap"
+          git -c "$AUTH" clone "${GITHUB_SERVER_URL}/SisyphusMD/homebrew-tap.git" "$tap"
+          chmod +x packaging/update-tap.sh
+          bash packaging/update-tap.sh "$TAG" "$tap" "$PWD/manifests"
+          cd "$tap"
+          git config user.name "forgejo-actions[bot]"
+          git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
+          git add Formula/
+          git commit -m "whiskerless ${TAG#v} bottles" || { echo "the tap already matches"; exit 0; }
+          git -c "$AUTH" push

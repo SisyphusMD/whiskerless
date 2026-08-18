@@ -1,0 +1,262 @@
+name: Install matrix
+
+# Installs every channel we publish, from the PUBLISHED artifacts, and then runs
+# the tool. CI already builds all of this; until now it did not install most of
+# it, so the .pkg, a poured bottle, PyPI and the apt/dnf repositories were proven
+# by nobody. Each leg ends in `packaging/installed-smoke.sh`, which is the single
+# definition of "an installed whiskerless works" — adding a channel later means
+# installing it and calling that.
+#
+# It runs AFTER a release by necessity, so it cannot gate the release it tests.
+# What it can gate is the next STABLE cut: a candidate whose install matrix is
+# red is not a candidate anyone should promote.
+on:
+  push:
+    tags: ["v*.*.*"]
+  # Dispatchable with an explicit tag, the same shape as bottles.yml: when the
+  # reason to re-run is a fix to these scripts, a dispatch at the tag would
+  # faithfully re-run the old ones.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to install and test, e.g. v0.2.0-rc.28"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  FORGE: https://forgejo.bryantserver.com
+
+jobs:
+  # One poll for everyone. Thirteen jobs each waiting on the same release would
+  # spend thirteen times the API budget to learn the same fact.
+  wait:
+    name: Wait for the release to carry everything
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - name: Poll until the artifacts exist
+        id: v
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) : ;;
+            *) echo "::error::not a release tag: $TAG"; exit 1 ;;
+          esac
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          api="$FORGE/api/v1/repos/SisyphusMD/whiskerless/releases/tags/$TAG"
+          # The .pkg and the bottles are built on separate workflows and arrive
+          # minutes apart, so this waits for the slowest rather than racing it.
+          for _ in $(seq 1 120); do
+            names=$(curl -sf "$api" | jq -r '.assets[]?.name' || true)
+            have() { printf '%s\n' "$names" | grep -q "$1"; }
+            if have '\.deb$' && have '\.rpm$' && have 'linux-x86_64$' && have 'linux-arm64$' \
+               && have 'macos-arm64\.pkg$' && have 'bottle\.tar\.gz$' && have 'SHA256SUMS'; then
+              echo "the release is complete"; exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::the release never carried a full artifact set — nothing to install-test"
+          exit 1
+
+  linux:
+    name: Linux installs (${{ matrix.arch }})
+    needs: wait
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04,     deb: amd64, rpm: x86_64,  brew: x86_64_linux}
+          - {arch: arm64,  runner: ubuntu-24.04-arm, deb: arm64, rpm: aarch64, brew: arm64_linux}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install every Linux channel and smoke each one
+        env:
+          VERSION: ${{ needs.wait.outputs.version }}
+        run: |
+          set -uo pipefail
+          # deb/rpm carry the tilde spelling; everything else uses the tag's.
+          PKGVER="${VERSION/-rc./~rc.}"
+          # publish-registry.sh puts a candidate in `testing` and a release in
+          # BOTH, so a stable tag has to be installed from `stable` — testing it
+          # through `testing` would leave the distribution real users are on
+          # unexercised by a matrix that claims to cover every channel.
+          case "$TAG" in
+            *-rc.*) DIST=testing; REPOFILE=whiskerless-testing.repo ;;
+            *)      DIST=stable;  REPOFILE=whiskerless.repo ;;
+          esac
+          echo "installing from the '$DIST' distribution"
+          DL="$FORGE/SisyphusMD/whiskerless/releases/download/$TAG"
+          SMOKE=/repo/packaging/installed-smoke.sh
+          mount=(-v "$PWD:/repo:ro")
+          failed=""
+          run() {  # run <label> <image> <script>
+            echo "──────── $1"
+            if docker run --rm "${mount[@]}" -e V="$VERSION" -e PV="$PKGVER" -e DL="$DL" \
+                                  -e DIST="$DIST" -e REPOFILE="$REPOFILE" \
+                 "$2" bash -c "$3"; then echo "  → $1 OK"; else failed="$failed $1"; fi
+          }
+
+          # A downloaded file installed by hand — still a documented route.
+          run deb-file debian:13-slim '
+            set -e; apt-get update -qq >/dev/null; apt-get install -y -qq curl ca-certificates openssl >/dev/null
+            command -v openssl >/dev/null || { echo "no openssl — the smoke would silently skip its certificate half"; exit 1; }
+            curl -fsSL -o /tmp/w.deb "$DL/whiskerless_${PV}_'"${{ matrix.deb }}"'.deb"
+            apt-get install -y -qq /tmp/w.deb >/dev/null
+            bash '"$SMOKE"' whiskerless "$V"'
+
+          run rpm-file rockylinux/rockylinux:9 '
+            set -e; dnf install -y -q openssl >/dev/null
+            command -v openssl >/dev/null || { echo "no openssl — the smoke would silently skip its certificate half"; exit 1; }
+            curl -fsSL -o /tmp/w.rpm "$DL/whiskerless-${PV}.'"${{ matrix.rpm }}"'.rpm"
+            dnf install -y -q /tmp/w.rpm >/dev/null
+            bash '"$SMOKE"' whiskerless "$V"'
+
+          # The repositories, which is how most people should be installing.
+          run apt-repo debian:13-slim '
+            set -e; apt-get update -qq >/dev/null; apt-get install -y -qq curl ca-certificates openssl >/dev/null
+            command -v openssl >/dev/null || { echo "no openssl — the smoke would silently skip its certificate half"; exit 1; }
+            install -d /etc/apt/keyrings
+            curl -fsSL '"$FORGE"'/api/packages/SisyphusMD/debian/repository.key -o /etc/apt/keyrings/w.asc
+            echo "deb [signed-by=/etc/apt/keyrings/w.asc] '"$FORGE"'/api/packages/SisyphusMD/debian $DIST main" > /etc/apt/sources.list.d/w.list
+            apt-get update -qq >/dev/null
+            apt-get install -y -qq whiskerless >/dev/null
+            bash '"$SMOKE"' whiskerless "$V"'
+
+          run dnf-repo rockylinux/rockylinux:9 '
+            set -e; dnf install -y -q openssl >/dev/null
+            command -v openssl >/dev/null || { echo "no openssl — the smoke would silently skip its certificate half"; exit 1; }
+            curl -fsSL "'"$FORGE"'/SisyphusMD/whiskerless/raw/branch/main/packaging/$REPOFILE" \
+              -o /etc/yum.repos.d/whiskerless.repo
+            dnf install -y -q whiskerless >/dev/null
+            # Proves the package was verified against OUR key, not merely installed.
+            rpm -qi whiskerless | grep -qi "4bbacd5a6ff38564" || { echo "not signed by our key"; exit 1; }
+            bash '"$SMOKE"' whiskerless "$V"'
+
+          # The frozen binary, on an image with no Python at all — the point of it.
+          run raw-binary debian:13-slim '
+            set -e; apt-get update -qq >/dev/null; apt-get install -y -qq curl ca-certificates openssl >/dev/null
+            command -v openssl >/dev/null || { echo "no openssl — the smoke would silently skip its certificate half"; exit 1; }
+            curl -fsSL -o /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-'"${{ matrix.arch }}"'"
+            chmod +x /usr/local/bin/whiskerless
+            command -v python3 && { echo "this image has python — the test is not proving what it claims"; exit 1; } || true
+            bash '"$SMOKE"' whiskerless "$V"'
+
+          # renovate: datasource=docker depName=homebrew/brew
+          BREW="homebrew/brew:latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd"
+          run bottle-pour "$BREW" '
+            set -e
+            before=$(brew list --formula | grep -cE "^rust$|^llvm$|^pkgconf$" || true)
+            brew update --quiet >/dev/null 2>&1
+            brew tap sisyphusmd/tap '"$FORGE"'/SisyphusMD/homebrew-tap.git >/dev/null 2>&1
+            brew install sisyphusmd/tap/whiskerless-rc > /tmp/i.log 2>&1 || { tail -20 /tmp/i.log; exit 1; }
+            # POURED, not built. rust/llvm/pkgconf are build-only dependencies, so
+            # their absence is the proof no source build happened.
+            grep -qi "pouring whiskerless" /tmp/i.log || { echo "did not pour:"; grep -iE "building|installing" /tmp/i.log | head -5; exit 1; }
+            after=$(brew list --formula | grep -cE "^rust$|^llvm$|^pkgconf$" || true)
+            [ "$after" -le "$before" ] || { echo "build-only deps appeared ($before -> $after) — it built from source"; exit 1; }
+            bash '"$SMOKE"' "$(brew --prefix)/bin/whiskerless" "$V"'
+
+          run pypi-uvx debian:13-slim '
+            set -e; apt-get update -qq >/dev/null; apt-get install -y -qq curl ca-certificates openssl >/dev/null
+            command -v openssl >/dev/null || { echo "no openssl — the smoke would silently skip its certificate half"; exit 1; }
+            curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
+            export PATH="$HOME/.local/bin:$PATH"
+            PYPI_V=$(printf "%s" "$V" | sed -E "s/-rc\.([0-9]+)$/rc\1/")
+            printf "#!/bin/sh\nexec uvx -q --from \x27whiskerless[ble]==%s\x27 whiskerless \"\$@\"\n" "$PYPI_V" > /usr/local/bin/whiskerless
+            chmod +x /usr/local/bin/whiskerless
+            bash '"$SMOKE"' whiskerless "$V"'
+
+          echo
+          if [ -n "$failed" ]; then echo "::error::Linux channels failed:$failed"; exit 1; fi
+          echo "every Linux channel installed and passed the smoke"
+
+  macos:
+    name: macOS installs (${{ matrix.os }})
+    needs: wait
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Floor and current, both architectures. The floor is what the bottles
+        # are built on and what Homebrew falls back to; the current one is what
+        # most people are actually running.
+        include:
+          - {os: macos-15,       arch: arm64}
+          - {os: macos-15-intel, arch: x86_64}
+          - {os: macos-26,       arch: arm64}
+          - {os: macos-26-intel, arch: x86_64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The signed .pkg — install it, and check it is really notarized
+        env:
+          VERSION: ${{ needs.wait.outputs.version }}
+        run: |
+          set -euo pipefail
+          DL="$FORGE/SisyphusMD/whiskerless/releases/download/$TAG"
+          curl -fsSL -o /tmp/w.pkg "$DL/whiskerless-${VERSION}-macos-${{ matrix.arch }}.pkg"
+          # Gatekeeper's own verdict, before installing. `installer` does not
+          # enforce notarization, so installing successfully proves nothing about
+          # whether a user double-clicking it would be allowed to.
+          spctl -a -vvv -t install /tmp/w.pkg 2>&1 | tee /tmp/spctl.txt
+          grep -qi "accepted" /tmp/spctl.txt
+          grep -qi "notarized" /tmp/spctl.txt || { echo "::error::pkg is signed but NOT notarized"; exit 1; }
+          pkgutil --check-signature /tmp/w.pkg | head -5
+          sudo installer -pkg /tmp/w.pkg -target /
+          bash packaging/installed-smoke.sh /usr/local/bin/whiskerless "$VERSION"
+      - name: The Homebrew bottle — pour it, and prove it was poured
+        env:
+          VERSION: ${{ needs.wait.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The .pkg put a binary at /usr/local/bin; remove it so the smoke that
+          # follows is unambiguously exercising the brew install.
+          sudo rm -f /usr/local/bin/whiskerless
+          # Baseline first: a hosted image may already ship rust or llvm, and an
+          # absolute count would then fail a perfectly good pour.
+          before=$(brew list --formula | grep -cE '^rust$|^llvm$|^pkgconf$' || true)
+          brew update --quiet >/dev/null 2>&1
+          brew tap sisyphusmd/tap "$FORGE/SisyphusMD/homebrew-tap.git" >/dev/null 2>&1
+          brew install sisyphusmd/tap/whiskerless-rc > /tmp/i.log 2>&1 || { tail -30 /tmp/i.log; exit 1; }
+          grep -qi "pouring whiskerless" /tmp/i.log || { echo "::error::built from source instead of pouring"; grep -iE "building" /tmp/i.log | head -5; exit 1; }
+          after=$(brew list --formula | grep -cE '^rust$|^llvm$|^pkgconf$' || true)
+          [ "$after" -le "$before" ] || { echo "::error::build-only dependencies appeared ($before -> $after) — it compiled"; exit 1; }
+          bash packaging/installed-smoke.sh "$(brew --prefix)/bin/whiskerless" "$VERSION"
+      - name: PyPI via uvx
+        env:
+          VERSION: ${{ needs.wait.outputs.version }}
+        run: |
+          set -euo pipefail
+          brew uninstall --force whiskerless-rc >/dev/null 2>&1 || true
+          PYPI_V="$(printf '%s' "$VERSION" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
+          curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
+          export PATH="$HOME/.local/bin:$PATH"
+          printf '#!/bin/sh\nexec uvx -q --from '"'"'whiskerless[ble]==%s'"'"' whiskerless "$@"\n' "$PYPI_V" > /tmp/wskl
+          chmod +x /tmp/wskl
+          bash packaging/installed-smoke.sh /tmp/wskl "$VERSION"
+
+  summary:
+    name: Every channel installed and ran
+    needs: [linux, macos]
+    if: ${{ always() && github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verdict
+        run: |
+          set -euo pipefail
+          echo "linux: ${{ needs.linux.result }}"
+          echo "macos: ${{ needs.macos.result }}"
+          [ "${{ needs.linux.result }}" = success ] && [ "${{ needs.macos.result }}" = success ] \
+            || { echo "::error::at least one install channel is broken for $TAG"; exit 1; }
