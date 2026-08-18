@@ -87,8 +87,10 @@ DISPENSE_DEDUPE = timedelta(seconds=60)
 # How long the phases of one dispense burst have to arrive within to count as
 # that burst. ESP 1.1.75 packs them into one activity message; 1.4.4 publishes
 # each phase as its own message, with ~20 s between the step marker and the
-# fill gauge (five bursts, two robots). Well under the cycle-plus between real
-# dispenses, so two bursts can never blur together.
+# fill gauge (seven bursts, two robots) — the gap is the auger itself, which
+# Whisker documents as running up to 20 s per dispense, so 60 s bounds the
+# burst with margin. Well under the cycle-plus between real dispenses, so two
+# bursts can never blur together.
 DISPENSE_BURST_WINDOW = timedelta(seconds=60)
 # State documents arrive on a multi-minute cadence, so anything closer than this
 # is a redelivery rather than an independent observation.
