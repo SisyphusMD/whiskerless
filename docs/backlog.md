@@ -542,6 +542,13 @@ to the hopper scale rather than a decode error. Likely the learned floor/ceiling
 than `0x0C` itself. Needs a second narrated fill — ideally a full hopper photographed at
 a known time, then a drain — to say whether the span or the floor is wrong.
 
+**Re-measure before investigating further (2026-08-17).** Dispense detection required
+the burst in one message, which the wire never sends, so **every fill-gauge sample was
+discarded** — the learned scale on that robot was built from whatever RESTORED/LEGACY
+evidence predated it, not from observation. Now that samples actually land, the reading
+this entry is about may simply be a scale that had nothing to learn from. Take a fresh
+measurement before changing the span or the floor.
+
 ### #69 — The CLI assumes the operator's machine can reach the broker — *docs done 2026-08-16*
 
 `whiskerless state`, `monitor`, `set` and `send` all open an MQTT connection, so they

@@ -40,8 +40,9 @@ from whiskerless.devices.litter_robot_4.protocol import ActivityMessage, StateMe
 T0 = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
 IDLE = {"robotStatus": 4, "catDetect": 0, "litterLevel": 455}
 
-# One dispense as the robot sends it: phase 0 step marker, phase 1 fill gauge,
-# phase 2 step marker.
+# One dispense's three codes: phase 0 step marker, phase 1 fill gauge, phase 2
+# step marker. Delivered as separate messages on the wire (see the split-burst
+# tests); packed into one here where the framing is not what is under test.
 BURST = ("0x0C010A", "0x0C1059", "0x0C2078")
 FILL_GAUGE = 0x059
 
@@ -208,6 +209,75 @@ def test_a_lone_dispense_code_is_a_register_read_not_a_hopper() -> None:
     update = apply_message(DerivedState(), _activity("0x0C1059"), T0)
     assert update.state.hopper_connected is None
     assert update.state.hopper_fill_raw is None
+    assert not update.effects
+
+
+def test_a_dispense_split_across_messages_still_proves_the_hopper() -> None:
+    # How every captured dispense actually arrives, on both firmwares: three
+    # single-reading messages, the step marker ~20 s before the fill gauge. The
+    # burst is the same evidence however it is framed across messages.
+    state = _seen(DerivedState(), _activity("0x0C010A"), T0)
+    assert state.hopper_connected is None, "one phase alone is still just a read"
+    update = apply_message(state, _activity("0x0C1059"), T0 + timedelta(seconds=20))
+    assert update.state.hopper_connected is True
+    assert update.state.hopper_fill_raw == FILL_GAUGE
+    assert HopperFillChanged(FILL_GAUGE) in update.effects
+    assert _sightings(update) == {Capability.HOPPER: Evidence.DISPENSE}
+    # The trailing step marker lands moments later and adds nothing new.
+    update = apply_message(
+        update.state, _activity("0x0C2078"), T0 + timedelta(seconds=20.2)
+    )
+    assert not any(isinstance(e, HopperFillChanged) for e in update.effects)
+
+
+def test_a_burst_that_loses_its_gauge_message_still_proves_the_hopper() -> None:
+    # The phases are separate publishes, so the middle one can simply not
+    # arrive. The two markers still prove litter was delivered; there is just no
+    # fill reading to apply, and inventing one from the markers would be worse
+    # than reporting nothing.
+    state = _seen(DerivedState(), _activity("0x0C010A"), T0)
+    update = apply_message(state, _activity("0x0C2078"), T0 + timedelta(seconds=20))
+    assert update.state.hopper_connected is True
+    assert _sightings(update) == {Capability.HOPPER: Evidence.DISPENSE}
+    assert update.state.hopper_fill_raw is None
+    assert not any(isinstance(e, HopperFillChanged) for e in update.effects)
+
+
+def test_the_trailing_phase_does_not_stamp_the_dispense_twice() -> None:
+    # The burst proves on its second phase, and a third one follows moments
+    # later. `last_hopper_dispensed` is a timestamp somebody reads, so it must
+    # not creep forward for a dispense that has already been counted.
+    state = DerivedState()
+    for code, offset in (("0x0C010A", 0), ("0x0C1059", 20)):
+        state = _seen(state, _activity(code), T0 + timedelta(seconds=offset))
+    proved_at = state.last_hopper_dispensed
+    assert proved_at == T0 + timedelta(seconds=20)
+    update = apply_message(state, _activity("0x0C2078"), T0 + timedelta(seconds=20.2))
+    assert not update.changed
+    assert update.state.last_hopper_dispensed == proved_at
+    # A real dispense a cycle later is a different matter, gauge and all.
+    state = _seen(update.state, _activity("0x0C010A"), T0 + timedelta(minutes=10))
+    state = _seen(state, _activity("0x0C1055"), T0 + timedelta(minutes=10, seconds=20))
+    assert state.last_hopper_dispensed == T0 + timedelta(minutes=10, seconds=20)
+    assert state.hopper_fill_raw == 0x055
+
+
+def test_repeated_reads_of_the_same_phase_prove_nothing() -> None:
+    # Polling 0x0C returns whatever the register last held — the same phase
+    # every time. Only distinct phases look like a dispense.
+    state = _seen(DerivedState(), _activity("0x0C1059"), T0)
+    update = apply_message(state, _activity("0x0C1059"), T0 + timedelta(seconds=10))
+    assert update.state.hopper_connected is None
+    assert update.state.hopper_fill_raw is None
+    assert not update.effects
+
+
+def test_phases_farther_apart_than_the_burst_window_prove_nothing() -> None:
+    # Two lone reads that happen to differ can only masquerade as a burst if
+    # they land inside the window a real burst fits in.
+    state = _seen(DerivedState(), _activity("0x0C010A"), T0)
+    update = apply_message(state, _activity("0x0C1059"), T0 + timedelta(minutes=5))
+    assert update.state.hopper_connected is None
     assert not update.effects
 
 
@@ -421,9 +491,36 @@ def test_the_state_round_trips_through_storage() -> None:
     assert restored == state
 
 
+def test_a_pending_burst_survives_a_round_trip_through_storage() -> None:
+    """A half-assembled burst is state like any other, so it round-trips.
+
+    What this does NOT claim is that Home Assistant survives a restart mid-burst:
+    the coordinator writes the derived snapshot only when a sighting fires, and
+    the first phase of a burst fires nothing. A restart inside the ~20 s gap
+    therefore costs that one dispense, and the next one proves the hopper. This
+    is the library keeping its half of the contract, so a consumer that does
+    persist at that moment loses nothing.
+    """
+    state = _seen(DerivedState(), _activity("0x0C010A"), T0)
+    assert state.pending_dispense, "the first phase has to be kept somewhere"
+    restored = DerivedState.from_dict(state.as_dict())
+    assert restored == state
+    update = apply_message(restored, _activity("0x0C1059"), T0 + timedelta(seconds=20))
+    assert update.state.hopper_connected is True
+    assert update.state.hopper_fill_raw == FILL_GAUGE
+
+
 def test_anything_that_is_not_a_stored_state_reads_as_a_fresh_one() -> None:
     assert DerivedState.from_dict("nonsense") == DerivedState()
     assert DerivedState.from_dict({"sightings": "nonsense"}).sightings == {}
+    assert DerivedState.from_dict({"pending_dispense": "nonsense"}).pending_dispense == {}
+    # A half-written burst must not take the whole stored state down with it,
+    # and a phase the wire cannot produce must not be admitted as evidence: it
+    # would count toward the two-phase proof and let one later register read
+    # look like a dispense. Phase is 4 bits, value is 12.
+    assert DerivedState.from_dict(
+        {"pending_dispense": {"0": 266, "nope": "nope", "99": 1, "1": 0x1FFF}}
+    ).pending_dispense == {0: 266}
 
 
 def test_a_sighting_this_version_does_not_recognize_is_dropped() -> None:

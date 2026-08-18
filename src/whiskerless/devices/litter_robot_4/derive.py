@@ -84,6 +84,17 @@ __all__ = [
 # Two dispense reports closer together than this are the same event redelivered;
 # real dispenses are a cycle or more apart.
 DISPENSE_DEDUPE = timedelta(seconds=60)
+# How long the phases of one dispense burst have to arrive within to count as
+# that burst. The phases are published as SEPARATE activity messages, ~20 s
+# between the step marker and the fill gauge — seven bursts across four robots,
+# on 1.1.75 and 1.4.4 alike. The gap is the auger, which Whisker documents as
+# running up to 20 s per dispense, so 60 s bounds the burst with margin while
+# staying well under the cycle-plus between real dispenses.
+#
+# A burst arriving whole in ONE message is handled too, but has never actually
+# been observed on any robot. Requiring it — which is what the original gate
+# did — is why the hopper was never sighted.
+DISPENSE_BURST_WINDOW = timedelta(seconds=60)
 # State documents arrive on a multi-minute cadence, so anything closer than this
 # is a redelivery rather than an independent observation.
 STATE_DEDUPE = timedelta(seconds=30)
@@ -258,6 +269,12 @@ class DerivedState:
     # reading corroborate itself.
     last_hopper_sample_at: datetime | None = None
     last_litter_sample_at: datetime | None = None
+    # The dispense burst in flight, phase -> value, and when its first phase
+    # arrived. The burst spans three messages, so it has to be assembled here
+    # before it can prove anything (see the dispense arm). Cleared the moment it
+    # proves, so the trailing phase cannot prove the same burst twice.
+    pending_dispense: dict[int, int] = field(default_factory=dict)
+    pending_dispense_at: datetime | None = None
     #: Capability -> the evidence that proved it.
     sightings: dict[Capability, Evidence] = field(default_factory=dict)
 
@@ -268,6 +285,7 @@ class DerivedState:
             learned_litter=self.learned_litter.copy(),
             learned_hopper=self.learned_hopper.copy(),
             sightings=dict(self.sightings),
+            pending_dispense=dict(self.pending_dispense),
         )
 
     def sighted(self, capability: Capability) -> bool:
@@ -290,6 +308,22 @@ class DerivedState:
                     sightings[Capability(name)] = Evidence(evidence)
                 except ValueError:
                     continue
+        pending_dispense: dict[int, int] = {}
+        stored_pending = raw.get("pending_dispense")
+        if isinstance(stored_pending, dict):
+            for phase, value in stored_pending.items():
+                # Bounds-checked, not merely int(): the wire splits one 16-bit
+                # reading into a 4-bit phase and a 12-bit value, so anything
+                # outside that never came from a robot. It matters here rather
+                # than being tidiness — a stored impossible phase would count
+                # toward the two-phase proof and let one later register read
+                # look like a dispense.
+                try:
+                    key, val = int(phase), int(value)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= key <= 0xF and 0 <= val <= 0xFFF:
+                    pending_dispense[key] = val
         return cls(
             cat_weight_lb=_as_float(raw.get("cat_weight_lb")),
             last_cat_visit=_as_datetime(raw.get("last_cat_visit")),
@@ -311,6 +345,8 @@ class DerivedState:
             last_hopper_sample_at=_as_datetime(raw.get("last_hopper_sample_at")),
             last_litter_sample_at=_as_datetime(raw.get("last_litter_sample_at")),
             sightings=sightings,
+            pending_dispense=pending_dispense,
+            pending_dispense_at=_as_datetime(raw.get("pending_dispense_at")),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -336,6 +372,8 @@ class DerivedState:
             "last_hopper_sample_at": _iso(self.last_hopper_sample_at),
             "last_litter_sample_at": _iso(self.last_litter_sample_at),
             "sightings": {str(k): str(v) for k, v in self.sightings.items()},
+            "pending_dispense": {str(k): v for k, v in self.pending_dispense.items()},
+            "pending_dispense_at": _iso(self.pending_dispense_at),
         }
 
 
@@ -423,11 +461,6 @@ def _apply_activity(state: DerivedState, message: ActivityMessage, now: datetime
     effects: list[Effect] = []
     changed = False
     events = events_from_readings(message.readings)
-    # A real dispense is a burst of 2-3 phase-tagged codes in one message. A
-    # type-1 READ of 0x0C decodes to a single HopperDispensed too, and taking
-    # that as proof would let one diagnostic read grow four hopper entities on
-    # a robot that has none.
-    dispensed_here = sum(isinstance(e, HopperDispensed) for e in events) > 1
     for event in events:
         if isinstance(event, CatWeightMeasured):
             state.cat_weight_lb = event.weight_lb
@@ -441,15 +474,51 @@ def _apply_activity(state: DerivedState, message: ActivityMessage, now: datetime
             # disproved that in both directions, and the gate then discarded
             # every fill sample on a robot that dispenses happily but rarely
             # emits 0x57.
-            if not dispensed_here:
+            #
+            # A real dispense is a burst of 2-3 phase-tagged codes, and it is
+            # spread across SEPARATE messages ~20 s apart — so it has to be
+            # assembled here. The original gate wanted them in one message,
+            # which is a shape no capture has ever shown, so it never passed and
+            # the hopper was never sighted on any robot.
+            #
+            # A type-1 READ of 0x0C decodes to a single HopperDispensed too, and
+            # taking that as proof would let one diagnostic read grow four hopper
+            # entities on a robot that has none. Two DISTINCT phases inside the
+            # window are what separate them: a read returns whatever the register
+            # last held, so repeated reads keep returning the SAME phase and can
+            # never assemble a burst, however close together they land.
+            if (
+                state.pending_dispense_at is None
+                or now - state.pending_dispense_at > DISPENSE_BURST_WINDOW
+            ):
+                state.pending_dispense = {}
+                state.pending_dispense_at = now
+            state.pending_dispense[event.phase] = event.value
+            if len(state.pending_dispense) < 2:
                 continue
+            # Spend the evidence the moment it proves, so the burst's own
+            # trailing phase cannot walk back through this arm and stamp the same
+            # dispense a second time.
+            #
+            # Deliberately NOT also refusing any burst that assembles within
+            # DISPENSE_DEDUPE: two dispenses genuinely can arrive close together,
+            # and each one's gauge is worth recording. Redelivery is handled
+            # where it does damage — _learn_hopper drops a sample that arrives
+            # too soon to be independent — rather than by throwing away the
+            # reading. The residue is that a redelivered phase landing after the
+            # trailing one can re-stamp `last_hopper_dispensed` within the same
+            # burst; that is the same dispense either way, and the learned scale
+            # is unaffected.
+            burst = state.pending_dispense
+            state.pending_dispense = {}
             state.last_hopper_dispensed = now
             state.hopper_connected = True  # something delivered litter
-            if event.phase == lr4.HOPPER_DISPENSE_FILL_PHASE:
-                if event.value != state.hopper_fill_raw:
-                    state.hopper_fill_raw = event.value
-                    effects.append(HopperFillChanged(event.value))
-                effects += _learn_hopper(state, event.value, now)
+            fill = burst.get(lr4.HOPPER_DISPENSE_FILL_PHASE)
+            if fill is not None:
+                if fill != state.hopper_fill_raw:
+                    state.hopper_fill_raw = fill
+                    effects.append(HopperFillChanged(fill))
+                effects += _learn_hopper(state, fill, now)
             effects += _sight(state, Capability.HOPPER, Evidence.DISPENSE)
             changed = True
         elif isinstance(event, CatVisitEnded):

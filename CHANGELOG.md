@@ -222,6 +222,15 @@ Worth reading before you upgrade; the rest of the list is safe to skim.
   dispenses but rarely reports its link keeps its telemetry, one dispense cannot
   prove an empty hopper, and the upgrade sweep no longer removes hopper entities
   from a robot that has one.
+- **The hopper is now detected at all.** A dispense is published as three
+  separate messages about twenty seconds apart, and detection insisted on seeing
+  them in a *single* message — a shape no capture has ever shown, on either
+  firmware. So the hopper was never sighted: on a fresh install its entities
+  stayed disabled forever, robots that kept theirs on older evidence went stale
+  instead of updating, and every fill-gauge sample was discarded, so the learned
+  scale never moved either. The burst is now assembled across messages, and
+  survives a restart landing in the middle of one. A lone diagnostic read of the
+  dispense register still proves nothing, which is what the old rule was for.
 - **The out-of-litter alert judges against your robot's own learned floor** —
   floors differ per unit, and a fixed cutoff could cry empty while litter was
   still flowing.
