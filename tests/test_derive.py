@@ -211,6 +211,43 @@ def test_a_lone_dispense_code_is_a_register_read_not_a_hopper() -> None:
     assert not update.effects
 
 
+def test_a_dispense_split_across_messages_still_proves_the_hopper() -> None:
+    # 1.4.4 never packs the burst into one message: every captured dispense is
+    # three single-reading messages, the step marker ~20 s before the fill
+    # gauge. The burst is the same evidence however it is framed.
+    state = _seen(DerivedState(), _activity("0x0C010A"), T0)
+    assert state.hopper_connected is None, "one phase alone is still just a read"
+    update = apply_message(state, _activity("0x0C1059"), T0 + timedelta(seconds=20))
+    assert update.state.hopper_connected is True
+    assert update.state.hopper_fill_raw == FILL_GAUGE
+    assert HopperFillChanged(FILL_GAUGE) in update.effects
+    assert _sightings(update) == {Capability.HOPPER: Evidence.DISPENSE}
+    # The trailing step marker lands moments later and adds nothing new.
+    update = apply_message(
+        update.state, _activity("0x0C2078"), T0 + timedelta(seconds=20.2)
+    )
+    assert not any(isinstance(e, HopperFillChanged) for e in update.effects)
+
+
+def test_repeated_reads_of_the_same_phase_prove_nothing() -> None:
+    # Polling 0x0C returns whatever the register last held — the same phase
+    # every time. Only distinct phases look like a dispense.
+    state = _seen(DerivedState(), _activity("0x0C1059"), T0)
+    update = apply_message(state, _activity("0x0C1059"), T0 + timedelta(seconds=10))
+    assert update.state.hopper_connected is None
+    assert update.state.hopper_fill_raw is None
+    assert not update.effects
+
+
+def test_phases_farther_apart_than_the_burst_window_prove_nothing() -> None:
+    # Two lone reads that happen to differ can only masquerade as a burst if
+    # they land inside the window a real burst fits in.
+    state = _seen(DerivedState(), _activity("0x0C010A"), T0)
+    update = apply_message(state, _activity("0x0C1059"), T0 + timedelta(minutes=5))
+    assert update.state.hopper_connected is None
+    assert not update.effects
+
+
 def test_an_unchanged_gauge_is_not_reported_as_a_new_reading() -> None:
     first = _seen(DerivedState(), _activity(*BURST))
     update = apply_message(first, _activity(*BURST), T0 + timedelta(hours=1))
@@ -419,6 +456,16 @@ def test_the_state_round_trips_through_storage() -> None:
     state.drawer_last_moved = T0
     restored = DerivedState.from_dict(state.as_dict())
     assert restored == state
+
+
+def test_a_burst_interrupted_by_a_reload_still_proves_the_hopper() -> None:
+    # On 1.4.4 the burst spans ~20 s of wall clock, which is long enough for a
+    # consumer reload to land in the middle of it.
+    state = _seen(DerivedState(), _activity("0x0C010A"), T0)
+    restored = DerivedState.from_dict(state.as_dict())
+    update = apply_message(restored, _activity("0x0C1059"), T0 + timedelta(seconds=20))
+    assert update.state.hopper_connected is True
+    assert update.state.hopper_fill_raw == FILL_GAUGE
 
 
 def test_anything_that_is_not_a_stored_state_reads_as_a_fresh_one() -> None:
