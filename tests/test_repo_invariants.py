@@ -428,6 +428,56 @@ def test_the_publish_wait_counts_both_formulae_on_a_stable_tag() -> None:
     assert re.search(rf"\*\)\s*expected={platforms * 2} ", publish), "stable tag expects both formulae"
 
 
+# --- the install matrix is a gate, not a notification -------------------------------
+#
+# It was written, it went red on a real candidate, and nothing stopped that
+# candidate being promotable — because the workflow's own header said "what it can
+# gate is the next stable cut" and no such gate had been built. A comment is not a
+# control. These assert the control.
+RELEASE_WORKFLOW = REPO / ".forgejo" / "workflows" / "release.yml"
+INSTALL_MATRIX = REPO / ".github" / "workflows" / "install-matrix.yml"
+
+
+def test_a_stable_cut_is_gated_on_the_candidates_install_matrix() -> None:
+    release = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    assert "candidate-gate" in release["jobs"], "the candidate gate is gone"
+    assert "candidate-gate" in release["jobs"]["tag"]["needs"], (
+        "the tag job no longer waits on the candidate gate — a red candidate is promotable again"
+    )
+
+
+def test_the_candidate_gate_checks_out_the_tags_it_reasons_about() -> None:
+    """It derives the version from the tags. A shallow checkout has none, so it
+    would ask about 0.0.1, find no candidates, and pass — loudest silence there
+    is."""
+    release = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    checkout = release["jobs"]["candidate-gate"]["steps"][0]
+    assert checkout["with"]["fetch-depth"] == 0, "candidate-gate would run on a tagless checkout"
+
+
+def test_the_install_matrix_records_which_tag_it_tested() -> None:
+    """A tag push carries the tag in head_branch; a DISPATCH is made from main on
+    purpose and carries it nowhere else. The gate matches on this run-name, so a
+    re-dispatched green matrix is only findable while it is here."""
+    matrix = yaml.safe_load(INSTALL_MATRIX.read_text(encoding="utf-8"))
+    run_name = matrix.get("run-name", "")
+    assert "inputs.tag" in run_name and "github.ref_name" in run_name, run_name
+    gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
+    assert "Install matrix $TAG" in gate, "the gate no longer matches the run-name it is given"
+
+
+def test_the_install_matrix_waits_on_the_one_formula_it_installs() -> None:
+    """A stable release carries both formulae's bottles. Pooling them makes the
+    checksum comparison unsatisfiable, and the wait spends its whole deadline
+    before failing a release that was fine."""
+    wait = INSTALL_MATRIX.read_text(encoding="utf-8")
+    assert re.search(r"\*-rc\.\*\)\s*FORMULA=whiskerless-rc", wait), "rc tags lost their formula"
+    assert re.search(r"\*\)\s*FORMULA=whiskerless\b", wait), "stable tags lost their formula"
+    assert 'select(.formula.name == $f)' in wait, (
+        "the wait pools every manifest again — it can never balance on a stable tag"
+    )
+
+
 # --- one renderer, and it never emits a marker --------------------------------------
 #
 # Three places used to perform this substitution — the tap's two passes and the

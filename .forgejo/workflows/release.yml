@@ -199,9 +199,41 @@ jobs:
           MIRROR_CI_TOKEN: ${{ secrets.GH_REPO_READ_PAT }}
         run: bash packaging/check-mirror-ci.sh "${{ github.sha }}"
 
+  candidate-gate:
+    name: Qualify the candidate this release promotes (no write credential)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # next-version.sh derives the version from the TAGS. A default shallow
+          # checkout has none, so it would fall back to 0.0.0, ask about a version
+          # that has no candidates, and report "nothing to check" — a gate that
+          # passes hardest exactly when it is broken.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the last rc's install matrix to be green
+        # The install matrix installs PUBLISHED artifacts, so it can only ever run
+        # after a release and can never gate the one it tests. This is where it
+        # earns its keep: a candidate whose apt, dnf, Homebrew, .pkg, raw-binary or
+        # PyPI install is broken must not become the stable, and noticing that
+        # should not depend on somebody remembering to open the right tab.
+        #
+        # Reads only, like mirror-gate beside it, and takes the same optional
+        # read-only token for the same rate-limit reason.
+        env:
+          GH_REPO_READ_PAT: ${{ secrets.GH_REPO_READ_PAT }}
+        run: |
+          set -euo pipefail
+          # Belt to fetch-depth's braces: if the tags did not arrive, every
+          # version this could compute is fiction.
+          git tag -l 'v*.*.*' | grep -q . || { echo "::error::no tags in this checkout"; exit 1; }
+          version="$(bash packaging/next-version.sh "${{ inputs.bump }}" | sed -n 's/^version=//p')"
+          [ -n "$version" ] || { echo "::error::could not compute the version being promoted"; exit 1; }
+          bash packaging/check-rc-install-matrix.sh "$version"
+
   tag:
     name: Authorize and push the release
-    needs: [gate, integration-gate, mirror-gate]
+    needs: [gate, integration-gate, mirror-gate, candidate-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Fresh checkout with no persisted credential

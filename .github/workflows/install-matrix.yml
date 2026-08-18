@@ -8,8 +8,15 @@ name: Install matrix
 # installing it and calling that.
 #
 # It runs AFTER a release by necessity, so it cannot gate the release it tests.
-# What it can gate is the next STABLE cut: a candidate whose install matrix is
-# red is not a candidate anyone should promote.
+# What it gates is the next STABLE cut: release.yml's `candidate-gate` refuses to
+# promote a candidate whose matrix here is anything but green.
+
+# The run-name is load-bearing, not decoration. A tag push carries the tag in
+# head_branch, but a DISPATCH is deliberately made from main (so a fix to these
+# scripts is what re-runs, not the copies frozen at the tag) and would otherwise
+# record nothing about which tag it tested. `candidate-gate` matches on this.
+run-name: Install matrix ${{ inputs.tag || github.ref_name }}
+
 on:
   push:
     tags: ["v*.*.*"]
@@ -52,12 +59,67 @@ jobs:
           api="$FORGE/api/v1/repos/SisyphusMD/whiskerless/releases/tags/$TAG"
           # The .pkg and the bottles are built on separate workflows and arrive
           # minutes apart, so this waits for the slowest rather than racing it.
+          #
+          # The bottle legs install from the TAP, not from the release, and the tap
+          # is written TWICE: a first pass publishes the formula as soon as PyPI has
+          # the sdist, a second adds the `bottle do` block once the bottles exist.
+          # Between them the formula names the right version and has no bottles at
+          # all, so a leg let through there installs the correct release by BUILDING
+          # it from source and fails the assertion that it was poured.
+          #
+          # The wait is therefore not for the version and not even for the tag: it
+          # is for the block's CHECKSUMS to be the ones the release is serving right
+          # now. A bottle rebuild replaces the archives under an unchanged tag, so a
+          # tag-shaped check would pass instantly while the tap still advertised the
+          # replaced bytes — which is exactly the state that broke `brew install`
+          # for everyone once already.
+
+          # Bounded, always. The 120-iteration deadline only bounds this job if each
+          # request inside it is bounded too — a connection that is accepted and
+          # then stalls would otherwise hang past it, to the runner timeout.
+          fetch() { curl -sfL --connect-timeout 10 --max-time 60 --retry 2 --retry-connrefused "$1"; }
+
+          # Which formula the bottle legs actually install, and therefore the only
+          # one whose block is being waited on. A STABLE tag carries EIGHT manifests
+          # — four `whiskerless` and four `whiskerless-rc`, because the keg inside a
+          # bottle is rooted at its formula name and cannot be renamed — so a
+          # comparison that pooled all of them could never equal one four-entry
+          # block, and every stable cut would wait out the hour and fail.
+          case "$TAG" in
+            *-rc.*) FORMULA=whiskerless-rc ;;
+            *)      FORMULA=whiskerless ;;
+          esac
+
+          tap_ready() {
+            local rb want have
+            rb=$(fetch "$FORGE/SisyphusMD/homebrew-tap/raw/branch/main/Formula/$FORMULA.rb") || return 1
+            # Fixed-string and including the closing quote: unanchored, rc.2 is a
+            # prefix of rc.28 and matches its root_url.
+            printf '%s\n' "$rb" | grep -qF "releases/download/${TAG}\"" || return 1
+            have=$(printf '%s\n' "$rb" | awk '/^ *bottle do$/,/^ *end$/' \
+                     | sed -n 's/.*"\([0-9a-f]\{64\}\)".*/\1/p' | LC_ALL=C sort -u)
+            # The outer manifest key is tap-qualified; `formula.name` is the short
+            # name, which is what tells the two sets of bottles apart.
+            want=$(printf '%s\n' "$rel" \
+                     | jq -r '.assets[]? | select(.name | endswith(".bottle.json")) | .browser_download_url' \
+                     | while read -r u; do
+                         [ -n "$u" ] || continue
+                         fetch "$u" | jq -r --arg f "$FORMULA" \
+                           '.[] | select(.formula.name == $f) | .bottle.tags[].sha256'
+                       done | LC_ALL=C sort -u)
+            [ -n "$want" ] && [ "$want" = "$have" ]
+          }
           for _ in $(seq 1 120); do
-            names=$(curl -sf "$api" | jq -r '.assets[]?.name' || true)
+            rel=$(fetch "$api" || true)
+            names=$(printf '%s' "$rel" | jq -r '.assets[]?.name' 2>/dev/null || true)
             have() { printf '%s\n' "$names" | grep -q "$1"; }
             if have '\.deb$' && have '\.rpm$' && have 'linux-x86_64$' && have 'linux-arm64$' \
                && have 'macos-arm64\.pkg$' && have 'bottle\.tar\.gz$' && have 'SHA256SUMS'; then
-              echo "the release is complete"; exit 0
+              if tap_ready; then
+                echo "the release is complete and the tap advertises the bottles it is serving"
+                exit 0
+              fi
+              echo "  release complete; waiting for the tap to match $TAG's current bottles"
             fi
             sleep 30
           done
