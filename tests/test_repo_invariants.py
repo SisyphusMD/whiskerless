@@ -643,3 +643,52 @@ def test_the_dnf_config_names_a_distribution_the_publisher_writes(path: Path) ->
     assert re.search(rf'dists="[^"]*\b{distribution}\b', publisher), (
         f"{path.name} points at '{distribution}', which publish-registry.sh never writes to"
     )
+
+
+# --- in-page anchors, which two forges do not agree how to spell ---------------------
+#
+# The project is read on Forgejo and on the GitHub mirror, and their heading
+# sluggers differ on exactly one character: an apostrophe. GitHub DROPS it
+# (`What's not here` -> `whats-not-here`); Forgejo turns it into a hyphen
+# (`what-s-not-here`). The link is rewritten to GitHub's spelling either way, so a
+# heading with an apostrophe renders a link that works on the mirror and is dead
+# on the primary — silently, and only for the people reading it there.
+#
+# Commas, colons and parentheses were checked against both rendered pages and
+# agree; the apostrophe is the whole rule.
+def test_no_in_page_anchor_targets_a_heading_with_an_apostrophe() -> None:
+    offenders = []
+    # TRACKED files only. `.claude/` holds git-ignored working notes; letting a
+    # local-only file fail the suite would block work on content that cannot even
+    # be committed, and it renders on neither site.
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "*.md"],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout
+    for name in filter(None, listed.split("\0")):
+        md = REPO / name
+        text = md.read_text(encoding="utf-8")
+        headings = [
+            re.sub(r"[*_`]", "", h).strip() for h in re.findall(r"^#+\s+(.*)$", text, re.M)
+        ]
+        targeted = set(re.findall(r"\]\((#[^)]+)\)", text))
+        for heading in headings:
+            if not ("'" in heading or "\u2019" in heading):
+                continue
+            lowered = heading.lower()
+            # Both spellings are broken, just on opposite sites: whichever one is
+            # written, the other forge computes the other and finds nothing.
+            github = re.sub(r"[^a-z0-9 -]", "", lowered).replace(" ", "-")
+            # Only the apostrophe differs. Commas, colons and parentheses were
+            # read off both rendered pages and slug identically, so hyphenating
+            # them here would compute a slug neither forge emits — and the check
+            # would look for a link nobody could have written.
+            forgejo = re.sub(r"[^a-z0-9 -]", "", lowered.replace("'", "-").replace("\u2019", "-"))
+            forgejo = forgejo.replace(" ", "-")
+            for slug in (github, forgejo):
+                if f"#{slug}" in targeted:
+                    offenders.append(f"{name}: {heading!r} <- #{slug}")
+    assert offenders == [], (
+        "an apostrophe in a linked heading is dead on one of the two forges:\n  "
+        + "\n  ".join(offenders)
+    )

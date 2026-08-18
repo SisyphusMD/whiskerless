@@ -16,7 +16,7 @@ third-party servers. Your robot talks to *your* broker, and that's it.
 > **Status: beta.** The local protocol was recovered by reverse-engineering and
 > validated against a real robot. Re-provisioning, telemetry, and settings are
 > proven on hardware, and the panel actions (clean cycle, reset, empty, power,
-> WiFi) were recovered in August 2026 — see [What's *not* here](#whats-not-here)
+> WiFi) were recovered in August 2026 — see [what is *not* here](#what-is-not-here)
 > for what is still open.
 
 <!-- A screenshot/GIF of the Home Assistant device page goes here once captured. -->
@@ -498,7 +498,7 @@ either way.
 The guard lives in [`safety.py`](src/whiskerless/safety.py) and *both* the CLI and
 the integration funnel through it — see [`docs/devices/litter-robot-4/`](docs/devices/litter-robot-4/).
 
-## What's *not* here
+## What is *not* here
 
 **The filter-change wizard**, and it is not coming. Its panel chord is a *long*
 press, and the firmware performs short presses over MQTT while silently declining
