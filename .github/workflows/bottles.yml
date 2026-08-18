@@ -6,9 +6,18 @@ name: Bottles (Homebrew)
 # of compiling on every user's machine, for a package that is otherwise pure
 # Python.
 #
-# On GitHub because nothing else can host it: Forgejo has no macOS runner at all,
-# and its Linux runner is arm64-only, so `x86_64_linux` has nowhere else to come
-# from either. Same split release-macos.yml already depends on.
+# On GitHub, and this is the exception to the rule in docs/design/ci-split.md
+# rather than an example of it. Forgejo has no macOS runner, so the two macOS
+# bottles have nowhere else to go. `arm64_linux` has no NATIVE arm64 runner here
+# either, and a bottle is by definition a from-source build — measured at ~18
+# minutes natively, so emulating it is not a trade worth making. The x86_64 one
+# could run on Forgejo, and is built here anyway because bottle-block.py refuses a
+# set whose manifests disagree on `cellar`; one matrix on one forge is how that
+# stays true.
+#
+# (The previous note here said Forgejo's Linux runner is "arm64-only". It is the
+# other way round — every Forgejo runner is x86_64 and arm64 is the emulated one —
+# and the mistake sent the install matrix to the wrong forge for a while.)
 #
 # Ordering is enforced rather than assumed. A bottle is produced by INSTALLING
 # the published formula, so build-bottles.sh waits for publish.yml's first tap

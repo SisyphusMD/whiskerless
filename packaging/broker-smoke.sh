@@ -15,18 +15,25 @@
 # answers "would the identity whiskerless issues be accepted", which is the one
 # question the hardware test exists to settle and the one CI could never reach.
 #
-# Needs docker and openssl.
+# mosquitto runs as a LOCAL PROCESS, not in a container. It used to be a
+# `docker run -p`, which quietly required a runner that is not itself
+# containerised: a job inside a container cannot reach a port published on the
+# docker host, and our own Forgejo runners are exactly that. Running the broker
+# beside the client needs no daemon, no socket and no networking, so this now
+# works anywhere the binaries exist — including inside a buildx stage, which is
+# how the arm64 leg gets tested at all.
+#
+# Needs mosquitto, mosquitto_pub and openssl.
 set -uo pipefail
 
 CLI="${1:?usage: $0 <path-to-whiskerless> [state-document.json]}"
 here="$(cd "$(dirname "$0")" && pwd)"
 DOC="${2:-$here/../tests/integration/fixtures/lr4_state.json}"
 [ -f "$DOC" ] || { echo "no state document at $DOC" >&2; exit 2; }
-command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
-command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 2; }
+for tool in mosquitto mosquitto_pub openssl; do
+  command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 2; }
+done
 
-# renovate: datasource=docker depName=eclipse-mosquitto
-BROKER_IMAGE="eclipse-mosquitto:2.0.22"
 SERIAL="LR4C000000"
 # 8883, because that is the only port there is. The robot's port is a
 # compile-time constant in its firmware and the CLI has no flag to move off it,
@@ -39,10 +46,10 @@ pass() { printf '  ok    %s\n' "$1"; }
 fail() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
 work="$(mktemp -d)"
-cid=""
+broker_pid=""
 # shellcheck disable=SC2329  # invoked by the EXIT trap below, not by name
 cleanup() {
-  [ -z "$cid" ] || docker rm -f "$cid" >/dev/null 2>&1
+  [ -z "$broker_pid" ] || kill "$broker_pid" 2>/dev/null
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -68,57 +75,49 @@ fi
 conf="$work/mosquitto.conf"
 cat > "$conf" <<EOF
 listener $PORT
-cafile /mosq/ca.crt
-certfile /mosq/server.crt
-keyfile /mosq/server.key
+cafile $store/ca/ca.crt
+certfile $store/broker/server.crt
+keyfile $store/broker/server.key
 # The strict setting the docs build toward: the robot (and the CLI) must present
 # a certificate this CA signed. Anything less would not answer the question.
 require_certificate true
 use_identity_as_username true
 allow_anonymous false
 EOF
-mosq="$work/mosq"; mkdir -p "$mosq"
-cp "$store/ca/ca.crt" "$store/broker/server.crt" "$store/broker/server.key" "$mosq/"
-chmod 644 "$mosq"/*
-cid="$(docker run -d --rm -p "$PORT:$PORT" \
-  -v "$mosq:/mosq:ro" -v "$conf:/mosquitto/config/mosquitto.conf:ro" \
-  "$BROKER_IMAGE" 2>/dev/null)"
-[ -n "$cid" ] || { fail "could not start $BROKER_IMAGE"; exit 1; }
+# mosquitto refuses to read a key it considers world-accessible, and the store is
+# deliberately 0600/0700 — so it runs as whoever owns the store rather than
+# dropping privileges to the `mosquitto` user it would pick by default.
+echo "user $(id -un)" >> "$conf"
+mosquitto -c "$conf" > "$work/mosquitto.log" 2>&1 &
+broker_pid=$!
 
 ready=""
 for _ in $(seq 1 30); do
-  if docker exec "$cid" sh -c "nc -z 127.0.0.1 $PORT" >/dev/null 2>&1; then ready=1; break; fi
+  if ! kill -0 "$broker_pid" 2>/dev/null; then break; fi
+  # No `nc` on a minimal image; bash opens the socket itself.
+  if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then ready=1; break; fi
   sleep 1
 done
 if [ -n "$ready" ]; then
   pass "broker is listening on $PORT with require_certificate"
 else
-  fail "broker never came up"; docker logs "$cid" 2>&1 | tail -10; exit 1
+  fail "broker never came up"; tail -10 "$work/mosquitto.log"; exit 1
 fi
 
-# mosquitto's own clients play the robot, from inside the broker container, so no
-# extra dependency is needed on the host.
-# The payload goes in on STDIN (`-s`), not as a path: mosquitto_pub runs inside
-# the broker container, where a host path simply does not exist — and it reports
-# that as a plain "unable to open file", which is easy to mistake for a TLS
-# problem when it appears next to a handshake error.
+# mosquitto's own client plays the robot. The payload goes in on STDIN (`-s`)
+# rather than as a path, which keeps the publish identical to the one the
+# containerised version made.
 pub() {  # pub <topic> <file> [extra args]
-  docker exec -i "$cid" mosquitto_pub -h 127.0.0.1 -p "$PORT" \
-    --cafile /mosq/ca.crt --cert /client/client.crt --key /client/client.key \
+  mosquitto_pub -h 127.0.0.1 -p "$PORT" \
+    --cafile "$store/ca/ca.crt" --cert "$store/client/client.crt" --key "$store/client/client.key" \
     -t "$1" -s "${@:3}" < "$2" 2>&1
 }
-docker cp "$store/client" "$cid:/client" >/dev/null 2>&1
-# The directory keeps its execute bit; only the files are relaxed. `chmod -R 644`
-# would strip +x from the directory itself and make everything inside unopenable,
-# which surfaces as an unexplained TLS "unexpected eof" rather than a permission
-# error.
-docker exec "$cid" sh -c 'chmod 755 /client && chmod 644 /client/*' >/dev/null 2>&1 || true
 
 # --- the strict setting is actually strict ----------------------------------------
 # Without this the whole file proves only that a valid certificate works, which a
 # certificate-optional listener also allows. The claim being made is that the
 # broker REFUSES anything else, so that is tested directly.
-if docker exec -i "$cid" mosquitto_pub -h 127.0.0.1 -p "$PORT" --cafile /mosq/ca.crt \
+if mosquitto_pub -h 127.0.0.1 -p "$PORT" --cafile "$store/ca/ca.crt" \
      -t "prod/LR4/$SERIAL/state" -m '{}' >/dev/null 2>&1; then
   fail "the broker accepted a client with NO certificate — require_certificate is not in force"
 else
@@ -134,7 +133,7 @@ if pub "prod/LR4/$SERIAL/state" "$DOC" -r >/dev/null; then
 else
   fail "the broker rejected the certificate whiskerless issued"
   pub "prod/LR4/$SERIAL/state" "$DOC" -r 2>&1 | head -3
-  docker logs "$cid" 2>&1 | tail -6
+  tail -6 "$work/mosquitto.log"
 fi
 
 # --- the CLI reads it back and decodes it -----------------------------------------

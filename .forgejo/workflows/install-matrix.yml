@@ -1,0 +1,135 @@
+name: Install matrix (Linux)
+
+# Installs every LINUX channel we publish, from the PUBLISHED artifacts, and then
+# runs the tool. The macOS half is `.github/workflows/install-matrix.yml`, because
+# Forgejo has no macOS runner; everything here is ours. The rule and its reasoning
+# are in docs/design/ci-split.md, and an invariant test enforces it.
+#
+# Every channel is a buildx target rather than a `docker run`, for the two reasons
+# publish.yml already hit on this runner: `docker run --platform arm64` dies with
+# `exec format error` because the host has no usable binfmt, and a bind mount of
+# the workspace is invisible to the daemon because the job itself runs in a
+# container. BuildKit carries its own QEMU and streams its context, so both go
+# away. What each channel does lives in packaging/install-smoke.Dockerfile.
+#
+# It runs AFTER a release by necessity, so it cannot gate the release it tests.
+# What it gates is the next STABLE cut: release.yml's `candidate-gate` requires
+# this AND the macOS matrix to be green before a candidate can be promoted.
+
+run-name: Install matrix (Linux) ${{ inputs.tag || github.ref_name }}
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  # Dispatchable with an explicit tag, the same shape as bottles.yml: when the
+  # reason to re-run is a fix to these scripts, a dispatch at the tag would
+  # faithfully re-run the old ones.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to install and test, e.g. v0.2.0-rc.30"
+        required: true
+        type: string
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  FORGE: https://forgejo.bryantserver.com
+
+jobs:
+  # One poll for both legs. Each waiting separately would spend twice the API
+  # budget to learn the same fact.
+  wait:
+    name: Wait for the release to be installable
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: v
+        run: |
+          set -euo pipefail
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          bash packaging/wait-for-release.sh "$TAG"
+
+  linux:
+    name: Linux installs (${{ matrix.arch }})
+    needs: wait
+    runs-on: ubuntu-latest
+    strategy:
+      # One architecture failing must not hide the other's result.
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, platform: linux/amd64, deb: amd64, rpm: x86_64}
+          - {arch: arm64,  platform: linux/arm64, deb: arm64, rpm: aarch64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          # The action's own default is tonistiigi/binfmt:latest — the one moving tag left
+          # in this chain, so it is pinned here like every other image.
+          # renovate: datasource=docker depName=tonistiigi/binfmt
+          image: tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          # BuildKit has its own registry client and does not inherit dockerd's mirror.
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["dockerhub-mirror.nas.bryantserver.com"]
+      - name: Install every Linux channel and smoke each one
+        env:
+          VERSION: ${{ needs.wait.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH_DEB: ${{ matrix.deb }}
+          ARCH_RPM: ${{ matrix.rpm }}
+          ARCH_BIN: ${{ matrix.arch }}
+        run: |
+          set -uo pipefail
+          # deb/rpm carry the tilde spelling; everything else uses the tag's.
+          PKGVER="${VERSION/-rc./~rc.}"
+          # publish-registry.sh puts a candidate in `testing` and a release in
+          # BOTH, so a stable tag has to be installed from `stable` — testing it
+          # through `testing` would leave the distribution real users are on
+          # unexercised by a matrix that claims to cover every channel.
+          case "$TAG" in
+            *-rc.*) DIST=testing; REPOFILE=whiskerless-testing.repo ;;
+            *)      DIST=stable;  REPOFILE=whiskerless.repo ;;
+          esac
+          echo "installing from the '$DIST' distribution, for $PLATFORM"
+
+          failed=""
+          for channel in deb-file apt-repo rpm-file dnf-repo raw-binary pypi-uvx bottle-pour broker; do
+            echo "──────── $channel"
+            rm -rf "out/$channel"
+            ok=""
+            if docker buildx build --platform "$PLATFORM" \
+                 -f packaging/install-smoke.Dockerfile \
+                 --target "${channel}-result" \
+                 --output "type=local,dest=out/$channel" \
+                 --build-arg V="$VERSION" --build-arg PV="$PKGVER" \
+                 --build-arg DL="$FORGE/SisyphusMD/whiskerless/releases/download/$TAG" \
+                 --build-arg DIST="$DIST" --build-arg REPOFILE="$REPOFILE" \
+                 --build-arg FORGE="$FORGE" \
+                 --build-arg ARCH_DEB="$ARCH_DEB" --build-arg ARCH_RPM="$ARCH_RPM" \
+                 --build-arg ARCH_BIN="$ARCH_BIN" .; then
+              # The exported FILE, not merely the exit status: the marker is the
+              # only thing that cannot be produced by a build that did nothing.
+              [ -f "out/$channel/passed" ] && ok=1
+            fi
+            if [ -n "$ok" ]; then echo "  → $channel OK"; else failed="$failed $channel"; fi
+          done
+
+          echo
+          if [ -n "$failed" ]; then echo "::error::Linux channels failed:$failed"; exit 1; fi
+          echo "every Linux channel installed and passed the smoke on $ARCH_BIN"
+
+  summary:
+    name: Every Linux channel installed and ran
+    needs: linux
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "every Linux channel installed and ran on both architectures"

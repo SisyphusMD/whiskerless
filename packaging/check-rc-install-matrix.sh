@@ -18,7 +18,7 @@ set -euo pipefail
 VERSION="${1:?usage: $0 <version>}"
 REPO="SisyphusMD/whiskerless"
 API="https://api.github.com/repos/$REPO"
-WORKFLOW_FILE="install-matrix.yml"
+FORGE="https://forgejo.bryantserver.com"
 
 auth=(-H "Accept: application/vnd.github+json")
 [ -z "${GH_REPO_READ_PAT:-}" ] || auth+=(-H "Authorization: Bearer $GH_REPO_READ_PAT")
@@ -73,38 +73,76 @@ fi
 
 echo "the candidate being promoted is $TAG"
 
+# The matrix has TWO halves on two forges — Linux on ours, macOS on GitHub,
+# because Forgejo has no macOS runner (docs/design/ci-split.md). Requiring only
+# one would qualify a candidate on half a matrix, which is the same fail-open as
+# not checking at all, just harder to notice.
+failures=""
+
+# --- the macOS half, on GitHub ------------------------------------------------------
 # Scoped to this workflow, not the last hundred runs of all of them: a tag fires
 # ci, publish, bottles, the pkg build and hassfest as well, so a repo-wide page
 # stops containing the run being asked about after very little activity.
-runs="$(get "$API/actions/workflows/$WORKFLOW_FILE/runs?per_page=100")" || {
-  echo "::error::could not read install-matrix runs — refusing to guess" >&2; exit 1; }
-
+#
 # Two ways a run can belong to this tag, and both have to count. A tag PUSH
 # carries head_branch = the tag. A re-dispatch cannot: it is dispatched from main
 # on purpose, so that a fix to these scripts is what re-runs rather than the
-# copies frozen at the tag — and it names its subject only in the run-name. Match
-# only head_branch and the gate would go on failing a candidate that has since
-# been re-dispatched green, which is precisely what its own error message tells
-# you to do.
-verdict="$(printf '%s' "$runs" | jq -r --arg t "$TAG" --arg rn "Install matrix $TAG" '
+# copies frozen at the tag — and it names its subject only in the run-name.
+gh_runs="$(get "$API/actions/workflows/install-matrix.yml/runs?per_page=100")" || {
+  echo "::error::could not read the macOS install-matrix runs — refusing to guess" >&2; exit 1; }
+macos="$(printf '%s' "$gh_runs" | jq -r --arg t "$TAG" --arg rn "Install matrix (macOS) $TAG" '
   [.workflow_runs[] | select(.head_branch == $t or .display_title == $rn)]
   | sort_by(.run_started_at) | last
   | if . == null then "missing" else "\(.status)/\(.conclusion // "-")" end')"
-
-case "$verdict" in
-  "completed/success")
-    echo "$TAG passed its install matrix — every channel installed and ran"
-    ;;
-  missing)
-    echo "::error::$TAG has no install-matrix run at all. Dispatch it against that tag and let it pass before promoting." >&2
-    exit 1
-    ;;
-  completed/*)
-    echo "::error::$TAG's install matrix is $verdict. A candidate whose install channels are broken must not be promoted — fix it and re-dispatch the matrix against $TAG." >&2
-    exit 1
-    ;;
-  *)
-    echo "::error::$TAG's install matrix is still $verdict. Wait for it rather than promoting on an unknown." >&2
-    exit 1
-    ;;
+case "$macos" in
+  "completed/success") echo "  macOS  $TAG passed" ;;
+  *)                   failures="$failures macOS=$macos" ;;
 esac
+
+# --- the Linux half, on Forgejo -----------------------------------------------------
+# Read unauthenticated: this instance serves run status publicly, so the gate
+# keeps holding no credential. Forgejo's run objects carry neither head_branch nor
+# a separate conclusion — `prettyref` is the ref, `status` is already the verdict,
+# and `title` is the run-name, which is the only thing a dispatch from main
+# records about which tag it tested.
+# Scoped to this workflow server-side. The repo-wide listing is every run there
+# has ever been, and Forgejo ignores `limit` today — which is exactly the kind of
+# undocumented generosity a promotion gate should not depend on. `workflow_id`
+# bounds it to install-matrix runs, of which there is about one per tag.
+#
+# Not also filtered by `ref`: that wants the full `refs/tags/...` form and would
+# drop a re-dispatch, which runs from main and names its tag only in the run-name.
+fj_runs="$(curl --max-time 30 --retry 3 --retry-connrefused --retry-max-time 120 -sSf \
+  "$FORGE/api/v1/repos/$REPO/actions/runs?workflow_id=install-matrix.yml")" || {
+  echo "::error::could not read the Linux install-matrix runs — refusing to guess" >&2; exit 1; }
+# The `(macOS)` exclusion is belt and braces. `workflow_id` is the BARE filename,
+# and both halves are called install-matrix.yml — so if this instance ever served
+# runs for .github/workflows too (it serves none today, across every run in the
+# repo's history), the twin would match this tag as well and `last` could answer
+# with a run whose jobs were all skipped. The run-names are what tell them apart.
+linux="$(printf '%s' "$fj_runs" | jq -r --arg t "$TAG" --arg rn "Install matrix (Linux) $TAG" '
+  [.workflow_runs[]
+   | select(.workflow_id == "install-matrix.yml")
+   | select(.title | contains("(macOS)") | not)
+   | select(.prettyref == $t or .title == $rn)]
+  | sort_by(.started // .created) | last
+  | if . == null then "missing" else .status end')"
+case "$linux" in
+  success) echo "  Linux  $TAG passed" ;;
+  *)       failures="$failures Linux=$linux" ;;
+esac
+
+# --- verdict ------------------------------------------------------------------------
+if [ -z "$failures" ]; then
+  echo "$TAG passed its install matrix on both forges — every channel installed and ran"
+  exit 0
+fi
+case "$failures" in
+  *missing*)
+    echo "::error::$TAG has no install-matrix run for:$failures. Dispatch it against that tag and let it pass before promoting." >&2 ;;
+  *running*|*waiting*)
+    echo "::error::$TAG's install matrix is still going:$failures. Wait for it rather than promoting on an unknown." >&2 ;;
+  *)
+    echo "::error::$TAG's install matrix is not green:$failures. A candidate whose install channels are broken must not be promoted — fix it and re-dispatch the matrix against $TAG." >&2 ;;
+esac
+exit 1

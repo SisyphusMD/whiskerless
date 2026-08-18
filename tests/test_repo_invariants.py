@@ -436,6 +436,7 @@ def test_the_publish_wait_counts_both_formulae_on_a_stable_tag() -> None:
 # control. These assert the control.
 RELEASE_WORKFLOW = REPO / ".forgejo" / "workflows" / "release.yml"
 INSTALL_MATRIX = REPO / ".github" / "workflows" / "install-matrix.yml"
+INSTALL_MATRIX_LINUX = REPO / ".forgejo" / "workflows" / "install-matrix.yml"
 
 
 def test_a_stable_cut_is_gated_on_the_candidates_install_matrix() -> None:
@@ -455,22 +456,59 @@ def test_the_candidate_gate_checks_out_the_tags_it_reasons_about() -> None:
     assert checkout["with"]["fetch-depth"] == 0, "candidate-gate would run on a tagless checkout"
 
 
-def test_the_install_matrix_records_which_tag_it_tested() -> None:
-    """A tag push carries the tag in head_branch; a DISPATCH is made from main on
-    purpose and carries it nowhere else. The gate matches on this run-name, so a
-    re-dispatched green matrix is only findable while it is here."""
-    matrix = yaml.safe_load(INSTALL_MATRIX.read_text(encoding="utf-8"))
-    run_name = matrix.get("run-name", "")
-    assert "inputs.tag" in run_name and "github.ref_name" in run_name, run_name
+def test_both_install_matrices_record_which_tag_they_tested() -> None:
+    """A tag push carries the tag in head_branch (GitHub) or prettyref (Forgejo);
+    a DISPATCH is made from main on purpose and carries it nowhere else. The gate
+    matches on these run-names, so a re-dispatched green matrix is only findable
+    while they are here — and the two halves must not answer to the same name."""
     gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
-    assert "Install matrix $TAG" in gate, "the gate no longer matches the run-name it is given"
+    for path, half in ((INSTALL_MATRIX, "macOS"), (INSTALL_MATRIX_LINUX, "Linux")):
+        run_name = yaml.safe_load(path.read_text(encoding="utf-8")).get("run-name", "")
+        assert run_name.startswith(f"Install matrix ({half})"), f"{path.name}: {run_name}"
+        assert "inputs.tag" in run_name and "github.ref_name" in run_name, run_name
+        assert f"Install matrix ({half}) $TAG" in gate, (
+            f"the gate no longer matches the {half} run-name it is given"
+        )
 
 
-def test_the_install_matrix_waits_on_the_one_formula_it_installs() -> None:
+def test_a_stable_cut_requires_both_halves_of_the_install_matrix() -> None:
+    """Linux runs on Forgejo and macOS on GitHub, so a gate that asked only one
+    forge would qualify a candidate on half a matrix — the same fail-open as not
+    asking at all."""
+    gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
+    assert "api.github.com" in gate, "the gate stopped asking GitHub about the macOS half"
+    assert "forgejo.bryantserver.com" in gate, "the gate stopped asking Forgejo about the Linux half"
+    assert 'select(.workflow_id == "install-matrix.yml")' in gate
+
+
+def test_every_install_channel_is_actually_run() -> None:
+    """The Dockerfile is the definition and the workflow is the caller. A channel
+    added to one and not the other fails silently in the direction that matters:
+    buildx errors on a target that does not exist, but a target nobody builds is
+    never tested while still looking like coverage."""
+    dockerfile = (REPO / "packaging" / "install-smoke.Dockerfile").read_text(encoding="utf-8")
+    defined = set(re.findall(r"^FROM scratch AS ([a-z0-9-]+)-result$", dockerfile, re.M))
+    assert defined, "the Dockerfile defines no channels"
+    listed = re.search(
+        r"for channel in ([a-z0-9 -]+); do", INSTALL_MATRIX_LINUX.read_text(encoding="utf-8")
+    )
+    assert listed, "the Linux matrix no longer iterates a channel list"
+    assert set(listed.group(1).split()) == defined, (
+        f"workflow runs {sorted(set(listed.group(1).split()))}, "
+        f"Dockerfile defines {sorted(defined)}"
+    )
+
+
+def test_the_wait_is_one_definition_used_by_both_matrices() -> None:
     """A stable release carries both formulae's bottles. Pooling them makes the
     checksum comparison unsatisfiable, and the wait spends its whole deadline
-    before failing a release that was fine."""
-    wait = INSTALL_MATRIX.read_text(encoding="utf-8")
+    before failing a release that was fine. Two COPIES of this would drift, and
+    the drift shows up as one forge passing a half-published release."""
+    for path in (INSTALL_MATRIX, INSTALL_MATRIX_LINUX):
+        assert "packaging/wait-for-release.sh" in path.read_text(encoding="utf-8"), (
+            f"{path.name} grew its own copy of the wait"
+        )
+    wait = (REPO / "packaging" / "wait-for-release.sh").read_text(encoding="utf-8")
     assert re.search(r"\*-rc\.\*\)\s*FORMULA=whiskerless-rc", wait), "rc tags lost their formula"
     assert re.search(r"\*\)\s*FORMULA=whiskerless\b", wait), "stable tags lost their formula"
     assert 'select(.formula.name == $f)' in wait, (
@@ -692,3 +730,94 @@ def test_no_in_page_anchor_targets_a_heading_with_an_apostrophe() -> None:
         "an apostrophe in a linked heading is dead on one of the two forges:\n  "
         + "\n  ".join(offenders)
     )
+
+
+# --- which forge runs what ----------------------------------------------------------
+#
+# Forgejo runs everything; GitHub runs only what cannot run anywhere else. The rule
+# and its reasoning are in docs/design/ci-split.md — this is what keeps it true.
+#
+# It exists because the rule used to be carried by a COMMENT, and the comment was
+# wrong: bottles.yml stated that Forgejo's Linux runner is arm64-only, when every
+# Forgejo runner is x86_64 and arm64 is the emulated one. Anyone following it sent
+# work to the wrong forge believing they had no choice.
+#
+# An exception is fine. An exception nobody wrote a reason for is not.
+GITHUB_ONLY: dict[tuple[str, str], str] = {
+    ("hassfest.yml", "*"):
+        "a GitHub-ecosystem action; the Forgejo runner resolves actions from "
+        "data.forgejo.org, which does not carry home-assistant/actions",
+    ("ci-pr.yml", "*"):
+        "pull requests are on GitHub by project policy, so Forgejo never sees the event",
+    ("retry-infra-failures.yml", "*"):
+        "it re-runs GitHub workflow runs through the GitHub API — nothing to do elsewhere",
+    ("bottles.yml", "*"):
+        "arm64_linux has no native arm64 runner here and a bottle is a FROM-SOURCE build "
+        "(~18 min natively), so emulating it is not a trade worth making; the other three "
+        "are built beside it because bottle-block.py refuses a set whose manifests disagree "
+        "on cellar, and one matrix on one forge is how that stays true",
+    ("release-macos.yml", "publish"):
+        "it appends the artifacts the macOS jobs produced IN THE SAME RUN; artifacts are "
+        "run-scoped, so on another forge there would be nothing to append",
+    ("install-matrix.yml", "wait"):
+        "sequences the macOS legs that must run on this forge",
+    ("install-matrix.yml", "summary"):
+        "reports the macOS legs that must run on this forge",
+}
+
+
+def _runner_labels(job: dict[str, Any]) -> set[str]:
+    """Every concrete runner a job can land on, resolving a matrix expression."""
+    runs_on = job.get("runs-on", "")
+    if isinstance(runs_on, list):
+        return {str(r) for r in runs_on}
+    runs_on = str(runs_on)
+    if "${{" not in runs_on:
+        return {runs_on}
+    key = runs_on.split(".")[-1].split("}")[0].strip()
+    matrix = job.get("strategy", {}).get("matrix", {})
+    labels = {str(entry[key]) for entry in matrix.get("include", []) if key in entry}
+    if isinstance(matrix.get(key), list):
+        labels |= {str(value) for value in matrix[key]}
+    # An unresolvable expression must not read as "no Linux here".
+    return labels or {runs_on}
+
+
+def _github_jobs() -> list[tuple[str, str, set[str]]]:
+    found = []
+    # Both spellings: Actions accepts .yaml too, and a rule that only sees .yml is
+    # a rule anyone can step around without meaning to.
+    workflows = (REPO / ".github" / "workflows")
+    for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for job_id, job in (loaded.get("jobs") or {}).items():
+            found.append((path.name, str(job_id), _runner_labels(job)))
+    return found
+
+
+def test_there_are_github_jobs_to_check() -> None:
+    """The sweep below passes trivially if the glob ever stops matching."""
+    assert len(_github_jobs()) >= 8
+
+
+def test_github_only_runs_what_only_github_can_run() -> None:
+    unjustified = []
+    for workflow, job_id, labels in _github_jobs():
+        if labels and all(label.startswith("macos") for label in labels):
+            continue  # Forgejo has no macOS runner; nothing else to say.
+        if (workflow, "*") in GITHUB_ONLY or (workflow, job_id) in GITHUB_ONLY:
+            continue
+        unjustified.append(f"{workflow}:{job_id} runs on {sorted(labels)}")
+    assert unjustified == [], (
+        "these run on GitHub without being macOS or a recorded exception — move them to "
+        ".forgejo/workflows/, or add them to GITHUB_ONLY with the reason "
+        "(see docs/design/ci-split.md):\n  " + "\n  ".join(unjustified)
+    )
+
+
+def test_no_exception_outlives_the_job_it_excused() -> None:
+    """A stale entry silently re-permits whatever later takes that name."""
+    present = {(w, "*") for w, _, _ in _github_jobs()} | {(w, j) for w, j, _ in _github_jobs()}
+    stale = sorted(f"{w}:{j}" for (w, j) in GITHUB_ONLY if (w, j) not in present)
+    assert stale == [], f"GITHUB_ONLY excuses jobs that no longer exist: {stale}"
+
