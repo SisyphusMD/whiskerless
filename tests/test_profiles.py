@@ -995,9 +995,22 @@ def test_a_hoist_that_fails_is_not_announced_as_an_upgrade(
         json.dumps({"serial": "LR4C123456", "host": "192.0.2.10"})
     )
     (robot / "ca.pem").write_text(CA)
-    (robot / "ca.pem").chmod(0)
 
-    with pytest.raises(ProfileError, match="could be read"):
+    real_read = Path.read_text
+
+    def _read(self: Path, *args: object, **kwargs: object) -> str:
+        # Not chmod(0): CI runs as root, which reads a mode-000 file happily.
+        if self.name == "ca.pem":
+            raise OSError("unreadable")
+        return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    # Scoped separately from the monkeypatch above: undoing that one would also
+    # restore whatever MIGRATED_FROM_LEGACY held before the test, and the whole
+    # assertion is about what this run left it at.
+    with (
+        patch.object(Path, "read_text", _read),
+        pytest.raises(ProfileError, match="could be read"),
+    ):
         ProfileStore.from_env({HOME_ENV: str(tmp_path / "elsewhere")})
     assert not profiles_module.MIGRATED_FROM_LEGACY, "an upgrade that did not finish"
     assert ProfileStore(tmp_path / "elsewhere").layout_version() == 0, "marked done anyway"
