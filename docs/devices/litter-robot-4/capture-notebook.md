@@ -191,6 +191,60 @@ one. Full census for the window:
 `0x1002` is the interesting one: low byte `02` is a hold, and `0x10` is a button
 this repo has no name for.
 
+**GitHub #6's `0xX06Y` family, independently reproduced — and it is two puzzles that
+are one.** The family appears on both registers in this window and the split is
+lopsided: `0x34` carries `0x1064` ×25, `0x1065` ×6, `0x3065` ×2, and `0x2064`,
+`0x2065` and `0x4065` once each (36 emissions in 33 seconds), `0x4F` carries `0xC065`
+and `0xE065` once each. Of the 35 seconds carrying any of them, they **never share
+one**. The high nibble is 1–4 on `0x34`
+and C/E on `0x4F`, which is the same shape as this repo's own open question about the
+pre-cycle marker alternating `0x10xx` vs `0xE065` — that question and #6 are the same
+puzzle seen on two registers, and neither had been connected to the other.
+
+**Odds and ends for GitHub #8**, all from the same window:
+
+- **`0x0B` = 103**, once — a value absent from the annunciator table and from #8's list
+  (102/105). The `0x0B`/`0x33` pairing #8 raises is real and not exclusive: 19 seconds
+  carry both, with `0x33` beside `0x0B` 102 (×19), 22 (×16) and 21 (×2), while `0x33`
+  fires alone in 36 more.
+- **`0x56` = 23**, once, against 10 ×4 — another code outside the known set (10 removal,
+  12 seated, 14/28 re-insert).
+- **`0x74` is not one fixed constant.** Two boot windows — one per robot — produced 13,
+  251, 256, 492, 555, 557, 768 and 1010, near #8's 490/530/998 without matching any of
+  them. That rules out a single burned-in value and nothing more: with one boot each,
+  per-robot, per-configuration and per-boot all still fit. Capture the same robot
+  across repeated boots to separate them.
+- **`0x6F` = 24608, and it is not a separate anomaly.** Every out-of-range value in
+  this window belongs to **one nine-second episode on robot 2, straight after a Reset
+  press**:
+
+  ```
+  13:11:48  0x01=[0, 1025]          <- Reset
+  13:11:53  0x09=2960  0x6F=24608
+  13:11:57  0xB9=2     0xBC=15699
+  ```
+
+  A Reset re-tares the scale (`0x0B` = 105 is `reset_tare`), so the reading is that
+  the load-cell-derived registers emit garbage for a few seconds afterwards rather
+  than that two registers independently produce bad durations. **Exclude
+  Reset-adjacent seconds before decoding `0x6F`, `0x09`, `0xB9` or `0xBC`** — and note
+  what that costs the finding above: the *only* sample above the `0xB9` `<19` cut sits
+  inside this episode, so the rule's upper branch rests on a reading there is now
+  reason to distrust. The ceiling `events.py` applies to `0xBC` caught it either way.
+
+**METHOD RULE, found by nearly shipping a wrong number.** Deduping into
+`{(serial, second): {register: value}}` is lossy — a register can emit **several
+distinct values in one second**, and the later one silently wins. It does not touch
+`0x3C`, `0x66`, `0x5E`, `0x64`, `0xB9`, `0xBC` or `0x33` — zero lossy seconds each,
+which is the only reason the pairing results above stand — but eleven registers are
+affected: `0x4F` 182 of 489, `0x57` 166 of 518, `0x0B` 90 of 357, `0x34` 69 of 335,
+`0x37` 34 of 870, `0x67` 7 of 7, `0x7E` 4 of 4, `0x01` 4 of 25, `0x0C` 3 of 21, `0x74`
+2 of 2, `0x6D` 1 of 1. Use `{register: [values]}` as the default, not the exception,
+and treat "unaffected" as a claim to check per register rather than a property of the
+analysis. It bites unevenly: the `0x0B`/`0x33` co-occurrence count above survives a
+scalar map, while the census of *which* `0x0B` values sit beside `0x33` does not —
+18 of those 19 seconds carry more than one `0x0B`.
+
 **No `0x35` fault in 3d22h, and no `0x5F`–`0x63` either.** The fault-payload reading
 gets no decode out of this window, but it does get its cleanest negative test: five
 registers that appear *only* beside a fault, in a window with no fault, appear

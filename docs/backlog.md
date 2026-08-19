@@ -287,6 +287,13 @@ METHOD RULE, learned the hard way: time everything by the payload's own
 arrival stamps, which shifted cycle boundaries by seconds, inflated every
 activity count and hid that `-30` fired twice in one cycle.
 
+SECOND METHOD RULE (2026-08-19): collapsing a second into
+`{register: value}` drops readings, because a register can emit several distinct
+values in one second — `0x4F` does it in 182 of 489 seconds, `0x34` in 69 of 335,
+`0x37` in 34 of 870, `0x01` in 4 of 25. Keep `{register: [values]}`. The
+pairing registers are unaffected (`0x3C`, `0x66`, `0x5E`, `0x64`, `0xB9`, `0xBC`,
+`0x33`: zero lossy seconds each).
+
 While the pod is alive with 0 restarts, `kubectl logs --timestamps --since=Nh`
 beats the Loki export outright. Use Loki only across a restart or past the
 container log.
