@@ -78,9 +78,17 @@ is behind much of the hopper work. Protocol detail lives in
 - **`whiskerless setup` survives a long hostname**, and reissues the broker's
   certificate when you move the broker — if it holds your CA's key. A certificate
   it did not issue is reported, never overwritten.
-- **Provisioning stops scanning the moment it finds your robot** — a robot only
-  advertises while you hold Connect, and it was spending that window.
-- **Errors are sentences, not stack traces.** `--debug` still gives the traceback.
+- **Provisioning works where the network list is not a multiple of four.** The
+  robot's WiFi scan is fetched in pages, and the last page asked for more than
+  remained — which this firmware answers by dropping the Bluetooth link, halfway
+  through provisioning. It looked like flaky Bluetooth.
+- **Provisioning tells you to hold Connect**, and stops scanning the moment it
+  finds your robot — it only advertises while you hold the button, and the scan
+  was spending that window.
+- **The robot's IP address is reported** instead of "no lease yet". It answers
+  "connected" before DHCP replies, so the address was read a moment too early.
+- **Errors are sentences, not stack traces.** `--debug` gives the traceback and
+  the request log — with the WiFi password and the robot's key left out of it.
 - **A short press of Connect toggles WiFi off**, which the docs called harmless —
   the robot vanishes from your broker and looks dead. Hold it for pairing mode.
 - **The declared Home Assistant minimum is correct** (2025.3.0).
