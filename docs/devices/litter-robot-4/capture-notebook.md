@@ -109,6 +109,17 @@ right one; at P1 and P3 it is moving, and the same skew becomes ~40 units of `0x
 That predicts the lag scales with globe speed — which a cycle interrupted mid-way
 would test, and which is a better experiment than another passive capture.
 
+**And it is not seconds, which is what `const.py` called it.** `0x3C` advanced at a
+median 5.8 counts/s on the P2→P3 leg and 19.0 on P3→P4 — the same two rates on both
+robots, 3.3× apart. A clock cannot have two rates, so `CYCLE_PHASE_SECONDS` was a
+guess that read as a decode, and nothing had ever tested it because nothing consumes
+the register. It is `CYCLE_COUNTER` now, with `0x66` beside it as
+`CYCLE_COUNTER_FINE` — a name that says only that it counts, because refuting
+"seconds" does not establish "position", and putting position in the name would
+repeat the error at the same cost. The interrupted-cycle test still decides it. The lag is consistent with the same story: ~38 counts at P1
+into a leg running ~23/s and ~42 at P3 into one running ~19/s is about 1.7–2.2 s of
+staleness either way, and the raw stream shows `0x66` republished 2 s later.
+
 **`0x5E` and `0x64` are mutually exclusive.** In 165 seconds carrying one of them,
 **zero carry both**. They alternate by cycle position — `0x5E` at P1 and P4, `0x64`
 at P2 and P3 — and sit in disjoint bands that differ per robot (robot 1: `0x5E`

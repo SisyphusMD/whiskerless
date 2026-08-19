@@ -146,7 +146,17 @@ class Register(IntEnum):
     # Activity-only registers, named from a 50-hour two-robot capture. Nothing
     # consumes these yet; naming them stops a decoder reporting them as unknown
     # and gives future work somewhere to hang evidence.
-    CYCLE_PHASE_SECONDS = 0x3C       # per-phase elapsed seconds within a cycle
+    # Deliberately says only that it counts. It was `CYCLE_PHASE_SECONDS`, which
+    # ~40 cycles across both robots refute: it advances at a median 5.8 counts/s
+    # on one leg of a clean cycle and 19.0 on another, and a clock cannot have two
+    # rates. What it counts is NOT established — a step index and a position both
+    # fit, and the interrupted-cycle test in bench-protocol.md is what separates
+    # them, so naming it for either would repeat the mistake being corrected.
+    # `0x66` is the same quantity at 16x: exact at the two sample points where the
+    # globe is at rest, ~40 behind at the two where it is moving, because `0x66`
+    # publishes on its own cadence and the `0x3C` message repeats its last value.
+    CYCLE_COUNTER = 0x3C
+    CYCLE_COUNTER_FINE = 0x66        # 16 x CYCLE_COUNTER
     DRAWER_LASER_1 = 0x48            # the primary laser DFI_LEVEL_PERCENT tracks
     DRAWER_LASER_2 = 0x49
     DRAWER_LASER_3 = 0x4A
