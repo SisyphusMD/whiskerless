@@ -164,6 +164,17 @@ The CLI needs a certificate too, and gets one automatically — whiskerless issu
 this machine an identity the first time it sets up or imports a CA, named
 `whiskerless-<hostname>`.
 
+**So does anything else on that listener.** A diagnostic subscriber, a bridge, a
+recorder — whatever else was connecting anonymously to 8883 stops the moment you
+flip this, and it fails as a dropped TLS connection with nothing in it to say
+why. Issue each one an identity from the same CA first. Two separate things to get
+right, and they are easy to confuse: the certificate's common name becomes the
+MQTT **username** (that is what `use_identity_as_username` does), while the
+**client id** is chosen by the client itself — and it is the client id that must
+never be a robot's serial, because a duplicate one kicks that robot off its own
+connection. Enumerate what is connected before you flip: `allow_anonymous true`
+means the broker never had to tell you who any of them were.
+
 ## Restrict the robot to its own topics (optional)
 
 Since the robot's listener cannot ask for a password, an ACL is the hardening that
