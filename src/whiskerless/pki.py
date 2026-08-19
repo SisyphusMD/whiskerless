@@ -7,7 +7,7 @@ user learn ``openssl`` before their litter box works.
 
 Three kinds of certificate come out of here, and they have different lifetimes:
 
-* **The CA** — generated once, kept forever, in ``~/.whiskerless``. It signs
+* **The CA** — generated once, kept forever, in ``~/whiskerless``. It signs
   everything else. Losing it does not break robots that are already running; it
   costs you the ability to add or re-provision one without visiting every robot
   to install a new CA. That is why it wants a backup.

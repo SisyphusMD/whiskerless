@@ -115,11 +115,28 @@ about 30 is the user picking a network and typing a password.
 14:25:31.958  whisker-config  DEVICE_REBOOT
 ```
 
+### The last page must ask only for what remains
+
+This capture does not show the final `cmd_scan_result`'s `count`, and copying the
+pattern without thinking about the boundary produced a real failure: whiskerless
+asked for a full four every time, so a robot reporting 30 networks served 0-27 and
+then sent a request for 28-31. The firmware answers that out-of-range read by
+**dropping the BLE link** — not a short page, not an error — in the middle of
+provisioning, with the pairing window already spent. Any result count that is not
+a multiple of four ends there, which is most households, and it presents as flaky
+Bluetooth. Proven live 2026-08-18 on a robot seeing 30 networks; fixed by clamping
+to `min(page, count - start)`.
+
 ### `resp_get_status` reports the join before DHCP
 
 At `14:25:11.596` the robot reports itself connected — with `ip4_addr = "0.0.0.0"`.
-That is the same pre-DHCP window whiskerless already handles, and independent
-confirmation that a `CONNECTED` status does not imply a lease.
+That is the pre-DHCP window: a `CONNECTED` status does not imply a lease.
+
+The address **does** arrive, a second or two later, and it is worth waiting for —
+it is what tells you where the robot actually landed. Reading the status once at
+the moment of association therefore always finds `0.0.0.0` and throws the lease
+away; whiskerless now keeps polling briefly after association and reports the real
+address (proven live 2026-08-18: both robots leased within the extra window).
 
 ### The certificate writes
 

@@ -717,7 +717,7 @@ async def test_declining_at_the_confirmation_writes_nothing() -> None:
     write, so backing out leaves the robot untouched."""
     robot = FakeRobot()
     with _bleak(robot):
-        result = await provision_robot("AA:BB", _config(), confirm=lambda _c: False)
+        result = await provision_robot("AA:BB", _config(), confirm=lambda _c, _mac: False)
     assert not result.success
     assert result.message == "aborted before anything was written"
     assert not [p for ep, p in robot.requests if ep == m.EP_MQTT], "no config written"
@@ -732,7 +732,7 @@ async def test_the_confirmation_sees_the_network_that_was_chosen() -> None:
     async def chooser(_networks: list[m.WifiNetwork]) -> tuple[str, str]:
         return "PickedFromList", "pw"
 
-    def confirm(config: Any) -> bool:
+    def confirm(config: Any, mac: str | None) -> bool:
         seen.append(config.wifi_ssid)
         return True
 

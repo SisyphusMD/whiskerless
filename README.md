@@ -76,7 +76,16 @@ broker IP (e.g. 192.168.1.10): 192.168.1.10
 
 $ whiskerless provision
 robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
-⠹ scanning for robots over BLE (3s)
+
+  Hold Connect on the robot now, until it beeps, and keep
+  holding until the connected line appears — it only advertises
+  while you do, and the link is opened after the scan finds it.
+
+⠹ scanning for robots over BLE — done (3s)
+   1 ▸ connected to F8:B3:B7:xx:xx:xx (MTU=500, cert chunk=100)
+   2 ▸ endpoints: ['mqtt-config', 'proto-ver', 'prov-config', 'prov-scan', …]
+   3 ▸ device MAC: f8:b3:b7:xx:xx:xx
+   4 ▸ asking the robot which networks it can see
 
   networks the robot can see, strongest first:
 
@@ -97,17 +106,15 @@ WiFi password for 'MyIoT':
     reversible — re-onboard the robot in the Whisker app
 
 Proceed? Type 'yes': yes
-   1 ▸ connected to F8:B3:B7:xx:xx:xx (MTU=500, cert chunk=100)
-   2 ▸ device MAC: f8:b3:b7:xx:xx:xx
-   3 ▸ DEVICE_ID_SET LR4C123456
-   4 ▸ WiFi SetConfig+Apply ssid=MyIoT; verifying join (≤20s)
-   5 ▸ WiFi connected (ip=192.168.1.42)
-   6 ▸ endpoints: host=192.168.1.10 sub=prod/LR4/LR4C123456/command
-   7 ▸ CERT_AWS_ROOT_CERT written (1188 bytes)
-   8 ▸ CERT_DEVICE_CERT written (1493 bytes)
-   9 ▸ CERT_DEVICE_KEY written (1704 bytes)
-  10 ▸ APPLY_CONFIG committed
-  11 ▸ DEVICE_REBOOT
+   5 ▸ DEVICE_ID_SET LR4C123456
+   6 ▸ WiFi SetConfig+Apply ssid=MyIoT; verifying join (≤20s)
+   7 ▸ WiFi connected (ip=192.168.1.42)
+   8 ▸ endpoints: host=192.168.1.10 sub=prod/LR4/LR4C123456/command
+   9 ▸ CERT_AWS_ROOT_CERT written (1188 bytes)
+  10 ▸ CERT_DEVICE_CERT written (1493 bytes)
+  11 ▸ CERT_DEVICE_KEY written (1704 bytes)
+  12 ▸ APPLY_CONFIG committed
+  13 ▸ DEVICE_REBOOT
 
 reprovisioned; the robot should reconnect MQTT to 192.168.1.10
 

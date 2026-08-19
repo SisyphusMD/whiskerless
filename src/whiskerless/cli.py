@@ -562,12 +562,13 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
 async def _cmd_provision(args: argparse.Namespace) -> int:
     from . import ble
 
-    # Another robot almost always lands on the same broker, behind the same CA,
-    # on the same WiFi as the ones already here — so offer that rather than making
-    # someone find the CA path again.
+    # Kept for the non-interactive path below, which defaults the SSID from it.
+    # There is deliberately no "press enter to accept the existing setup" hint any
+    # more: nothing this command still asks HAS a default. The broker and the CA
+    # moved to `setup`, the network comes from the robot's own scan, and the
+    # serial is per-robot — so the only prompt enter would have answered is the
+    # password, where it sets an empty one.
     prior = _prior_robot()
-    if prior is not None:
-        print("  press enter at any prompt to accept the setup already in use here\n")
 
     # Each answer is checked as it is given. Validating later means a typo in the
     # third question throws away all five — including a password typed blind.
@@ -633,6 +634,22 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         client_key=identity.key_pem if identity else None,
     )
 
+    # Said BEFORE the scan starts, because it is a physical prerequisite and the
+    # window is short: the robot advertises only while Connect is held, so anyone
+    # who learns this from the scan failing has already missed it. The tool knew
+    # this — the scan returns on the first answer precisely to spend as little of
+    # that window as possible — and never told the person holding the robot.
+    # Shown for --address too: that still scans (filtered to one device) and then
+    # connects, so the window matters exactly as much.
+    #
+    # "until it says connected", not "while this scans": the scan ENDS before the
+    # link is opened, and somebody who releases at the end of the scan spends the
+    # window in the gap — which is the failure `scan()` was rewritten to avoid.
+    print(
+        f"\n  Hold {_console.accent('Connect')} on the robot now, until it beeps, and keep\n"
+        f"  holding until the {_console.accent('connected')} line appears — it only advertises\n"
+        "  while you do, and the link is opened after the scan finds it.\n"
+    )
     # The scan is the one stretch a first-time user stares at with nothing
     # moving — indistinguishable from hung without a liveness row.
     with _console.progress("scanning for robots over BLE"):
@@ -655,9 +672,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         else "Whisker factory certificate (unchanged)"
     )
 
-    mac = await ble.read_device_mac(target.address)
-
-    def _confirm_write(settled: ProvisioningConfig) -> bool:
+    def _confirm_write(settled: ProvisioningConfig, mac: str | None) -> bool:
         """The one screen a first-time user reads carefully.
 
         Shown only once every value is known — the network is chosen over the
@@ -1047,7 +1062,8 @@ def _report_files(store: ProfileStore) -> None:
 def _report_pki(store: ProfileStore, broker: Path) -> None:
     """Say what was made, where it goes, and what losing it costs."""
     print(f"\n  Certificate authority created in {_console.accent(str(store.root))}")
-    _report_files(store)
+    # NOT the file list — `setup` prints that itself once everything is issued,
+    # and printing it here as well showed the same three paths twice in one run.
     print(
         f"\n  {_console.accent('Back up ' + str(store.root) + ' somewhere safe.')}\n"
         "  It holds the key that signs certificates for your robots. Losing it does\n"
@@ -1764,10 +1780,10 @@ def _pick_robot(robots: Sequence[DiscoveredRobot], address: str | None) -> Disco
 # --- argument parsing --------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="whiskerless", description="Un-cloud your Whisker devices.")
-    parser.add_argument("-v", "--verbose", action="count", default=0, help="-v info, -vv debug")
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="-v info, -vv debug (--debug does both)")
     parser.add_argument("--version", action="version", version=f"whiskerless {__version__}")
     parser.add_argument("--debug", action="store_true",
-                        help="show the full traceback on failure (for bug reports)")
+                        help="full traceback AND the request log (what to send with a bug report)")
 
     # People type `whiskerless state --debug`, not `whiskerless --debug state`, so
     # these have to work in both positions. SUPPRESS is load-bearing: a subparser
@@ -1776,9 +1792,9 @@ def build_parser() -> argparse.ArgumentParser:
     # discard a --debug given before the subcommand.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--debug", action="store_true", default=argparse.SUPPRESS,
-                        help="show the full traceback on failure (for bug reports)")
+                        help="full traceback AND the request log (what to send with a bug report)")
     common.add_argument("-v", "--verbose", action="count", default=argparse.SUPPRESS,
-                        help="-v info, -vv debug")
+                        help="-v info, -vv debug (--debug does both)")
 
     # Not required: a bare invocation prints an orientation instead of an
     # argparse usage error, which is the one thing a first-time user cannot use.
@@ -1873,7 +1889,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="robot serial: the unhyphenated LR4C… label line, not the LR4-…-US model "
         "(prompted if omitted)",
     )
-    p_prov.add_argument("--wifi-ssid", help="WiFi SSID (prompted if omitted)")
+    p_prov.add_argument("--wifi-ssid", help="WiFi SSID; omit it to choose from the networks the ROBOT can see")
     p_prov.add_argument("--wifi-pass", default=None, help="WiFi password (prompted securely if omitted)")
     p_prov.add_argument("--address", help="BLE MAC to target directly (skip the picker)")
     p_prov.add_argument("--scan-timeout", type=float, default=15.0)
@@ -1927,9 +1943,31 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    level = logging.WARNING if args.verbose == 0 else logging.INFO if args.verbose == 1 else logging.DEBUG
-    logging.basicConfig(level=level, format="%(levelname)s %(message)s")
     debug = args.debug or bool(os.environ.get("WHISKERLESS_DEBUG"))
+    # --debug turns on debug LOGGING too. It used to control tracebacks alone,
+    # which is not what the name promises: a provisioning failure was reproduced
+    # with --debug and produced no request log at all, because that lived behind
+    # -vv. The one flag anybody reaches for in a bug report now gives the whole
+    # picture.
+    level = logging.DEBUG if debug or args.verbose > 1 else (
+        logging.INFO if args.verbose == 1 else logging.WARNING
+    )
+    # With a clock. Provisioning fails by running out of the robot's pairing
+    # window, and a log with no timestamps cannot answer where the seconds went.
+    #
+    # OUR namespace only — the root stays quiet. bleak's backends log the exact
+    # buffer handed to write_gatt_char, so a root-level DEBUG would print the WiFi
+    # passphrase and every private-key chunk verbatim, straight past the redaction
+    # in transport.py, and into the log this flag tells people to attach to a bug
+    # report. Their chatter never found a bug here either; ours did.
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("whiskerless").setLevel(level)
+    if level <= logging.DEBUG:
+        print(
+            "  the log below carries network names and this robot's identifiers "
+            "(no passwords or keys) — read it before sharing\n",
+            file=sys.stderr,
+        )
     if args.command is None:
         _print_orientation()
         return 0

@@ -11,6 +11,7 @@ Whether the robot on the bench agrees is a bench question, not a test one.
 
 from __future__ import annotations
 
+import logging
 from inspect import signature
 from types import SimpleNamespace
 from typing import Any, ClassVar
@@ -397,4 +398,32 @@ async def test_a_dropped_link_is_not_blamed_on_the_adapter() -> None:
         await scan(timeout=0, rounds=1, settle=0)
     assert "Connection reset by peer" in str(caught.value)
     assert "adapter is present" not in str(caught.value)
+
+
+async def test_credentials_never_reach_the_request_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`--debug` now switches the request log on, and its help calls that log the
+    thing to attach to a bug report — so what it prints matters.
+
+    Two endpoints must never show a payload: `prov-config` carries the WiFi
+    passphrase in cleartext, and `mqtt-config` carries the robot's PRIVATE KEY in
+    CERT_WRITE chunks. `prov-scan` must still show one, because that hex is what
+    a real paging bug was found in.
+    """
+    secret = b"hunter2-and-a-private-key"
+    client = FakeBleakClient({1: b"prov-config", 2: b"mqtt-config", 3: b"prov-scan"})
+    transport = ProtocommBLE(client)
+    await transport.discover_endpoints()
+
+    for endpoint, expect_hex in (("prov-config", False), ("mqtt-config", False), ("prov-scan", True)):
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="whiskerless.ble.transport"):
+            await transport.request(endpoint, secret)
+        logged = caplog.text
+        if expect_hex:
+            assert secret.hex() in logged, "the half of the log that finds bugs is gone"
+        else:
+            assert secret.hex() not in logged, f"{endpoint} leaked its payload"
+            assert "redacted" in logged
 

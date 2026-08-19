@@ -42,7 +42,10 @@ ProgressCallback = Callable[[str], None]
 NetworkChooser = Callable[[list["m.WifiNetwork"]], Awaitable[tuple[str, str]]]
 #: Last chance to stop, called once everything to be written is known and before
 #: the first write. Returning False aborts with the robot untouched.
-Confirm = Callable[["ProvisioningConfig"], bool]
+#: Takes the settled config and the robot's MAC, which is only known once the
+#: link is open — so the caller cannot have read it beforehand without opening a
+#: second connection inside the pairing window.
+Confirm = Callable[["ProvisioningConfig", "str | None"], bool]
 
 # GetStatus poll cadence during the WiFi join verify. An auth failure typically
 # reports within a few seconds; a successful join (through DHCP) in 3-10 s.
@@ -228,7 +231,15 @@ def _assert_lr4(client: BleakClient) -> None:
 
 
 async def read_device_mac(address: str, *, scan_timeout: float = 15.0) -> str | None:
-    """Read-only preflight — connect and return the robot's 6-byte MAC."""
+    """Read-only preflight — connect and return the robot's 6-byte MAC.
+
+    NOT used by `whiskerless provision`, deliberately: it opens a connection of
+    its own, and the pairing window is the scarcest thing in provisioning — the
+    robot advertises only while somebody holds Connect. `provision_robot` reads
+    the same MAC over the link it already has and hands it to the confirmation
+    callback. This stays for callers driving the library directly, who may want
+    to identify a device without provisioning it.
+    """
     from bleak import BleakClient  # lazy: bleak is the [ble] extra
 
     async with translated(f"could not read the device id at {address}"), BleakClient(address) as client:
@@ -315,7 +326,7 @@ async def provision_robot(
         # Everything that will be written is settled by here — including the
         # network, which could not be known before the BLE link was open. Asking
         # earlier would have shown a confirmation screen with a blank WiFi row.
-        if confirm is not None and not confirm(config):
+        if confirm is not None and not confirm(config, result.device_mac):
             result.message = "aborted before anything was written"
             return result
 

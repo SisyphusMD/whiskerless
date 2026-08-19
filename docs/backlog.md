@@ -689,9 +689,17 @@ says why.
 
 ### #71 — Cut an rc, then prove the certificate flow on real hardware with it
 
-**Nothing in the certificate work has touched a robot.** It is verified against
-fakes and one decoded capture, and both suites are green, but the identity write
-has never gone over BLE to a real LR4.
+**DONE 2026-08-18, on `0.2.0-rc.32`.** Both robots are re-provisioned onto a
+whiskerless-issued CA and connected to the home broker with
+certificates of their own; the LR4 listener now refuses anonymous clients
+(`require_certificate true`, `use_identity_as_username true`), so the broker logs
+each robot by serial. What the rehearsal cost is recorded below — two bugs that
+only a real robot could surface, and neither would have failed any test we had.
+
+**Nothing in the certificate work had touched a robot before that.** It was
+verified against fakes and one decoded capture, with both suites green, and the
+identity write had never gone over BLE to a real LR4 — which is exactly why it
+carried two defects.
 
 **`0.2.0-rc.25` is a burned number — never reuse it.** Its first cut carried a
 real robot serial in `tests/test_profiles.py`, which reached the PyPI sdist
@@ -804,21 +812,44 @@ gets, and shipping a first-run path nobody has run is how the last three
 "proven" claims in this repo turned out to be inherited.
 
 `whiskerless backup` was built for this ordering — the store between generating
-the CA and installing it is the only copy of a key both robots will trust:
+the CA and installing it is the only copy of a key both robots will trust. What
+was actually run, 2026-08-18 (note `~/whiskerless`, not `~/.whiskerless`: the
+store had already moved, so the older draft of this runbook named a path that no
+longer existed):
 
 ```bash
-mv ~/.whiskerless ~/.whiskerless.pre-rotation   # keep until BOTH robots are back
-whiskerless setup                                # broker address, offers a CA
-whiskerless backup ~/Documents                   # before anything depends on it
-#  → install ca.crt / server.crt / server.key on the broker, restart it
-#  → POINT OF NO RETURN: robots holding the old CA drop off here
-whiskerless provision                            # once per robot, at the robot
-#  → optionally require_certificate true + use_identity_as_username true
+mv ~/whiskerless ~/whiskerless.pre-rotation     # keep until BOTH robots are back
+whiskerless setup --host 192.168.3.6            # offers a CA; option 1 generates
+whiskerless backup ~/Desktop                     # before anything depends on it
+bao kv put kvv2/k8s/bryantserver/homeassistant/mosquitto/tls ca=… crt=… key=…
+#  → cluster: externalsecret-tls.yaml replaces cert-manager's Issuer+Certificate
+#  → POINT OF NO RETURN: restart mosquitto; robots holding the old CA drop off
+whiskerless provision --serial <each>            # once per robot, at the robot
+#  → then require_certificate true + use_identity_as_username true
 ```
 
-Keep `~/.whiskerless.pre-rotation` until the fleet is back: it holds the old CA
-certificate, so putting the broker's old files back is the one rollback that
-does not cost a bench trip.
+Keep `~/whiskerless.pre-rotation` until the fleet is back: it holds the old CA
+certificate. The old CA's *private key* also remains in OpenBao at
+`.../mosquitto/ca`, untouched — between the manifest change and the first
+re-provision, reverting the manifest and restarting mosquitto is a complete
+rollback that costs no bench trip.
+
+**What the hardware found that nothing else could:**
+
+- **The WiFi scan walked off the end of its own results.** Pages of four, and the
+  last page always asked for four however few remained. This firmware answers an
+  out-of-range read by dropping the BLE link — mid-provision, pairing window
+  spent. A robot seeing 30 networks died on the request for 28-31. Any count not
+  a multiple of four hits it, so it would have failed for most users, looking
+  like flaky Bluetooth. The existing unit test *asserted* the over-read, so the
+  suite was holding the bug in place.
+- **The join verify threw the IP away.** The robot answers `CONNECTED` the moment
+  the STA associates, before DHCP, so reading the address once always found
+  `0.0.0.0`. It arrives a second or two later.
+
+Both are fixed with regression tests. See also the `provision` UX corrections
+that came out of the same session (a hint promising defaults no prompt had, the
+file list printed twice, `--debug` not enabling the request log).
 
 ---
 

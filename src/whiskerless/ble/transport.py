@@ -19,7 +19,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import ProvisioningError
-from .messages import ADVERTISER_NAME, PROV_SERVICE_UUID
+from .messages import ADVERTISER_NAME, EP_MQTT, EP_PROV_CONFIG, PROV_SERVICE_UUID
+
+#: Endpoints whose payloads are never logged. `prov-config` carries the WiFi
+#: passphrase in cleartext; `mqtt-config` carries the robot's private key.
+_SECRET_ENDPOINTS = frozenset({EP_PROV_CONFIG, EP_MQTT})
 
 if TYPE_CHECKING:
     from bleak import BleakClient
@@ -203,10 +207,22 @@ class ProtocommBLE:
             raise ProvisioningError(
                 f"endpoint {endpoint!r} not found; discovered {sorted(self._endpoints)}"
             )
-        log.debug("→ %s (%d bytes) %s", endpoint, len(payload), payload.hex())
+        # The hex is what makes this log worth having — a paging bug was found in
+        # it — but two endpoints carry things that must never reach a bug report:
+        # prov-config writes the WiFi passphrase in cleartext, and mqtt-config
+        # carries the robot's PRIVATE KEY in CERT_WRITE chunks. Those log their
+        # size and nothing else.
+        redact = endpoint in _SECRET_ENDPOINTS
+        log.debug(
+            "→ %s (%d bytes) %s", endpoint, len(payload),
+            "<redacted: carries credentials>" if redact else payload.hex(),
+        )
         if self._dry_run:
             return b""
         await self._client.write_gatt_char(char, payload, response=True)
         response = bytes(await self._client.read_gatt_char(char))
-        log.debug("← %s (%d bytes) %s", endpoint, len(response), response.hex())
+        log.debug(
+            "← %s (%d bytes) %s", endpoint, len(response),
+            "<redacted>" if redact else response.hex(),
+        )
         return response
