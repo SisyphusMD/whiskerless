@@ -32,12 +32,28 @@ is behind much of the hopper work. Protocol detail lives in
   holding one still works on a broker that allows anonymous clients, so there was
   nothing to trade — and `whiskerless robots` marks any robot still presenting the
   certificate it shipped with.
-- **whiskerless has to be able to sign now.** A store holding a CA certificate but
-  not its key is no longer a supported arrangement — it read like a finished setup
-  while quietly refusing to issue anything. `setup` asks for the key, or offers a
-  new authority; the second answer means re-provisioning every robot. See
-  **Upgrading from 0.1.3** in the README for what that costs at the robot and at
-  the broker.
+- **whiskerless has to be able to sign now, unless you say otherwise.** A store
+  holding a CA certificate but not its key is no longer an unstated arrangement —
+  it read like a finished setup while quietly refusing to issue anything. `setup`
+  asks for the key, or offers a new authority; the second answer means
+  re-provisioning every robot. See **Upgrading from 0.1.3** in the README for what
+  that costs at the robot and at the broker.
+- **`setup --auth` records how your store authenticates**, for a signing key that
+  lives somewhere else on purpose. `supplied` takes a certificate per robot from
+  `provision --robot-cert/--robot-key` and never wants the CA key; `anonymous`
+  leaves robots the certificate they shipped with. The mode is stored, so later
+  commands behave the same way with no flags, and a mode your files can no longer
+  carry out is an error naming both rather than a silent downgrade.
+- **Each robot's certificate is kept** at `robots/<serial>/client/`, where this
+  machine's has always been kept at `client/`. A robot re-provisioned stays the
+  same client to your broker, so ACLs and log lines keyed to it still point at it;
+  `provision --reissue` replaces one deliberately. `provision` now says to back up
+  afterwards, because it leaves behind material an earlier backup does not have.
+- **Certificates you supply are checked before anything is written**: they have to
+  chain to your CA, be valid now, not be a CA themselves, and carry the robot's
+  serial as their common name — which is where a broker gets the robot's username.
+  Nothing is filed until it passes, and a robot's is filed only once the robot has
+  accepted it, so a rejected or aborted run leaves the one you were using intact.
 - **`binary_sensor.…_waste_drawer_removed` → `sensor.…_waste_drawer_last_moved`.**
   The robot never reports which way the drawer moved.
 - **`switch.…_panel_sleep_mode` is now a binary sensor** — the firmware refuses

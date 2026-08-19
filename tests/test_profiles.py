@@ -13,6 +13,7 @@ import pytest
 from whiskerless.exceptions import ProfileError
 from whiskerless.profiles import (
     HOME_ENV,
+    AuthMode,
     Broker,
     ProfileStore,
     RobotProfile,
@@ -369,12 +370,15 @@ def test_a_broker_round_trips(store: ProfileStore) -> None:
     assert store.load_broker().host == "192.0.2.10"
 
 
-def test_a_broker_is_only_ever_a_host(store: ProfileStore) -> None:
-    """Anything else is a way to point the CLI where the robot cannot follow: the
-    port is a compile-time constant in the firmware and hostname verification is
-    what the robot itself does."""
+def test_a_broker_is_a_host_and_how_this_store_authenticates(store: ProfileStore) -> None:
+    """Nothing else. A port or a hostname-verification switch would be a way to
+    point the CLI where the robot cannot follow: the port is a compile-time
+    constant in the firmware and hostname verification is what the robot does."""
     store.save_broker(Broker(host="192.0.2.10"))
-    assert json.loads(store.broker_path.read_text(encoding="utf-8")) == {"host": "192.0.2.10"}
+    assert json.loads(store.broker_path.read_text(encoding="utf-8")) == {
+        "host": "192.0.2.10",
+        "auth": "mutual",
+    }
     settings = store.load_broker().settings()
     assert (settings.port, settings.verify_hostname) == (8883, True)
 
@@ -427,7 +431,10 @@ def test_reopening_such_a_store_rewrites_it_host_only(store: ProfileStore) -> No
         json.dumps({"host": "192.0.2.10", "port": 1884}), encoding="utf-8"
     )
     store.save_broker(store.load_broker())
-    assert json.loads(store.broker_path.read_text(encoding="utf-8")) == {"host": "192.0.2.10"}
+    assert json.loads(store.broker_path.read_text(encoding="utf-8")) == {
+        "host": "192.0.2.10",
+        "auth": "mutual",
+    }, "a store predating the field is a store whose release always signed"
 
 
 def test_settings_carry_the_ca_and_this_machines_identity(store: ProfileStore) -> None:
@@ -1056,3 +1063,136 @@ def test_a_stray_anchor_survives_a_store_that_has_no_ca_of_its_own(tmp_path: Pat
     # No profile.json existed to carry an address from, and an empty `host` reads
     # as a broker cleared on purpose.
     assert "host" not in json.loads((directory / "profile.json").read_text())
+
+
+# --- how this store authenticates ------------------------------------------
+
+
+def test_an_unknown_auth_mode_is_refused_rather_than_defaulted(store: ProfileStore) -> None:
+    """Reading it as 'mutual' would hand a robot an identity in a setup that
+    asked for none — the silent downgrade the stored field exists to prevent."""
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.broker_path.write_text(json.dumps({"host": "192.0.2.10", "auth": "whatever"}))
+    with pytest.raises(ProfileError, match="does not know"):
+        store.load_broker()
+
+
+@pytest.mark.parametrize("mode", list(AuthMode))
+def test_every_mode_survives_a_write_and_a_read(store: ProfileStore, mode: AuthMode) -> None:
+    store.save_broker(Broker(host="192.0.2.10", auth=mode))
+    assert store.load_broker().auth is mode
+
+
+def test_mutual_without_a_signing_key_is_an_error_not_a_downgrade(store: ProfileStore) -> None:
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca().cert_pem)
+    store.save_broker(Broker(host="192.0.2.10", auth=AuthMode.MUTUAL))
+    with pytest.raises(ProfileError, match="says auth is 'mutual'"):
+        store.assert_usable()
+
+
+@pytest.mark.parametrize("mode", [AuthMode.SUPPLIED, AuthMode.ANONYMOUS])
+def test_the_other_modes_still_need_the_trust_anchor(
+    store: ProfileStore, mode: AuthMode
+) -> None:
+    """The mode changes who issues the robot's identity, not whether there is an
+    authority behind the broker's certificate."""
+    store.save_broker(Broker(host="192.0.2.10", auth=mode))
+    with pytest.raises(ProfileError, match="still needs the CA certificate"):
+        store.assert_usable()
+
+
+def test_connecting_does_not_need_a_key_it_will_never_use(store: ProfileStore) -> None:
+    """A store whose CA key has gone missing still talks to its broker with the
+    identity it holds. Failing `state` over a key that only matters at the next
+    provision would be a guard firing at the wrong moment."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    store.client_identity()
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.ca_key_path.unlink()
+    assert store.settings().client_cert_data, "the stored identity was not presented"
+
+
+def test_an_anonymous_store_presents_no_identity_of_its_own(store: ProfileStore) -> None:
+    """The CLI connects the way the robots do. Presenting a certificate on a
+    listener that accepts anonymous clients would make the CLI the one client on
+    it held to a different standard."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    store.client_identity()
+    store.save_broker(Broker(host="192.0.2.10", auth=AuthMode.ANONYMOUS))
+    settings = store.settings()
+    assert settings.ca_cert_data, "the broker still has to be verified"
+    assert settings.client_cert_data is None and settings.client_key_data is None
+
+
+# --- what each robot presents ----------------------------------------------
+
+
+def test_a_robots_identity_is_kept_and_reused(store: ProfileStore) -> None:
+    """A robot re-provisioned — a new WiFi password is enough — stays the same
+    client to the broker, so ACLs and log lines keyed to it keep pointing at it."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    first = store.robot_identity("LR4C123456")
+    assert store.robot_identity("LR4C123456").cert_pem == first.cert_pem
+    assert pki.certificate_common_name(first.cert_pem) == "LR4C123456"
+    assert (store.robot_client_dir("LR4C123456") / "client.key").is_file()
+
+
+def test_a_robots_identity_can_be_replaced_without_losing_its_profile(
+    store: ProfileStore,
+) -> None:
+    """The escape hatch a cached key needs: replacing one believed compromised
+    must not cost the measurements on the profile beside it."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    store.save(RobotProfile(serial=Serial("LR4C123456"), litter_full_mm=90))
+    first = store.robot_identity("LR4C123456")
+    second = store.robot_identity("LR4C123456", reissue=True)
+    assert second.cert_pem != first.cert_pem
+    assert store.load("LR4C123456").litter_full_mm == 90
+
+
+def test_replacing_the_authority_drops_the_identities_it_signed(store: ProfileStore) -> None:
+    """Left behind, `robot_identity()` hands back a certificate the retired CA
+    signed — reported as current, refused by the broker."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    store.save(RobotProfile(serial=Serial("LR4C123456"), cert_serial="ab12"))
+    store.robot_identity("LR4C123456")
+    store.forget_issued_certificates()
+    assert not store.has_robot_identity("LR4C123456")
+    assert store.load("LR4C123456").cert_serial is None
+
+
+def test_a_supplied_identity_is_stored_where_an_issued_one_would_be(
+    store: ProfileStore,
+) -> None:
+    """One slot either way: the store keeps what it cannot recreate and caches
+    what it can, and nothing downstream has to know which it is holding."""
+    from whiskerless import pki
+
+    ca = pki.generate_ca()
+    store.save_ca_cert_only(ca.cert_pem)
+    theirs = pki.issue_client(ca, "LR4C123456")
+    store.save_robot_identity("LR4C123456", theirs)
+    assert store.load_robot_identity("LR4C123456").cert_pem == theirs.cert_pem
+    assert store.has_robot_identity("LR4C123456")
+
+
+def test_a_robots_identity_survives_a_profile_save(store: ProfileStore) -> None:
+    """`save()` rewrites the directory the identity lives in."""
+    from whiskerless import pki
+
+    store.save_ca(pki.generate_ca())
+    store.robot_identity("LR4C123456")
+    store.save(RobotProfile(serial=Serial("LR4C123456"), name="Upstairs"))
+    assert store.has_robot_identity("LR4C123456")

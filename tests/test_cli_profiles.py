@@ -9,6 +9,7 @@ sentence rather than a stack trace.
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -18,7 +19,7 @@ import pytest
 
 from whiskerless.cli import _check_host, _check_ssid, _read_pem, main
 from whiskerless.exceptions import ProfileError, ProvisioningError, WhiskerlessError
-from whiskerless.profiles import Broker, ProfileStore, RobotProfile, Serial
+from whiskerless.profiles import AuthMode, Broker, ProfileStore, RobotProfile, Serial
 
 CA = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
 
@@ -2058,3 +2059,1116 @@ def test_replacing_the_authority_leaves_an_unreadable_broker_certificate_alone(
 
     assert (store.broker_dir / "server.crt").read_text() == served
     assert "was not issued by this machine" in capsys.readouterr().err
+
+
+# --- the three ways a store can authenticate --------------------------------
+
+
+def _provision_run(*extra: str) -> int:
+    """A provision onto whatever `setup` has already prepared."""
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+    ):
+        return main(["provision", "--serial", "LR4C123456",
+                     "--wifi-ssid", "home", "--wifi-pass", "pw", "--yes", *extra])
+
+
+def _expired_client(ca: Any, common_name: str) -> Any:
+    """A client certificate that was valid once, for the check that it is not now."""
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    from whiskerless.pki import KeyPair
+
+    issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+    signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    past = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=400)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
+        .issuer_name(issuer.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(past)
+        .not_valid_after(past + datetime.timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .sign(signing, hashes.SHA256())  # type: ignore[arg-type]
+    )
+    return KeyPair(
+        cert_pem=cert.public_bytes(serialization.Encoding.PEM).decode(),
+        key_pem=key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode(),
+    )
+
+
+def _future_client(ca: Any, common_name: str) -> Any:
+    """A certificate whose validity has not started yet."""
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    from whiskerless.pki import KeyPair
+
+    issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+    signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    later = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=7)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
+        .issuer_name(issuer.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(later)
+        .not_valid_after(later + datetime.timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .sign(signing, hashes.SHA256())  # type: ignore[arg-type]
+    )
+    return KeyPair(
+        cert_pem=cert.public_bytes(serialization.Encoding.PEM).decode(),
+        key_pem=key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode(),
+    )
+
+
+def _bare_client(ca: Any, common_name: str, *, eku: Any = None) -> Any:
+    """A client certificate with no extensions at all — no BasicConstraints, no
+    ExtendedKeyUsage. Plenty of hand-rolled CAs issue exactly this. `eku` adds one
+    back, for the checks that only apply when the extension is there to disagree
+    with."""
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    from whiskerless.pki import KeyPair
+
+    issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+    signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.datetime.now(datetime.UTC)
+    # An empty string is not a name cryptography will build; a subject with no
+    # attributes is what a certificate carrying no common name actually looks like.
+    subject = (
+        x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+        if common_name
+        else x509.Name([])
+    )
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=1))
+        .not_valid_after(now + datetime.timedelta(days=30))
+    )
+    if eku is not None:
+        builder = builder.add_extension(x509.ExtendedKeyUsage([eku]), critical=False)
+    cert = builder.sign(signing, hashes.SHA256())  # type: ignore[arg-type]
+    return KeyPair(
+        cert_pem=cert.public_bytes(serialization.Encoding.PEM).decode(),
+        key_pem=key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode(),
+    )
+
+
+def _their_robot_cert(tmp_path: Path, ca_cert: str, ca_key: str, serial: str) -> tuple[str, str]:
+    """A robot certificate somebody else issued, from the same authority."""
+    from whiskerless import pki
+
+    ca = pki.read_pair(Path(ca_cert), Path(ca_key))
+    theirs = pki.issue_client(ca, serial)
+    cert, key = tmp_path / f"{serial}.crt", tmp_path / f"{serial}.key"
+    cert.write_text(theirs.cert_pem)
+    key.write_text(theirs.key_pem)
+    return str(cert), str(key)
+
+
+def test_the_default_mode_is_recorded_so_it_can_be_relied_on(store: ProfileStore) -> None:
+    cert, key = _ca_files(Path(tempfile.mkdtemp()))
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    assert store.load_broker().auth is AuthMode.MUTUAL
+
+
+def test_supplied_mode_takes_a_ca_certificate_with_no_key(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """The cert-manager arrangement: the signing key never reaches this machine.
+    Stricter than the default, not weaker — so it must not need one."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    ca = pki.read_pair(Path(cert), Path(key))
+    mine = pki.issue_client(ca, "whiskerless-test")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(mine.cert_pem)
+    kpath.write_text(mine.key_pem)
+
+    assert _setup_run("--auth", "supplied", "--ca", cert,
+                      "--client-cert", str(cpath), "--client-key", str(kpath)) == 0
+    assert store.load_broker().auth is AuthMode.SUPPLIED
+    assert store.has_ca_cert() and not store.has_ca(), "a signing key was filed anyway"
+
+    robot_cert, robot_key = _their_robot_cert(tmp_path, cert, key, "LR4C123456")
+    assert _provision_run("--robot-cert", robot_cert, "--robot-key", robot_key) == 0
+    assert store.load_robot_identity("LR4C123456").cert_pem == Path(robot_cert).read_text()
+    assert store.load("LR4C123456").cert_serial, "the issued certificate was not recorded"
+
+    # And the second provision needs nothing handed over again.
+    assert _provision_run() == 0
+
+
+def test_supplied_mode_refuses_a_key_that_contradicts_it(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Filing it would leave a store that says identities come from elsewhere
+    while holding everything needed to issue them here."""
+    cert, key = _ca_files(tmp_path)
+    assert _setup_run("--auth", "supplied", "--ca", cert, "--ca-key", key) == 1
+    assert "--ca-key contradicts" in capsys.readouterr().err
+
+
+def test_supplied_mode_needs_this_machines_own_certificate(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing here can mint it, and a store without one is refused by a listener
+    asking for one — after reporting that setup succeeded."""
+    cert, _ = _ca_files(tmp_path)
+    assert _setup_run("--auth", "supplied", "--ca", cert) == 1
+    assert "needs this machine's own certificate" in capsys.readouterr().err
+
+
+def test_supplied_mode_with_no_certificate_for_this_robot_says_so(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    mine = pki.issue_client(pki.read_pair(Path(cert), Path(key)), "whiskerless-test")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(mine.cert_pem)
+    kpath.write_text(mine.key_pem)
+    assert _setup_run("--auth", "supplied", "--ca", cert,
+                      "--client-cert", str(cpath), "--client-key", str(kpath)) == 0
+    assert _provision_run() == 1
+    assert "has no certificate on file for LR4C123456" in capsys.readouterr().err
+
+
+def test_a_robot_certificate_from_the_wrong_authority_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Written to the robot it produces a robot the broker refuses, and the
+    failure surfaces as a TLS handshake that names nothing."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    mine = pki.issue_client(pki.read_pair(Path(cert), Path(key)), "whiskerless-test")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(mine.cert_pem)
+    kpath.write_text(mine.key_pem)
+    assert _setup_run("--auth", "supplied", "--ca", cert,
+                      "--client-cert", str(cpath), "--client-key", str(kpath)) == 0
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    other_cert, other_key = _ca_files(elsewhere)
+    assert other_key is not None
+    stray_cert, stray_key = _their_robot_cert(elsewhere, other_cert, other_key, "LR4C123456")
+    assert _provision_run("--robot-cert", stray_cert, "--robot-key", stray_key) == 1
+    assert "was not signed by the CA" in capsys.readouterr().err
+
+
+def test_anonymous_mode_leaves_the_robot_the_certificate_it_shipped_with(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What 0.1.3 did, and the one mode that has to be asked for."""
+    cert, _ = _ca_files(tmp_path)
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert store.load_broker().auth is AuthMode.ANONYMOUS
+    assert _provision_run() == 0
+    assert not store.has_robot_identity("LR4C123456")
+    assert store.load("LR4C123456").cert_serial is None
+    assert "keeps the certificate it shipped with" in capsys.readouterr().out
+
+
+def test_anonymous_mode_does_not_mark_every_robot_as_needing_attention(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A robot without one of our certificates is the ARRANGEMENT here. Flagging
+    the whole fleet trains somebody to ignore the one marker that means
+    something."""
+    cert, _ = _ca_files(tmp_path)
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert _provision_run() == 0
+    capsys.readouterr()
+    assert main(["robots"]) == 0
+    listed = capsys.readouterr().out
+    assert "no identity from this store" not in listed
+    assert "re-provisioning is the fix" not in listed
+
+
+def test_the_mode_is_kept_across_a_later_setup_run(store: ProfileStore, tmp_path: Path) -> None:
+    """`setup --host <new address>` is routine. A default that overrode the file
+    would move a cert-manager store back onto certificates we sign — the second
+    time, not the first, which is the kind of change nobody goes looking for."""
+    cert, _ = _ca_files(tmp_path)
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert main(["setup", "--host", "192.0.2.11"]) == 0
+    assert store.load_broker().auth is AuthMode.ANONYMOUS
+    assert store.load_broker().host == "192.0.2.11"
+
+
+def test_changing_the_mode_says_so(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert, key = _ca_files(tmp_path)
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    capsys.readouterr()
+    assert _setup_run("--auth", "anonymous") == 0
+    assert "mutual" in capsys.readouterr().out
+
+
+def test_a_robot_keeps_one_identity_across_re_provisions(store: ProfileStore) -> None:
+    """A new WiFi password is enough to re-provision, and the broker's ACLs and
+    logs are keyed to the certificate."""
+    seed(store)
+    assert _provision_run() == 0
+    first = store.load_robot_identity("LR4C123456").cert_pem
+    assert _provision_run() == 0
+    assert store.load_robot_identity("LR4C123456").cert_pem == first
+
+
+def test_reissue_replaces_the_stored_identity(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(store)
+    assert _provision_run() == 0
+    first = store.load_robot_identity("LR4C123456").cert_pem
+    capsys.readouterr()
+    assert _provision_run("--reissue") == 0
+    assert store.load_robot_identity("LR4C123456").cert_pem != first
+    assert "replacing the certificate" in capsys.readouterr().out
+
+
+def test_provisioning_says_to_back_up_again(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every provision adds material a backup taken before it does not have — and
+    in `supplied` mode a private key nothing here can produce again."""
+    seed(store)
+    assert _provision_run() == 0
+    said = capsys.readouterr().out
+    assert "Back up again" in said
+    assert "whiskerless backup" in said
+
+
+def test_a_supplied_certificate_cannot_be_forced_into_an_anonymous_store(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    robot_cert, robot_key = _their_robot_cert(tmp_path, cert, key, "LR4C123456")
+    assert _provision_run("--robot-cert", robot_cert, "--robot-key", robot_key) == 1
+    assert "contradicts this store's 'anonymous' mode" in capsys.readouterr().err
+
+
+def test_half_a_supplied_pair_says_both_are_needed(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(store)
+    assert _provision_run("--robot-cert", str(tmp_path / "nothing.crt")) == 1
+    assert "--robot-cert and --robot-key go together" in capsys.readouterr().err
+
+
+def test_a_non_signing_mode_with_no_ca_and_no_terminal_says_which_flag(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _setup_run("--auth", "anonymous") == 1
+    assert "pass --ca <file>" in capsys.readouterr().err
+
+
+def test_a_non_signing_mode_asks_for_the_ca_when_there_is_somebody_to_ask(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    mine = pki.issue_client(pki.read_pair(Path(cert), Path(key)), "whiskerless-test")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(mine.cert_pem)
+    kpath.write_text(mine.key_pem)
+
+    answers = iter([cert])
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": next(answers)),
+    ):
+        assert _setup_run("--auth", "supplied",
+                          "--client-cert", str(cpath), "--client-key", str(kpath)) == 0
+    assert store.has_ca_cert() and not store.has_ca()
+    assert "NO CERTIFICATE AUTHORITY" in capsys.readouterr().out
+
+
+def test_a_non_signing_mode_with_nobody_to_ask_at_the_prompt(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A terminal that ends mid-question, which argparse cannot pre-empt."""
+    def _eof(_prompt: str = "") -> str:
+        raise EOFError
+
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", _eof),
+    ):
+        assert _setup_run("--auth", "anonymous") == 1
+    assert "input ended" in capsys.readouterr().err
+
+
+def test_a_foreign_broker_certificate_naming_the_wrong_host_is_reported(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing here can replace it — no key — so saying what is wrong with it is
+    the whole of what this can do."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    ca = pki.read_pair(Path(cert), Path(key))
+    store.save_broker_certs(pki.issue_server(ca, "192.0.2.99"))
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    said = capsys.readouterr()
+    assert "does not name 192.0.2.10" in said.err
+    assert (store.broker_dir / "server.crt").read_text(), "it was replaced anyway"
+    assert "install your broker's certificate" in said.out
+
+
+def test_the_upgrade_prompt_names_the_way_out_that_costs_no_robot(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Somebody whose key is in cert-manager should not have to pick "generate a
+    new authority" — and re-provision the fleet — to escape a prompt written for
+    somebody who lost theirs."""
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca().cert_pem)
+    store.save_broker(Broker(host="192.0.2.10"))
+    answers = iter(["2", "yes"])
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": next(answers)),
+    ):
+        assert _setup_run() == 0
+    assert "--auth supplied" in capsys.readouterr().out
+
+
+def test_the_scripted_upgrade_error_names_it_too(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca().cert_pem)
+    store.save_broker(Broker(host="192.0.2.10"))
+    assert _setup_run() == 1
+    assert "--auth supplied" in capsys.readouterr().err
+
+
+def test_the_ca_cannot_be_handed_over_as_a_robots_certificate(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A CA certificate IS signed by the stored authority when it is the stored
+    authority, so a signature check alone accepts it — and provisioning writes the
+    key beside it to the robot."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    mine = pki.issue_client(pki.read_pair(Path(cert), Path(key)), "whiskerless-test")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(mine.cert_pem)
+    kpath.write_text(mine.key_pem)
+    assert _setup_run("--auth", "supplied", "--ca", cert,
+                      "--client-cert", str(cpath), "--client-key", str(kpath)) == 0
+
+    assert _provision_run("--robot-cert", cert, "--robot-key", key) == 1
+    assert "hand your signing key to a litter box" in capsys.readouterr().err
+    assert not store.has_robot_identity("LR4C123456"), "it was filed anyway"
+
+
+def test_an_expired_supplied_certificate_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    ca = pki.read_pair(Path(cert), Path(key))
+    mine = pki.issue_client(ca, "whiskerless-test")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(mine.cert_pem)
+    kpath.write_text(mine.key_pem)
+    assert _setup_run("--auth", "supplied", "--ca", cert,
+                      "--client-cert", str(cpath), "--client-key", str(kpath)) == 0
+
+    stale = _expired_client(ca, "LR4C123456")
+    scert, skey = tmp_path / "old.crt", tmp_path / "old.key"
+    scert.write_text(stale.cert_pem)
+    skey.write_text(stale.key_pem)
+    assert _provision_run("--robot-cert", str(scert), "--robot-key", str(skey)) == 1
+    assert "already expired" in capsys.readouterr().err
+
+
+def test_a_malformed_ca_file_is_a_one_line_error_not_a_traceback(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    junk = tmp_path / "junk.crt"
+    junk.write_text("-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----\n")
+    assert _setup_run("--auth", "anonymous", "--ca", str(junk)) == 1
+    assert "not a readable PEM certificate" in capsys.readouterr().err
+
+
+def test_forgetting_a_robot_takes_its_private_key_with_it(store: ProfileStore) -> None:
+    """Left behind it is a key belonging to a robot nobody here remembers — and
+    the directory stays non-empty, so the robot returns as damaged."""
+    seed(store)
+    assert _provision_run() == 0
+    assert store.has_robot_identity("LR4C123456")
+    assert main(["forget", "LR4C123456", "--yes"]) == 0
+    assert not store.has_robot_identity("LR4C123456")
+    assert not (store.root / "robots" / "LR4C123456").exists(), "the robot came back damaged"
+
+
+def test_rotating_the_authority_reaches_an_identity_no_profile_names(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An aborted provision leaves one behind that `list_profiles()` skips, and
+    `robot_identity()` would hand it back later as a cache hit."""
+    seed(store)
+    store.robot_identity("LR4C999999")
+    (store.root / "robots" / "LR4C999999" / "profile.json").unlink(missing_ok=True)
+    # The rotation prompt is only reached by a store that cannot sign, which is
+    # also the state somebody rotating out of is usually in.
+    store.save_ca_cert_only(store.ca_path.read_text())
+    answers = iter(["2", "yes"])
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": next(answers)),
+    ):
+        assert _setup_run() == 0
+    assert not store.has_robot_identity("LR4C999999"), "a retired identity survived"
+
+
+def _supplied_store(store: ProfileStore, tmp_path: Path) -> tuple[str, str]:
+    """A `supplied` store, ready to be handed a robot certificate."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    mine = pki.issue_client(pki.read_pair(Path(cert), Path(key)), "whiskerless-test")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(mine.cert_pem)
+    kpath.write_text(mine.key_pem)
+    assert _setup_run("--auth", "supplied", "--ca", cert,
+                      "--client-cert", str(cpath), "--client-key", str(kpath)) == 0
+    return cert, key
+
+
+def test_a_certificate_with_no_extensions_at_all_is_accepted(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Minimal certificates from a hand-rolled CA are common and work. Refusing
+    one for lacking extensions would strand somebody whose setup is fine."""
+    from whiskerless import pki
+
+    cert, key = _supplied_store(store, tmp_path)
+    bare = _bare_client(pki.read_pair(Path(cert), Path(key)), "LR4C123456")
+    bcert, bkey = tmp_path / "bare.crt", tmp_path / "bare.key"
+    bcert.write_text(bare.cert_pem)
+    bkey.write_text(bare.key_pem)
+    assert _provision_run("--robot-cert", str(bcert), "--robot-key", str(bkey)) == 0
+    assert store.has_robot_identity("LR4C123456")
+
+
+def test_a_certificate_marked_for_the_wrong_purpose_is_reported(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A leaf that chains and names the robot, but says it is for a server. Warned
+    rather than refused: brokers that check extended key usage reject it, and
+    plenty do not."""
+    from cryptography.x509.oid import ExtendedKeyUsageOID
+
+    from whiskerless import pki
+
+    cert, key = _supplied_store(store, tmp_path)
+    odd = _bare_client(
+        pki.read_pair(Path(cert), Path(key)), "LR4C123456",
+        eku=ExtendedKeyUsageOID.SERVER_AUTH,
+    )
+    ocert, okey = tmp_path / "o.crt", tmp_path / "o.key"
+    ocert.write_text(odd.cert_pem)
+    okey.write_text(odd.key_pem)
+    assert _provision_run("--robot-cert", str(ocert), "--robot-key", str(okey)) == 0
+    assert "not marked for client authentication" in capsys.readouterr().err
+
+
+def test_another_robots_certificate_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It chains, it is a leaf, it is in date — and the broker takes the robot's
+    username from its common name, so this robot would connect as another one."""
+    cert, key = _supplied_store(store, tmp_path)
+    theirs_cert, theirs_key = _their_robot_cert(tmp_path, cert, key, "LR4C999999")
+    assert _provision_run("--robot-cert", theirs_cert, "--robot-key", theirs_key) == 1
+    assert "names LR4C999999, not LR4C123456" in capsys.readouterr().err
+
+
+def test_a_broker_certificate_from_another_authority_is_reported(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Setup's next line says to restart the broker with it, so every way it can
+    be wrong has to be said here."""
+    from whiskerless import pki
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    other_cert, other_key = _ca_files(elsewhere)
+    assert other_key is not None
+    store.save_broker_certs(
+        pki.issue_server(pki.read_pair(Path(other_cert), Path(other_key)), "192.0.2.10")
+    )
+    cert, _ = _ca_files(tmp_path)
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert "was not signed by the CA" in capsys.readouterr().err
+
+
+def test_an_expired_broker_certificate_is_reported(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    ca = pki.read_pair(Path(cert), Path(key))
+    stale = _expired_client(ca, "192.0.2.10")
+    store.save_broker_certs(stale)
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert "it has expired" in capsys.readouterr().err
+
+
+def test_a_supplied_store_that_lost_its_identity_says_so_instead_of_going_anonymous(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Connecting anonymously would SUCCEED on a listener that still allows it,
+    while the store went on saying `supplied` — the exact silence the stored mode
+    exists to end."""
+    _supplied_store(store, tmp_path)
+    store.forget_client()
+    with pytest.raises(ProfileError, match="Nothing here can issue another"):
+        store.settings()
+
+
+def test_an_aborted_provision_leaves_the_stored_identity_alone(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """In `supplied` mode the certificate being replaced cannot be recreated, so
+    an abort between the flag and the BLE write must not have consumed it."""
+    cert, key = _supplied_store(store, tmp_path)
+    first_cert, first_key = _their_robot_cert(tmp_path, cert, key, "LR4C123456")
+    assert _provision_run("--robot-cert", first_cert, "--robot-key", first_key) == 0
+    held = store.load_robot_identity("LR4C123456").cert_pem
+
+    replacement = tmp_path / "again"
+    replacement.mkdir()
+    new_cert, new_key = _their_robot_cert(replacement, cert, key, "LR4C123456")
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=False)),
+    ):
+        assert main(["provision", "--serial", "LR4C123456", "--wifi-ssid", "home",
+                     "--wifi-pass", "pw", "--yes",
+                     "--robot-cert", new_cert, "--robot-key", new_key]) == 1
+    assert store.load_robot_identity("LR4C123456").cert_pem == held
+
+
+def test_forgetting_says_the_private_key_goes_too(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Approving "only removes the saved broker details" and losing a key that
+    cannot be reissued is a surprise, not a confirmation."""
+    cert, key = _supplied_store(store, tmp_path)
+    robot_cert, robot_key = _their_robot_cert(tmp_path, cert, key, "LR4C123456")
+    assert _provision_run("--robot-cert", robot_cert, "--robot-key", robot_key) == 0
+    asked: list[str] = []
+
+    def _decline(prompt: str = "") -> str:
+        asked.append(prompt)
+        return "no"
+
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", _decline),
+    ):
+        assert main(["forget", "LR4C123456"]) == 1
+    question = " ".join(asked)
+    assert "private key" in question and "only copy" in question
+    assert store.has_robot_identity("LR4C123456"), "declining still deleted it"
+
+
+def test_a_broker_certificate_naming_another_host_in_its_san_is_reported(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Modern issuers leave the CN empty, so treating a missing one as fine
+    passes a certificate for some other broker."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    ca = pki.read_pair(Path(cert), Path(key))
+    store.save_broker_certs(pki.issue_server(ca, "192.0.2.99"))
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert "does not name 192.0.2.10" in capsys.readouterr().err
+
+
+def test_the_ca_cannot_be_filed_as_this_machines_identity(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It would leave the signing key on a machine whose mode says it never
+    arrives."""
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--auth", "supplied", "--ca", cert,
+                      "--client-cert", cert, "--client-key", key) == 1
+    assert "not a client certificate" in capsys.readouterr().err
+    assert not store.has_client(), "it was left on file anyway"
+
+
+def test_a_client_certificate_from_another_authority_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    other_cert, other_key = _ca_files(elsewhere)
+    assert other_key is not None
+    stray = pki.issue_client(pki.read_pair(Path(other_cert), Path(other_key)), "whiskerless")
+    cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
+    cpath.write_text(stray.cert_pem)
+    kpath.write_text(stray.key_pem)
+    cert, _ = _ca_files(tmp_path)
+    assert _setup_run("--auth", "supplied", "--ca", cert,
+                      "--client-cert", str(cpath), "--client-key", str(kpath)) == 1
+    assert "was not signed by the CA" in capsys.readouterr().err
+    assert not store.has_client()
+
+
+def test_switching_to_supplied_while_the_signing_key_is_here_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A mode recorded as a fact has to be one: `supplied` states the signing key
+    is not on this machine."""
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    assert _setup_run("--auth", "supplied") == 1
+    said = capsys.readouterr().err
+    assert "is on it" in said
+    assert "do not delete it" in said, "deleting it can strand the whole fleet"
+    assert store.load_broker().auth is AuthMode.MUTUAL, "the mode changed anyway"
+
+
+def test_switching_to_anonymous_keeps_the_key_without_complaint(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """`anonymous` says nothing about where the signing key lives, only that
+    robots keep the certificate they shipped with."""
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    assert _setup_run("--auth", "anonymous") == 0
+    assert store.load_broker().auth is AuthMode.ANONYMOUS
+    assert store.has_ca(), "the key was taken away"
+
+
+def test_reissue_in_supplied_mode_says_it_has_nothing_to_issue_with(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Answering "rotate this compromised certificate" with "provisioned
+    successfully" and the same certificate is the worst of the options."""
+    cert, key = _supplied_store(store, tmp_path)
+    robot_cert, robot_key = _their_robot_cert(tmp_path, cert, key, "LR4C123456")
+    assert _provision_run("--robot-cert", robot_cert, "--robot-key", robot_key) == 0
+    assert _provision_run("--reissue") == 1
+    assert "nothing to issue with" in capsys.readouterr().err
+
+
+def test_a_certificate_that_is_not_valid_yet_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The broker refuses it until the hour it starts, and says nothing useful."""
+    from whiskerless import pki
+
+    cert, key = _supplied_store(store, tmp_path)
+    future = _future_client(pki.read_pair(Path(cert), Path(key)), "LR4C123456")
+    fcert, fkey = tmp_path / "f.crt", tmp_path / "f.key"
+    fcert.write_text(future.cert_pem)
+    fkey.write_text(future.key_pem)
+    assert _provision_run("--robot-cert", str(fcert), "--robot-key", str(fkey)) == 1
+    assert "not valid until" in capsys.readouterr().err
+
+
+def test_a_certificate_with_no_common_name_is_flagged_not_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It works on a broker that does not key off the name, so refusing would
+    strand somebody whose setup is fine — but they should know what they lose."""
+    from whiskerless import pki
+
+    cert, key = _supplied_store(store, tmp_path)
+    nameless = _bare_client(pki.read_pair(Path(cert), Path(key)), "")
+    ncert, nkey = tmp_path / "n.crt", tmp_path / "n.key"
+    ncert.write_text(nameless.cert_pem)
+    nkey.write_text(nameless.key_pem)
+    assert _provision_run("--robot-cert", str(ncert), "--robot-key", str(nkey)) == 0
+    assert "has no common name" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("pattern", "host", "matches"),
+    [
+        ("*.example.lan", "mqtt.example.lan", True),
+        ("*.EXAMPLE.lan", "mqtt.example.lan", True),
+        ("*.example.lan", "example.lan", False),
+        ("*.example.lan", "a.b.example.lan", False),
+        ("*.example.lan", ".example.lan", False),
+        ("mqtt.example.lan", "mqtt.example.lan", True),
+        ("mqtt.example.lan", "other.example.lan", False),
+    ],
+)
+def test_a_dns_name_is_compared_the_way_tls_compares_it(
+    pattern: str, host: str, matches: bool
+) -> None:
+    """A false negative here prints advice to replace a certificate that was
+    already correct."""
+    from whiskerless.cli import _dns_name_matches
+
+    assert _dns_name_matches(pattern, host) is matches
+
+
+def test_a_rejected_replacement_leaves_this_machines_identity_working(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The store may hold the only copy of the one being replaced."""
+    from whiskerless import pki
+
+    cert, key = _supplied_store(store, tmp_path)
+    working = store.load_client().cert_pem
+
+    ca = pki.read_pair(Path(cert), Path(key))
+    stale = _expired_client(ca, "whiskerless-test")
+    scert, skey = tmp_path / "old.crt", tmp_path / "old.key"
+    scert.write_text(stale.cert_pem)
+    skey.write_text(stale.key_pem)
+    assert _setup_run("--client-cert", str(scert), "--client-key", str(skey)) == 1
+    assert "already expired" in capsys.readouterr().err
+    assert store.load_client().cert_pem == working, "the working identity was consumed"
+
+
+def test_a_broker_certificate_placed_with_a_wildcard_name_is_not_overwritten(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Signed by this store's CA, and valid for the broker by TLS's rules.
+    Overwriting it destroys the private key beside it."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from whiskerless import pki
+    from whiskerless.pki import KeyPair
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+
+    ca = pki.read_pair(Path(cert), Path(key))
+    issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+    signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
+    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    import datetime as _dt
+
+    now = _dt.datetime.now(_dt.UTC)
+    wildcard = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([]))
+        .issuer_name(issuer.subject)
+        .public_key(leaf_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - _dt.timedelta(minutes=1))
+        .not_valid_after(now + _dt.timedelta(days=30))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("*.example.lan")]), False)
+        .sign(signing, hashes.SHA256())  # type: ignore[arg-type]
+    )
+    placed = KeyPair(
+        cert_pem=wildcard.public_bytes(serialization.Encoding.PEM).decode(),
+        key_pem=leaf_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode(),
+    )
+    store.save_broker_certs(placed)
+    assert main(["setup", "--host", "mqtt.example.lan"]) == 0
+    assert (store.broker_dir / "server.crt").read_text() == placed.cert_pem
+
+
+def test_a_ca_dated_into_the_future_is_refused(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Stored, it makes every chain fail until that date — including at every
+    robot that was given it."""
+    import datetime as _dt
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    later = _dt.datetime.now(_dt.UTC) + _dt.timedelta(days=7)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "not yet")])
+    authority = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(later)
+        .not_valid_after(later + _dt.timedelta(days=365))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    fpath = tmp_path / "future-ca.crt"
+    fpath.write_text(authority.public_bytes(serialization.Encoding.PEM).decode())
+    assert _setup_run("--auth", "anonymous", "--ca", str(fpath)) == 1
+    assert "not valid until" in capsys.readouterr().err
+
+
+def test_a_broker_certificate_dated_into_the_future_is_reported(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    store.save_broker_certs(_future_client(pki.read_pair(Path(cert), Path(key)), "192.0.2.10"))
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert "not valid until" in capsys.readouterr().err
+
+
+def test_a_cached_supplied_certificate_that_has_expired_stops_the_provision(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A WiFi password change is a re-provision, and what was in date when it was
+    filed may not be now."""
+    from whiskerless import pki
+
+    cert, key = _supplied_store(store, tmp_path)
+    stale = _expired_client(pki.read_pair(Path(cert), Path(key)), "LR4C123456")
+    store.save_robot_identity("LR4C123456", stale)
+    assert _provision_run() == 1
+    assert "already expired" in capsys.readouterr().err
+
+
+def test_a_cached_issued_certificate_that_has_expired_is_replaced(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """This store signs, so an expired cached certificate is one mint away —
+    writing it would produce a robot the broker refuses."""
+    from whiskerless import pki
+
+    seed(store)
+    stale = _expired_client(store.load_ca(), "LR4C123456")
+    store.save_robot_identity("LR4C123456", stale)
+    assert _provision_run() == 0
+    assert "has expired — issuing another" in capsys.readouterr().out
+    assert pki.certificate_common_name(
+        store.load_robot_identity("LR4C123456").cert_pem
+    ) == "LR4C123456"
+    assert store.load_robot_identity("LR4C123456").cert_pem != stale.cert_pem
+
+
+def test_an_expired_machine_certificate_says_why_instead_of_failing_at_tls(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """Nothing here can mint a replacement, so this is the only place the reason
+    can be given."""
+    from whiskerless import pki
+
+    cert, key = _supplied_store(store, tmp_path)
+    store.save_client(_expired_client(pki.read_pair(Path(cert), Path(key)), "whiskerless-test"))
+    with pytest.raises(ProfileError, match="not valid at the moment"):
+        store.settings()
+
+
+def test_a_broker_certificate_of_ours_that_expired_is_reissued(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """This store can sign, so advertising an out-of-date certificate for
+    installation would send somebody to restart their broker for nothing."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    store.save_broker_certs(_expired_client(pki.read_pair(Path(cert), Path(key)), "192.0.2.10"))
+    capsys.readouterr()
+    assert _setup_run() == 0
+    assert "it was out of date" in capsys.readouterr().out
+    assert pki.is_current((store.broker_dir / "server.crt").read_text())
+
+
+def test_a_broker_certificate_with_no_key_beside_it_is_not_advertised(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mosquitto cannot serve a certificate without its key, and setup's next line
+    tells somebody to install both."""
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    store.save_broker_certs(pki.issue_server(pki.read_pair(Path(cert), Path(key)), "192.0.2.10"))
+    (store.broker_dir / "server.key").unlink()
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert "is not beside it" in capsys.readouterr().err
+
+
+def test_a_broker_certificate_with_the_wrong_key_is_not_advertised(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from whiskerless import pki
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    ca = pki.read_pair(Path(cert), Path(key))
+    store.save_broker_certs(pki.issue_server(ca, "192.0.2.10"))
+    (store.broker_dir / "server.key").write_text(pki.issue_server(ca, "192.0.2.10").key_pem)
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert "is not the key for it" in capsys.readouterr().err
+
+
+def test_an_expired_authority_stops_a_provision_before_the_robot_is_touched(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An authority managed elsewhere can expire between two robots, and writing
+    it produces one that cannot verify the broker — another walk to the machine."""
+    import datetime as _dt
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    cert, _ = _ca_files(tmp_path)
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    past = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=400)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "old authority")])
+    dead = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(past)
+        .not_valid_after(past + _dt.timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    store.ca_path.write_text(dead.public_bytes(serialization.Encoding.PEM).decode())
+    assert _provision_run() == 1
+    assert "already expired" in capsys.readouterr().err
+
+
+def test_a_certificate_whose_only_san_is_irrelevant_falls_back_to_its_name(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """A URI SAN does not participate in hostname verification, so OpenSSL reads
+    the common name and accepts it. Treating any SAN at all as authoritative would
+    call this foreign and overwrite it, private key and all."""
+    import datetime as _dt
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    from whiskerless import pki
+    from whiskerless.pki import KeyPair
+
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+
+    ca = pki.read_pair(Path(cert), Path(key))
+    issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+    signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
+    leaf = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = _dt.datetime.now(_dt.UTC)
+    built = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "192.0.2.10")]))
+        .issuer_name(issuer.subject)
+        .public_key(leaf.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - _dt.timedelta(minutes=1))
+        .not_valid_after(now + _dt.timedelta(days=30))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.UniformResourceIdentifier("urn:whiskerless")]),
+            False,
+        )
+        .sign(signing, hashes.SHA256())  # type: ignore[arg-type]
+    )
+    placed = KeyPair(
+        cert_pem=built.public_bytes(serialization.Encoding.PEM).decode(),
+        key_pem=leaf.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode(),
+    )
+    store.save_broker_certs(placed)
+    assert _setup_run() == 0
+    assert (store.broker_dir / "server.crt").read_text() == placed.cert_pem

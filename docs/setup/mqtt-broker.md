@@ -139,9 +139,12 @@ Everything above assumes the robot has only its Whisker factory certificate,
 which your CA did not sign and cannot validate — hence `allow_anonymous true`.
 That is how a robot arrives, and it stays supported.
 
-Since 0.2.0 whiskerless always holds a signing key, so **every robot it
-provisions gets a certificate of its own** — there is no opt-out, because a robot
-holding one still works on this anonymous listener. Once every robot has been
+Since 0.2.0 whiskerless issues **every robot a certificate of its own** by
+default, and a robot holding one still works on this anonymous listener, so there
+is nothing to weigh. If your signing key lives elsewhere on purpose, `setup --auth
+supplied` takes a certificate per robot from you instead and the result here is
+the same. Only `--auth anonymous` leaves robots the certificate they shipped with,
+and that is the one mode this section cannot be used with. Once every robot has been
 re-provisioned, they all present something **your** CA signed and the listener can
 demand it. `whiskerless robots` marks any that have not.
 

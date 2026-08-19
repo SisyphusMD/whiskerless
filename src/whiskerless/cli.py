@@ -22,7 +22,7 @@ from contextlib import aclosing, suppress
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import aiomqtt
 
@@ -45,7 +45,17 @@ from .devices.litter_robot_4.protocol import ActivityMessage, StateMessage
 from .exceptions import ProfileError, SafetyError, WhiskerlessError
 from .mqtt import DEFAULT_TLS_PORT
 from .pki import KeyPair
-from .profiles import LAYOUT_VERSION, Broker, ProfileStore, RobotProfile, Serial
+from .profiles import (
+    LAYOUT_VERSION,
+    AuthMode,
+    Broker,
+    ProfileStore,
+    RobotProfile,
+    Serial,
+)
+
+if TYPE_CHECKING:  # cryptography is imported lazily; this is for annotations only
+    from cryptography import x509
 from .safety import classify_code
 
 log = logging.getLogger("whiskerless")
@@ -522,16 +532,36 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
         )
     else:
         host = _ask("broker IP (e.g. 192.168.1.10): ", None, _check_host)
-    broker = Broker(host=host)
-    # Raises rather than returning a store that cannot sign: since 0.2.0 that is
-    # an unfinished setup, not an arrangement.
-    _ensure_pki(args, store, host)
+    # Kept from the store unless this run says otherwise: the mode is a decision,
+    # not a per-invocation flag, and a `setup --host` run to move the broker must
+    # not quietly move a store off the arrangement it was configured with.
+    mode = _resolve_auth_mode(args, saved)
+    broker = Broker(host=host, auth=mode)
+    # Raises rather than returning a store that cannot produce identities: since
+    # 0.2.0 that is an unfinished setup, not an arrangement.
+    # Read now, filed later. Overwriting the identity on file before knowing the
+    # replacement is usable destroys a working one — and in `supplied` mode the
+    # store may hold the only copy of it.
+    brought_client = _read_client_pair(args)
+    _ensure_pki(args, store, host, mode, brought_client)
+    if brought_client is not None:
+        # After `_ensure_pki`, because checking the chain needs the CA it files —
+        # and before anything reports success, because a certificate the broker
+        # will refuse is not an identity.
+        _check_supplied_identity(store, brought_client, for_robot=False)
+        store.save_client(brought_client)
+        print(f"  client identity copied to {store.root / 'client'}")
     # Usable, not merely present: a certificate we just warned about — a foreign
     # CA — must not then be recommended.
     # Printing "install the files above" under a warning that they cannot work is
     # how somebody restarts their broker into a listener no robot can verify.
-    serving = _refresh_server_cert(store, host)
+    serving = (
+        _refresh_server_cert(store, host)
+        if mode is AuthMode.MUTUAL
+        else _report_foreign_server_cert(store, host, mode)
+    )
     store.save_broker(broker)
+    store.assert_usable(broker)
     # Shown whenever they exist, not only when this run created them. Re-running
     # setup to change a port is a perfectly good moment to be reminded where the
     # broker's files are, and it keeps "the files above" honest either way.
@@ -547,10 +577,14 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
     if made_files:
         print("  Next: install the files above on your broker and restart it, then\n"
               f"  {_console.accent('whiskerless provision')} with a robot in pairing mode.\n")
+    elif mode is not AuthMode.MUTUAL:
+        # Nothing is wrong here: this store does not issue the broker's
+        # certificate, and said so above. Telling somebody to "fix" a certificate
+        # they are about to install themselves reads as a failure and is not one.
+        print("  Next: install your broker's certificate and restart it, then\n"
+              f"  {_console.accent('whiskerless provision')} with a robot in pairing mode.\n")
     else:
-        # The only other outcome: a certificate is there but not ours to replace.
-        # There is no third case since 0.2.0 — a store that reaches here can sign,
-        # so one is always issued when none exists.
+        # A certificate is there and not ours to replace.
         print("  Fix the broker certificate above first — a robot provisioned now would\n"
               "  fail every handshake against it.\n")
     return 0
@@ -582,12 +616,14 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # Every robot here talks to the same broker behind the same CA — a genuinely
     # separate broker is a separate store, reached with WHISKERLESS_HOME.
     store = ProfileStore.from_env()
-    # has_ca(), not has_ca_cert(): every provision issues the robot a certificate
-    # now, so a store that can name an authority but not sign for one cannot do
-    # this. That is exactly the shape an upgraded 0.1.3 store arrives in, and
-    # without this the run dies on a missing ca.key deep inside — after the user
-    # has already put a robot into pairing mode.
-    if not store.has_broker() or not store.has_ca():
+    # The store's own mode decides what "set up" means here. In `mutual` it means
+    # a signing key, because every provision issues a certificate — the shape an
+    # upgraded 0.1.3 store arrives in, and without this the run dies on a missing
+    # ca.key deep inside, after the user has already put a robot into pairing
+    # mode. In the other two, nothing is signed here and the trust anchor is
+    # enough.
+    ready = store.has_ca() if _stored_mode(store) is AuthMode.MUTUAL else store.has_ca_cert()
+    if not store.has_broker() or not ready:
         # Deliberately does NOT offer to do it here. Between generating
         # certificates and a robot being able to use them, three files have to
         # reach the broker and it has to restart — and the robot is holding a
@@ -604,6 +640,10 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # reading `--ca`, which `provision` no longer has — unreachable, and an
     # AttributeError the day something made it reachable.
     ca_pem = store.ca_path.read_text(encoding="utf-8")
+    # Checked at every provision, not only when it was filed. An authority managed
+    # elsewhere can expire between two robots, and writing it produces a robot that
+    # cannot verify the broker — which costs another walk to the machine.
+    _check_ca_cert(ca_pem)
     # Deliberately NOT asked here when there is a human to ask later. The robot
     # can list the networks IT can see, and asking before the BLE link is open
     # means asking someone to name a network from memory — which is how a robot
@@ -622,21 +662,12 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     if ssid and not wifi_pass and sys.stdin.isatty():
         wifi_pass = _ask_secret(f"WiFi password for {ssid!r}: ")
 
-    # Not part of ProvisioningConfig: the robot authenticates to the broker with
-    # its own factory certificate, so this login is whiskerless's, not the
-    # robot's, and nothing about it is written over BLE.
-    # Minted here, written to the robot, and never stored: the robot keeps the
-    # only copy, and a replacement is one re-provision away. The CN is the serial,
-    # so `use_identity_as_username` makes the broker log the robot by name.
-    # Always. The store holds a signing key by definition since 0.2.0, so there is
-    # nothing to weigh: a robot with a certificate still connects to a listener
-    # that does not ask for one, and a robot without one cannot connect to a
-    # listener that does. Issuing costs nothing and removes the mode.
-    identity = pki.issue_client(store.load_ca(), serial)
+    store.assert_usable(broker)
+    identity = _robot_identity(args, store, serial, broker.auth)
     config = ble.ProvisioningConfig(
         serial=serial, host=host, ca_pem=ca_pem, wifi_ssid=ssid, wifi_pass=wifi_pass,
-        client_cert=identity.cert_pem,
-        client_key=identity.key_pem,
+        client_cert=identity.cert_pem if identity else None,
+        client_key=identity.key_pem if identity else None,
     )
 
     # Said BEFORE the scan starts, because it is a physical prerequisite and the
@@ -671,7 +702,13 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         return 1
     target = _pick_robot(robots, args.address)
 
-    identity_note = f"issued by your CA, CN={config.serial}"
+    identity_note = (
+        f"issued by your CA, CN={config.serial}"
+        if broker.auth is AuthMode.MUTUAL
+        else f"supplied by you, CN={pki.certificate_common_name(identity.cert_pem)}"
+        if identity
+        else "unchanged — the robot keeps the certificate it shipped with"
+    )
 
     def _confirm_write(settled: ProvisioningConfig, mac: str | None) -> bool:
         """The one screen a first-time user reads carefully.
@@ -737,7 +774,11 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # only becomes the one every other command targets once a robot is actually
     # on it. An abort or a failed join must not retarget the whole machine.
     store.save_broker(broker)
-    _save_profile(config, args, pki.issued_serial(identity))
+    if identity is not None:
+        # Now: the robot has it, so the store recording it is a true statement.
+        store.save_robot_identity(serial, identity)
+    _save_profile(config, args, pki.issued_serial(identity) if identity else None)
+    _remind_to_back_up(store, serial, identity is not None)
     return 0
 
 
@@ -784,26 +825,368 @@ async def _choose_network(
     return ssid, supplied_pass or _ask_secret(f"WiFi password for {ssid!r}: ")
 
 
-def _ensure_pki(args: argparse.Namespace, store: ProfileStore, host: str) -> None:
-    """Make sure this machine can issue certificates, offering to set it up.
+def _ensure_trust_anchor(
+    args: argparse.Namespace, store: ProfileStore, mode: AuthMode, bringing_client: bool = False
+) -> None:
+    """The CA certificate, for the two modes that do not sign with it.
 
-    Returns nothing: since 0.2.0 there is one outcome that is not an exception —
-    a store that can sign. It used to return whether signing was possible, because
-    a trust-anchor-only store was a supported resting state and the caller warned
-    about it; that state is now resolved here or refused here.
+    Both still need it. It is what the robot is told to trust, and without it a
+    robot cannot verify the broker at all — the mode changes who issues the
+    robot's own identity, not whether there is an authority behind the broker's.
+    """
+    if args.ca_key:
+        # An explicit flag contradicting an explicit mode is worth stopping over.
+        # Silently filing the key would leave a store that says its identities are
+        # issued elsewhere while holding everything needed to issue them here, and
+        # the next reader has no way to tell which is true.
+        raise WhiskerlessError(
+            f"--ca-key contradicts --auth {mode.value}: that mode exists so the "
+            "signing key never reaches this machine. Drop the key, or use "
+            "`--auth mutual` to have whiskerless issue certificates itself"
+        )
+    if mode is AuthMode.SUPPLIED and store.has_ca():
+        # Switching an existing store over: `supplied` states that the signing key
+        # is not on this machine, and a mode recorded as a fact has to be one.
+        # `anonymous` makes no such claim and is left alone.
+        #
+        # MOVED, not deleted, and said that way on purpose: if the authority you
+        # issue from turns out not to be this one, the copy here is the only thing
+        # standing between you and re-provisioning every robot you own.
+        raise WhiskerlessError(
+            f"--auth supplied says the signing key never reaches this machine, but "
+            f"{store.ca_key_path} is on it. Move that file somewhere safe first — "
+            "keep it, do not delete it: if the authority you issue from is not this "
+            "one, it is the only thing that can still sign for your robots"
+        )
+    if args.ca:
+        brought = pki.read_cert(Path(args.ca))
+        _check_ca_cert(brought)
+        _refuse_a_different_ca(store, brought)
+        store.save_ca_cert_only(brought)
+        print(f"  CA certificate copied to {store.ca_path}")
+    elif not store.has_ca_cert():
+        if not sys.stdin.isatty():
+            raise WhiskerlessError(
+                f"--auth {mode.value} needs the CA certificate your robots are told "
+                "to trust — pass --ca <file>, or run this in a terminal to be asked "
+                "for it"
+            )
+        print()
+        _console.banner("NO CERTIFICATE AUTHORITY ON THIS MACHINE")
+        print(
+            f"  In {mode.value} mode whiskerless does not issue certificates, but the\n"
+            "  robot still has to be told which broker certificate to trust — so the\n"
+            "  authority's certificate has to be here.\n"
+        )
+        # No EOFError handler: `_ask` already turns an input that ends into a
+        # one-line error. The banner above has said what is needed, and a second
+        # message wrapping the first would be unreachable either way.
+        path = _ask("path to your CA certificate: ", None, _readable_path)
+        brought = pki.read_cert(Path(path))
+        _check_ca_cert(brought)
+        store.save_ca_cert_only(brought)
+        print(f"  CA certificate copied to {store.ca_path}")
+
+    if mode is AuthMode.SUPPLIED and not (bringing_client or store.has_client()):
+        # Nothing here can mint it, and a store in this mode with no identity of
+        # its own reaches a listener asking for one and is refused — after
+        # reporting that setup succeeded.
+        raise WhiskerlessError(
+            "--auth supplied needs this machine's own certificate too, since "
+            "whiskerless cannot issue one: pass --client-cert and --client-key"
+        )
+
+
+def _stored_mode(store: ProfileStore) -> AuthMode:
+    """This store's mode, or the default for a store too empty to have one.
+
+    A machine with no broker on file has not been set up, and the caller says so
+    in better words than `load_broker()` would — so the missing file is answered
+    with the default rather than an exception raised from the wrong place.
+    """
+    return store.load_broker().auth if store.has_broker() else AuthMode.MUTUAL
+
+
+def _robot_identity(
+    args: argparse.Namespace, store: ProfileStore, serial: str, mode: AuthMode
+) -> KeyPair | None:
+    """What this robot will present to the broker, or None if it keeps its own.
+
+    Stored, not minted per run. A robot re-provisioned — a new WiFi password is
+    enough — stays the same client to the broker afterwards, so ACLs and log lines
+    keyed to its certificate keep pointing at the same robot. And a supplied
+    certificate has to be kept, because nothing here can produce another one.
+    """
+    supplied = bool(args.robot_cert or args.robot_key)
+    if supplied and not (args.robot_cert and args.robot_key):
+        raise WhiskerlessError("--robot-cert and --robot-key go together; supply both")
+
+    if mode is AuthMode.ANONYMOUS:
+        if supplied:
+            raise WhiskerlessError(
+                "--robot-cert contradicts this store's 'anonymous' mode, where robots "
+                "keep the certificate they shipped with. Run `whiskerless setup "
+                "--auth supplied` first if that has changed"
+            )
+        return None
+
+    if supplied:
+        pair = pki.read_pair(Path(args.robot_cert), Path(args.robot_key))
+        _check_supplied_identity(store, pair, names=serial)
+        # NOT written here. Whatever the store holds stays until the robot has
+        # accepted the replacement — in `supplied` mode the old one cannot be
+        # recreated, so an abort between here and the BLE write would destroy it
+        # to install nothing.
+        return pair
+
+    if mode is AuthMode.SUPPLIED:
+        if args.reissue:
+            # Silently reusing the old one would answer "rotate this compromised
+            # certificate" with "provisioned successfully" and the same certificate.
+            raise WhiskerlessError(
+                "--reissue has nothing to issue with in 'supplied' mode. Issue a "
+                "replacement from your CA and pass it with --robot-cert and "
+                "--robot-key"
+            )
+        if store.has_robot_identity(serial):
+            held = store.load_robot_identity(serial)
+            # Checked again, not trusted because it was checked once: a WiFi
+            # password change is a re-provision, and a certificate that was in
+            # date when it was filed may not be now. Writing it would report
+            # success and hand the robot something the broker rejects.
+            _check_supplied_identity(store, held, names=serial)
+            return held
+        raise WhiskerlessError(
+            f"this store issues nothing itself ('supplied' mode) and has no "
+            f"certificate on file for {serial} — pass --robot-cert and --robot-key "
+            "with one signed by your CA"
+        )
+
+    stale = store.has_robot_identity(serial) and not pki.is_current(
+        store.load_robot_identity(serial).cert_pem
+    )
+    if stale:
+        # Free to replace and pointless to keep: this store signs, so an expired
+        # cached certificate is a fresh one away, and writing the old one would
+        # produce a robot the broker refuses.
+        print("  the certificate held for this robot has expired — issuing another")
+    elif args.reissue and store.has_robot_identity(serial):
+        print("  replacing the certificate this store holds for this robot")
+    return store.robot_identity(serial, reissue=args.reissue or stale, persist=False)
+
+
+def _check_supplied_identity(
+    store: ProfileStore, pair: KeyPair, *, for_robot: bool = True, names: str | None = None
+) -> None:
+    """Refuse anything that is not a usable client certificate.
+
+    Everything checked here ends up written to the robot, where a mistake surfaces
+    as a TLS handshake that names nothing, long after whoever supplied the file has
+    walked away. One of them is worse than that: **a CA certificate is signed by
+    the stored authority when the stored authority IS it**, so a signature check
+    alone accepts `--robot-cert ca.crt --robot-key ca.key` and writes the signing
+    key of the whole fleet into a litter box.
+    """
+    from cryptography import x509
+
+    cert = _load_certificate(pair.cert_pem)
+    try:
+        basic = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
+    except x509.ExtensionNotFound:
+        basic = None
+    if basic is not None and basic.ca:
+        raise WhiskerlessError(
+            "that is a certificate authority, not a certificate for one robot — "
+            "provisioning writes the private key beside it to the robot, so this "
+            "would hand your signing key to a litter box. Issue a client "
+            "certificate from it instead"
+            if for_robot
+            else "that is a certificate authority, not a client certificate. Filing "
+            "it here would leave the signing key on a machine whose mode says it "
+            "never arrives — issue a client certificate from it instead"
+        )
+    now = datetime.now(UTC)
+    if cert.not_valid_after_utc <= now:
+        raise WhiskerlessError("that certificate has already expired")
+    if cert.not_valid_before_utc > now:
+        # Written to the robot it is refused until the hour it starts, and the
+        # refusal says nothing about why — which is the whole class of failure
+        # these checks exist to move forward to here.
+        raise WhiskerlessError(
+            f"that certificate is not valid until {cert.not_valid_before_utc:%Y-%m-%d %H:%M} "
+            "UTC — the broker refuses it until then"
+        )
+    if names is not None:
+        named = pki.certificate_common_name(pair.cert_pem)
+        if named is None:
+            print(
+                f"  ! that certificate has no common name. Brokers using "
+                f"`use_identity_as_username`\n    log and authorise by it, so {names} "
+                "will not appear as itself.",
+                file=sys.stderr,
+            )
+        elif named != names:
+            raise WhiskerlessError(
+                f"that certificate names {named}, not {names}. The broker takes the "
+                "robot's username from it, so this robot would connect as another "
+                "one — against another robot's ACLs, under another robot's name in "
+                "the log"
+            )
+    if not pki.is_signed_by(pair.cert_pem, store.ca_path.read_text(encoding="utf-8")):
+        raise WhiskerlessError(
+            f"that certificate was not signed by the CA in {store.ca_path}, which is "
+            "what the robot is told to trust — the broker would refuse it. Issue one "
+            "from that authority, or point this store at the authority you issue from"
+        )
+    try:
+        usages = cert.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
+    except x509.ExtensionNotFound:
+        return
+    if x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH not in usages:
+        # Warned, not refused, and only when the extension is present to disagree
+        # with: a broker checking EKU rejects it, and plenty do not. Refusing would
+        # strand somebody whose CA issues certificates that work.
+        print(
+            "  ! that certificate is not marked for client authentication. Brokers "
+            "that check\n    extended key usage will refuse it.",
+            file=sys.stderr,
+        )
+
+
+def _read_client_pair(args: argparse.Namespace) -> KeyPair | None:
+    """This machine's own identity, for somebody who issues it elsewhere.
+
+    Read here and filed by the caller once the CA is on disk to check it against.
+    Nothing is written in between, so a run that fails leaves the identity the
+    store was already using exactly as it was.
+    """
+    if not (args.client_cert or args.client_key):
+        return None
+    if not (args.client_cert and args.client_key):
+        raise WhiskerlessError("--client-cert and --client-key go together; supply both")
+    return pki.read_pair(Path(args.client_cert), Path(args.client_key))
+
+
+def _names_host(pem: str, host: str) -> bool:
+    """Whether this certificate is for ``host``, by the rules TLS actually uses.
+
+    Subject Alternative Name first and Common Name only as a fallback: modern
+    issuers put nothing in the CN, so treating an empty one as "fine" passes a
+    certificate that names some other broker — or nothing at all — and the failure
+    lands at the robot as a verification error naming none of this.
+    """
+    from cryptography import x509
+
+    cert = _load_certificate(pem)
+    try:
+        alt = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except x509.ExtensionNotFound:
+        alt = None
+    if alt is not None:
+        addresses = [str(n) for n in alt.get_values_for_type(x509.IPAddress)]
+        dns = [str(n) for n in alt.get_values_for_type(x509.DNSName)]
+        # A DNS or IP SAN is authoritative and the common name is not consulted —
+        # but only those two types. A certificate carrying, say, a URI SAN and a
+        # matching CN is accepted by every TLS stack, and treating any SAN at all
+        # as authoritative would call it foreign and overwrite it, private key and
+        # all.
+        if addresses or dns:
+            if host in addresses:
+                return True
+            return any(_dns_name_matches(name, host) for name in dns)
+    return pki.certificate_common_name(pem) == host
+
+
+def _dns_name_matches(pattern: str, host: str) -> bool:
+    """One DNS name from a certificate against the host, the way TLS compares them.
+
+    Case-insensitively, and honouring a single leftmost wildcard. Comparing the
+    literal strings instead reports a perfectly good `*.example.lan` as unable to
+    serve `mqtt.example.lan` — and this function's answer is printed as advice to
+    replace the certificate, so a false negative sends somebody to re-issue one
+    that was already correct.
+    """
+    pattern, host = pattern.lower().rstrip("."), host.lower().rstrip(".")
+    if not pattern.startswith("*."):
+        return pattern == host
+    # One label, and never the bare domain: `*.example.lan` covers `a.example.lan`
+    # and neither `example.lan` nor `a.b.example.lan`.
+    suffix = pattern[1:]
+    if not host.endswith(suffix):
+        return False
+    return "." not in host[: -len(suffix)] and bool(host[: -len(suffix)])
+
+
+def _load_certificate(pem: str) -> x509.Certificate:
+    """Parse a PEM certificate, as a one-line error rather than a traceback."""
+    from cryptography import x509
+
+    try:
+        return x509.load_pem_x509_certificate(pem.encode())
+    except ValueError as exc:
+        raise WhiskerlessError(f"that is not a readable PEM certificate: {exc}") from exc
+
+
+def _remind_to_back_up(store: ProfileStore, serial: str, stored_identity: bool) -> None:
+    """Say it after a provision, not only after setup.
+
+    Every provision adds material to the store that a backup taken before it does
+    not have: the profile, and — since identities are kept rather than minted per
+    run — a private key. In `supplied` mode that key cannot be produced again by
+    anything here, so a backup from before this moment is not merely stale, it is
+    missing the only copy.
+    """
+    what = (
+        f"{serial}'s certificate and profile" if stored_identity else f"{serial}'s profile"
+    )
+    where = Path.home() / "Documents"
+    print(
+        f"  {_console.dim('Back up again:')} {what} is new here.\n"
+        f"  {_console.dim(f'    whiskerless backup {where}')}\n"
+    )
+
+
+def _resolve_auth_mode(args: argparse.Namespace, saved: Broker | None) -> AuthMode:
+    """The mode this run should use: what was asked for, else what is on file.
+
+    Defaulting to the stored value rather than to MUTUAL is the whole point of
+    storing it. `setup --host <new address>` is a routine thing to run, and a
+    default that overrode the file would silently move a cert-manager store back
+    onto certificates whiskerless signs — the second time, not the first, which is
+    the kind of change nobody goes looking for.
+    """
+    if args.auth:
+        chosen = AuthMode(args.auth)
+        if saved is not None and chosen is not saved.auth:
+            print(
+                f"  authentication mode: {_console.accent(saved.auth.value)} → "
+                f"{_console.accent(chosen.value)}"
+            )
+        return chosen
+    return saved.auth if saved is not None else AuthMode.MUTUAL
+
+
+def _ensure_pki(
+    args: argparse.Namespace,
+    store: ProfileStore,
+    host: str,
+    mode: AuthMode,
+    brought_client: KeyPair | None = None,
+) -> None:
+    """Make sure this machine can produce the identities its mode calls for.
+
+    Returns nothing: there is one outcome that is not an exception — a store that
+    can do what its mode says. It used to return whether signing was possible,
+    because a trust-anchor-only store was a resting state the caller warned about;
+    that state is now either a stated mode or an error.
 
     Everything here is idempotent. A CA is generated once and reused forever —
     regenerating would strand every robot already provisioned to trust the old
     one, which is a bench visit each.
     """
-    # This machine's own identity, for someone whose CA key lives elsewhere and
-    # who therefore cannot have one issued here. Copied in under our own names,
-    # so nothing downstream cares where it came from.
-    if args.client_cert or args.client_key:
-        if not (args.client_cert and args.client_key):
-            raise WhiskerlessError("--client-cert and --client-key go together; supply both")
-        store.save_client(pki.read_pair(Path(args.client_cert), Path(args.client_key)))
-        print(f"  client identity copied to {store.root / 'client'}")
+    if mode is not AuthMode.MUTUAL:
+        _ensure_trust_anchor(args, store, mode, brought_client is not None)
+        return
 
     if args.ca_key:
         if not args.ca:
@@ -815,21 +1198,23 @@ def _ensure_pki(args: argparse.Namespace, store: ProfileStore, host: str) -> Non
         _check_ca(brought)
         _refuse_a_different_ca(store, brought.cert_pem)
         store.save_ca(brought)
-        store.client_identity()
+        if brought_client is None:
+            store.client_identity()
         print(f"  using the CA you supplied, copied to {store.ca_path}")
         return
 
     if args.ca and not args.ca_key:
-        # A certificate on its own used to be a supported resting state: the robot
-        # was told who to trust and kept its factory identity. 0.2.0 issues every
-        # robot an identity of its own, which needs the signing key — so a
-        # trust-anchor-without-a-key is now an unfinished setup rather than a
-        # choice, and saying so here beats discovering it at the robot.
+        # In THIS mode a certificate on its own is an unfinished setup: whiskerless
+        # signs every identity here, and cannot. It was a supported resting state
+        # before 0.2.0, which is why it reads like one — so the message names the
+        # two modes where it is still exactly right, rather than implying the only
+        # way forward is to hand over a key somebody deliberately keeps elsewhere.
         raise WhiskerlessError(
-            "--ca needs --ca-key as well: whiskerless issues each robot its own "
-            "certificate now, and that needs the key that signs them. Supply both, "
-            "or omit them to generate a CA here — which means re-provisioning every "
-            "robot that trusted the old one"
+            "--ca needs --ca-key in 'mutual' mode: whiskerless signs each robot's "
+            "certificate here, and that needs the key. Supply both, or say where "
+            "identities come from instead — `--auth supplied` if you issue them "
+            "elsewhere, `--auth anonymous` if robots keep the certificate they "
+            "shipped with"
         )
 
     if store.has_ca():
@@ -878,8 +1263,64 @@ def _ensure_pki(args: argparse.Namespace, store: ProfileStore, host: str) -> Non
         store.save_ca(ca)
         server = pki.issue_server(ca, host)
         broker = store.save_broker_certs(server)
-        store.client_identity()
+        if brought_client is None:
+            store.client_identity()
     _report_pki(store, broker)
+
+
+def _report_foreign_server_cert(store: ProfileStore, host: str, mode: AuthMode) -> bool:
+    """The broker's certificate in the modes where nothing here can issue one.
+
+    Same authority, someone else's issuer. Left entirely alone: whiskerless has no
+    key to sign a replacement with, and overwriting a certificate destroys the
+    private key beside it — so the useful thing is to say what it has to be, and
+    whether what is on file matches.
+    """
+    existing = store.broker_dir / "server.crt"
+    if not existing.is_file():
+        print(
+            f"\n  In {mode.value} mode whiskerless does not issue your broker's\n"
+            f"  certificate either. It has to be signed by the same authority as\n"
+            f"  {store.ca_path}, and name {_console.accent(host)} — the robot checks\n"
+            "  that name. Install it on the broker yourself.\n"
+        )
+        return False
+    pem = pki.read_cert(existing)
+    # Every way it can be wrong, because setup's next line tells somebody to
+    # restart their broker with it — and each of these surfaces at the robot as a
+    # handshake failure that names none of them.
+    problems = []
+    if not pki.is_signed_by(pem, store.ca_path.read_text(encoding="utf-8")):
+        problems.append(f"it was not signed by the CA in {store.ca_path}")
+    served = _load_certificate(pem)
+    if served.not_valid_after_utc <= datetime.now(UTC):
+        problems.append("it has expired")
+    elif served.not_valid_before_utc > datetime.now(UTC):
+        problems.append(
+            f"it is not valid until {served.not_valid_before_utc:%Y-%m-%d %H:%M} UTC"
+        )
+    if not _names_host(pem, host):
+        problems.append(
+            f"it does not name {host}, and the robot verifies that name against the "
+            "certificate"
+        )
+    key = store.broker_dir / "server.key"
+    if not key.is_file():
+        problems.append(f"{key} is not beside it, and a broker cannot serve one without it")
+    else:
+        try:
+            pki.read_pair(existing, key)
+        except WhiskerlessError:
+            problems.append(f"{key} is not the key for it")
+    if problems:
+        detail = "\n    ".join(f"- {problem}" for problem in problems)
+        print(
+            f"  ! {existing} cannot serve this broker:\n    {detail}\n"
+            f"    Replace it with one your authority signed for {host}.",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 def _refresh_server_cert(store: ProfileStore, host: str) -> bool:
@@ -911,10 +1352,6 @@ def _refresh_server_cert(store: ProfileStore, host: str) -> bool:
         pem = existing.read_text(encoding="utf-8")
     except OSError:
         return False
-    try:
-        named = pki.certificate_common_name(pem)
-    except WhiskerlessError:
-        named = None
     ours = store.ca_path.read_text(encoding="utf-8") if store.has_ca_cert() else ""
     chains = bool(ours) and pki.is_signed_by(pem, ours)
 
@@ -929,11 +1366,18 @@ def _refresh_server_cert(store: ProfileStore, host: str) -> bool:
             file=sys.stderr,
         )
         return False
-    if named == host:
+    if _names_host(pem, host) and pki.is_current(pem):
         return True
+    # Ours and out of date is reissued rather than reported: this store can sign,
+    # so the fix costs nothing, and advertising it for installation would send
+    # somebody to restart their broker into handshakes that all fail.
+    #
+    # Overwriting destroys the private key beside it, so "does it name the broker"
+    # has to be answered the way TLS answers it — a wildcard or a differently-cased
+    # SAN is a certificate somebody placed here deliberately and it works.
     store.save_broker_certs(pki.issue_server(store.load_ca(), host))
-    print(f"  reissued the broker certificate for {_console.accent(host)} "
-          f"(it named {named or 'another host'})")
+    why = "it named another host" if not _names_host(pem, host) else "it was out of date"
+    print(f"  reissued the broker certificate for {_console.accent(host)} ({why})")
     return True
 
 
@@ -952,10 +1396,11 @@ def _resolve_trust_only(store: ProfileStore, host: str) -> None:
     """
     if not sys.stdin.isatty():
         raise WhiskerlessError(
-            f"{store.ca_path} is a certificate with no key, and whiskerless now "
-            "issues each robot its own certificate. Pass --ca and --ca-key to "
-            "supply the key for this authority, or run this in a terminal to be "
-            "offered a new one"
+            f"{store.ca_path} is a certificate with no key, and in 'mutual' mode "
+            "whiskerless issues each robot its own certificate. Pass --ca and "
+            "--ca-key to supply the key for this authority, or say the key lives "
+            "elsewhere on purpose with `--auth supplied`, or run this in a terminal "
+            "to be offered a new authority"
         )
 
     print()
@@ -967,6 +1412,18 @@ def _resolve_trust_only(store: ProfileStore, host: str) -> None:
         f"   {_console.dim(' 1')}  I have the key — I will give you the file\n"
         f"   {_console.dim(' 2')}  Generate a new authority "
         f"{_console.dim('(every robot must be re-provisioned)')}\n"
+    )
+    # Named but not numbered: it is not a third answer to THIS question, it is a
+    # different setup — and the two options above are the two that finish here.
+    # Somebody who keeps their key elsewhere on purpose should not have to pick
+    # "generate a new authority" to get out of a prompt aimed at somebody who
+    # lost theirs.
+    print(
+        f"  {_console.dim('Neither? If the key lives elsewhere on purpose — cert-manager,')}\n"
+        f"  {_console.dim('Vault, an offline root — rerun with')} "
+        f"{_console.dim(_console.accent('--auth supplied'))}"
+        f"{_console.dim(' and issue the')}\n"
+        f"  {_console.dim('certificates there instead.')}\n"
     )
     try:
         answer = input("  Which? [1]: ").strip()
@@ -1094,9 +1551,19 @@ def _readable_path(raw: str) -> str:
 
 def _check_ca(ca: KeyPair) -> None:
     """Refuse a CA that cannot work, warn about one that will bite later."""
+    _check_ca_cert(ca.cert_pem)
+
+
+def _check_ca_cert(cert_pem: str) -> None:
+    """The half of the check that needs no private key.
+
+    Split out for the modes where there is no key to bring: the "you handed me a
+    server certificate" mistake and an expired authority are exactly as fatal
+    when somebody else does the signing.
+    """
     from cryptography import x509
 
-    cert = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+    cert = _load_certificate(cert_pem)
     try:
         basic = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
     except x509.ExtensionNotFound:
@@ -1109,6 +1576,13 @@ def _check_ca(ca: KeyPair) -> None:
         )
     if cert.not_valid_after_utc <= datetime.now(UTC):
         raise WhiskerlessError("that CA has already expired")
+    if cert.not_valid_before_utc > datetime.now(UTC):
+        # Stored, it makes every chain fail validation until that date — including
+        # the broker's, at every robot that was given it.
+        raise WhiskerlessError(
+            f"that CA is not valid until {cert.not_valid_before_utc:%Y-%m-%d %H:%M} UTC — "
+            "nothing it signs can be verified before then"
+        )
     try:
         cert.extensions.get_extension_for_class(x509.KeyUsage)
     except x509.ExtensionNotFound:
@@ -1222,11 +1696,19 @@ async def _cmd_robots(args: argparse.Namespace) -> int:
     # recommends, so the two states have to be told apart somewhere. Here rather
     # than on every command: the CA prompt was made once-only for the same reason,
     # and this is the command whose job is saying what is on the machine.
-    factory = [p for p in known if p.cert_serial is None]
+    # In `anonymous` mode a robot without one of our certificates is the ARRANGEMENT,
+    # not a robot to go and fix — flagging every robot in the fleet would train
+    # somebody to ignore the one marker that means something.
+    expects_identity = _stored_mode(store) is not AuthMode.ANONYMOUS
+    factory = [p for p in known if p.cert_serial is None] if expects_identity else []
     for profile in known:
         marker = "*" if profile.serial.value == default else " "
         confirmed = "" if profile.serial.verified else "  (serial as typed, unconfirmed)"
-        identity = "  ← no identity from this store" if profile.cert_serial is None else ""
+        identity = (
+            "  ← no identity from this store"
+            if expects_identity and profile.cert_serial is None
+            else ""
+        )
         print(f" {marker} {profile.display_name:<20}{confirmed}{identity}")
     for name, why in broken:
         print(f" ! {name:<20} unreadable — {why}")
@@ -1267,9 +1749,21 @@ async def _cmd_forget(args: argparse.Namespace) -> int:
         name = Serial(args.robot).value
         if not (store.robots_dir / name).is_dir():
             raise
+    # Named explicitly, because in `supplied` mode this store holds the only copy
+    # and nothing here can issue another. Approving "only removes the saved broker
+    # details" and losing a private key is not a confirmation, it is a surprise.
+    holds_identity = store.has_robot_identity(Serial(args.robot))
+    also = (
+        " Its certificate and private key go with it, and this machine may hold the\n"
+        "  only copy."
+        if holds_identity and _stored_mode(store) is AuthMode.SUPPLIED
+        else " Its certificate and private key go with it."
+        if holds_identity
+        else ""
+    )
     if not args.yes and not _confirm(
-        f"Forget {name}? This only removes the saved broker "
-        "details from this machine; the robot keeps running. Type 'yes': "
+        f"Forget {name}? This removes what this machine saved about it; the robot "
+        f"keeps running.{also} Type 'yes': "
     ):
         print("aborted", file=sys.stderr)
         return 1
@@ -1984,6 +2478,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_prov.add_argument("--dry-run", action="store_true", help="scan/connect and print steps, write nothing")
     p_prov.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_prov.add_argument("--name", help="what to call this robot afterwards, e.g. 'Upstairs'")
+    p_prov.add_argument("--robot-cert", help="a certificate you issued for THIS robot, from your CA")
+    p_prov.add_argument("--robot-key", help="the matching private key for --robot-cert")
+    p_prov.add_argument(
+        "--reissue", action="store_true",
+        help="replace the certificate this store holds for the robot instead of reusing it",
+    )
     p_prov.set_defaults(func=_cmd_provision)
 
     p_setup = add_parser("setup", "prepare this machine: your broker and its certificates")
@@ -1992,6 +2492,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_setup.add_argument("--ca-key", help="its private key — required: every robot gets a certificate signed by it")
     p_setup.add_argument("--client-cert", help="this machine's client certificate, if you issue your own")
     p_setup.add_argument("--client-key", help="the matching private key for --client-cert")
+    p_setup.add_argument(
+        "--auth", choices=[m.value for m in AuthMode],
+        help="who issues the certificates robots present: mutual (default, whiskerless "
+             "signs them), supplied (you hand them over), anonymous (robots keep the one "
+             "they shipped with). Kept until you change it.",
+    )
     p_setup.set_defaults(func=_cmd_setup)
 
     p_robots = add_parser("robots", "list the robots set up on this machine")

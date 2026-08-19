@@ -18,14 +18,21 @@ Layout under ``~/whiskerless`` (override with ``WHISKERLESS_HOME``)::
     client/                        this machine's identity to the broker
     broker/                        server.crt + server.key — copy to your broker
     robots/<serial>/profile.json   what a person named and measured
+    robots/<serial>/client/        what that robot presents to the broker
     default                        serial used when none is given
 
 **One secret lives here on purpose: the CA private key.** It is archival — it
 must survive machine loss, and every tool on earth keeps CA keys as files
 because you have to carry and archive them. Everything else is either public or
-not stored at all: the WiFi passphrase is asked for at the robot and forgotten,
-and a robot's own client certificate is written to the robot and never kept.
+not stored at all.
 Files are 0600 and directories 0700 throughout.
+
+**Two kinds of secret live here, and for different reasons.** The CA private key
+is archival — it must survive machine loss, and every tool on earth keeps CA keys
+as files because you have to carry and archive them. Client keys (this machine's
+and each robot's) are kept because one that was handed to us cannot be recreated,
+and because a robot re-provisioned should stay the same client to the broker. The
+WiFi passphrase is the one thing still asked for at the robot and forgotten.
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ import re
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 
 from . import pki
@@ -135,6 +143,29 @@ class Serial:
             )
 
 
+class AuthMode(StrEnum):
+    """How this store proves who it is — to the broker, and on behalf of a robot.
+
+    Stored rather than derived. Deriving it from what happens to be on disk is
+    what made a store with no signing key silently mean "nobody authenticates":
+    the same absence that means "I keep my key in cert-manager" also means "I lost
+    it", and the two want opposite handling. Written down, they are the same
+    question asked once, and every command afterwards either honours it or says
+    plainly that the files no longer match it.
+    """
+
+    #: whiskerless holds the signing key and issues every identity itself.
+    MUTUAL = "mutual"
+    #: Identities are minted elsewhere and handed to whiskerless, which stores and
+    #: presents them. The signing key never reaches this machine — a stricter
+    #: arrangement than the default, not a weaker one.
+    SUPPLIED = "supplied"
+    #: Trust anchor only: robots keep the certificate they shipped with and the
+    #: CLI presents none, so the broker's listener has to accept anonymous
+    #: clients. What 0.1.3 did, and the one mode that has to be asked for.
+    ANONYMOUS = "anonymous"
+
+
 @dataclass(frozen=True, slots=True)
 class Broker:
     """The one broker every robot in this store talks to.
@@ -149,6 +180,11 @@ class Broker:
     """
 
     host: str
+    #: Defaulted, not optional: a store written before the field existed holds a
+    #: signing key by the invariant of the release that wrote it, which is exactly
+    #: what MUTUAL means. Nothing has to be guessed, and `assert_usable()` says so
+    #: out loud if the files ever stop matching.
+    auth: AuthMode = AuthMode.MUTUAL
 
     def settings(
         self,
@@ -590,16 +626,29 @@ class ProfileStore:
             raise ProfileError(f"{self.broker_path} has no broker host")
         # A store written before these were dropped still carries `port` and
         # `verify_hostname`. They are ignored rather than rejected: the file is
-        # rewritten host-only on the next save, and refusing to open a store over a
-        # key that no longer means anything would strand somebody's CA.
-        return Broker(host=host)
+        # rewritten without them on the next save, and refusing to open a store
+        # over a key that no longer means anything would strand somebody's CA.
+        raw_auth = raw.get("auth")
+        try:
+            auth = AuthMode(raw_auth) if raw_auth is not None else AuthMode.MUTUAL
+        except ValueError:
+            # Refused, not defaulted. A mode nobody recognises is somebody's
+            # typo or a store from a newer build, and quietly reading it as
+            # `mutual` would hand a robot an identity in a setup that asked for
+            # none — the silent downgrade this field exists to prevent.
+            raise ProfileError(
+                f"{self.broker_path} names an authentication mode this build does "
+                f"not know ({raw_auth!r}). Known modes: "
+                f"{', '.join(m.value for m in AuthMode)}"
+            ) from None
+        return Broker(host=host, auth=auth)
 
     def save_broker(self, broker: Broker) -> None:
         self._ensure_root()
         _write_private(
             self.broker_path,
             json.dumps(
-                {"host": broker.host},
+                {"host": broker.host, "auth": broker.auth.value},
                 indent=2,
             )
             + "\n",
@@ -611,11 +660,48 @@ class ProfileStore:
         Assembled here rather than on a profile because none of it is per-robot:
         one broker, one CA, one client certificate for this machine.
         """
+        # NOT `assert_usable()`: connecting needs a certificate to present, not a
+        # key to sign with. A store whose CA key has gone missing can still talk to
+        # its broker perfectly well with the identity it already holds, and failing
+        # `state` over a key that only matters at the next provision would be a
+        # guard firing at the wrong moment.
+        broker = self.load_broker()
         ca_pem = self.ca_path.read_text(encoding="utf-8") if self.has_ca_cert() else None
-        identity = self.load_client() if self.has_client() else None
-        return self.load_broker().settings(
-            ca_pem=ca_pem, identity=identity, client_id=client_id
-        )
+        # The CLI connects the way the robots do. In ANONYMOUS mode they present
+        # a certificate this broker's listener cannot check, so it accepts
+        # anonymous clients — and a CLI that presented one anyway would be the
+        # single client on that listener held to a different standard, which is
+        # exactly the split that makes a broker hard to reason about.
+        if broker.auth is AuthMode.ANONYMOUS:
+            identity = None
+        elif self.has_client():
+            identity = self.load_client()
+            if broker.auth is AuthMode.SUPPLIED and not pki.is_current(identity.cert_pem):
+                # Presenting it gets a TLS failure naming nothing, and nothing here
+                # can mint a replacement — so this is the only place the reason can
+                # be said. MUTUAL is left alone: `setup` reissues its own.
+                raise ProfileError(
+                    f"this machine's certificate in {self.root / _CLIENT_DIR} is not "
+                    "valid at the moment — the broker will refuse it. Issue another "
+                    "from your CA and file it with `whiskerless setup --client-cert "
+                    "<file> --client-key <file>`"
+                )
+        elif broker.auth is AuthMode.SUPPLIED:
+            # Falling through to None here would connect anonymously — and on a
+            # listener that still allows that, succeed. The store would go on
+            # saying `supplied` while nothing about it was, which is the exact
+            # silence writing the mode down was meant to end. Nothing here can
+            # mint a replacement either, so it has to be said.
+            raise ProfileError(
+                f"{self.broker_path} says auth is 'supplied', but this machine's "
+                f"certificate is not in {self.root / _CLIENT_DIR}. Nothing here can "
+                "issue another — supply it again with `whiskerless setup "
+                "--client-cert <file> --client-key <file>`"
+            )
+        else:
+            # MUTUAL, and re-creatable: `setup` mints one from the CA it holds.
+            identity = None
+        return broker.settings(ca_pem=ca_pem, identity=identity, client_id=client_id)
 
     def has_client(self) -> bool:
         client = self.root / _CLIENT_DIR
@@ -646,6 +732,16 @@ class ProfileStore:
         at once — so leaving the serials behind would report robots as current
         while the broker is about to refuse them.
         """
+        # Every identity directory, not every readable profile: an aborted
+        # provision or a half-removed robot leaves one behind that `list_profiles()`
+        # skips, and `robot_identity()` would later hand that stale certificate
+        # back as a cache hit — signed by the authority just retired, and refused
+        # by the broker the moment it is used.
+        if self.robots_dir.is_dir():
+            for entry in sorted(self.robots_dir.iterdir()):
+                if entry.is_dir():
+                    for name in (_CLIENT_CERT, _CLIENT_KEY):
+                        (entry / _CLIENT_DIR / name).unlink(missing_ok=True)
         for profile in self.list_profiles():
             if profile.cert_serial is not None:
                 self.save(replace(profile, cert_serial=None))
@@ -674,6 +770,99 @@ class ProfileStore:
         pair = pki.issue_client(self.load_ca(), pki.client_common_name())
         self.save_client(pair)
         return pair
+
+    # --- what each robot presents -------------------------------------------
+    #
+    # Kept, where it used to be minted for the write and dropped. Two reasons, and
+    # the second is the one that forces it: a supplied certificate CANNOT be
+    # recreated — losing it means going back to whoever signed it — and a robot
+    # re-provisioned (a new WiFi password is enough) should still be the same
+    # client to the broker afterwards, or every ACL and log line keyed to its
+    # certificate moves under it.
+    #
+    # This is not a new exposure in the default mode. `ca/ca.key` is already here,
+    # so anyone who can read the store can mint any identity in it; a copy of what
+    # was minted adds nothing they could not make. In SUPPLIED mode there is no CA
+    # key to steal and these are the only private keys present — which is the
+    # whole point of that mode.
+    def robot_client_dir(self, serial: str | Serial) -> Path:
+        return self._dir(Serial(serial) if isinstance(serial, str) else serial) / _CLIENT_DIR
+
+    def has_robot_identity(self, serial: str | Serial) -> bool:
+        client = self.robot_client_dir(serial)
+        return (client / _CLIENT_CERT).is_file() and (client / _CLIENT_KEY).is_file()
+
+    def load_robot_identity(self, serial: str | Serial) -> KeyPair:
+        client = self.robot_client_dir(serial)
+        return pki.read_pair(client / _CLIENT_CERT, client / _CLIENT_KEY)
+
+    def save_robot_identity(self, serial: str | Serial, pair: KeyPair) -> None:
+        client = self.robot_client_dir(serial)
+        client.mkdir(parents=True, exist_ok=True)
+        client.chmod(0o700)
+        _write_private(client / _CLIENT_CERT, pair.cert_pem)
+        _write_private(client / _CLIENT_KEY, pair.key_pem)
+
+    def forget_robot_identity(self, serial: str | Serial) -> None:
+        client = self.robot_client_dir(serial)
+        for name in (_CLIENT_CERT, _CLIENT_KEY):
+            (client / name).unlink(missing_ok=True)
+
+    def robot_identity(
+        self, serial: str | Serial, *, reissue: bool = False, persist: bool = True
+    ) -> KeyPair:
+        """What this robot presents to the broker, minting one the first time.
+
+        The same shape as `client_identity()` for this machine, and deliberately
+        so: one rule for every identity the store is responsible for, whether it
+        belongs to a laptop or a litter box.
+
+        `reissue` is the escape hatch a cached identity needs — a key believed
+        compromised has to be replaceable without deleting the robot's profile and
+        the measurements on it. Only meaningful where the store can sign; a
+        supplied identity is replaced by supplying another.
+
+        `persist` is what provisioning turns off. Writing a replacement before the
+        robot has accepted it means an abort — a failed scan, a declined
+        confirmation — leaves the store holding a certificate the robot does not
+        have, and in `supplied` mode leaves the previous one deleted with nothing
+        able to recreate it.
+        """
+        if not reissue and self.has_robot_identity(serial):
+            return self.load_robot_identity(serial)
+        parsed = Serial(serial) if isinstance(serial, str) else serial
+        pair = pki.issue_client(self.load_ca(), parsed.value)
+        if persist:
+            self.save_robot_identity(parsed, pair)
+        return pair
+
+    def assert_usable(self, broker: Broker | None = None) -> None:
+        """Refuse a stored mode the files on disk cannot actually carry out.
+
+        Called where an identity may have to be MINTED or handed over — `setup`
+        and `provision` — not on the way to the broker. Connecting needs something
+        to present, which a store holds already; signing is a separate capability
+        and only the next robot needs it.
+
+        The whole value of writing the mode down is that its absence stops being
+        ambiguous — so a mode that no longer matches has to be an error here,
+        loudly, and not a downgrade to whatever the files happen to support. That
+        downgrade is the failure this field was added to remove.
+        """
+        mode = (broker or self.load_broker()).auth
+        if mode is AuthMode.MUTUAL and not self.has_ca():
+            raise ProfileError(
+                f"{self.broker_path} says auth is 'mutual', which means whiskerless "
+                f"signs every identity — but {self.ca_key_path} is not there. Put the "
+                "key back, or run `whiskerless setup --auth supplied` if identities "
+                "are issued elsewhere now"
+            )
+        if mode is not AuthMode.MUTUAL and not self.has_ca_cert():
+            raise ProfileError(
+                f"{self.broker_path} says auth is {mode.value!r}, which still needs the "
+                f"CA certificate the robots were told to trust — {self.ca_path} is not "
+                "there. Supply it with `whiskerless setup --ca <file>`"
+            )
 
     def _ensure_root(self) -> None:
         # Created explicitly rather than by mkdir(parents=True), which would give
@@ -871,6 +1060,14 @@ class ProfileStore:
             raise ProfileError(f"no saved profile for {parsed.value}")
         for name in (_PROFILE_FILE, _CA_FILE):
             (directory / name).unlink(missing_ok=True)
+        # The identity is this store's, so forgetting the robot forgets it too.
+        # Left behind it would be a private key belonging to a robot nobody here
+        # remembers, and — because the directory would stay non-empty — the robot
+        # would come back as damaged in `robots`, unremovable by a second forget,
+        # and silently reused by the next provision of that serial.
+        self.forget_robot_identity(parsed)
+        with contextlib.suppress(OSError):
+            self.robot_client_dir(parsed).rmdir()
         # A non-empty directory means something the store never wrote is still in
         # there; leaving it is safer than recursively deleting a path a user may
         # have put their own files in.

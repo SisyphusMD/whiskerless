@@ -40,9 +40,25 @@ reading if you want to understand the model, and worth following by hand if you
 would rather keep the CA somewhere whiskerless never sees.
 
 If you already have a CA, pass `--ca` **and** `--ca-key`, or choose "I already
-have one" at the prompt and give it both files. The key is not optional: every
-robot gets a certificate whiskerless signs, so a store that cannot sign is an
+have one" at the prompt and give it both files. By default every robot gets a
+certificate whiskerless signs, so a store with a certificate and no key is an
 unfinished setup — and one that looks finished until a robot is in front of you.
+
+If the signing key deliberately lives somewhere else — cert-manager, Vault, an
+offline root — that is a different arrangement rather than a broken one, and it is
+`--auth supplied`:
+
+```bash
+whiskerless setup --auth supplied --ca ca.crt \
+  --client-cert whiskerless.crt --client-key whiskerless.key
+whiskerless provision --robot-cert LR4C123456.crt --robot-key LR4C123456.key
+```
+
+You issue every certificate from your own CA — this machine's, each robot's, and
+the broker's — and whiskerless stores and presents them. It is recorded in your
+store, so later commands need no flags. `--auth anonymous` is the third option:
+robots keep the certificate they shipped with, and the broker's listener has to
+accept anonymous clients.
 
 ## Generate the CA
 

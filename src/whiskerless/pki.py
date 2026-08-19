@@ -289,6 +289,25 @@ def read_pair(cert_path: Path, key_path: Path) -> KeyPair:
     return pair
 
 
+def is_current(cert_pem: str) -> bool:
+    """Whether this certificate is usable now — not merely unexpired.
+
+    A certificate dated into the future fails every handshake until it starts, and
+    says nothing about why, exactly like an expired one.
+    """
+    cert = x509.load_pem_x509_certificate(cert_pem.encode())
+    now = datetime.datetime.now(datetime.UTC)
+    return cert.not_valid_before_utc <= now < cert.not_valid_after_utc
+
+
+def read_cert(cert_path: Path) -> str:
+    """Load a certificate from disk, for the modes with no key to go with it."""
+    try:
+        return cert_path.expanduser().read_text(encoding="utf-8")
+    except OSError as exc:
+        raise WhiskerlessError(f"could not read {exc.filename}: {exc.strerror}") from exc
+
+
 def issued_serial(pair: KeyPair) -> str:
     """The certificate's serial number, hex, for recording what was issued.
 

@@ -308,3 +308,10 @@ def test_a_non_rsa_authority_cannot_vouch_for_anything(ca: pki.KeyPair) -> None:
     )
     pem = curve_ca.public_bytes(serialization.Encoding.PEM).decode()
     assert pki.is_signed_by(pki.issue_server(ca, "192.0.2.10").cert_pem, pem) is False
+
+
+def test_reading_a_certificate_that_is_not_there_names_the_file(tmp_path: Path) -> None:
+    from whiskerless.exceptions import WhiskerlessError
+
+    with pytest.raises(WhiskerlessError, match="could not read"):
+        pki.read_cert(tmp_path / "absent.crt")

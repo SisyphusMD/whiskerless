@@ -361,10 +361,18 @@ join — the broker and the CA are already settled.
 > ```
 >
 > **Already have a CA?** Choose "I already have one" and give it the certificate
-> **and its key**, or pass `--ca` with `--ca-key`. Both are required: whiskerless
-> issues every robot a certificate of its own, and that needs something to sign
-> with. A certificate on its own is refused rather than half-configuring the
-> machine.
+> **and its key**, or pass `--ca` with `--ca-key`. By default whiskerless issues
+> every robot a certificate of its own, and that needs something to sign with, so
+> a certificate on its own is refused rather than half-configuring the machine.
+>
+> **Keep your signing key somewhere else — cert-manager, Vault, an offline root?**
+> `whiskerless setup --auth supplied --ca ca.crt --client-cert … --client-key …`,
+> then hand each robot its certificate at provisioning time with `--robot-cert`
+> and `--robot-key`. The signing key never reaches this machine. Rarer still,
+> `--auth anonymous` leaves every robot the certificate it shipped with, which
+> means the broker's listener has to accept anonymous clients. Both are recorded
+> in your store, so every command afterwards behaves the same way without the
+> flags. See [docs/design/authentication.md](docs/design/authentication.md).
 >
 > **Back up `~/whiskerless`.** It holds the key that signs certificates for your
 > robots. Losing it does not stop robots that already work; it costs you the

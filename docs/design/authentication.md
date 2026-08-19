@@ -23,7 +23,114 @@ Two consequences, and neither is negotiable:
 
 ## Decisions
 
-### A store must be able to sign — decided 2026-08-19
+### Every robot gets an identity — how, is written down — decided 2026-08-19
+
+Superseding the decision below on the same day, and narrowly. That one was right
+about the failure and wrong about the remedy: it enforced "the store must be able
+to **sign**", when what the fleet actually needs is "every robot must end up with
+an identity this store can **account for**". Signing is one way to get there.
+Being handed the certificate is another, and it is equally verifiable — it chains
+to the CA, it is not expired, it matches its key.
+
+The case that forced it: somebody whose CA lives in cert-manager, Vault, or an
+offline root, who hands whiskerless the CA certificate and a certificate per
+robot, and never lets the signing key near a laptop. That is **stricter** than
+the default, not weaker, and the previous decision refused it.
+
+So the store records **how it authenticates**, in `broker.json`:
+
+| `auth` | who issues a robot's identity | this machine's own | the listener |
+|---|---|---|---|
+| `mutual` (default) | whiskerless, from the CA key it holds | issued here | either |
+| `supplied` | you, from a key that never arrives here | you supply it | either |
+| `anonymous` | nobody — the robot keeps its factory certificate | none presented | must allow anonymous |
+
+Three properties are load-bearing:
+
+**It is stored, never derived.** The same absence — no `ca.key` — means "I keep it
+in cert-manager" and "I lost it", and those want opposite handling. Derived, the
+second silently becomes the first, which is the exact failure the decision below
+was written about. Written down, a mode the files can no longer carry out is an
+error from `assert_usable()`, naming both.
+
+**It persists.** `setup --host <new address>` is a routine thing to run, and a
+per-run flag defaulting to `mutual` would move a cert-manager store back onto
+certificates whiskerless signs — on the second run, not the first, which is the
+kind of change nobody goes looking for.
+
+**The CLI authenticates the way the robots do.** One listener, one standard. A
+CLI presenting a certificate on a listener that accepts anonymous clients would
+be the single client on it held to a different rule. A `supplied` store that has
+lost its own certificate is an error rather than an anonymous connection, which
+on a permissive listener would otherwise succeed while the mode went on claiming
+otherwise.
+
+`supplied` is refused while `ca/ca.key` is still on the machine, because the mode
+states that it is not — and `setup` says to **move** that file, not delete it: if
+the authority you issue from turns out not to be this one, the copy here is the
+only thing that can still sign for the robots you already have. `anonymous` makes
+no claim about the key and leaves it alone.
+
+Everything handed to whiskerless is checked before it is filed, because each of
+these otherwise surfaces at the robot as a handshake failure that names none of
+them: it must chain to the store's CA, be valid *now* (not merely unexpired —
+a not-yet-valid certificate is refused by the broker until the hour it starts),
+not be a CA itself, and carry the robot's serial as its common name. That last
+one is not cosmetic: `use_identity_as_username` takes the broker username from it,
+so another robot's certificate connects this robot under another robot's name and
+ACLs. A missing common name and an `extendedKeyUsage` without `clientAuth` are
+warned about rather than refused — both work on plenty of brokers.
+
+The worst of them is the one a signature check alone cannot catch: **a CA
+certificate is signed by the stored authority when it IS the stored authority**,
+so `--robot-cert ca.crt --robot-key ca.key` passes a chain check and writes the
+signing key of the whole fleet into a litter box.
+
+Validity is rechecked every time rather than trusted because it passed once — a
+changed WiFi password is a re-provision, and an authority managed elsewhere can
+expire between two robots. Where the store can sign, an expired certificate of
+ours is quietly replaced, because the fix is free. Where it cannot, it is an error
+naming the file, because presenting it produces a TLS failure that names nothing.
+
+Nothing is filed until it has passed. Certificates are read, checked, and written
+only once they are known good and — for a robot — only once the robot has accepted
+them, so an abort or a rejected replacement leaves the working one exactly as it
+was. In `supplied` mode that matters more than tidiness: the copy in the store may
+be the only one.
+
+`anonymous` is the mode the decision below deleted, back as something you ask for
+by name. What was wrong with it was never the posture — it was that it was the
+*default outcome of upgrading*, and invisible. Typed out, it is neither.
+
+### Identities are stored, not minted per run — decided 2026-08-19
+
+A robot's certificate used to be issued during provisioning, written over BLE, and
+dropped. Now it is kept, at `robots/<serial>/client/`, exactly where this
+machine's own has always been kept at `client/`.
+
+Two reasons, and the second forces it. A supplied certificate **cannot be
+recreated** — losing it means going back to whoever signed it. And a robot that
+gets re-provisioned (a changed WiFi password is enough) should still be the same
+client to the broker afterwards, or every ACL, every `use_identity_as_username`
+log line, and every `cert_serial` on file moves under it.
+
+The rule this leaves is one rule, not two: **the store keeps what it cannot
+recreate, and caches what it can.** Same slot either way, so nothing downstream
+has to know which it is holding.
+
+It is not a new exposure in the default mode. `ca/ca.key` is already in the store,
+so anyone who can read it can mint any identity in the fleet; a copy of what was
+already minted adds nothing they could not produce. In `supplied` mode there is no
+CA key to take, and these are the only private keys present — which is the point
+of that mode. `--reissue` replaces one believed compromised without touching the
+profile beside it.
+
+Because provisioning now leaves behind material a backup taken before it does not
+have, `provision` says so when it finishes. In `supplied` mode that material
+cannot be produced again by anything on this machine, so a backup from before that
+moment is not stale — it is missing the only copy.
+
+### A store must be able to sign — decided 2026-08-19, superseded the same day
 
 Until 0.2.0 a store could hold a CA *certificate* with no key. The robot was told
 whom to trust and kept its factory identity; the broker's listener stayed
@@ -45,6 +152,10 @@ So a certificate without its key is now an unfinished setup rather than a choice
 `setup` resolves it once — file the key, or generate a new authority and accept
 re-provisioning every robot — and everything downstream can assume a store that
 signs.
+
+> Superseded by the decision above, which keeps this one's diagnosis and drops
+> its remedy: the silence was the problem, and a stated mode removes it without
+> refusing the arrangement.
 
 **The anonymous listener stays supported.** That is a different question: the
 robot arrives from the factory with a Whisker certificate, and requiring the
@@ -210,22 +321,24 @@ robot, and the blast radius is one robot's topics. A CRL was judged not worth th
 operating burden. The per-issuance-unique-CN allowlist alternative was rejected
 for worse reasons still: it needs a broker ACL edit at every provision.
 
-### Bring your own — two rows, and the third is gone
+### Bring your own
 
-| you supply | robot's identity | broker listener |
-|---|---|---|
-| nothing — we generate the CA | ours, issued per provision | either |
-| `ca.crt` + `ca.key` | ours, issued per provision | either |
+| you supply | `auth` | robot's identity | broker listener |
+|---|---|---|---|
+| nothing — we generate the CA | `mutual` | ours, issued per provision | either |
+| `ca.crt` + `ca.key` | `mutual` | ours, issued per provision | either |
+| `ca.crt` + a certificate per robot | `supplied` | yours, stored here | either |
+| `ca.crt` alone | `anonymous` | the factory's, untouched | must allow anonymous |
 
-There used to be a third row — `ca.crt` alone, the robot keeping its factory
-certificate — for somebody whose CA lives in a secrets manager and is never coming
-to a laptop. It was removed in 0.2.0 (see the decision at the top of this file):
-it was also what every upgraded 0.1.3 store looked like, so the default outcome of
-upgrading was a machine that silently could not issue anything.
+The last two rows have to be asked for by name — `--auth supplied`, `--auth
+anonymous` — and the reason is in the decision at the top of this file: not the
+posture, but that the third one used to happen to people by accident while looking
+identical to a working setup.
 
-The listener column says "either" because that is a separate choice: a robot
-holding one of our certificates still connects to a listener that allows anonymous
-clients. Requiring them is recommended, not required.
+The listener column says "either" for the first three because that is a separate
+choice: a robot holding a certificate still connects to a listener that allows
+anonymous clients. Requiring them is recommended, not required — except in the
+last row, where there is nothing for the listener to check.
 
 **A CA certificate is always required.** There is no "skip" — the robot verifies
 your broker against whatever is in its trust slot, so something has to go there.
