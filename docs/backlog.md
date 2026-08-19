@@ -259,17 +259,20 @@ published from a tumbling globe. Also worth watching `odometerEmptyCycles`
 
 ### #15 — Analyze the rolling LR4 capture (ongoing)
 
-NEW LEAD (2026-08-15): `0x5F`-`0x63` fire only in the same second as a globe-motor
-fault raise, twice in five days, values `55/12`, `14/14`, `326/172`, `65520`
-(`0xFFF0` = -16 int16) and `0/0`. Five unmapped registers appearing only beside a
-fault look like its diagnostic payload; two samples from one fault on one robot
-is a lead, not a decode. Next fault is the test.
+LEAD, tested negatively (2026-08-19): `0x5F`-`0x63` fire only in the same second
+as a globe-motor fault raise, twice in five days, values `55/12`, `14/14`,
+`326/172`, `65520` (`0xFFF0` = -16 int16) and `0/0`. A further 3d22h carried no
+`0x35` and none of the five — which is what the reading predicts and is the
+cleanest test it has had, but still leaves two samples from one fault on one
+robot. Next fault is still the decode.
 
 Rolling LR4 capture analysis (pod `lr4-capture` in namespace `homeassistant`).
 
-Fifth pass 2026-08-15 covered the whole 5d04h (08-10 14:18Z → 08-15 18:46Z),
-535,778 lines, 1 malformed. Fourth pass 2026-08-10/11 covered 12h19m
-(14:18Z–02:37Z), 1346 records, 1346/1346 JSON, 0 orphans, 0 restarts.
+Sixth pass 2026-08-19 covered 3d22h (08-15 18:46Z → 08-19 20:42Z) from Loki:
+392,050 lines → 17,143 records, 0 malformed → 5,415 deduped readings, state and
+command continuous. Fifth pass 2026-08-15 covered the whole 5d04h (08-10 14:18Z →
+08-15 18:46Z), 535,778 lines, 1 malformed. Fourth pass 2026-08-10/11 covered
+12h19m (14:18Z–02:37Z), 1346 records, 1346/1346 JSON, 0 orphans, 0 restarts.
 
 RETRIEVAL, corrected: the k8s-workerbig reboot on 2026-08-15 00:31Z made the
 Deployment replace the capture pod, and the old pod object was deleted with its
@@ -289,10 +292,17 @@ beats the Loki export outright. Use Loki only across a restart or past the
 container log.
 
 Each pass has corrected the one before it — treat every conclusion as
-provisional. Still uninterpreted: `0x33`, `0x3C`, `0x49`, `0x4A`, `0x5E`,
-`0x64`, `0x66`; the `0x10`/`0x20` field in `0x37`; what `0x3402C0` counts; why
-the pre-cycle marker alternates `0x10xx` vs `0xE065`. Still nothing above `0x7F`
-in 12h19m.
+provisional. The sixth pass moved four of these: `0x66` is `0x3C` at 16×
+resolution with a movement-dependent sampling skew; `0x33` is constant at `34` on
+both robots; `0x5E` and `0x64` never co-occur and alternate by cycle position;
+`0x3402C0` reproduced at 5× the data as the clean-delay tick with bursts of 1-15.
+The `0x10`/`0x20` line below was stale rather than open — `registers.md` has had
+`0x37` as PROVEN (`catDetect`, bit 1 = load cell) since the narrated session, and
+four more days agree with it; the one value it does not cover is `0x1021` ×7. Still uninterpreted: `0x49`, `0x4A`, what
+`0x3C`/`0x66` physically measure, why the pre-cycle marker alternates `0x10xx` vs
+`0xE065`, `0x37` = `0x1021`, `0x01` `0x1002` (a hold of an unnamed button), and
+`0xBC` = 15699. `0x33` is not uninterpreted so much as untestable passively.
+Above `0x7F` remains robot-2-only across nine days.
 
 ### #19 — Ask Brent what differs between two LR4s whose MAIN BOARD firmware differs — *blocked: Brent*
 

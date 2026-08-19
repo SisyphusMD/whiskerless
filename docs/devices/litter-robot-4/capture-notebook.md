@@ -52,10 +52,10 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | ~~What is `catDetect` bit 1?~~ | **ANSWERED 2026-08-11.** The load cell — an inert weight sets it with the beam clear, and Whisker's "excess weight" fault is bit 1 alone. Nothing to do with the hopper |
 | Is `0x32` the sleep flag? | **Ten for ten across five nights (2026-08-10→15)** — ten `sleepStatus` edges, ten emissions, each leading by 2-3 s, none unmatched either way. Passive evidence is now exhausted; toggle sleep by hand and watch it |
 | Is `0x4C` "a cycle is owed"? | Five days: 54 emissions, all while asleep, none awake; clears at all five wakes with a cycle following at four of them — but the fifth had sets, cleared normally and ran no cycle, which is what "owed" predicts against. Catch a deferred cycle with sleep OFF and a cat inside the deferral |
-| What do `0x3C` / `0x66` measure? | They repeat per cycle, reproduce across two robots, and climb **monotonically within one cycle**, stepping together at each `0x4F000C` (2026-08-15: `0x3C` 566→773→1079→1288, `0x66` 8442→12355→16577→20615) — position or step counters. Correlate against a cycle interrupted mid-way |
-| What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`, `0x71`? | Perturb something physical and watch which one moves |
+| What do `0x3C` / `0x66` measure? | **`0x66` = 16 × `0x3C`, narrowed 2026-08-19.** Exact at two of the four cycle sample points (lag ≤1.3 units) and reproducibly ~38 and ~42 behind at the other two, across 143 paired seconds and both robots. `0x66` publishes on its own cadence and `0x3C`'s message repeats its last value, so the lag is sampling skew during movement, not a different quantity. Still open: what the shared quantity IS. Interrupt a cycle mid-way — the prediction is that the lag scales with globe speed |
+| What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`, `0x71`? | **`0x33` will not move** — 55 readings over four days, both robots, every one `34` (`0x22`). Look for a configuration word, not a sensor. **`0x5E` and `0x64` never co-occur** (0 of 165 seconds), alternate by cycle position (`0x5E` P1/P4, `0x64` P2/P3) and sit in disjoint per-robot bands — consistent with one quantity under two names, so test them together or not at all. `0x49`, `0x4A`, `0x71`: perturb something physical and watch which one moves |
 | What are `0x0C`, `0x41`, `0x67`? | `0x0C` is **demand-driven** — robot 2 ran it while starved, stopped after a refill and has been silent for five cycles; robot 1 has never needed a dispense. Whether it needs the *hardware* is still open: run a cycle with litter scooped out of the globe and the hopper off |
-| What are `0x5F`–`0x63`? | Twice, both in the same second as robot 2's `0x350001` raises and nowhere else in five days: `0x5F` 55/12, `0x60` 14/14, `0x61` 326/172, `0x62` 65520 (`0xFFF0`, -16 int16) then 62, `0x63` 0/0. Reads like a fault diagnostic payload — catch a second fault |
+| What are `0x5F`–`0x63`? | Twice, both in the same second as robot 2's `0x350001` raises and nowhere else in **nine** days: `0x5F` 55/12, `0x60` 14/14, `0x61` 326/172, `0x62` 65520 (`0xFFF0`, -16 int16) then 62, `0x63` 0/0. A further 3d22h to 2026-08-19 carried no `0x35` and none of the five, which is the cleanest negative test the reading has had. Still needs a second fault to decode |
 | ~~What does the `0x3402C0` tick count?~~ | **ANSWERED 2026-08-11, narrowed 2026-08-15.** It marks the clean delay: repeating ticks 2 min apart ahead of an automatic cycle. It does **not** count anything down — the value is constant (`0x02C0` = 704) — and neither the tick count nor the gap to the cycle is fixed: three ticks ending 13 s before the cycle on 08-11, two ticks ending 92 s before it on 08-15. The 2-minute spacing is the only part that has held |
 | Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | Looked settled (`1064` automatic, `0x01=0201` commanded) until a cycle carried the button code with nobody at the machine. Needs cycles where presence is certain |
 | Is the `catWeight` divisor 100 for certain? | **The known-weight method does not work** — three trials gave divisors 72.4, 84.8 and 88.5, and an inert object sheds load against the globe wall. Needs a real cat, a clean tare, and a same-evening household weigh-in |
@@ -63,10 +63,127 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | Which ToF source drives `litterLevel`? | `0x58`/`0x59`/`0x5A` are all visible individually — check which one the published figure follows |
 | Is `surfaceType` (TILE/CARPET/UNKNOWN) stored on the robot, or only in the account? | The cloud exposes it; none of the 69 local state fields carries it, and nobody has looked for it in the register file. If it is local it is a *writable setting* nobody has mapped — sweep the unread settings addresses, or change it in the app and watch for a register that moves |
 | Does `empty_cycle` have a `robotStatus` int of its own? | pylitterbot names it, but that vocabulary is what the cloud *presents*, computed from several fields — `paused` is the proof, since a paused cycle holds `robotStatus` 10 and shows the pause on `robotCycleState` 4. Treat those names as candidates for an unmapped int, never as a bound |
+| What is `0x01` `0x1002`? | A 3-second hold (`02`) of a button this repo has no name for, twice, both robots, 2026-08-19. The panel does emit holds even though MQTT cannot synthesise one — so the vocabulary of physical chords is observable. Narrate a bench session pressing and holding every button and match the codes |
+| What is `0xBC` = 15699? | 4h20m, alongside the only `0xB9 = 2` ever seen, on robot 2 (2026-08-16T13:11:57Z). Not a visit duration under any reading. Treat as a sentinel; catch a second one before decoding |
 | Which of the still-UNKNOWN registers are worth a firmware dump rather than more captures? | The dump route is already written up in [reverse-engineering.md](../../reverse-engineering.md) — an `esptool read_flash` yields the complete `pic_factory` image. elttam's LR3 teardown independently found the same `pic`-prefixed layout on the previous model, so the approach is not speculative. Worth deciding per register: most of the rows above have a cheaper physical experiment |
-| Does anything above `0x7F` exist on 1.1.75? | Not a null result any more: robot 2 emits `0xB9` (×48) and `0xBC` (×51) across five days, and robot 1 emits neither. Both are on ESP 1.1.75, which rules the ESP build out but does not by itself name the cause: the main-board versions differ too (#19), and so does everything else about two physical robots. Ask what else separates them before crediting the board |
+| Does anything above `0x7F` exist on 1.1.75? | Not a null result any more: robot 2 emits `0xB9` (×48+57) and `0xBC` (×51+60) across five days and then four more to 2026-08-19, and robot 1 emits neither in either window. Both are on ESP 1.1.75, which rules the ESP build out but does not by itself name the cause: the main-board versions differ too (#19), and so does everything else about two physical robots. Ask what else separates them before crediting the board |
 
 ## Sessions
+
+### 2026-08-15→19, 3d22h — the pairing behind `0x3C`/`0x66`, and the panel's hold events
+
+Sixth pass. Loki, `{namespace="homeassistant", pod=~"lr4-capture.*"}`, paged forward
+from the fifth pass's end (08-15 18:46Z) to 08-19 20:42Z: **392,050 lines →
+17,143 records, 0 malformed → 5,415 readings** after deduping on (payload
+timestamp, serial, register, value). State and command are continuous — no gap over
+45 minutes in either — so the window is whole; activity gaps are just idle hours.
+The pod restarted once in it, which is why this is a Loki pass and not `kubectl logs`.
+
+**`0x66` is `0x3C` at sixteen times the resolution — at two of the four sample
+points, and reproducibly behind at the other two.** 143 seconds carry both, across
+~40 cycles and both robots:
+
+| position | `0x3C` | `0x66`/16 | lag | spread | n |
+|---|---|---|---|---|---|
+| P1 | 564–566 | 525.8 / 527.7 | **38.0 / 38.3** | 1.3 | 40 |
+| P2 | 773 | 774.3 / 772.3 | −1.3 / 0.7 | 1.0 | 30 |
+| P3 | 1078–1079 | 1036.1 / 1035.8 | **41.6 / 43.0** | 1.4 | 40 |
+| P4 | 1288 | 1286.9 / 1288.2 | 1.1 / −0.2 | 0.8 | 33 |
+
+(Two figures per cell: robot 1 / robot 2.) The spread inside each bucket is about
+one unit, so this is not noise, and the two robots agree to within 2.0. The earlier
+guess — 16× with `0x3C` "not always publishing the reading that pairs with `0x66`" —
+was the right shape and the wrong direction: `0x3C` is not missing readings, `0x66`
+is *stale*. The raw stream shows the mechanism plainly:
+
+```
+13:13:05  0x66=12391
+13:13:07  0x3C=773  0x4E=4 0x4F=3 0x64=1857  0x66=12391      <- same 0x66, republished
+14:09     0x66=20588
+14:10     0x3C=1288 0x66=20588                                <- again
+```
+
+`0x66` publishes on its own cadence and the next `0x3C` message carries whatever it
+last read. At P2 and P4 the mechanism is at rest, so a stale reading is still the
+right one; at P1 and P3 it is moving, and the same skew becomes ~40 units of `0x3C`.
+That predicts the lag scales with globe speed — which a cycle interrupted mid-way
+would test, and which is a better experiment than another passive capture.
+
+**`0x5E` and `0x64` are mutually exclusive.** In 165 seconds carrying one of them,
+**zero carry both**. They alternate by cycle position — `0x5E` at P1 and P4, `0x64`
+at P2 and P3 — and sit in disjoint bands that differ per robot (robot 1: `0x5E`
+1840–1889, `0x64` 1939–1951; robot 2: `0x5E` 1792–1811, `0x64` 1904–1925). Two
+registers on one scale, never sampled together, is what one quantity reported under
+two names at different phases looks like. It is not proof of that, but it does rule
+out reading them as independent sensors.
+
+**`0x33` did not vary once in four days.** 55 readings, both robots, every one `34`
+(`0x22`). That is all it is: nothing in this window perturbed it, which is not the
+same as nothing being able to. It does say the passive captures have nothing left to
+give here — four days of ordinary use, two machines, one value — so `0x33` wants a
+deliberate perturbation rather than another wait. Both robots reading `34` does not
+even rule out a per-robot constant, since the two may simply be configured alike.
+
+**`0x37` reproduced the shipped `catDetect` decode, and turned up one value it does
+not cover.** This is a confirmation, not a finding — `registers.md` already has
+`0x37` as PROVEN: a two-bit field, bit 0 the time-of-flight sight line, bit 1 the
+load cell, with activity carrying 16/17/32/33, plus 256, and 512/1024 on bonnet
+open/close. Four days agree: 856 of 904 readings are `0x0010`/`0x0011`/`0x0020`/
+`0x0021`, then `0x0100` ×39, and `0x0200` and `0x0400` once each — one bonnet open
+and one close, which is exactly right for two robots nobody opened much. The
+outlier is **`0x1021` ×7**, which is `0x1000 | 0x0021` and belongs to no documented
+bit. Seven emissions is enough to say it is not a glitch and not enough to say what
+it is. (The backlog's line calling the `0x10`/`0x20` field uninterpreted was simply
+stale — it has been decoded as bit 1 since the narrated session.)
+
+**`0x3402C0` reproduces at scale, and the burst is longer than two or three.** 164
+emissions, **always alone in their second**, in 40 bursts spaced at exactly 120 s;
+burst lengths run 1, 2, 3, 4, 5, 6, 8 and **15**. The 08-11/08-15 reading (a
+clean-delay tick, constant value, only the 2-minute spacing fixed) holds unchanged
+against 5× the data. A 15-tick burst is half an hour of delay, which wants an
+explanation the tick itself does not give.
+
+**`0xB9`/`0xBC` stayed robot-2-only for another four days** — 57 and 60 emissions on
+robot 2, **zero on robot 1**. Five days plus four is now nine, which does not name a
+cause but makes "it happens not to have fired yet on robot 1" much harder to hold.
+
+**The first `0xB9 = 2`, and it lands where the rule says it should.** One second on
+robot 2 carries `0xB9=2` with `0xBC=15699`; the other 56 carry `0xB9=1`. Of the 41
+seconds carrying both, the `<19 → 1` rule holds **41 of 41**. Direction confirmed —
+but with exactly one sample above the threshold, any cut between 16 and 15699 fits
+equally well, so 19 itself is still borrowed, not measured. And `0xBC=15699` is 4h21m39s,
+which is not a visit duration by any reading: treat it as a sentinel until something
+explains it.
+
+**`0xBC` leads `0xB9` by about two seconds.** 35 of the 76 seconds carrying either
+carry only one, and the pattern is consistent — `0xBC` at *t*, `0xB9` at *t*+1 or
+*t*+2. Same-second matching therefore keeps 41 pairs and misses 16 of the 57 `0xB9`
+emissions (28%) and 19 of the 60 `0xBC` (32%). Correlate them over a small window,
+not a single second.
+
+**The panel emits hold events; MQTT still cannot.** `0x01` in the activity stream is
+the panel-button register reporting what a human did, and type `02` — the 3-second
+hold — appears **5 times across both robots** (`0x0202`). Writing type `02` over MQTT
+produces no event at all, so this is the other half of that finding: the firmware
+recognises the long press, performs it from the panel, and declines to synthesise
+one. Full census for the window:
+
+| `0x01` | n | robots | reading |
+|---|---|---|---|
+| `0x0101` | 2 | 2 | Power, press |
+| `0x0201` | 4 | 1 and 2 | Cycle, press |
+| `0x0202` | 5 | 1 and 2 | **Cycle, 3-second hold** |
+| `0x0401` | 11 | 1 and 2 | Reset, press |
+| `0x1002` | 2 | 1 and 2 | unidentified button, hold |
+| `0x0000` | 5 | 1 and 2 | — |
+
+`0x1002` is the interesting one: low byte `02` is a hold, and `0x10` is a button
+this repo has no name for.
+
+**No `0x35` fault in 3d22h, and no `0x5F`–`0x63` either.** The fault-payload reading
+gets no decode out of this window, but it does get its cleanest negative test: five
+registers that appear *only* beside a fault, in a window with no fault, appear
+nowhere. Nine days now, two sightings, both in a fault second.
 
 ### 2026-08-16 — the narrated bench night: five proven writes, two robots
 
