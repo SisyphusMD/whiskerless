@@ -364,7 +364,45 @@ async def test_the_scan_is_paged_and_sorted_strongest_first() -> None:
     transport = _ScanTransport([("far", -80), ("near", -35), ("mid", -60), ("x", -70), ("y", -75)])
     found = await scan_networks(transport)  # type: ignore[arg-type]
     assert [n.ssid for n in found] == ["near", "mid", "x", "y", "far"]
-    assert transport.pages == [(0, SCAN_PAGE), (4, SCAN_PAGE)], "results are fetched in pages"
+    # The last page asks for what is LEFT, not for a full page: five networks is
+    # four then one, never four then four.
+    assert transport.pages == [(0, SCAN_PAGE), (4, 1)], "results are fetched in clamped pages"
+
+
+async def test_the_last_page_never_reads_past_the_end() -> None:
+    """The firmware answers an out-of-range read by dropping the BLE link.
+
+    Not a graceful short page and not an error — the connection goes away, in the
+    middle of provisioning, with the pairing window already spent. A robot
+    reporting 30 networks served 0-27 and then died on the request for 28-31, so
+    any count that is not a multiple of the page size ended there: most
+    households, presenting as flaky Bluetooth.
+    """
+
+    class Strict(_ScanTransport):
+        async def request(self, endpoint: str, payload: bytes) -> bytes:
+            from whiskerless.ble.protobuf import read_fields
+
+            fields = read_fields(payload)
+            if 14 in fields:
+                arm = read_fields(fields[14][0])
+                start = int(arm[1][0]) if 1 in arm else 0
+                count = int(arm[2][0]) if 2 in arm else 0
+                if start + count > len(self.networks):
+                    raise AssertionError(
+                        f"asked for {start}-{start + count - 1} of "
+                        f"{len(self.networks)} — the robot would drop the link here"
+                    )
+            return await super().request(endpoint, payload)
+
+    from whiskerless.ble.provision import scan_networks
+
+    # 30, exactly the count that killed a real provision: 30 % 4 == 2.
+    transport = Strict([(f"net{i:02d}", -40 - i) for i in range(30)])
+    found = await scan_networks(transport)  # type: ignore[arg-type]
+    assert len(found) == 30
+    assert transport.pages[-1] == (28, 2), transport.pages
+    assert sum(count for _, count in transport.pages) == 30
 
 
 async def test_a_mesh_network_appears_once_at_its_strongest() -> None:

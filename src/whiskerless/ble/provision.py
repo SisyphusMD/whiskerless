@@ -51,6 +51,12 @@ WIFI_POLL_INTERVAL = 1.5
 # finalizes the provisioning state machine, and a beat of margin costs nothing
 # against racing it.
 WIFI_SETTLE = 1.0
+#: How long to keep asking for an address after the STA has associated. The robot
+#: reports CONNECTED the moment it associates, which is BEFORE DHCP answers, so
+#: reading the address once at that point always finds it unset. This is the extra
+#: budget for the lease alone — short, because the join is already confirmed and
+#: the address is a nicety, and bounded by ``wifi_wait`` either way.
+WIFI_LEASE_WAIT = 8.0
 
 
 #: Bytes per CERT_WRITE chunk. The app's own number; see
@@ -97,8 +103,17 @@ async def scan_networks(transport: ProtocommBLE) -> list[m.WifiNetwork]:
 
     best: dict[str, m.WifiNetwork] = {}
     for start in range(0, count, SCAN_PAGE):
+        # CLAMPED to what is actually left. Asking for a full page when fewer
+        # remain is an out-of-range read, and this firmware answers it by
+        # dropping the BLE link rather than returning a short page: a robot
+        # reporting 30 networks served 0-27 and then died on the request for
+        # 28-31, mid-provision, with the pairing window already spent. Any count
+        # that is not a multiple of the page size ends there, so it fails for
+        # most households and looks like flaky Bluetooth.
         page = m.parse_scan_results(
-            await transport.request(m.EP_PROV_SCAN, m.wifi_scan_result(start, SCAN_PAGE))
+            await transport.request(
+                m.EP_PROV_SCAN, m.wifi_scan_result(start, min(SCAN_PAGE, count - start))
+            )
         )
         for network in page:
             seen = best.get(network.ssid)
@@ -378,6 +393,7 @@ async def _verify_wifi(
     loop = asyncio.get_running_loop()
     deadline = loop.time() + config.wifi_wait
     last: m.WifiStatus | None = None
+    associated: float | None = None
     while loop.time() < deadline:
         await asyncio.sleep(WIFI_POLL_INTERVAL)
         try:
@@ -391,11 +407,18 @@ async def _verify_wifi(
         last = status
         if status.state is m.WifiStationState.CONNECTED:
             # The robot answers CONNECTED as soon as the STA associates, which is
-            # BEFORE DHCP returns — a live re-provision printed `ip=0.0.0.0`.
-            # That is the unset address, not a lease, and printing it claims a
-            # fact the robot has not got yet. The join is still confirmed; only
-            # the address is unknown.
+            # BEFORE DHCP returns, so the address read at that instant is always
+            # `0.0.0.0` — the unset value, not a lease. Reporting that would claim
+            # a fact the robot has not got yet, but giving up on it immediately
+            # threw away an address that arrives a second or two later. So keep
+            # asking, briefly: the join is already confirmed either way, and the
+            # address is what tells you where the robot actually landed.
             leased = status.ip4 if status.ip4 not in (None, "", "0.0.0.0") else None
+            if leased is None:
+                if associated is None:
+                    associated = loop.time()
+                if loop.time() - associated < WIFI_LEASE_WAIT:
+                    continue
             step(f"WiFi connected (ip={leased})" if leased else "WiFi connected (no IP lease yet)")
             await asyncio.sleep(WIFI_SETTLE)
             return
@@ -422,6 +445,16 @@ async def _verify_wifi(
             f"no WiFi status after {config.wifi_wait:.0f}s (firmware may not support "
             "GetStatus) — continuing"
         )
+    elif last.state is m.WifiStationState.CONNECTED:
+        # Associated, but DHCP never answered inside the window. The join itself
+        # is confirmed, so this must not read like the unresolved case below —
+        # saying "still connected, verify the robot appears" about a robot that
+        # demonstrably joined sends people looking for a problem they do not have.
+        step("WiFi connected (no IP lease yet)")
+        # The same settle the in-loop return takes. It is not cosmetic: the
+        # endpoint and certificate writes follow immediately, and a join that has
+        # only just resolved needs the beat before them.
+        await asyncio.sleep(WIFI_SETTLE)
     else:
         step(
             f"WiFi still {last.state.name.lower()} after {config.wifi_wait:.0f}s — "

@@ -173,6 +173,25 @@ def test_verify_wifi_does_not_report_the_unset_address_as_a_lease(
     assert not any("0.0.0.0" in s for s in steps), "but the unset address is not a lease"
 
 
+def test_verify_wifi_waits_for_the_lease_before_reporting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The address arrives a beat after the association, and it is worth waiting for.
+
+    The robot answers CONNECTED the moment the STA associates, so the first read
+    always finds `0.0.0.0`. Reporting that first answer and returning threw away
+    an address that was seconds away — and the address is the whole point: it is
+    what tells you where the robot actually landed.
+    """
+    no_lease = _resp_get_status(
+        field_message(11, field_string(1, "0.0.0.0") + field_varint(5, 6))
+    )
+    transport = _FakeTransport([no_lease, no_lease, CONNECTED])
+    steps = _run_verify(transport, monkeypatch, wifi_wait=5.0)
+    assert any("192.168.2.41" in s for s in steps), steps
+    assert not any("no IP lease yet" in s for s in steps)
+
+
 def test_verify_wifi_rides_out_a_gatt_hiccup(monkeypatch: pytest.MonkeyPatch) -> None:
     """One failed GetStatus is a radio hiccup, not a failed join. Treating it as
     fatal would abort a provision that was working, at the step immediately
