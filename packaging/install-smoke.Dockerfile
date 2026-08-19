@@ -242,6 +242,85 @@ RUN set -eux; \
 FROM scratch AS provision-result
 COPY --from=provision /passed /passed
 
+# --- the two modes where whiskerless does NOT hold the signing key ------------------
+# The `provision` channel above only ever exercises `mutual`, which is the one mode
+# that needs nothing handed to it. `supplied` and `anonymous` are the modes somebody
+# reaches for BECAUSE their CA lives somewhere this machine cannot go, and they are
+# reachable only through flags — so nothing but a channel like this proves the shipped
+# binary can do them at all. Both the acceptances and the refusals are asserted: a
+# mode that quietly accepts what it documents as contradictory is the failure the
+# stored `auth` field exists to prevent.
+FROM deb-base AS auth-modes
+ARG V DL ARCH_BIN
+RUN set -eux; \
+    curl -fsSL -o /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
+    chmod +x /usr/local/bin/whiskerless; \
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout /ca.key -out /ca.crt -days 2 \
+      -subj "/CN=whiskerless auth smoke" >/dev/null 2>&1; \
+    for who in client:whiskerless-cli robot:LR4C000000; do \
+      name="${who%%:*}"; cn="${who##*:}"; \
+      openssl req -newkey rsa:2048 -nodes -keyout "/$name.key" -out "/$name.csr" \
+        -subj "/CN=$cn" >/dev/null 2>&1; \
+      openssl x509 -req -in "/$name.csr" -CA /ca.crt -CAkey /ca.key -CAcreateserial \
+        -out "/$name.crt" -days 1 >/dev/null 2>&1; \
+    done; \
+    # A robot certificate from an authority this store was never given.
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout /other.key -out /other.crt -days 2 \
+      -subj "/CN=somebody else" >/dev/null 2>&1; \
+    openssl req -newkey rsa:2048 -nodes -keyout /stray.key -out /stray.csr \
+      -subj "/CN=LR4C000000" >/dev/null 2>&1; \
+    openssl x509 -req -in /stray.csr -CA /other.crt -CAkey /other.key -CAcreateserial \
+      -out /stray.crt -days 1 >/dev/null 2>&1; \
+    \
+    # --- supplied: identities are issued elsewhere and handed over ----------------
+    export WHISKERLESS_HOME=/supplied; \
+    whiskerless setup --host 192.0.2.1 --auth supplied --ca /ca.crt \
+      --client-cert /client.crt --client-key /client.key </dev/null >/dev/null; \
+    # The whole point of the mode: the signing key must not be on this machine.
+    [ ! -f /supplied/ca/ca.key ] || { echo "supplied mode filed a signing key"; exit 1; }; \
+    grep -q '"auth": "supplied"' /supplied/broker.json; \
+    out=$(whiskerless provision --serial LR4C000000 --wifi-ssid ssid --wifi-pass pass \
+            --robot-cert /robot.crt --robot-key /robot.key --dry-run --yes </dev/null 2>&1) \
+            && rc=0 || rc=$?; \
+    printf '%s\n' "$out"; \
+    # Reaching the scan proves the supplied pair got through validation and the
+    # frozen bundle carries the radio stack, exactly as in the `provision` channel.
+    printf '%s' "$out" | grep -qi "scanning for robots over BLE"; \
+    if printf '%s' "$out" | grep -q "Traceback"; then \
+      echo "supplied-mode provisioning crashed instead of failing"; exit 1; fi; \
+    [ "$rc" -ne 0 ] || { echo "no Bluetooth here, so this must not report success"; exit 1; }; \
+    \
+    # --- anonymous: the robot keeps the certificate it shipped with ---------------
+    export WHISKERLESS_HOME=/anon; \
+    whiskerless setup --host 192.0.2.1 --auth anonymous --ca /ca.crt </dev/null >/dev/null; \
+    grep -q '"auth": "anonymous"' /anon/broker.json; \
+    out=$(whiskerless provision --serial LR4C000000 --wifi-ssid ssid --wifi-pass pass \
+            --dry-run --yes </dev/null 2>&1) && rc=0 || rc=$?; \
+    printf '%s' "$out" | grep -qi "scanning for robots over BLE"; \
+    # A crash exits non-zero too, so the status check alone would accept one.
+    if printf '%s' "$out" | grep -q "Traceback"; then \
+      echo "anonymous-mode provisioning crashed instead of failing"; exit 1; fi; \
+    [ "$rc" -ne 0 ] || { echo "no Bluetooth here, so this must not report success"; exit 1; }; \
+    \
+    # --- and the refusals, which are the half a passing run can hide --------------
+    export WHISKERLESS_HOME=/contradiction; \
+    whiskerless setup --host 192.0.2.1 --auth supplied --ca /ca.crt --ca-key /ca.key \
+      </dev/null >/tmp/o1 2>&1 && { echo "--ca-key was accepted in supplied mode"; exit 1; } || true; \
+    grep -q "contradicts" /tmp/o1; \
+    export WHISKERLESS_HOME=/anon; \
+    whiskerless provision --serial LR4C000000 --wifi-ssid ssid --wifi-pass pass \
+      --robot-cert /robot.crt --robot-key /robot.key --dry-run --yes \
+      </dev/null >/tmp/o2 2>&1 && { echo "a robot certificate was accepted in anonymous mode"; exit 1; } || true; \
+    grep -qi "anonymous" /tmp/o2; \
+    export WHISKERLESS_HOME=/supplied; \
+    whiskerless provision --serial LR4C000000 --wifi-ssid ssid --wifi-pass pass \
+      --robot-cert /stray.crt --robot-key /stray.key --dry-run --yes \
+      </dev/null >/tmp/o3 2>&1 && { echo "a foreign robot certificate was accepted"; exit 1; } || true; \
+    grep -q "not signed by the CA" /tmp/o3; \
+    touch /passed
+FROM scratch AS auth-modes-result
+COPY --from=auth-modes /passed /passed
+
 # --- HACS, which is how the Home Assistant integration is actually installed ---------
 # The whole check is packaging/hacs-smoke.sh; what it proves and why is documented
 # there. Kept out of this file because a RUN cannot carry the explanation: a comment

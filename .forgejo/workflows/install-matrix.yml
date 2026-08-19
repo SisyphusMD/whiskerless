@@ -107,7 +107,7 @@ jobs:
           echo "installing from the '$DIST' distribution, for $PLATFORM"
 
           failed=""
-          for channel in deb-file apt-repo rpm-file dnf-repo zypper raw-binary pypi-uvx pipx pip bottle-pour broker provision hacs; do
+          for channel in deb-file apt-repo rpm-file dnf-repo zypper raw-binary pypi-uvx pipx pip bottle-pour broker provision auth-modes hacs; do
             echo "──────── $channel"
             rm -rf "out/$channel"
             ok=""
