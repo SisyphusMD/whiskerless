@@ -6,7 +6,7 @@
 # image, the build image IS the declared floor and no distro can sit between them. The floor is
 # enforced statically by check-glibc-floor.py during the build instead.
 # renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
-FROM ubuntu:26.04@sha256:6df9e8dd1eac389ebfef692c9648449adeb815d01e16e29cd6f3e50fe64ba9a6 AS smoke
+FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b AS smoke
 
 COPY package-smoke.deb /tmp/package-smoke.deb
 
