@@ -360,11 +360,11 @@ join — the broker and the CA are already settled.
 >   ~/whiskerless/broker/server.key  →  keyfile
 > ```
 >
-> **Already have a CA?** Choose "I already have one" and give it the files, or
-> pass `--ca`. Add `--ca-key` and whiskerless will issue each robot a certificate
-> of its own; leave it out and the robot keeps its Whisker certificate, which
-> works — but then your broker's listener has to accept anonymous clients, and
-> provisioning says so before it writes anything.
+> **Already have a CA?** Choose "I already have one" and give it the certificate
+> **and its key**, or pass `--ca` with `--ca-key`. Both are required: whiskerless
+> issues every robot a certificate of its own, and that needs something to sign
+> with. A certificate on its own is refused rather than half-configuring the
+> machine.
 >
 > **Back up `~/whiskerless`.** It holds the key that signs certificates for your
 > robots. Losing it does not stop robots that already work; it costs you the
@@ -428,6 +428,61 @@ certificates — so it could only fail confusingly. A genuinely separate broker 
 a separate store; set `WHISKERLESS_HOME` to it. `whiskerless forget <serial>`
 drops a robot's saved details; the robot keeps running. `whiskerless --help`
 lists the rest — including `read` and `send` for protocol work.
+
+## Upgrading from 0.1.3
+
+**Your robots keep working while you read this.** Nothing reaches them until you
+provision one.
+
+**What moves by itself.** The store is renamed from `~/.whiskerless` to
+`~/whiskerless` the first time any command runs, and the broker address and CA
+certificate that used to live inside each robot's profile are hoisted to the
+store, where they now belong to the machine rather than to a robot. Settings
+0.2.0 stopped reading are dropped from those profiles at the same time, so what
+is left on disk is what is actually in use. It is a rename, not a copy — there is
+never a second store to edit by mistake.
+
+**What breaks: the CLI's broker login.** Broker usernames and passwords are gone
+— `--username`, `--password` and `WHISKERLESS_PASSWORD` no longer exist, and the
+stored `username` is ignored. The robot never could send credentials, so
+certificates are the only scheme that ever covered both halves. If your broker
+demands a username on the listener the CLI uses, `whiskerless state` will fail
+after upgrading and no flag will bring it back: let that listener accept this
+machine's certificate instead, or leave it anonymous. Provisioning is unaffected
+— that is Bluetooth.
+
+**What you have to decide once: where the signing key is.** 0.2.0 issues every
+robot a certificate of its own, so the store has to be able to sign. After
+migrating it holds your CA's *certificate* but not its key — the key was never in
+there. The next `whiskerless setup` therefore asks, and the answer decides
+whether anything has to be re-provisioned:
+
+| | |
+|---|---|
+| **You still have the CA key** | File it. Nothing is re-provisioned — the robots already trust that authority, and only the ones you choose to re-provision change at all. |
+| **You do not** | A new authority is generated, and **every robot must be re-provisioned** before it can verify your broker again. |
+
+A certificate with no key is no longer a state the store will sit in. It was one
+until 0.2.0, and it read exactly like a finished setup while quietly declining to
+issue anything — which is only discovered with a robot in front of you.
+
+**Then the broker.** Whichever answer you gave, install the CA and server
+certificate `setup` prints and restart the broker; it reads certificates only at
+startup. Once every robot carries an identity, switch the LR4 listener from
+anonymous to `require_certificate true`, `allow_anonymous false` and
+`use_identity_as_username true` — then an unknown client is refused instead of
+trusted for reaching the port, and each robot is logged by its serial.
+
+Order matters: **every robot first, confirmed talking, and only then tighten the
+listener.** A robot still holding its factory certificate is refused with nothing
+on the robot to say why. Anything *else* on that listener needs an identity too —
+see [the broker guide](docs/setup/mqtt-broker.md).
+
+**What it costs.** A trip to each robot, because the certificate is written over
+Bluetooth with the robot in pairing mode and there is no remote path; plus one
+broker config change and a restart. You can stop after the key question and leave
+the listener anonymous — that is still supported, and is how the robot arrives
+from the factory.
 
 ## Upgrading
 

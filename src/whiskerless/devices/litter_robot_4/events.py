@@ -123,10 +123,6 @@ class GlobeMotorFaultChanged:
 
     code: int
 
-    @property
-    def faulted(self) -> bool:
-        return self.code != 0
-
 
 @dataclass(frozen=True, slots=True)
 class CatVisitEnded:

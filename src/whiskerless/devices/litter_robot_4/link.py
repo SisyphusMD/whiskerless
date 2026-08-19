@@ -52,9 +52,19 @@ class LitterRobot4Link:
             # aiomqtt reports "timed out" for an unreachable broker and bare TLS
             # text for a rejected CA. Neither says where it was pointed, and an
             # unhandled MqttError reaches the CLI as a traceback.
-            raise WhiskerlessConnectionError(
-                f"cannot reach broker at {self._settings.host}:{self._settings.port} ({err})"
-            ) from err
+            message = f"cannot reach broker at {self._settings.host}:{self._settings.port} ({err})"
+            # A timeout here is usually not a fault at all. This project tells
+            # people to put the robots on an isolated IoT VLAN with the broker
+            # exposed there, and a workstation then has no route to it — while
+            # provisioning keeps working, because that is Bluetooth. Someone who
+            # is only told "timed out" reasonably files a bug against the tool.
+            if "timed out" in str(err).lower():
+                message += (
+                    ". Nothing may be wrong: provisioning is Bluetooth, but this "
+                    "command needs a network route to the broker, and an isolated "
+                    "IoT VLAN usually denies one from a workstation"
+                )
+            raise WhiskerlessConnectionError(message) from err
         return self
 
     async def __aexit__(

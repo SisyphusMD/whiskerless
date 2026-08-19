@@ -29,6 +29,20 @@ def test_unknown_enum_int_is_labelled() -> None:
     assert state.robot_status == "unknown_99"
 
 
+def test_an_unrecognised_status_string_is_passed_through_verbatim() -> None:
+    """Firmware naming a state we have never seen. Kept as it arrived rather than
+    dropped, because the raw name is the only clue the next reader gets."""
+    state = LitterRobot4State.from_state_doc({"robotStatus": "ROBOT_SOMETHING_NEW"})
+    assert state.robot_status == "robot_something_new"
+    assert LitterRobot4State.from_state_doc({"robotStatus": "  "}).robot_status is None
+
+
+def test_a_status_sent_as_a_quoted_number_decodes_like_the_number() -> None:
+    """Seen from the cloud bridge, which quotes fields the firmware sends raw."""
+    assert LitterRobot4State.from_state_doc({"robotStatus": "10"}).robot_status == "clean_cycle"
+    assert LitterRobot4State.from_state_doc({"robotStatus": "99"}).robot_status == "unknown_99"
+
+
 def test_bools_accept_int_and_string() -> None:
     assert LitterRobot4State.from_state_doc({"isKeypadLockout": 1}).keypad_lockout is True
     assert LitterRobot4State.from_state_doc({"isKeypadLockout": "false"}).keypad_lockout is False

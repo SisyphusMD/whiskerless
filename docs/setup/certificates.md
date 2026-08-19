@@ -39,8 +39,10 @@ mosquitto directive. Everything below is what it does on your behalf — worth
 reading if you want to understand the model, and worth following by hand if you
 would rather keep the CA somewhere whiskerless never sees.
 
-If you already have a CA, pass `--ca` (and `--ca-key` if you want whiskerless to
-issue robot certificates from it), or choose "I already have one" at the prompt.
+If you already have a CA, pass `--ca` **and** `--ca-key`, or choose "I already
+have one" at the prompt and give it both files. The key is not optional: every
+robot gets a certificate whiskerless signs, so a store that cannot sign is an
+unfinished setup — and one that looks finished until a robot is in front of you.
 
 ## Generate the CA
 

@@ -23,6 +23,42 @@ Two consequences, and neither is negotiable:
 
 ## Decisions
 
+### A store must be able to sign — decided 2026-08-19
+
+Until 0.2.0 a store could hold a CA *certificate* with no key. The robot was told
+whom to trust and kept its factory identity; the broker's listener stayed
+anonymous. It was a real arrangement — somebody whose signing key lives in a
+secrets manager — and it is now refused.
+
+What made it untenable was not the posture but the silence. It is also exactly
+what an upgraded 0.1.3 store looks like, because the certificate hoists across
+from the robot profiles and the key was never in there to hoist. So the default
+outcome of upgrading was a store that could not issue anything, that said nothing
+about it, and that looked identical to a working one until somebody was standing
+at a robot with the pairing window open.
+
+Two modes also cost more than they returned: `can_issue` forked `_ensure_pki`,
+`_refresh_server_cert`, provisioning and the broker documentation, and the weaker
+branch was the one nobody exercised.
+
+So a certificate without its key is now an unfinished setup rather than a choice.
+`setup` resolves it once — file the key, or generate a new authority and accept
+re-provisioning every robot — and everything downstream can assume a store that
+signs.
+
+**The anonymous listener stays supported.** That is a different question: the
+robot arrives from the factory with a Whisker certificate, and requiring the
+broker to demand client certificates would make a private key mandatory for the
+simplest possible setup, where losing it costs a physical visit to every robot.
+There is no opt-out at provisioning either. `--no-client-cert` was removed with
+the same reasoning: the store holds a signing key by definition, and a robot
+holding a certificate still connects to a listener that does not ask for one,
+while a robot without one cannot connect to a listener that does. The flag only
+created a way to end up unable to tighten the broker later, discovered at the
+robot.
+
+
+
 ### Certificates only — broker username/password removed from the project
 
 Running two authentication schemes against one broker bought nothing but
@@ -174,17 +210,22 @@ robot, and the blast radius is one robot's topics. A CRL was judged not worth th
 operating burden. The per-issuance-unique-CN allowlist alternative was rejected
 for worse reasons still: it needs a broker ACL edit at every provision.
 
-### Bring your own — two rows, not three
+### Bring your own — two rows, and the third is gone
 
 | you supply | robot's identity | broker listener |
 |---|---|---|
-| nothing — we generate the CA | ours, issued per provision | mutual TLS |
-| `ca.crt` + `ca.key` | ours, issued per provision | mutual TLS |
-| `ca.crt` alone | untouched Whisker factory certificate | anonymous |
+| nothing — we generate the CA | ours, issued per provision | either |
+| `ca.crt` + `ca.key` | ours, issued per provision | either |
 
-The third row is not a degraded mode; it is exactly how whiskerless worked before
-any of this, and it is the right answer for somebody whose CA lives in a secrets
-manager or a cluster and is never coming to a laptop.
+There used to be a third row — `ca.crt` alone, the robot keeping its factory
+certificate — for somebody whose CA lives in a secrets manager and is never coming
+to a laptop. It was removed in 0.2.0 (see the decision at the top of this file):
+it was also what every upgraded 0.1.3 store looked like, so the default outcome of
+upgrading was a machine that silently could not issue anything.
+
+The listener column says "either" because that is a separate choice: a robot
+holding one of our certificates still connects to a listener that allows anonymous
+clients. Requiring them is recommended, not required.
 
 **A CA certificate is always required.** There is no "skip" — the robot verifies
 your broker against whatever is in its trust slot, so something has to go there.
@@ -200,13 +241,15 @@ row and asked somebody to approve a thing they had not chosen yet.
 
 Supplied files are **copied in under our own names**, never remembered by path. A
 path breaks when the USB stick comes out or the folder is tidied, and it breaks
-later, at a moment nobody connects back to the decision. A genuinely offline CA has no exit yet — the key is copied in and stays. If that
-matters, delete `ca/ca.key` once every robot has been provisioned. Deleting it
-only stops *future* issuance: robots already carrying a CA-issued certificate are
-unaffected, and a listener running `require_certificate true` should stay that
-way. What it does mean is that the next robot provisioned would fall back to its
-factory certificate and be refused, so re-import the key before adding one. A
-`--no-store-ca-key` flag was considered and not built.
+later, at a moment nobody connects back to the decision. A genuinely offline CA has no exit — the key is copied in and stays. Deleting
+`ca/ca.key` afterwards leaves a store that cannot provision at all: since 0.2.0
+every robot is issued a certificate, so a store that cannot sign is refused by
+`_ensure_pki` before a robot is touched, and the only offers left are to supply
+the key again or replace the authority (which strands every robot that trusted
+the old one). Robots already provisioned keep working — a listener running
+`require_certificate true` should stay that way — but the store is no longer one
+you can add a robot with. A `--no-store-ca-key` flag was considered and not
+built; after this decision it would only build the state above on purpose.
 
 Validation before anything is written, because these failures are otherwise
 invisible until a handshake fails: refuse a certificate that is not a CA (the "I

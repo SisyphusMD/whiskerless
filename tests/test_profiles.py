@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import stat
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -650,3 +651,395 @@ def test_a_legacy_profile_with_an_unusable_port_still_hoists(tmp_path: Path) -> 
     # The port it carried was never usable and is no longer read at all; what has
     # to survive the hoist is the host, because the CA travels with it.
     assert ProfileStore.from_env({"HOME": str(tmp_path)}).load_broker().host == "192.0.2.10"
+
+
+def test_migration_takes_the_hoisted_values_out_of_the_robot_profiles(tmp_path: Path) -> None:
+    """Hoisting alone leaves the old settings sitting in every robot's file.
+
+    `host`, `port`, `verify_hostname` and `username` stopped being read in 0.2.0.
+    Leaving them is not merely untidy: they are what somebody edits when the
+    broker moves, and then wonders why nothing changed.
+    """
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C123456"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text(json.dumps({
+        "serial": "LR4C123456", "host": "192.0.2.10", "port": 1884,
+        "verify_hostname": False, "username": "mqtt-user", "wifi_ssid": "MyIoT",
+        "name": "Upstairs", "litter_full_mm": 60,
+    }))
+    (robot / "ca.pem").write_text(CA)
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    written = json.loads((store.root / "robots" / "LR4C123456" / "profile.json").read_text())
+
+    assert set(written) == {
+        "serial", "serial_verified", "name", "wifi_ssid",
+        "litter_full_mm", "litter_empty_mm", "cert_serial",
+    }, written
+    assert written["name"] == "Upstairs", "what is still meaningful survives"
+    assert written["wifi_ssid"] == "MyIoT"
+    assert written["litter_full_mm"] == 60
+    # The broker was hoisted to the store, so it is not lost — just not here.
+    assert store.load_broker().host == "192.0.2.10"
+    assert not (store.root / "robots" / "LR4C123456" / "ca.pem").exists()
+    assert store.has_ca_cert(), "the anchor moved to the store rather than being dropped"
+
+
+def test_the_only_trust_anchor_survives_when_it_is_not_on_the_default_robot(
+    tmp_path: Path,
+) -> None:
+    """The anchor can sit under ANY robot, and the cleanup removes them all.
+
+    A robot added after the CA stopped being written per-robot has none, so
+    looking only at the chosen profile finds nothing — and then the tidy-up
+    deletes the copy that was the store's only trust anchor. Robots already
+    running would keep working, but `provision` would then offer a NEW authority,
+    and accepting it strands every one of them.
+    """
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    for serial in ("LR4C111111", "LR4C222222"):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json.dumps({"serial": serial, "host": "192.0.2.10"})
+        )
+    # Only the SECOND robot carries it; the first sorts earlier and is chosen.
+    (legacy / "LR4C222222" / "ca.pem").write_text(CA)
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.has_ca_cert(), "the store lost its only trust anchor"
+    assert store.ca_path.read_text().strip() == CA.strip()
+
+
+
+def test_a_broker_on_a_non_default_robot_is_not_dropped(tmp_path: Path) -> None:
+    """The chosen profile can be unreadable while another holds the address.
+
+    Hoisting nothing and then stripping `host` from the readable one destroys the
+    only broker address there was — and unlike the CA, nothing else has a copy.
+    """
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    (legacy / "LR4C111111").mkdir(parents=True)
+    (legacy / "LR4C111111" / "profile.json").write_text("{not json at all")
+    (legacy / "LR4C222222").mkdir(parents=True)
+    (legacy / "LR4C222222" / "profile.json").write_text(
+        json.dumps({"serial": "LR4C222222", "host": "192.0.2.10"})
+    )
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.load_broker().host == "192.0.2.10"
+
+
+def test_a_divergent_trust_anchor_is_left_where_it_is(tmp_path: Path) -> None:
+    """One store keeps one CA, and `save()` removes the per-robot copies.
+
+    A robot whose anchor differs belongs to a different broker, so tidying its
+    profile would destroy the only copy of that CA. Its dead fields stay — a
+    trust anchor is worth more than tidiness, and the notice names the broker it
+    goes with.
+    """
+    from whiskerless import pki
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    theirs = pki.generate_ca("theirs").cert_pem
+    other = pki.generate_ca("the other broker").cert_pem
+    for serial, host, anchor in (
+        ("LR4C111111", "192.0.2.10", theirs),
+        ("LR4C222222", "198.51.100.20", other),
+    ):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json.dumps({"serial": serial, "host": host})
+        )
+        (legacy / serial / "ca.pem").write_text(anchor)
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.ca_path.read_text().strip() == theirs.strip()
+    kept = store.root / "robots" / "LR4C222222" / "ca.pem"
+    assert kept.is_file(), "the other broker's anchor was destroyed"
+    assert kept.read_text().strip() == other.strip()
+    # The robot on the kept broker is still tidied.
+    assert not (store.root / "robots" / "LR4C111111" / "ca.pem").exists()
+
+
+def _explode_on(name: str, parent: str):
+    """Make one specific file unreadable, deterministically.
+
+    Patched rather than chmod'd: CI containers run as root, where the permission
+    would simply be ignored and the branch never taken.
+    """
+    real_read = Path.read_text
+
+    def _read(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == name and self.parent.name == parent:
+            raise OSError("unreadable")
+        return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    return _read
+
+
+def test_an_unreadable_anchor_is_skipped_when_another_robot_has_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bad file must not take every command down when the same anchor is
+    readable elsewhere — this runs from `from_env()`."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    for serial in ("LR4C111111", "LR4C222222"):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json.dumps({"serial": serial, "host": "192.0.2.10"})
+        )
+        (legacy / serial / "ca.pem").write_text(CA)
+
+    monkeypatch.setattr(Path, "read_text", _explode_on("ca.pem", "LR4C111111"))
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.has_ca_cert(), "the readable copy should have been used"
+
+
+def test_no_readable_anchor_leaves_the_migration_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Carrying on would stamp the layout, so the next run skips the migration
+    forever — and `setup` then offers a replacement authority that every robot
+    trusting the preserved one refuses. Better to stop and say so."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C123456"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text(json.dumps({"serial": "LR4C123456", "host": "192.0.2.10"}))
+    (robot / "ca.pem").write_text(CA)
+
+    monkeypatch.setattr(Path, "read_text", _explode_on("ca.pem", "LR4C123456"))
+    with pytest.raises(ProfileError, match="could be read"):
+        ProfileStore.from_env({"HOME": str(tmp_path)})
+
+    monkeypatch.undo()
+    # Not stamped, so a later run with the permissions fixed still migrates.
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.has_ca_cert()
+
+
+def test_the_hoisted_ca_belongs_to_the_hoisted_broker(tmp_path: Path) -> None:
+    """The broker address comes from the DEFAULT robot, so its anchor must too.
+
+    Taking the address from one profile and the certificate from whichever sorts
+    first pairs broker B with CA A: every handshake fails, and `setup` then asks
+    for the key of an authority that is not the one in use.
+    """
+    from whiskerless import pki
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    first_ca = pki.generate_ca("first by name").cert_pem
+    default_ca = pki.generate_ca("the default robot's").cert_pem
+    for serial, host, anchor in (
+        ("LR4C111111", "192.0.2.10", first_ca),
+        ("LR4C222222", "198.51.100.20", default_ca),
+    ):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json.dumps({"serial": serial, "host": host})
+        )
+        (legacy / serial / "ca.pem").write_text(anchor)
+    # The default is the SECOND directory, so directory order is the wrong answer.
+    (tmp_path / LEGACY_SUBDIR / "default").write_text("LR4C222222")
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.load_broker().host == "198.51.100.20"
+    assert store.ca_path.read_text().strip() == default_ca.strip(), "broker and CA disagree"
+
+
+def test_a_robot_on_another_broker_keeps_the_address_that_says_so(tmp_path: Path) -> None:
+    """One host survives in the store. A robot belonging to the other broker keeps
+    its profile untouched, because that profile is the only remaining record of
+    which address it belongs to — and splitting it into its own store needs it."""
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    for serial, host in (("LR4C111111", "192.0.2.10"), ("LR4C222222", "198.51.100.20")):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json.dumps({"serial": serial, "host": host, "username": "dead"})
+        )
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    kept = json.loads((store.root / "robots" / "LR4C111111" / "profile.json").read_text())
+    other = json.loads((store.root / "robots" / "LR4C222222" / "profile.json").read_text())
+    assert "host" not in kept, "the robot on the kept broker is tidied"
+    assert other["host"] == "198.51.100.20", "the other robot's address was destroyed"
+
+
+def test_a_divergent_anchor_on_the_same_broker_is_also_left_alone(tmp_path: Path) -> None:
+    """Two robots naming the same broker but different authorities.
+
+    The host check does not separate them, so the anchor comparison has to: one
+    store keeps one CA, and `save()` removes the per-robot copies, which would
+    destroy the only copy of the other one.
+    """
+    from whiskerless import pki
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    theirs = pki.generate_ca("theirs").cert_pem
+    other = pki.generate_ca("another authority").cert_pem
+    for serial, anchor in (("LR4C111111", theirs), ("LR4C222222", other)):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json.dumps({"serial": serial, "host": "192.0.2.10"})
+        )
+        (legacy / serial / "ca.pem").write_text(anchor)
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.ca_path.read_text().strip() == theirs.strip()
+    kept = store.root / "robots" / "LR4C222222" / "ca.pem"
+    assert kept.is_file() and kept.read_text().strip() == other.strip()
+
+
+def test_an_unreadable_anchor_during_cleanup_skips_that_robot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The comparison deciding whether to tidy a robot has to read its anchor.
+
+    Unreadable means unprovable, and `save()` would delete the file — so the safe
+    answer is to leave that robot exactly as it is.
+    """
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    for serial in ("LR4C111111", "LR4C222222"):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json.dumps({"serial": serial, "host": "192.0.2.10", "username": "dead"})
+        )
+        (legacy / serial / "ca.pem").write_text(CA)
+
+    real_read = Path.read_text
+    hoisted = {"done": False}
+
+    def _read(self: Path, *args: object, **kwargs: object) -> str:
+        # Readable while the anchor is hoisted, unreadable for the cleanup pass.
+        if self.name == "ca.pem" and self.parent.name == "LR4C222222" and hoisted["done"]:
+            raise OSError("unreadable")
+        if self.name == "ca.pem":
+            hoisted["done"] = True
+        return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", _read)
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    monkeypatch.undo()
+    left = json.loads((store.root / "robots" / "LR4C222222" / "profile.json").read_text())
+    assert left["username"] == "dead", "an unprovable robot was tidied anyway"
+
+
+def test_saving_a_divergent_robot_keeps_the_anchor_the_migration_preserved(
+    tmp_path: Path,
+) -> None:
+    """The migration leaves a robot whose CA is not the store's exactly where it
+    is. Nothing preserves that if the next `save()` — a rename, a calibration —
+    deletes the file anyway; the protection has to survive being used."""
+    from whiskerless import pki
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    theirs = pki.generate_ca("theirs").cert_pem
+    other = pki.generate_ca("another authority").cert_pem
+    for serial, anchor in (("LR4C111111", theirs), ("LR4C222222", other)):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json.dumps({"serial": serial, "host": "192.0.2.10"})
+        )
+        (legacy / serial / "ca.pem").write_text(anchor)
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    divergent = store.load("LR4C222222")
+    store.save(replace(divergent, name="Upstairs"))
+    kept = store.root / "robots" / "LR4C222222" / "ca.pem"
+    assert kept.is_file(), "the only copy of that authority was deleted by a rename"
+    assert kept.read_text().strip() == other.strip()
+
+    # A robot on the store's own authority still loses its leftover copy.
+    store.save(store.load("LR4C111111"))
+    assert not (store.root / "robots" / "LR4C111111" / "ca.pem").exists()
+    kept_profile = json.loads((kept.parent / "profile.json").read_text())
+    assert kept_profile["host"] == "192.0.2.10", (
+        "the anchor survived but nothing records which broker it belongs to"
+    )
+    assert "host" not in json.loads(
+        (store.root / "robots" / "LR4C111111" / "profile.json").read_text()
+    )
+
+
+def test_a_hoist_that_fails_is_not_announced_as_an_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The layout stays at 0 and the next run tries again. Saying "upgraded" over
+    that sends somebody looking for changes their store has not got.
+
+    Uses a hand-placed store, where nothing is renamed: a store that MOVED has
+    something true to report whatever the hoist then does.
+    """
+    from whiskerless import profiles as profiles_module
+
+    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
+    robot = tmp_path / "elsewhere" / "robots" / "LR4C123456"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text(
+        json.dumps({"serial": "LR4C123456", "host": "192.0.2.10"})
+    )
+    (robot / "ca.pem").write_text(CA)
+    (robot / "ca.pem").chmod(0)
+
+    with pytest.raises(ProfileError, match="could be read"):
+        ProfileStore.from_env({HOME_ENV: str(tmp_path / "elsewhere")})
+    assert not profiles_module.MIGRATED_FROM_LEGACY, "an upgrade that did not finish"
+    assert ProfileStore(tmp_path / "elsewhere").layout_version() == 0, "marked done anyway"
+
+
+def test_an_unreadable_leftover_anchor_is_kept_rather_than_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unreadable cannot be proven to be a copy of the store's own CA, and
+    unlinking is the branch that has to be proven — nothing puts the file back."""
+    from whiskerless import pki
+
+    store = ProfileStore(tmp_path / "store")
+    store.save_ca(pki.generate_ca("ours"))
+    store.save(RobotProfile(serial=Serial("LR4C123456")))
+    stray = store.root / "robots" / "LR4C123456" / "ca.pem"
+    stray.write_text(store.ca_path.read_text())
+
+    real_read = Path.read_text
+
+    def _read(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == "ca.pem":
+            raise OSError("unreadable")
+        return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", _read)
+    store.save(RobotProfile(serial=Serial("LR4C123456"), name="Upstairs"))
+    monkeypatch.undo()
+    assert stray.is_file(), "a file that could not be read was deleted anyway"
+
+
+def test_a_stray_anchor_survives_a_store_that_has_no_ca_of_its_own(tmp_path: Path) -> None:
+    """Nothing to compare against means nothing is provably a leftover — and here
+    the stray IS the only trust anchor the store has."""
+    store = ProfileStore(tmp_path / "store")
+    directory = store.root / "robots" / "LR4C123456"
+    directory.mkdir(parents=True)
+    stray = directory / "ca.pem"
+    stray.write_text(CA)
+
+    store.save(RobotProfile(serial=Serial("LR4C123456")))
+    assert stray.is_file(), "the store's only trust anchor was deleted"
+    # No profile.json existed to carry an address from, and an empty `host` reads
+    # as a broker cleared on purpose.
+    assert "host" not in json.loads((directory / "profile.json").read_text())

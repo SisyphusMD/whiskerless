@@ -29,10 +29,9 @@ That's the whole trick: install **your** CA into the root-CA slot, point the hos
 at **your** broker, and the robot trusts and connects to it — no soldering, no
 UART, no reflash. It is **fully reversible** by re-onboarding through the Whisker
 app, which rewrites the whole MQTT identity — root CA, device certificate and
-private key — on every onboarding. (whiskerless can optionally replace the device
-certificate and key with ones your own CA signed, so the broker can require a
-certificate rather than accepting anonymous clients; the route home is the same
-either way.)
+private key — on every onboarding. (whiskerless replaces the device certificate and key
+with ones your own CA signed, so the broker can require a certificate rather than
+accepting anonymous clients; the route home is the same either way.)
 
 The MQTT protobuf field numbers were recovered byte-exactly from the firmware's
 protobuf-c descriptor tables, so whiskerless reproduces the app's frames without

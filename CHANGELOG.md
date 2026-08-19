@@ -26,7 +26,18 @@ is behind much of the hopper work. Protocol detail lives in
   the robot cannot follow. A saved port is ignored, not an error.
 - **`whiskerless adopt` is removed.** Re-provision instead.
 - **The store moved to `~/whiskerless`.** Your old `~/.whiskerless` is moved there
-  on first run.
+  on first run, and settings 0.2.0 no longer reads are dropped from your robot
+  profiles at the same time. That run tells you what changed.
+- **Every robot gets a certificate of its own, with no way to opt out.** A robot
+  holding one still works on a broker that allows anonymous clients, so there was
+  nothing to trade — and `whiskerless robots` marks any robot still presenting the
+  certificate it shipped with.
+- **whiskerless has to be able to sign now.** A store holding a CA certificate but
+  not its key is no longer a supported arrangement — it read like a finished setup
+  while quietly refusing to issue anything. `setup` asks for the key, or offers a
+  new authority; the second answer means re-provisioning every robot. See
+  **Upgrading from 0.1.3** in the README for what that costs at the robot and at
+  the broker.
 - **`binary_sensor.…_waste_drawer_removed` → `sensor.…_waste_drawer_last_moved`.**
   The robot never reports which way the drawer moved.
 - **`switch.…_panel_sleep_mode` is now a binary sensor** — the firmware refuses

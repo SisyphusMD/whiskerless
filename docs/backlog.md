@@ -496,9 +496,15 @@ break to fold into the next breaking release.
 
 ## Added 2026-08-13 (from the whole-repo cold review)
 
-### #63 — provision should collect (and store) the broker username
+### #63 — provision should collect (and store) the broker username — **CLOSED: overtaken, cannot be done**
 
-`username` is a stored profile field, but provision never asks for it — on an
+0.2.0 removed broker usernames and passwords from the project entirely — the
+robot cannot send credentials at all, so running two authentication schemes
+against one broker bought nothing (see [design/authentication.md](design/authentication.md)).
+There is no `username` profile field, no `--username`, and `MqttSettings` carries
+no credentials. The premise below is false as of 0.2.0 and is kept only to say so.
+
+*Original, no longer achievable:* `username` is a stored profile field, but provision never asks for it — on an
 authenticated broker the advertised bare commands fail until the user passes
 `--username` every time or hand-edits `profile.json`. Prompt for it (optional,
 enter-to-skip) during provisioning, offer the value the saved robots share the
@@ -565,9 +571,17 @@ leave a workstation with no route, and that `cannot reach broker at …:8883 (ti
 is that boundary rather than a fault. What is still open is the error message itself,
 which reports the timeout without suggesting the likely cause.
 
-### #70 — Write our own client identity to the robot, and drop the anonymous listener
+### #70 — Write our own client identity to the robot, and drop the anonymous listener — **DONE 2026-08-18**
 
-*In progress. The decisions and their reasoning are recorded in
+**Both robots hold certificates issued by our CA (CN = serial), and the listener
+no longer accepts anonymous clients.** `require_certificate true` +
+`use_identity_as_username true`, so the broker logs each robot by serial rather
+than a self-chosen client id, and a client presenting no certificate is refused
+(verified directly). The diagnostic subscriber needed an identity of its own —
+anything else still using that listener stops the moment it is tightened, which
+is now written up in [setup/mqtt-broker.md](setup/mqtt-broker.md).
+
+*The decisions and their reasoning are recorded in
 [design/authentication.md](design/authentication.md) — read that before changing
 anything here, because several of them reverse an earlier position in this project.*
 
@@ -689,12 +703,19 @@ says why.
 
 ### #71 — Cut an rc, then prove the certificate flow on real hardware with it
 
-**DONE 2026-08-18, on `0.2.0-rc.32`.** Both robots are re-provisioned onto a
-whiskerless-issued CA and connected to the home broker with
-certificates of their own; the LR4 listener now refuses anonymous clients
-(`require_certificate true`, `use_identity_as_username true`), so the broker logs
-each robot by serial. What the rehearsal cost is recorded below — two bugs that
-only a real robot could surface, and neither would have failed any test we had.
+**NOT DONE — and the reason is the point of the item.** On 2026-08-18 both robots
+were re-provisioned onto a whiskerless-issued CA and now connect to the home
+broker with certificates of their own, and the LR4 listener refuses anonymous
+clients (`require_certificate true`, `use_identity_as_username true`). But that
+was done with a **source build**, not with the release candidate: `0.2.0-rc.32`'s
+artifact could not provision at all — its WiFi scan dropped the BLE link — so the
+run that proved the certificate flow is not the run this item asks for.
+
+This item says "prove the certificate flow on real hardware **with it**", meaning
+with the rc. Doing it with `.venv/bin/whiskerless` proves the code and not the
+artifact, which is exactly the inherited-confidence failure this repo keeps
+having. **Redo on `0.2.0-rc.33`**, which carries the fix: install it from a
+published channel and provision a robot with that binary.
 
 **Nothing in the certificate work had touched a robot before that.** It was
 verified against fakes and one decoded capture, with both suites green, and the
@@ -759,16 +780,14 @@ downstairs is never at risk:
 Nothing about mosquitto changes, downstairs keeps working throughout, and the
 robot now holds a certificate the broker would accept if asked.
 
-**Do not delete the key until every robot has been re-provisioned.** Without it
-`provision` leaves a robot on its factory certificate, and a listener already set
-to `require_certificate true` would then refuse that robot. Finish the fleet
-first, then clean up.
+**Do not delete the key until every robot has been re-provisioned.** Since 0.2.0 a
+store that cannot sign is refused before a robot is touched, so deleting it leaves
+a store that cannot provision at all. Finish the fleet first, then clean up.
 
 **And removing it takes two deletions, not one.** `setup --ca-key`
 *copies* it to `~/whiskerless/ca/ca.key`, so deleting the file exported from
-OpenBao leaves the signing key on the laptop. Delete both. Without the stored
-copy whiskerless simply stops being able to issue, which is the state it was in
-before — the CA certificate stays and robots keep working.
+OpenBao leaves the signing key on the laptop. Delete both. Robots already
+provisioned keep working; adding one means importing the key again.
 
 Only after that works is `require_certificate true` worth trying — and it needs
 downstairs re-provisioned first, or it drops off.

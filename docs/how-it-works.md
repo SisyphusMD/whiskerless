@@ -33,9 +33,10 @@ first setup:
 2. the **broker host** and its two **topic endpoints** → your broker,
 3. the **client id** (set to the serial), and the **WiFi credentials**.
 
-It deliberately does **not** touch the robot's factory client certificate/key, so
-the change is **fully reversible** — re-onboarding through the Whisker app puts
-the stock CA and cloud endpoint back. See [reverse-engineering.md](reverse-engineering.md)
+Since 0.2.0 it also writes the robot a **client certificate of its own**, signed
+by your CA, over the same link — so the broker can require one and know which
+robot is talking. The change stays **fully reversible**: re-onboarding through the
+Whisker app puts the stock CA, certificate and cloud endpoint back. See [reverse-engineering.md](reverse-engineering.md)
 for how this was worked out, and [setup/](setup/) to do it.
 
 ## Every day after

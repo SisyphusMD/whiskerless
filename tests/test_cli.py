@@ -423,11 +423,14 @@ def _prov_args(tmp_path: Any) -> list[str]:
     to restart before a robot can use them, and a robot in pairing mode cannot be
     kept waiting for that.
     """
+    from whiskerless import pki
     from whiskerless.profiles import ProfileStore
 
     store = ProfileStore.from_env()
-    if not store.has_ca_cert():
-        store.save_ca_cert_only("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n")
+    # A real authority, key included: since 0.2.0 every provision issues the robot
+    # a certificate, so a store that cannot sign is not a store provision runs on.
+    if not store.has_ca():
+        store.save_ca(pki.generate_ca())
     return [
         "provision", "--serial", "LR4C000001",
         "--wifi-ssid", "home", "--wifi-pass", "secret",

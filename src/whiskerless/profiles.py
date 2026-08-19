@@ -36,7 +36,7 @@ import os
 import re
 import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import pki
@@ -51,6 +51,26 @@ HOME_ENV = "WHISKERLESS_HOME"
 DEFAULT_SUBDIR = "whiskerless"
 #: Where a pre-1 layout lived. Migrated forward on first sight, never read in place.
 LEGACY_SUBDIR = ".whiskerless"
+
+#: Set for the life of the process by the run that hoists a pre-0.2.0 store,
+#: whether or not the store also moved. The CLI reports it once, because that run
+#: is the only moment anything knows for certain that somebody is upgrading rather
+#: than starting fresh — and 0.2.0 changes things about their setup that they did
+#: not ask for and cannot see.
+MIGRATED_FROM_LEGACY = False
+
+#: Broker addresses found on other robots while hoisting, and not kept. Before
+#: layout 1 each robot carried its own, so two of them could in principle name
+#: two brokers; one store now holds one. Almost certainly nobody's setup, but
+#: picking silently would leave a robot pointed somewhere that is not theirs.
+MIGRATED_DISCARDED_BROKERS: tuple[str, ...] = ()
+
+#: Where the store was moved to, and which broker was kept — captured as it
+#: happens so the CLI can report it without reopening the store. Reopening would
+#: re-run a migration that may have just failed, and that second failure would
+#: replace the error already reported.
+MIGRATED_TO: Path | None = None
+MIGRATED_BROKER: str | None = None
 
 #: On-disk STRUCTURE version, deliberately separate from the release version: a
 #: stable build and a release candidate share a layout freely, and most releases
@@ -184,6 +204,24 @@ class RobotProfile:
         return self.name or self.serial.value
 
 
+def _named_hosts(entries: list[Path]) -> list[str]:
+    """Every broker address the pre-layout profiles name, in directory order.
+
+    Unreadable profiles are skipped rather than fatal: this runs from
+    `from_env()`, so raising here takes every command down.
+    """
+    found: list[str] = []
+    for entry in entries:
+        try:
+            raw = json.loads((entry / _PROFILE_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        host = raw.get("host") if isinstance(raw, dict) else None
+        if isinstance(host, str) and host and host not in found:
+            found.append(host)
+    return found
+
+
 def _home(environ: Mapping[str, str]) -> Path:
     home = environ.get("HOME")
     return Path(home) if home else Path.home()
@@ -278,6 +316,9 @@ class ProfileStore:
             return
         try:
             legacy.rename(self.root)
+            global MIGRATED_FROM_LEGACY, MIGRATED_TO
+            MIGRATED_FROM_LEGACY = True
+            MIGRATED_TO = self.root
         except OSError as exc:
             # Carrying on would start a second, empty store while the real one
             # stays hidden — every robot would look forgotten, and a second CA
@@ -322,18 +363,133 @@ class ProfileStore:
             # cannot hoist — not a reason to stop hoisting the CA below.
             if not isinstance(raw, dict):
                 raw = {}
+            hosts = _named_hosts(entries)
+            # The chosen robot's address wins, but ANY robot's will do if that one
+            # has none or cannot be read. Hoisting nothing while the cleanup below
+            # strips `host` from the profiles would delete the only broker address
+            # there was.
             host = raw.get("host")
+            if not (isinstance(host, str) and host):
+                host = next(iter(hosts), None)
             if isinstance(host, str) and host:
                 self.save_broker(Broker(host=host))
+                global MIGRATED_BROKER
+                MIGRATED_BROKER = host
+                others = {found for found in hosts if found != host}
+                if others:
+                    global MIGRATED_DISCARDED_BROKERS
+                    MIGRATED_DISCARDED_BROKERS = tuple(sorted(others))
 
         if not self.has_ca_cert():
             # A stray ca.crt at the root predates the ca/ directory; a per-robot
             # ca.pem predates the store having one CA at all. Either is the
             # certificate these robots were provisioned to trust.
-            for candidate in (self.root / _CA_CERT, chosen / _CA_FILE):
-                if candidate.is_file():
-                    self.save_ca_cert_only(candidate.read_text(encoding="utf-8"))
-                    break
+            #
+            # EVERY robot is searched, not just the chosen one. The anchor can sit
+            # under any of them — a robot added later may have none — and looking
+            # at one while the cleanup below removes the rest is how a store's only
+            # trust anchor gets destroyed. Losing it does not stop robots that
+            # already run, but it makes `provision` offer a NEW authority, and
+            # accepting that strands every robot that trusted the old one.
+            # The chosen robot's anchor first: the broker address came from that
+            # profile, and taking the CA from a different one pairs broker B with
+            # CA A — every handshake then fails, and `setup` asks for the key of an
+            # authority that is not the one in use.
+            ordered = [self.root / _CA_CERT, chosen / _CA_FILE, *(e / _CA_FILE for e in entries)]
+            candidates = [c for c in ordered if c.is_file()]
+            for candidate in candidates:
+                try:
+                    pem = candidate.read_text(encoding="utf-8")
+                except OSError:
+                    # An unreadable SOURCE is skipped, not fatal: another robot may
+                    # hold a readable copy of the same anchor. If NONE can be read
+                    # the loop falls through to the check below.
+                    continue
+                # The WRITE is deliberately not guarded. Failing to store the
+                # anchor while carrying on would stamp the layout, so the next run
+                # skips the migration forever and `setup` offers a replacement
+                # authority that every existing robot refuses.
+                self.save_ca_cert_only(pem)
+                break
+            else:
+                if candidates:
+                    # Every copy there was is unreadable. Carrying on would let
+                    # from_env() stamp the layout, so the next run skips the
+                    # migration forever, `setup` offers a replacement authority,
+                    # and every robot trusting the preserved one is stranded.
+                    raise ProfileError(
+                        f"none of {len(candidates)} certificate authority file(s) under "
+                        f"{self.root} could be read, so the trust anchor your robots were "
+                        "given has not been filed. Fix their permissions and run again — "
+                        "the migration is deliberately not marked done"
+                    )
+
+        # Only once what the profiles carried is safely in the store. The cleanup
+        # rewrites them without `host` and removes their `ca.pem`, so running it
+        # over something that failed to hoist deletes the only copy there was.
+        hoisted_broker = self.has_broker() or not _named_hosts(entries)
+        hoisted_ca = self.has_ca_cert() or not any((e / _CA_FILE).is_file() for e in entries)
+        if hoisted_broker and hoisted_ca:
+            self._retire_pre_layout_leftovers(entries)
+
+        # Last, so a hoist that raised — an unreadable CA, a full disk — is not
+        # announced as an upgrade that happened. The layout stays at 0 and the
+        # next run tries again; saying "upgraded" over that sends somebody looking
+        # for changes their store has not got.
+        #
+        # Owed here rather than only where the directory is renamed: a store opened
+        # through WHISKERLESS_HOME skips that rename and is hoisted by exactly this
+        # method, so keying the notice on the move meant the one class of user who
+        # placed their store deliberately heard nothing about credentials
+        # disappearing.
+        global MIGRATED_FROM_LEGACY
+        MIGRATED_FROM_LEGACY = True
+
+    def _retire_pre_layout_leftovers(self, entries: list[Path]) -> None:
+        """Take the hoisted values back out of the files they came from.
+
+        Hoisting alone leaves every robot's profile still carrying `host`,
+        `port`, `verify_hostname` and `username` — all of which 0.2.0 stopped
+        reading. They are inert, but they are also the settings somebody edits
+        when the broker moves and then wonders why nothing changed.
+
+        Rewriting through `save()` drops whatever is no longer a field, so this
+        needs no list of dead keys to keep up to date, and `save()` also removes
+        the per-robot `ca.pem` the store's CA has replaced.
+
+        Runs from `from_env()`, so a failure here would take every command down
+        over tidiness. Each robot is handled on its own and skipped if it cannot
+        be read.
+        """
+        stored = self.ca_path.read_text(encoding="utf-8").strip() if self.has_ca_cert() else ""
+        kept_broker = self.load_broker().host if self.has_broker() else None
+        for entry in entries:
+            try:
+                raw = json.loads((entry / _PROFILE_FILE).read_text(encoding="utf-8"))
+                named = raw.get("host") if isinstance(raw, dict) else None
+            except (OSError, ValueError):
+                named = None
+            if isinstance(named, str) and named and named != kept_broker:
+                # This robot's broker is not the one the store kept. Its profile is
+                # the only remaining record of which address it belongs to, and the
+                # advice is to split it into its own store — which needs that
+                # address. Left intact, dead fields and all.
+                continue
+            legacy_ca = entry / _CA_FILE
+            try:
+                if legacy_ca.is_file() and legacy_ca.read_text(encoding="utf-8").strip() != stored:
+                    # A DIFFERENT anchor. `save()` unlinks the per-robot copy, and
+                    # the store keeps only one — so tidying this robot would destroy
+                    # the trust anchor for whichever broker it belongs to. Left
+                    # exactly where it is, dead fields and all, for whoever splits
+                    # the store to find. The notice names the discarded broker.
+                    continue
+            except OSError:
+                continue
+            try:
+                self.save(self.load(entry.name))
+            except (ProfileError, OSError):
+                continue
 
     def layout_version(self) -> int:
         """The structure version on disk. Absent marker means pre-versioning."""
@@ -398,10 +554,13 @@ class ProfileStore:
     def save_ca_cert_only(self, cert_pem: str) -> None:
         """File a CA certificate with no key beside it.
 
-        A real arrangement, not a half-finished one: the key is deliberately kept
-        elsewhere — an offline root, a secrets manager, somebody else's cluster —
-        and this machine can still tell a robot what to trust, it just cannot
-        issue anything.
+        The state a 0.1.3 store arrives in, not one to build on purpose: the key
+        lived elsewhere — an offline root, a secrets manager, somebody else's
+        cluster — and the machine could tell a robot what to trust while issuing
+        nothing. Since 0.2.0 every robot is issued a certificate, so `setup`
+        resolves this on sight rather than leaving it. Kept because hoisting a
+        migrated store has to be able to write exactly this, and so do the tests
+        that cover what happens next.
         """
         self._ensure_dir(_CA_DIR)
         _write_private(self.ca_path, cert_pem)
@@ -466,6 +625,31 @@ class ProfileStore:
         client = self.root / _CLIENT_DIR
         return pki.read_pair(client / _CLIENT_CERT, client / _CLIENT_KEY)
 
+    def forget_client(self) -> None:
+        """Drop this machine's identity, for the one case that invalidates it.
+
+        Replacing the certificate authority does: the stored certificate was
+        signed by the authority just retired, so a broker asking for one would
+        refuse it — while everything here reported success. `client_identity()`
+        only mints when none is on file, so the old one has to go first.
+        """
+        client = self.root / _CLIENT_DIR
+        for name in (_CLIENT_CERT, _CLIENT_KEY):
+            (client / name).unlink(missing_ok=True)
+
+    def forget_issued_certificates(self) -> None:
+        """Forget which certificate each robot was given, for a CA replacement.
+
+        `cert_serial` is the only trace kept of a robot's identity, and it is what
+        distinguishes a robot holding one of ours from a robot still on its
+        factory certificate. Replacing the authority invalidates every one of them
+        at once — so leaving the serials behind would report robots as current
+        while the broker is about to refuse them.
+        """
+        for profile in self.list_profiles():
+            if profile.cert_serial is not None:
+                self.save(replace(profile, cert_serial=None))
+
     def save_client(self, pair: KeyPair) -> None:
         client = self._ensure_dir(_CLIENT_DIR)
         _write_private(client / _CLIENT_CERT, pair.cert_pem)
@@ -520,6 +704,12 @@ class ProfileStore:
         # One path establishes the root, so the layout marker cannot be missed by
         # whichever operation happens to run first on a fresh machine.
         self._ensure_dir("robots")
+        # A robot whose anchor is preserved keeps its `host` too. The store holds one
+        # broker, so this field is inert — but it is the only record of WHICH broker
+        # the preserved authority belongs to, and the migration notice tells the
+        # reader to split that robot into its own store, which needs the address.
+        stray = directory / _CA_FILE
+        preserving = stray.is_file() and not self._is_store_anchor(stray)
         payload = {
             "serial": profile.serial.value,
             "serial_verified": profile.serial.verified,
@@ -529,11 +719,49 @@ class ProfileStore:
             "litter_empty_mm": profile.litter_empty_mm,
             "cert_serial": profile.cert_serial,
         }
+        if preserving:
+            # Absent rather than null when there is nothing to carry: a `host` key
+            # holding nothing reads as a broker that was cleared on purpose.
+            carried = self._recorded_host(directory)
+            if carried:
+                payload["host"] = carried
         _write_private(directory / _PROFILE_FILE, json.dumps(payload, indent=2) + "\n")
-        # There is one CA for the whole store now, so a per-robot copy is only
-        # ever a leftover from an older layout. Removed rather than left for
-        # load() to resurrect against a broker it no longer matches.
-        (directory / _CA_FILE).unlink(missing_ok=True)
+        # There is one CA for the whole store now, so a per-robot copy is USUALLY
+        # a leftover from an older layout, removed rather than left for load() to
+        # resurrect against a broker it no longer matches.
+        #
+        # Unless it differs from the store's, in which case it is the only copy of
+        # some other authority — the case the layout-1 migration deliberately
+        # declines to touch. Unlinking it here would undo that protection at the
+        # first rename or calibration, which is to say silently and long after
+        # anybody connects the two.
+        if not preserving:
+            stray.unlink(missing_ok=True)
+
+    @staticmethod
+    def _recorded_host(directory: Path) -> str | None:
+        """The broker address a pre-layout-1 profile carried, if it is still there."""
+        try:
+            raw = json.loads((directory / _PROFILE_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        host = raw.get("host") if isinstance(raw, dict) else None
+        return host if isinstance(host, str) and host else None
+
+    def _is_store_anchor(self, candidate: Path) -> bool:
+        """Whether this file is a copy of the store's own CA, and provably so.
+
+        Unreadable answers False: the destructive branch is the one that needs
+        proof, and there is no way to put back what unlinking removes.
+        """
+        if not self.has_ca_cert():
+            return False
+        try:
+            return candidate.read_text(encoding="utf-8").strip() == (
+                self.ca_path.read_text(encoding="utf-8").strip()
+            )
+        except OSError:
+            return False
 
     def load(self, serial: str) -> RobotProfile:
         parsed = Serial(serial)

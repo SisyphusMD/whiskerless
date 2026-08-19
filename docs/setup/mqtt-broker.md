@@ -20,7 +20,7 @@ only to your broker:
 | Client ID | the robot's **serial** (e.g. `LR4Cxxxxxx`) |
 | Publishes to | `prod/LR4/<serial>/state` and `prod/LR4/<serial>/activity` |
 | Subscribes to | `prod/LR4/<serial>/command` |
-| Auth | TLS server-trust only (it presents its factory client cert) |
+| Auth | TLS client certificate — Whisker's out of the box, yours after provisioning |
 
 Three consequences:
 
@@ -39,17 +39,16 @@ Three consequences:
   one anywhere: not in the provisioning schema, not among the NVS keys the
   provisioning component persists, and not as a string in the firmware. It was built
   for AWS IoT, which authenticates clients by certificate, and
-  provisioning writes only the CA it should *trust* — its own client certificate
-  and key are Whisker's, are never touched, and are signed by a CA you do not
-  have, so you cannot validate them either. A listener that demands a password
-  therefore locks the robot out. A listener demanding a *client certificate* is a
-  different matter: out of the box the robot presents Whisker's factory
-  certificate, which your CA did not sign, so it is refused — but whiskerless can
-  give the robot a certificate of your own instead, and then it is accepted. See
+  provisioning writes the CA it should *trust* and the client certificate it
+  presents. A listener that demands a password therefore locks the robot out, and
+  no flag changes that. A listener demanding a *client certificate* is a different
+  matter: out of the box the robot presents Whisker's factory certificate, which
+  your CA did not sign and cannot validate, so it is refused — but provisioning
+  replaces it with one your own CA signed, and then it is accepted. See
   [Requiring certificates](#requiring-certificates-instead-recommended).
 
-  **So the listener has to be anonymous unless you let whiskerless issue the
-  robot an identity.** Passwords are out either way.
+  **So a listener for the robot either requires your certificate or allows
+  anonymous clients.** Passwords are out either way.
 
   That is a limit on the *robot's* listener, not on your broker. Any login
   whiskerless or Home Assistant uses is a separate client on a separate,
@@ -73,9 +72,11 @@ locks the robot out or opens the whole broker.
 
 ## Minimal `mosquitto.conf`
 
-This adds an **anonymous, TLS** listener on 8883. The robot still sends its
-factory client certificate, but the broker ignores it (`require_certificate
-false`), so you never have to extract or forge it.
+This adds an **anonymous, TLS** listener on 8883 — the smaller step, and the one
+to take if the broker is not yours to reconfigure twice. The robot still sends a
+client certificate; the broker ignores it (`require_certificate false`), so
+nothing has to match. Requiring it is one setting away and is
+[recommended](#requiring-certificates-instead-recommended).
 
 ```conf
 # Anonymous TLS listener for the Litter-Robot.
@@ -87,7 +88,7 @@ cafile   /mosquitto/certs/ca.crt
 certfile /mosquitto/certs/server.crt
 keyfile  /mosquitto/certs/server.key
 
-# The robot presents its factory client cert; we don't validate it.
+# The robot presents a client certificate either way; this listener ignores it.
 require_certificate false
 ```
 
@@ -136,10 +137,13 @@ mosquitto_passwd -c /mosquitto/passwd homeassistant
 
 Everything above assumes the robot has only its Whisker factory certificate,
 which your CA did not sign and cannot validate — hence `allow_anonymous true`.
+That is how a robot arrives, and it stays supported.
 
-If you let whiskerless issue each robot a certificate (it offers on the first
-`provision`, and needs your CA's private key to do it), that changes: the robot
-presents a certificate **your** CA signed, so the listener can demand one.
+Since 0.2.0 whiskerless always holds a signing key, so **every robot it
+provisions gets a certificate of its own** — there is no opt-out, because a robot
+holding one still works on this anonymous listener. Once every robot has been
+re-provisioned, they all present something **your** CA signed and the listener can
+demand it. `whiskerless robots` marks any that have not.
 
 ```conf
 listener 8883

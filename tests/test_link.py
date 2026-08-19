@@ -164,6 +164,35 @@ async def test_an_unreachable_broker_names_where_it_was_pointed() -> None:
         await link.__aenter__()
 
 
+async def test_a_timeout_says_it_is_probably_the_network_boundary() -> None:
+    """The likeliest cause is not a fault at all.
+
+    This project recommends putting the robots on an isolated IoT VLAN with the
+    broker exposed there, which leaves a workstation with no route — while
+    provisioning keeps working, because that is Bluetooth. Someone told only
+    "timed out" reasonably files it as a bug against the tool; it was hit on a
+    real setup 2026-08-18."""
+    link = _link(FakeClient(fail_connect=True))
+    with pytest.raises(WhiskerlessConnectionError) as caught:
+        await link.__aenter__()
+    assert "route to the broker" in str(caught.value)
+    assert "Bluetooth" in str(caught.value)
+
+
+async def test_a_non_timeout_failure_is_not_blamed_on_routing() -> None:
+    """A rejected CA is a real fault, and pointing at the VLAN would send somebody
+    to inspect a network that is working."""
+
+    class RejectedCA(FakeClient):
+        async def __aenter__(self) -> FakeClient:
+            raise aiomqtt.MqttError("[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer")
+
+    with pytest.raises(WhiskerlessConnectionError) as caught:
+        await _link(RejectedCA()).__aenter__()
+    assert "route to the broker" not in str(caught.value)
+    assert "CERTIFICATE_VERIFY_FAILED" in str(caught.value)
+
+
 async def test_connecting_subscribes_to_the_robots_topics() -> None:
     client = FakeClient()
     async with _link(client):

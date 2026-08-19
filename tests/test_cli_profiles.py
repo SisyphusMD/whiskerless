@@ -47,8 +47,12 @@ def seed(store: ProfileStore, serial: str = "LR4C123456", **kwargs: object) -> R
     """A saved robot, plus the one broker and CA every robot in a store shares."""
     if not store.has_broker():
         store.save_broker(Broker(host="192.0.2.10"))
-    if not store.has_ca_cert():
-        store.save_ca_cert_only(CA)
+    if not store.has_ca():
+        from whiskerless import pki
+
+        # A real authority, key included: every provision issues the robot a
+        # certificate now, so a store that cannot sign is not one provision runs on.
+        store.save_ca(pki.generate_ca())
 
     defaults: dict[str, object] = {}
     defaults.update(kwargs)
@@ -224,7 +228,9 @@ def test_a_saved_robot_needs_no_flags_at_all(store: ProfileStore) -> None:
     captured: dict[str, Any] = {}
     assert _run_state(captured) == 0
     assert captured["serial"] == "LR4C123456"
-    assert captured["settings"].ca_cert_data == CA
+    # Whatever the store holds, not a fixed literal: `seed` generates a real
+    # authority now, because a store that cannot sign is not one this works on.
+    assert captured["settings"].ca_cert_data == store.ca_path.read_text(encoding="utf-8")
 
 
 def test_the_default_decides_when_several_are_saved(store: ProfileStore) -> None:
@@ -746,14 +752,18 @@ def _provision_argv(ca: Path, *extra: str) -> list[str]:
     ]
 
 
-def _prepared(store: ProfileStore | None = None, *, with_key: bool = False) -> None:
-    """What `whiskerless setup` leaves behind, without running it."""
+def _prepared(store: ProfileStore | None = None, *, with_key: bool = True) -> None:
+    """What `whiskerless setup` leaves behind, without running it.
+
+    Always with a key: since 0.2.0 setup cannot finish without one, so a store
+    without it is not a state this helper can produce.
+    """
     from whiskerless import pki
 
     store = store or ProfileStore.from_env()
     if not store.has_broker():
         store.save_broker(Broker(host="192.0.2.10"))
-    if not store.has_ca_cert():
+    if not store.has_ca():
         if with_key:
             store.save_ca(pki.generate_ca())
         else:
@@ -919,18 +929,6 @@ def _provision_output(store: ProfileStore, *extra: str) -> str:
     return ""
 
 
-def test_no_ca_key_says_loudly_that_the_broker_must_allow_anonymous(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Someone who expected mutual TLS and gets an anonymous listener has a broker
-    standing open, and now is the only moment that is cheap to discover."""
-    _provision_output(store)
-    out = capsys.readouterr().out
-    assert "NO CA KEY" in out
-    assert "MUST therefore accept anonymous clients" in out
-    assert "Whisker factory certificate (unchanged)" in out
-
-
 def test_a_ca_we_can_sign_with_means_the_robot_gets_our_identity(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -943,17 +941,24 @@ def test_a_ca_we_can_sign_with_means_the_robot_gets_our_identity(
     assert "issued by your CA, CN=LR4C123456" in out
 
 
-def test_the_identity_write_can_be_declined_even_with_a_ca(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_every_robot_gets_an_identity_with_no_way_to_opt_out(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An exit for the person who reads what it does and would rather not."""
-    from whiskerless import pki
+    """`--no-client-cert` is gone.
 
-    store.save_ca(pki.generate_ca())
-    ca = tmp_path / "ca.crt"
-    ca.write_text(CA)
-    _provision_output(store, "--no-client-cert")
-    assert "NO CA KEY" in capsys.readouterr().out
+    The store holds a signing key by definition now, so leaving a robot on its
+    factory identity bought nothing: a robot WITH a certificate still connects to
+    a listener that does not ask for one, while a robot without one cannot connect
+    to a listener that does. The flag only created a way to end up unable to
+    tighten the broker later, discovered at the robot."""
+    # argparse exits rather than returning, so the flag is gone at the parser.
+    with pytest.raises(SystemExit) as exited:
+        main(["provision", "--no-client-cert", "--serial", "LR4C123456"])
+    assert exited.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+
+    _provision_output(store)
+    assert "issued by your CA, CN=LR4C123456" in capsys.readouterr().out
 
 
 # --- setting up a certificate authority on a fresh machine --------------------
@@ -1027,27 +1032,46 @@ def test_a_supplied_ca_and_key_are_copied_into_the_store(
     assert store.ca_path.read_text() == Path(cert).read_text()
 
 
-def test_a_supplied_ca_without_its_key_cannot_issue(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_importing_a_ca_requires_its_key(
+    store: ProfileStore, tmp_path: Path
 ) -> None:
-    """A deliberate arrangement — the key lives in a secrets manager — not an
-    unfinished one."""
+    """A certificate with no key stopped being a resting state in 0.2.0.
+
+    It used to be one: the robot was told who to trust and kept its factory
+    certificate. Now that whiskerless issues every robot an identity, a store
+    that cannot sign is an unfinished setup — and one that looks exactly like a
+    finished one until somebody is standing at a robot.
+    """
     cert, _ = _ca_files(tmp_path, with_key=False)
-    _first_run(store, ["2", cert, ""])
-    assert store.has_ca_cert() and not store.has_ca()
-    out = capsys.readouterr().out
-    assert "NO CA KEY" in out
-    assert "Whisker factory certificate (unchanged)" in out
+    # Answers run out at the key prompt, the way a closed stdin ends one: EOF,
+    # not StopIteration, which inside a coroutine surfaces as a RuntimeError
+    # rather than the error the CLI actually raises.
+    answers = ["2", cert]
+
+    def _input(_prompt: str = "") -> str:
+        if answers:
+            return answers.pop(0)
+        raise EOFError
+
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", _input),
+    ):
+        # The import asks for a key it will not be given, so the run cannot finish.
+        assert main(["setup", "--host", "192.0.2.10"]) != 0
+    assert not store.has_ca(), "nothing that cannot sign should have been filed"
 
 
-def test_a_ca_certificate_on_file_is_not_asked_about_again(
+def test_a_bare_ca_flag_says_the_key_is_needed_too(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """--ca alone used to establish a trust-only store. It now names the flag
+    that finishes the job, rather than half-configuring the machine."""
     cert, _ = _ca_files(tmp_path, with_key=False)
-    _first_run(store, ["2", cert, ""])
-    capsys.readouterr()
-    _first_run(store, [])
-    assert "NO CERTIFICATE AUTHORITY" not in capsys.readouterr().out
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert]) != 0
+    assert "--ca-key" in capsys.readouterr().err
+    assert not store.has_ca_cert(), "a refused setup must not leave a CA behind"
 
 
 def test_a_server_certificate_is_missing_a_ca_and_says_so(
@@ -1127,6 +1151,20 @@ def test_a_ca_supplied_by_flag_is_copied_and_can_issue(
     assert store.load("LR4C123456").cert_serial, "a robot certificate was issued"
 
 
+def test_a_lone_ca_is_refused_even_when_the_store_already_has_one(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ignoring the file and reporting success is how somebody believes they
+    switched authorities while every robot still trusts the old one."""
+    cert, key = _ca_files(tmp_path)
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    second = tmp_path / "second"
+    second.mkdir()
+    other, _ = _ca_files(second)
+    assert _setup_run("--ca", other) == 1
+    assert "--ca needs --ca-key" in capsys.readouterr().err
+
+
 def test_a_ca_key_without_its_certificate_says_why_both_are_needed(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1138,7 +1176,8 @@ def test_a_ca_key_without_its_certificate_says_why_both_are_needed(
 def test_a_client_certificate_can_be_supplied_by_flag(
     store: ProfileStore, tmp_path: Path
 ) -> None:
-    """For somebody whose CA key lives elsewhere and cannot issue here."""
+    """For somebody who mints this machine's identity themselves — from the same
+    CA, but somewhere else — rather than letting the store issue it."""
     from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
@@ -1147,7 +1186,7 @@ def test_a_client_certificate_can_be_supplied_by_flag(
     cpath, kpath = tmp_path / "c.crt", tmp_path / "c.key"
     cpath.write_text(mine.cert_pem)
     kpath.write_text(mine.key_pem)
-    assert _flag_run(store, "--ca", cert, "--client-cert", str(cpath),
+    assert _flag_run(store, "--ca", cert, "--ca-key", key, "--client-cert", str(cpath),
                      "--client-key", str(kpath)) == 0
     assert store.has_client()
     assert store.load_client().cert_pem == mine.cert_pem
@@ -1271,15 +1310,6 @@ def test_a_certificate_with_no_constraints_at_all_is_not_a_ca(
     assert "not a certificate authority" in capsys.readouterr().err
 
 
-
-
-def test_the_optional_ca_key_question_is_skipped_without_a_terminal() -> None:
-    """`_ask(allow_skip=True)` must never be the thing that hangs a scripted run
-    on a question it was never going to answer."""
-    from whiskerless.cli import _ask, _readable_path
-
-    with patch("whiskerless.cli.sys.stdin.isatty", lambda: False):
-        assert _ask("path: ", None, _readable_path, allow_skip=True) == ""
 
 
 def test_a_different_ca_is_refused_rather_than_swapped_in(
@@ -1429,18 +1459,21 @@ def test_the_same_broker_keeps_the_certificate_it_already_has(store: ProfileStor
     assert (store.broker_dir / "server.crt").read_text() == before
 
 
-def test_a_moved_broker_with_no_signing_key_is_told_to_replace_it(
+def test_a_moved_broker_gets_a_reissued_certificate(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Nothing here can reissue it, and silently printing the stale one as a file
-    to install is the failure this guard exists to prevent."""
+    """A certificate naming the old address fails every handshake while looking
+    right on disk. The store can always sign now, so it is simply replaced —
+    where 0.1.3 could only warn, because the key might not have been here."""
     from whiskerless import pki
 
-    ca = pki.generate_ca()
-    store.save_ca_cert_only(ca.cert_pem)
-    store.save_broker_certs(pki.issue_server(ca, "192.0.2.10"))
+    cert, key = _ca_files(tmp_path)
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
+    capsys.readouterr()
     assert main(["setup", "--host", "192.0.2.99"]) == 0
-    assert "not 192.0.2.99" in capsys.readouterr().err
+    assert "reissued the broker certificate" in capsys.readouterr().out
+    served = (store.broker_dir / "server.crt").read_text()
+    assert pki.certificate_common_name(served) == "192.0.2.99"
 
 
 def test_a_broker_certificate_that_cannot_be_read_is_reported_not_replaced(
@@ -1466,13 +1499,13 @@ def test_a_broker_certificate_that_cannot_be_read_is_reported_not_replaced(
 def test_setup_that_imports_a_ca_does_not_point_at_files_it_did_not_make(
     store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Importing a CA generates nothing to install; sending somebody looking for
-    "the files above" when nothing was printed above is a wild goose chase."""
-    cert, _ = _ca_files(tmp_path, with_key=False)
-    assert main(["setup", "--host", "192.0.2.10", "--ca", cert]) == 0
+    """Importing a CA WITH its key produces the broker's certificate too, so the
+    files it points at are ones it actually made (backlog #72)."""
+    cert, key = _ca_files(tmp_path)
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
     out = capsys.readouterr().out
-    assert "install the files above" not in out
-    assert "signed by this CA" in out
+    assert "install the files above" in out
+    assert "server.crt" in out
 
 
 def test_bringing_your_own_ca_and_key_also_gets_a_broker_certificate(
@@ -1540,8 +1573,10 @@ def test_a_wrong_ca_broker_certificate_is_called_out_when_it_cannot_be_reissued(
     from whiskerless import pki
 
     store.save_broker_certs(pki.issue_server(pki.generate_ca("not yours"), "192.0.2.10"))
-    cert, _ = _ca_files(tmp_path, with_key=False)
-    assert main(["setup", "--host", "192.0.2.10", "--ca", cert]) == 0
+    cert, key = _ca_files(tmp_path)
+    assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
+    # Still not overwritten: only a certificate chaining to OUR CA is replaced,
+    # because a false negative here would destroy somebody's private key.
     assert "cannot verify a broker" in capsys.readouterr().err
 
 
@@ -1589,3 +1624,437 @@ def test_a_broker_certificate_that_vanishes_mid_check_is_not_treated_as_usable(
 
     with patch.object(Path, "read_text", vanish):
         assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
+
+
+def test_a_migrated_store_is_told_what_changed_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run that hoists a pre-0.2.0 store is the only moment anything knows
+    somebody is upgrading rather than starting fresh.
+
+    Two things changed that they did not ask for and cannot see: broker
+    credentials stopped existing, and a certificate per robot became available —
+    which they would never discover, because a trust anchor with no key looks
+    exactly like a deliberate choice to everything downstream.
+    """
+    import json
+
+    from whiskerless import profiles as profiles_module
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
+    robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C123456"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text(json.dumps({"serial": "LR4C123456", "host": "192.0.2.10"}))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("WHISKERLESS_HOME", raising=False)
+
+    assert main(["robots"]) == 0
+    first = capsys.readouterr().err
+    assert "Moved your settings" in first
+    assert "usernames and passwords are gone" in first
+    assert "certificate" in first, "the recommended path has to be named"
+
+    # Only the migrating run says it. Every later command is silent.
+    assert main(["robots"]) == 0
+    assert "Moved your settings" not in capsys.readouterr().err
+
+
+def test_a_store_placed_by_hand_is_told_what_changed_without_claiming_a_move(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`WHISKERLESS_HOME` skips the rename and is hoisted where it stands.
+
+    Keying the notice on the move meant the one class of user who placed their
+    store deliberately heard nothing about credentials disappearing — and there
+    is no move to announce, so announcing one sends them looking for a directory
+    that was never created.
+    """
+    import json
+
+    from whiskerless import profiles as profiles_module
+
+    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
+    home = tmp_path / "elsewhere"
+    robot = home / "robots" / "LR4C123456"
+    robot.mkdir(parents=True)
+    (robot / "profile.json").write_text(
+        json.dumps({"serial": "LR4C123456", "host": "192.0.2.10", "username": "dead"})
+    )
+    monkeypatch.setenv("WHISKERLESS_HOME", str(home))
+
+    assert main(["robots"]) == 0
+    said = capsys.readouterr().err
+    assert "usernames and passwords are gone" in said
+    assert "Moved your settings" not in said, "nothing moved, so nothing to go looking for"
+    assert "0.2.0 layout" in said
+
+
+
+def test_a_store_with_a_certificate_but_no_key_is_refused_without_a_terminal(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What an upgraded 0.1.3 store looks like: the CA certificate hoists across
+    from the robot profiles, and the key was never in there to hoist.
+
+    Carrying on regardless is the worst option — it looks identical to a working
+    setup while silently declining to issue the certificates the version exists
+    for. A script gets told which flags finish the job."""
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
+    assert main(["setup", "--host", "192.0.2.10"]) != 0
+    err = capsys.readouterr().err
+    assert "certificate with no key" in err
+    assert "--ca-key" in err
+
+
+def test_the_missing_key_can_be_supplied_and_nothing_is_re_provisioned(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The cheap answer: the robots already trust this authority, so filing its
+    key leaves every one of them working."""
+    from whiskerless import pki
+
+    ca = pki.generate_ca("theirs")
+    store.save_ca_cert_only(ca.cert_pem)
+    key_path = tmp_path / "ca.key"
+    key_path.write_text(ca.key_pem)
+
+    answers = ["1", str(key_path)]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+    assert store.has_ca(), "the key should now be filed with its certificate"
+    assert store.load_ca().cert_pem == ca.cert_pem, "the anchor must not have changed"
+    assert store.has_client(), "and this machine needs an identity of its own"
+
+
+def test_a_key_for_a_different_authority_is_refused(
+    store: ProfileStore, tmp_path: Path
+) -> None:
+    """A key that signs for something else would leave every robot out there
+    trusting an authority this store cannot sign for."""
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
+    other = pki.generate_ca("somebody else")
+    key_path = tmp_path / "other.key"
+    key_path.write_text(other.key_pem)
+
+    answers = ["1", str(key_path)]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) != 0
+    assert not store.has_ca()
+
+
+def test_replacing_the_authority_needs_the_cost_typed_out(
+    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Generating a new authority strands every robot until it is re-provisioned,
+    so it is not something a stray keypress does."""
+    from whiskerless import pki
+
+    original = pki.generate_ca("theirs").cert_pem
+    store.save_ca_cert_only(original)
+    store.save_broker(Broker(host="192.0.2.10"))
+
+    answers = ["2", "no"]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) != 0
+    assert store.ca_path.read_text() == original, "a declined replacement changes nothing"
+
+    answers = ["2", "yes"]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+    assert store.has_ca()
+    assert store.ca_path.read_text() != original, "confirming replaces the anchor"
+    assert "re-provision" in capsys.readouterr().out.lower()
+
+
+def test_a_second_broker_is_reported_rather_than_dropped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Before layout 1 the broker address lived on each robot, so two of them
+    could name two brokers. One store holds one, and the migration picks — which
+    leaves the other robot pointed somewhere that is not its broker.
+
+    Almost certainly nobody's setup, but a silent wrong answer is worse than a
+    stated one, and this is the only moment the discarded address exists to
+    report."""
+    import json as json_module
+
+    from whiskerless import profiles as profiles_module
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
+    monkeypatch.setattr(profiles_module, "MIGRATED_DISCARDED_BROKERS", ())
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    for serial, host in (("LR4C111111", "192.0.2.10"), ("LR4C222222", "198.51.100.20")):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json_module.dumps({"serial": serial, "host": host})
+        )
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("WHISKERLESS_HOME", raising=False)
+
+    assert main(["robots"]) == 0
+    err = capsys.readouterr().err
+    assert "More than one broker" in err
+    assert "192.0.2.10" in err and "198.51.100.20" in err
+    assert "WHISKERLESS_HOME" in err, "and how to keep both"
+
+
+def test_one_broker_across_robots_says_nothing_extra(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordinary case must not grow a warning about a choice nobody faced."""
+    import json as json_module
+
+    from whiskerless import profiles as profiles_module
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
+    monkeypatch.setattr(profiles_module, "MIGRATED_DISCARDED_BROKERS", ())
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    for serial in ("LR4C111111", "LR4C222222"):
+        (legacy / serial).mkdir(parents=True)
+        (legacy / serial / "profile.json").write_text(
+            json_module.dumps({"serial": serial, "host": "192.0.2.10"})
+        )
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("WHISKERLESS_HOME", raising=False)
+
+    assert main(["robots"]) == 0
+    assert "More than one broker" not in capsys.readouterr().err
+
+
+def test_a_robot_profile_too_damaged_to_read_does_not_stop_the_hoist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """This runs from from_env(), so anything raising takes every command down."""
+    import json as json_module
+
+    from whiskerless import profiles as profiles_module
+    from whiskerless.profiles import LEGACY_SUBDIR
+
+    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
+    legacy = tmp_path / LEGACY_SUBDIR / "robots"
+    (legacy / "LR4C111111").mkdir(parents=True)
+    (legacy / "LR4C111111" / "profile.json").write_text(
+        json_module.dumps({"serial": "LR4C111111", "host": "192.0.2.10"})
+    )
+    (legacy / "LR4C222222").mkdir(parents=True)
+    (legacy / "LR4C222222" / "profile.json").write_text("{not json at all")
+
+    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    assert store.load_broker().host == "192.0.2.10", "the readable robot still hoists"
+
+
+def test_the_key_question_with_nobody_to_ask_names_the_flags(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A terminal that closes mid-question must not become a traceback. It is the
+    same answer the non-interactive path gives, because the situation is the
+    same: nobody can say which authority this store should end up with."""
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
+
+    def _eof(_prompt: str = "") -> str:
+        raise EOFError
+
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", _eof),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) != 0
+    assert "--ca-key" in capsys.readouterr().err
+
+
+def test_replacing_the_authority_works_without_a_broker_on_file(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Migration keeps a CA even when it can hoist no broker address, so this
+    store is reachable — and replacing the authority is irreversible, so it must
+    not get half-done and then fail looking for a broker that was never there."""
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
+    assert not store.has_broker()
+
+    answers = ["2", "yes"]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.77"]) == 0
+    assert store.has_ca()
+    served = (store.broker_dir / "server.crt").read_text()
+    assert pki.certificate_common_name(served) == "192.0.2.77", "the host asked for"
+
+
+def test_replacing_the_authority_replaces_this_machines_identity_too(
+    store: ProfileStore
+) -> None:
+    """The stored client certificate was signed by the authority being retired.
+
+    Keeping it means setup reports success and the CLI is then refused the moment
+    the listener asks for a certificate — with nothing to connect the two."""
+    from whiskerless import pki
+
+    old_ca = pki.generate_ca("theirs")
+    store.save_ca_cert_only(old_ca.cert_pem)
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.save_client(pki.issue_client(old_ca, "whiskerless-old"))
+    before = store.load_client().cert_pem
+
+    answers = ["2", "yes"]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+
+    assert store.load_client().cert_pem != before, "the stale identity survived"
+    # And the new one chains to the authority that now exists.
+    assert pki.is_signed_by(store.load_client().cert_pem, store.ca_path.read_text())
+
+
+def test_robots_marks_the_ones_with_no_certificate_of_ours(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A robot we never issued a certificate to is refused by the listener this
+    project recommends, and works on the one it replaces — so the two states have
+    to be distinguishable somewhere. Here, not on every command: the CA question
+    was made once-only for the same reason."""
+    seed(store, "LR4C111111", cert_serial="abc123")
+    seed(store, "LR4C222222")
+    assert main(["robots"]) == 0
+    out = capsys.readouterr().out
+    assert "LR4C222222" in out and "no identity from this store" in out
+    assert "1 robot holds no certificate this store issued" in out
+    # The one that has a certificate is not accused of lacking one.
+    lines = [line for line in out.splitlines() if "LR4C111111" in line]
+    assert lines and "no identity" not in lines[0]
+
+
+def test_robots_says_nothing_when_every_robot_has_a_certificate(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The ordinary case must not grow a warning about a problem nobody has."""
+    seed(store, "LR4C111111", cert_serial="abc123")
+    seed(store, "LR4C222222", cert_serial="def456")
+    assert main(["robots"]) == 0
+    assert "no identity from this store" not in capsys.readouterr().out
+
+
+def test_replacing_the_authority_does_not_overwrite_a_foreign_broker_certificate(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Overwriting a certificate this store did not issue destroys its private key
+    too, which is why `_refresh_server_cert` never does it. Rotating the authority
+    must go through the same guard rather than writing directly."""
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
+    store.save_broker(Broker(host="192.0.2.10"))
+    foreign = pki.issue_server(pki.generate_ca("somebody else"), "192.0.2.10")
+    store.save_broker_certs(foreign)
+
+    answers = ["2", "yes"]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+
+    kept = (store.broker_dir / "server.crt").read_text()
+    assert kept == foreign.cert_pem, "somebody else's certificate was overwritten"
+    assert "will not overwrite a certificate it did not issue" in capsys.readouterr().err
+
+
+def test_replacing_the_authority_marks_every_robot_for_re_provisioning(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Each robot's recorded certificate was signed by the retired authority.
+
+    Left in place they read as current, so `robots` would show nothing to
+    re-provision at exactly the moment every one of them needs it."""
+
+    seed(store, "LR4C111111", cert_serial="abc123")
+    seed(store, "LR4C222222", cert_serial="def456")
+    # Downgrade to what a migrated store looks like: `seed` builds a signable one,
+    # so the key has to go for the trust-only path to be reached at all.
+    (store.root / "ca" / "ca.key").unlink()
+    assert store.has_ca_cert() and not store.has_ca()
+
+    answers = ["2", "yes"]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+    capsys.readouterr()
+
+    assert all(p.cert_serial is None for p in store.list_profiles())
+    assert main(["robots"]) == 0
+    out = capsys.readouterr().out
+    # NOT "factory identity": these robots hold certificates this store issued,
+    # signed by the authority just retired. The physical robot did not change.
+    assert out.count("no identity from this store") == 2
+    assert "2 robots hold no certificate this store issued" in out
+
+
+def test_replacing_the_authority_leaves_an_unreadable_broker_certificate_alone(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whether the old certificate is ours has to be read off disk, and that read
+    can fail. Unprovable is treated as somebody else's, because overwriting takes
+    the private key with it and there is no way to put one back."""
+    from whiskerless import pki
+
+    store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
+    store.save_broker(Broker(host="192.0.2.10"))
+    store.save_broker_certs(pki.issue_server(pki.generate_ca("mine"), "192.0.2.10"))
+    served = (store.broker_dir / "server.crt").read_text()
+
+    real_read = Path.read_text
+
+    def _read(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == "server.crt":
+            raise OSError("unreadable")
+        return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", _read)
+    answers = ["2", "yes"]
+    with (
+        patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", lambda _p="": answers.pop(0)),
+    ):
+        assert main(["setup", "--host", "192.0.2.10"]) == 0
+    monkeypatch.undo()
+
+    assert (store.broker_dir / "server.crt").read_text() == served
+    assert "was not issued by this machine" in capsys.readouterr().err
