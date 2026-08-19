@@ -22,6 +22,7 @@ ARG FORGE
 ARG ARCH_DEB
 ARG ARCH_RPM
 ARG ARCH_BIN
+ARG TAG
 
 # --- Debian-family base -------------------------------------------------------------
 # openssl is verified present rather than assumed: installed-smoke.sh SKIPS its
@@ -156,3 +157,104 @@ RUN set -eux; \
     touch /passed
 FROM scratch AS broker-result
 COPY --from=broker /passed /passed
+
+# --- pipx, which the README offers for "CLI on PATH" ---------------------------------
+FROM deb-base AS pipx
+ARG V
+RUN set -eux; apt-get install -y -qq pipx >/dev/null
+RUN set -eux; \
+    PYPI_V=$(printf '%s' "$V" | sed -E 's/-rc\.([0-9]+)$/rc\1/'); \
+    PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
+      pipx install "whiskerless[ble]==${PYPI_V}" >/dev/null; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS pipx-result
+COPY --from=pipx /passed /passed
+
+# --- plain pip into a venv, the "library + BLE provisioning" line ---------------------
+FROM deb-base AS pip
+ARG V
+RUN set -eux; apt-get install -y -qq python3 python3-venv >/dev/null
+RUN set -eux; \
+    PYPI_V=$(printf '%s' "$V" | sed -E 's/-rc\.([0-9]+)$/rc\1/'); \
+    python3 -m venv /opt/w; \
+    /opt/w/bin/pip install -q "whiskerless[ble]==${PYPI_V}"; \
+    ln -s /opt/w/bin/whiskerless /usr/local/bin/whiskerless; \
+    # The extra is the point of this line in the README, so prove it arrived
+    # rather than only that the CLI runs.
+    /opt/w/bin/python -c "import bleak"; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS pip-result
+COPY --from=pip /passed /passed
+
+# --- openSUSE, which takes the single .rpm rather than the repository ----------------
+# zypper insists on verifying a repository index even with repo_gpgcheck=0, and the
+# key that would satisfy it is Forgejo's — which the README deliberately does not ask
+# anyone to trust. So this is the documented route: import OUR key, install the file.
+FROM opensuse/leap:15.6 AS zypper
+ARG V PV DL ARCH_RPM FORGE
+RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
+COPY packaging/installed-smoke.sh /smoke.sh
+RUN set -eux; \
+    rpm --import "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless-signing-key.asc"; \
+    curl -fsSL -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    # Not --allow-unsigned-rpm: the imported key has to be what makes this work,
+    # or the test proves nothing about the signature.
+    zypper --non-interactive install /tmp/w.rpm >/dev/null; \
+    rpm -qi whiskerless | grep -qi "4bbacd5a6ff38564"; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS zypper-result
+COPY --from=zypper /passed /passed
+
+# --- provisioning, as far as a machine with no robot and no radio can take it --------
+# The BLE re-provisioner is why this CLI exists, and until now nothing here ran it:
+# every BLE test uses a fake transport, so the real bleak was never loaded by
+# anything CI ran. That let a broken provisioner reach four release candidates —
+# the detection callback took four parameters and bleak accepts exactly two, so
+# every scan died on a TypeError the moment it started.
+#
+# No radio is needed to catch that. Reaching "scanning" proves the frozen bundle
+# really carries the radio stack; failing as a SENTENCE proves the machine without
+# Bluetooth gets told what is wrong instead of a stack trace.
+FROM deb-base AS provision
+ARG V DL ARCH_BIN
+RUN set -eux; \
+    curl -fsSL -o /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
+    chmod +x /usr/local/bin/whiskerless; \
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout /ca.key -out /ca.crt -days 2 \
+      -subj "/CN=whiskerless provision smoke" >/dev/null 2>&1; \
+    export WHISKERLESS_HOME=/store; \
+    whiskerless setup --host 192.0.2.1 --ca /ca.crt --ca-key /ca.key </dev/null >/dev/null; \
+    out=$(whiskerless provision --serial LR4C000000 --wifi-ssid ssid --wifi-pass pass \
+            --dry-run --yes </dev/null 2>&1) && status=0 || status=$?; \
+    printf '%s\n' "$out"; \
+    # It has to have STARTED scanning: that is the line that only appears once
+    # bleak has imported and the scanner has been constructed and accepted.
+    printf '%s' "$out" | grep -qi "scanning for robots over BLE"; \
+    # And it has to have failed like a program, not like a crash.
+    if printf '%s' "$out" | grep -q "Traceback"; then \
+      echo "provisioning failed with a stack trace, not a message"; exit 1; fi; \
+    printf '%s' "$out" | grep -qi "no usable Bluetooth"; \
+    [ "$status" -ne 0 ] || { echo "no Bluetooth here, so this must not report success"; exit 1; }; \
+    touch /passed
+FROM scratch AS provision-result
+COPY --from=provision /passed /passed
+
+# --- HACS, which is how the Home Assistant integration is actually installed ---------
+# The whole check is packaging/hacs-smoke.sh; what it proves and why is documented
+# there. Kept out of this file because a RUN cannot carry the explanation: a comment
+# inside a line-continued RUN silently truncates the instruction.
+FROM deb-base AS hacs
+ARG V TAG FORGE
+# build-essential is scaffolding, not a product requirement: a HACS user already
+# HAS Home Assistant, and installing it here to load the integration against drags
+# in a dependency with no aarch64 wheel (lru-dict), which would otherwise make this
+# channel pass on one architecture and fail on the other for reasons that say
+# nothing about whiskerless.
+RUN set -eux; apt-get install -y -qq python3 python3-venv python3-dev build-essential >/dev/null
+COPY packaging/hacs-smoke.sh /hacs-smoke.sh
+RUN set -eux; bash /hacs-smoke.sh "$TAG" "$V" "$FORGE"; touch /passed
+FROM scratch AS hacs-result
+COPY --from=hacs /passed /passed

@@ -11,6 +11,8 @@ Whether the robot on the bench agrees is a bench question, not a test one.
 
 from __future__ import annotations
 
+from inspect import signature
+from types import SimpleNamespace
 from typing import Any, ClassVar
 from unittest.mock import patch
 
@@ -300,3 +302,99 @@ async def test_a_bluetooth_failure_is_a_sentence_not_a_stack_trace() -> None:
 
     assert "BLE scan failed" in str(err.value), "and it says what was being attempted"
     assert "Bluetooth device is turned off" in str(err.value), "keeping what bleak knew"
+
+
+# --- the callback bleak will actually accept ----------------------------------------
+#
+# The one thing in this file a FAKE can never check, and skipping it shipped a
+# broken provisioner. The detection callback carried its per-round state as default
+# arguments, which makes it FOUR parameters, and bleak refuses anything but two —
+# so every 0.2.0 candidate reached "scanning for robots over BLE ..." and then died
+# on `TypeError: callback must be callable with 2 parameters`. That is true on
+# 0.22.0, the declared floor, as well as on current bleak, so no supported version
+# of this could have worked.
+#
+# It calls bleak's OWN validator rather than restating the rule — the rule is
+# bleak's to change — and needs no radio: the signature is inspected before any
+# backend is touched.
+async def test_the_detection_callback_is_one_bleak_accepts() -> None:
+    scanner_module = pytest.importorskip("bleak.backends.scanner")
+    captured: list[Any] = []
+
+    class ValidatingScanner(FakeScanner):
+        def __init__(self, detection_callback: Any = None, **kw: object) -> None:
+            captured.append(detection_callback)
+            scanner_module.BaseBleakScanner.register_detection_callback(
+                SimpleNamespace(_ad_callbacks={}), detection_callback
+            )
+            super().__init__(detection_callback=detection_callback, **kw)
+
+    FakeScanner.result = {"a": (FakeDevice("AA:01"), FakeAdv(local_name=ADVERTISER_NAME))}
+    with patch("bleak.BleakScanner", ValidatingScanner):
+        assert (await scan(timeout=0, rounds=1, settle=0))[0].address == "AA:01"
+
+    assert captured, "the scan never built a detection callback"
+    parameters = signature(captured[0]).parameters
+    assert len(parameters) == 2, (
+        f"bleak accepts exactly two parameters; this takes {len(parameters)}: {list(parameters)}"
+    )
+
+
+async def test_each_round_gets_its_own_detection_callback() -> None:
+    """Why the callback is built by a factory rather than defined in the loop.
+
+    A callback outlives the round that made it, so a late advertisement must land
+    in the results of the round it belongs to and not the next one. Binding the
+    per-round state as default arguments is the usual way to get that lifetime,
+    and it is exactly what bleak rejects."""
+    callbacks: list[Any] = []
+
+    class RecordingScanner(FakeScanner):
+        def __init__(self, detection_callback: Any = None, **kw: object) -> None:
+            callbacks.append(detection_callback)
+            super().__init__(detection_callback=detection_callback, **kw)
+
+    FakeScanner.result = {}
+    with patch("bleak.BleakScanner", RecordingScanner):
+        assert await scan(timeout=0, rounds=3, settle=0) == []
+    assert len(callbacks) == 3
+    assert len(set(map(id, callbacks))) == 3, "rounds shared a callback"
+
+
+async def test_a_machine_with_no_bluetooth_gets_a_sentence_not_a_traceback() -> None:
+    """The BlueZ backend does not always fail as a BleakError.
+
+    With no D-Bus at all — a container, a headless box with bluetooth masked, a Pi
+    whose service never started — it fails on the socket and raises a bare
+    FileNotFoundError, which reached the user as a traceback from the one command
+    that cannot be casually retried: the robot only advertises while somebody is
+    holding its button."""
+
+    class NoBluetooth(FakeScanner):
+        async def start(self) -> None:
+            raise FileNotFoundError(2, "No such file or directory")
+
+    FakeScanner.result = {}
+    with patch("bleak.BleakScanner", NoBluetooth), pytest.raises(ProvisioningError) as caught:
+        await scan(timeout=0, rounds=1, settle=0)
+    assert "no usable Bluetooth" in str(caught.value)
+    assert "Bluetooth service is running" in str(caught.value)
+
+
+async def test_a_dropped_link_is_not_blamed_on_the_adapter() -> None:
+    """`translated` wraps whole provisioning sessions, not just the scan.
+
+    A robot that drops the link mid-write also surfaces as an OSError, and telling
+    somebody to check an adapter that is working sends them to the wrong place —
+    so only the errors that mean "the backend is not reachable" get that advice."""
+
+    class DroppedLink(FakeScanner):
+        async def start(self) -> None:
+            raise ConnectionResetError(104, "Connection reset by peer")
+
+    FakeScanner.result = {}
+    with patch("bleak.BleakScanner", DroppedLink), pytest.raises(ProvisioningError) as caught:
+        await scan(timeout=0, rounds=1, settle=0)
+    assert "Connection reset by peer" in str(caught.value)
+    assert "adapter is present" not in str(caught.value)
+

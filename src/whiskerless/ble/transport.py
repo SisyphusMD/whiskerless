@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +45,26 @@ async def translated(action: str) -> AsyncIterator[None]:
     except bleak.exc.BleakError as exc:
         # Bleak's messages are terse and context-free ("Bluetooth device is
         # turned off"), so the action is what makes them actionable.
+        raise ProvisioningError(f"{action}: {exc}") from exc
+    except (FileNotFoundError, ConnectionRefusedError, PermissionError) as exc:
+        # Not every unusable radio arrives as a BleakError. With no D-Bus at all —
+        # a container, a headless box with bluetooth masked, a Pi whose service
+        # never started — the BlueZ backend fails on the SOCKET and raises a bare
+        # OSError, which reached the user as a traceback from the one command that
+        # cannot be casually retried: the robot only advertises while somebody is
+        # holding its button.
+        #
+        # Only the three that mean "the backend is not reachable". This wraps whole
+        # provisioning sessions, not just the scan, so a robot dropping the link
+        # mid-write must not be reported as a missing adapter — that sends someone
+        # to check hardware that is working.
+        raise ProvisioningError(
+            f"{action}: no usable Bluetooth on this machine ({exc}). Check that an "
+            f"adapter is present and the Bluetooth service is running."
+        ) from exc
+    except OSError as exc:
+        # Anything else the radio stack raises still has to be a sentence; it just
+        # gets the plain form, named for whatever was being attempted.
         raise ProvisioningError(f"{action}: {exc}") from exc
 
 
@@ -92,20 +112,23 @@ async def scan(
     """
     bleak = _require_bleak()
     target = PROV_SERVICE_UUID.lower()
-    for attempt in range(1, max(1, rounds) + 1):
-        log.info("scanning up to %.0fs for LR4 (attempt %d/%d)", timeout, attempt, rounds)
-        found: dict[str, DiscoveredRobot] = {}
-        answered = asyncio.Event()
 
-        # Both per-round objects are bound as defaults: the callback outlives the
-        # loop iteration that made it, and a late advertisement must not land in
-        # the NEXT round's results.
-        def _detected(
-            device: Any,
-            adv: Any,
-            _found: dict[str, DiscoveredRobot] = found,
-            _answered: asyncio.Event = answered,
-        ) -> None:
+    def _detector(
+        _found: dict[str, DiscoveredRobot], _answered: asyncio.Event
+    ) -> Callable[[Any, Any], None]:
+        """Build this round's detection callback.
+
+        A FACTORY, and it has to be. The per-round objects must be bound to the
+        round that made them — the callback outlives its iteration, and a late
+        advertisement must not land in the next round's results — but bleak
+        inspects the callback and raises `callback must be callable with 2
+        parameters` unless it takes exactly two. Binding them as default
+        arguments, which is the other way to get the same lifetime, makes it four
+        and the scan cannot start at all. Closing over the factory's parameters
+        gives both properties at once.
+        """
+
+        def _detected(device: Any, adv: Any) -> None:
             name = adv.local_name or device.name or ""
             uuids = [u.lower() for u in (adv.service_uuids or [])]
             if address is not None:
@@ -116,8 +139,15 @@ async def scan(
             _found[device.address] = DiscoveredRobot(device.address, name or "?", adv.rssi)
             _answered.set()
 
+        return _detected
+
+    for attempt in range(1, max(1, rounds) + 1):
+        log.info("scanning up to %.0fs for LR4 (attempt %d/%d)", timeout, attempt, rounds)
+        found: dict[str, DiscoveredRobot] = {}
+        answered = asyncio.Event()
+
         async with translated("BLE scan failed"):
-            scanner = bleak.BleakScanner(detection_callback=_detected)
+            scanner = bleak.BleakScanner(detection_callback=_detector(found, answered))
             await scanner.start()
             try:
                 if not answered.is_set():

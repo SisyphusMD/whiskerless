@@ -107,7 +107,7 @@ jobs:
           echo "installing from the '$DIST' distribution, for $PLATFORM"
 
           failed=""
-          for channel in deb-file apt-repo rpm-file dnf-repo raw-binary pypi-uvx bottle-pour broker; do
+          for channel in deb-file apt-repo rpm-file dnf-repo zypper raw-binary pypi-uvx pipx pip bottle-pour broker provision hacs; do
             echo "──────── $channel"
             rm -rf "out/$channel"
             ok=""
@@ -120,7 +120,7 @@ jobs:
                  --build-arg DIST="$DIST" --build-arg REPOFILE="$REPOFILE" \
                  --build-arg FORGE="$FORGE" \
                  --build-arg ARCH_DEB="$ARCH_DEB" --build-arg ARCH_RPM="$ARCH_RPM" \
-                 --build-arg ARCH_BIN="$ARCH_BIN" .; then
+                 --build-arg ARCH_BIN="$ARCH_BIN" --build-arg TAG="$TAG" .; then
               # The exported FILE, not merely the exit status: the marker is the
               # only thing that cannot be produced by a build that did nothing.
               [ -f "out/$channel/passed" ] && ok=1

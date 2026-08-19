@@ -1,9 +1,16 @@
-name: Validate (hassfest)
+name: Validate (hassfest + HACS)
 
-# hassfest is a GitHub-ecosystem action that the Forgejo runner can't fetch (it
-# resolves actions from data.forgejo.org, which has no home-assistant/actions). So
-# it runs only on GitHub; the guard makes Forgejo skip the job — Forgejo reads
-# .github/workflows too, but evaluates the job `if` before fetching the action.
+# Both are GitHub-ecosystem actions the Forgejo runner can't fetch (it resolves
+# actions from data.forgejo.org, which carries neither home-assistant/actions nor
+# hacs/action). So they run only on GitHub; the guard makes Forgejo skip them —
+# Forgejo reads .github/workflows too, but evaluates the job `if` before fetching
+# the action. See docs/design/ci-split.md.
+#
+# hassfest validates the manifest. The HACS action validates the REPOSITORY the way
+# HACS itself does — hacs.json, brands, structure, the things that decide whether an
+# install even starts. Neither one runs the integration; that is the `hacs` channel
+# in the Linux install matrix, which installs what HACS installs and imports it
+# against the published library.
 on:
   push:
     branches: [main]
@@ -21,3 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb # master
+
+  hacs:
+    name: HACS (repository validation)
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hacs/action@d556e736723344f83838d08488c983a15381059a # 22.5.0
+        with:
+          category: integration
