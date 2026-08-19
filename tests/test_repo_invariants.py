@@ -836,3 +836,32 @@ def test_no_exception_outlives_the_job_it_excused() -> None:
     stale = sorted(f"{w}:{j}" for (w, j) in GITHUB_ONLY if (w, j) not in present)
     assert stale == [], f"GITHUB_ONLY excuses jobs that no longer exist: {stale}"
 
+
+# --- what HACS demands of the manifest ----------------------------------------------
+#
+# `hacs/action` checks this on the mirror, and found `issue_tracker` missing the
+# first time it ran — eight of its nine checks passed and that one did not, which is
+# how a repository ends up looking installable while HACS declines it. The action is
+# the authority; this is here so the requirement is visible in the tree and fails
+# fast, rather than only on a forge some contributors never look at.
+def test_the_integration_manifest_carries_what_hacs_requires() -> None:
+    manifest = json.loads(
+        (REPO / "custom_components" / "whiskerless" / "manifest.json").read_text(encoding="utf-8")
+    )
+    for key in ("domain", "name", "documentation", "issue_tracker", "version", "codeowners"):
+        assert manifest.get(key), f"manifest.json is missing {key}, which HACS requires"
+    assert manifest["issue_tracker"].startswith("https://github.com/SisyphusMD/whiskerless"), (
+        "issues go to GitHub, not the primary forge"
+    )
+
+
+def test_the_manifest_keys_are_ordered_the_way_hassfest_wants() -> None:
+    """domain and name first, everything else alphabetical. Adding a key in the
+    wrong place is a hassfest failure on the mirror and nowhere else."""
+    manifest = json.loads(
+        (REPO / "custom_components" / "whiskerless" / "manifest.json").read_text(encoding="utf-8")
+    )
+    keys = list(manifest)
+    assert keys[:2] == ["domain", "name"], keys[:2]
+    assert keys[2:] == sorted(keys[2:]), keys[2:]
+
