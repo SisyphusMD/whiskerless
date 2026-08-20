@@ -458,3 +458,23 @@ def test_cat_detect_bit0_reads_the_bit_and_refuses_strings() -> None:
     assert cat_detect_bit0("3") is True
     assert cat_detect_bit0("CAT_DETECT") is None
     assert cat_detect_bit0(None) is None
+
+
+def test_dfi_reset_pending_decodes_from_the_field_the_robot_sends() -> None:
+    """`isDFIResetPending` is what separates a measured drawer level from a claim.
+
+    Live 2026-08-19: a Reset press zeroed `DFILevelPercent` and raised this in the
+    same instant, and the next cycle's lasers cleared it and reported 14 %. The
+    field name is the fragile part — decoding the wrong key fails silently as a
+    permanently-absent flag, which reads exactly like "never provisional".
+    """
+    pending = LitterRobot4State.from_state_doc({"isDFIResetPending": 1, "DFILevelPercent": 0})
+    assert pending.is_dfi_reset_pending is True
+    assert pending.waste_drawer_level == 0
+
+    measured = LitterRobot4State.from_state_doc({"isDFIResetPending": 0, "DFILevelPercent": 14})
+    assert measured.is_dfi_reset_pending is False
+
+    # Absent is not pending: a firmware that omits it must not have every reading
+    # it makes labelled unmeasured.
+    assert LitterRobot4State.from_state_doc({"DFILevelPercent": 14}).is_dfi_reset_pending is None

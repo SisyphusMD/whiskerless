@@ -7,6 +7,45 @@ review notes cite these numbers — do not renumber. New tasks append at the end
 Statuses: **open** (nothing started), **blocked** (says on what), **discuss**
 (needs a design conversation before any code).
 
+## What is actually left — as of 2026-08-19
+
+Items live in dated sections and keep their place when they finish, so the reasoning
+stays where it was written. That makes status unreadable by scrolling, hence this
+list. **Each item's own heading is the source of truth; this is a pointer.** Update
+it in the same edit that changes a heading — #64 and #69 both sat finished with no
+marker, and #64 read as open for four days after it shipped.
+
+**Ready to work on:**
+
+- ~~**#79**~~ — closed: decoded, the CLI qualifies the drawer line, and the HA sensor
+  keeps its value while carrying a `level_provisional` attribute.
+- **#68** — the hopper gauge under-reports.
+- **#82** — hidden-SSID joining is asserted in a comment and has never been tested on
+  hardware.
+- **#81** — "Replace Filter" is the only Whisker-app control with no equivalent here,
+  and whether it is even remotely reachable is unresolved.
+- ~~**#51**~~ — closed: the firmware's own descriptor tables enumerate every message
+  type and none is a read.
+- **#15** / **#20** — the rolling capture: keep analysing, and retire the pod when
+  the questions close.
+- **#45** — its heading says DONE and the sleep flag half is, but `0x4C` is still
+  unanswered under that number, and the awake-deferral test that would discriminate
+  it has not been run. Listed here because the heading alone hides it.
+
+- ~~**#80**~~ — solved: pairing mode holds the WiFi station down and never ends by
+  itself; only a completed provision restores it.
+
+**Design conversations, not code yet:** #43 (replacing the app's notifications),
+#44 (firmware updates, which collide with a safety invariant).
+
+**Waiting on something outside the repo:** #13 (empty half — costs a litter refill)
+and #14 (the same press), #19 (Brent), #21 (needs the dropout to recur), #22 (the
+sleep/wake *write* path is still untested live, though its original premise is void),
+#23 (a narrated visit), #65 (upstream HACS).
+
+**Nothing here gates the 0.2.0 release.** #71 was the last one and closed
+2026-08-19.
+
 ---
 
 ## Open
@@ -65,7 +104,7 @@ gained `needs: [releases, nas-pkg]` so it cannot prune while this release is
 itself incomplete. The GitHub tag wait went from 10 minutes to 30, since rc.27
 timed out at ten on a tag that arrived shortly after.
 
-### #74 — Forgejo has no infra-retry, and no rerun API to fall back on
+### #74 — Forgejo has no infra-retry, and no rerun API to fall back on — **CLOSED 2026-08-19: recovery shipped, and the rest rested on a misdiagnosis**
 
 `retry-infra-failures.yml` re-runs a job when the *runner* failed before any of
 our steps began — but it lives in `.github/` and watches GitHub workflows only.
@@ -85,9 +124,50 @@ a release cut has no tolerance for a network blip, on a forge with no retry.
 
 Cosmetic on a `main` push, since the only way back to green is another push. It
 is **not** cosmetic during a release: the same flake in a `prerelease.yml` gate
-job fails the cut and needs a manual re-dispatch. Worth either a Forgejo-side
-retry workflow or pinning the interpreter setup so it stops reaching out to a
-manifest mid-build.
+job fails the cut and needs a manual re-dispatch.
+
+**Resolved 2026-08-19 — by building the retry, not by arguing it was impossible.**
+
+*Automatic, in-step.* Every `actions/setup-python` in `.forgejo/workflows` (15 of
+them, across ci/prerelease/publish/release/tap-bottles) now runs twice: the first
+attempt carries `continue-on-error: true`, and a second, identically configured
+attempt is guarded by `if: steps.<id>.outcome != 'success'`. That needs no rerun
+API, and it addresses the recorded failure directly — all five jobs died *in*
+setup-python, which is precisely where this now recovers.
+
+The guard is deliberately `!= 'success'` and not `== 'failure'`. With equality, a
+runner that left `outcome` unset would skip the retry *while* `continue-on-error`
+had already swallowed the first failure — so the job would carry on against
+whatever interpreter happened to be on the image, and could pass at the wrong
+version. Inequality retries on anything that is not a clean success, and a failed
+retry fails the job.
+
+**An earlier draft of this closure claimed automatic retry "cannot be built"
+because Forgejo has no rerun endpoint. That was wrong**, and wrong in a way worth
+naming: no-workflow-rerun-API does not imply no-retry. The retry belongs in the
+step, not the workflow.
+
+*Manual, whole-workflow.* `ci.yml` also has `workflow_dispatch`, which remains the
+fallback when a job fails somewhere the in-step retry does not cover.
+
+**The retry has never fired, and cannot be made to on demand** — a transient
+manifest outage is not reproducible, so what is verified is the wiring, not the
+recovery: all 15 pairs parse, ids are unique per job, each guard names its own
+first attempt, and the two `with:` blocks are identical. First real transient fetch
+failure is the test; note here whether the second attempt rescued it.
+
+**On the cause, kept hypothetical.** The household internet was intermittently
+down across that window and the same period produced a second network-shaped
+failure, but neither was traced to it — and because all five jobs stopped at
+setup-python, no run evidence exists about whether `pip`, apt, dnf or Homebrew
+would also have failed. Do not restate the outage as established fact.
+
+Worth knowing for whoever revisits this: **there is no PyPI mirror**, so every
+job's `pip install` reaches the internet, and the install matrix additionally pulls
+from apt, dnf and Homebrew. A pull-through cache on the NAS alongside the existing
+container mirror would narrow that surface — but it is a CI-speed and
+supply-chain-control argument, it would not make a build survive a full outage on
+its own, and it is a separate item, not this one.
 
 ### #73 — Ship Homebrew bottles so `brew install` stops compiling cryptography — *DONE 2026-08-17*
 
@@ -471,7 +551,7 @@ bonnet removal with no cat, which tests nothing.
 
 Also unexplained: `0x710001`, five emissions in five days on robot 1.
 
-### #51 — Probe whether mqtt-config / whisker-config expose a READ for certs and endpoints — *bench work: needs a probe script written first, then a pairing window*
+### #51 — Probe whether mqtt-config / whisker-config expose a READ for certs and endpoints — **CLOSED 2026-08-19: no read verb exists, and the firmware itself says so**
 
 The mapped provisioning message set is write-only for config; the single
 exception is `whisker_device_id_request`, which proves the whisker-config
@@ -482,6 +562,45 @@ endpoints against a robot in pairing mode (read-only, no writes). A read would
 make a pre-provisioning snapshot possible and would reveal Whisker's own AWS
 endpoint hostname — the one value blocking a self-contained
 `whiskerless restore-cloud` that does not depend on the Whisker app.
+
+**Answered without needing the bench at all — the enums were already in this repo.**
+`provisioning/whisker_mqtt_config.proto` and `whisker_config.proto` carry every
+message type, and their provenance note is the point: each enum value was
+"byte-verified by decoding the protobuf-c ... EnumDescriptor tables in the firmware
+image", so the lists are complete by construction rather than by observation.
+
+| endpoint | request types the firmware declares |
+|---|---|
+| `mqtt-config` | `CERT_WRITE_REQUEST` 0, `ENDPOINT_WRITE_REQUEST` 2, `APPLY_CONFIG_REQUEST` 4 |
+| `whisker-config` | `DEVICE_ID_REQUEST` 1, `DEVICE_REBOOT_REQUEST` 3, `DEVICE_ID_SET_REQUEST` 5 |
+
+Every other value is the paired `*_RESPONSE`. **No read exists for a certificate,
+an endpoint or the host**; the single read on either endpoint is
+`DEVICE_ID_REQUEST`, and it returns the 6-byte MAC. So the pre-provisioning
+snapshot this task hoped for is not possible, and Whisker's own AWS endpoint
+hostname cannot be recovered from the robot — `restore-cloud` stays dependent on
+the Whisker app. That is a firmware fact, not a gap in our mapping.
+
+**The bench work was unnecessary, and that is the lesson worth keeping.** Two
+pairing windows were spent probing a message space the repo had already enumerated
+from the firmware image. Read `provisioning/*.proto` before designing an
+experiment against these endpoints.
+
+Two incidental results, since the runs happened anyway:
+
+- **Releasing the Connect button does NOT drop an established BLE link** —
+  controlled directly: a known-good read passed, the operator released, and the
+  same read passed again twelve seconds later. Worth knowing, because it means the
+  hold is needed only until the link is open.
+- **`whisker-config` msg=0 (`UNKNOWN_CONFIG_TYPE`) drops the link**, with that same
+  read passing immediately before it and failing immediately after. Note this is
+  the enum's own "unknown" sentinel rather than an unmapped number. An earlier run
+  saw msg=2 (`DEVICE_ID_RESPONSE` — a *response* type sent as a request) do the
+  same, but that run had no release control, so treat it as suggestive only.
+
+An earlier draft of this entry called those values "unrecognised message types" and
+extrapolated a 25-pairing-window sweep from them. Both are wrong: the values are
+declared enum members, and no sweep is needed because the enums are already known.
 
 ### #52 — Use the device-id read to verify (or supply) the serial — **CLOSED 2026-08-16: answered, not viable**
 
@@ -527,14 +646,18 @@ authenticated broker the advertised bare commands fail until the user passes
 enter-to-skip) during provisioning, offer the value the saved robots share the
 way host/CA/SSID are offered, and keep the password per-run as designed.
 
-### #64 — translate BLE-stack errors at the library boundary
+### #64 — translate BLE-stack errors at the library boundary — **DONE 2026-08-15**
 
-`bleak.exc.BleakError` from `scan()` / `provision_robot()` escapes to the CLI
-raw, so a Bluetooth failure during provisioning still ends in a traceback. The
-CLI cannot catch it by type — `bleak` is the optional `[ble]` extra and must not
-be imported unconditionally — so wrap the bleak entry points in `ble/` and raise
-`ProvisioningError` with the original message, exactly as the MQTT link wraps
-its connect errors.
+**This heading carried no status until 2026-08-19 while the archive below already
+recorded it as done, so the item read as open for four days.** The work is in
+`ble/transport.py`, which catches `bleak.exc.BleakError` at the boundary and raises
+`ProvisioningError` naming what was being attempted.
+
+The original statement, for the reasoning: `BleakError` escaped to the CLI raw, so a
+Bluetooth failure during provisioning ended in a traceback. The CLI cannot catch it
+by type — `bleak` is the optional `[ble]` extra and must not be imported
+unconditionally — so the wrap has to happen inside `ble/`, exactly as the MQTT link
+wraps its connect errors.
 
 ---
 
@@ -572,7 +695,7 @@ evidence predated it, not from observation. Now that samples actually land, the 
 this entry is about may simply be a scale that had nothing to learn from. Take a fresh
 measurement before changing the span or the floor.
 
-### #69 — The CLI assumes the operator's machine can reach the broker — *docs done 2026-08-16*
+### #69 — The CLI assumes the operator's machine can reach the broker — **DONE** (docs 2026-08-16, error message shipped, confirmed 2026-08-19)
 
 `whiskerless state`, `monitor`, `set` and `send` all open an MQTT connection, so they
 only work from a host with a route to the broker. In the setup this project
@@ -585,8 +708,16 @@ always available, and a user who hits that timeout will reasonably file it as a 
 **The README now says so** — a note at the head of "Everyday use" explains that
 provisioning is Bluetooth and everything else is MQTT, that an isolated IoT VLAN can
 leave a workstation with no route, and that `cannot reach broker at …:8883 (timed out)`
-is that boundary rather than a fault. What is still open is the error message itself,
-which reports the timeout without suggesting the likely cause.
+is that boundary rather than a fault. The error message was the last open half, and it
+has shipped too: `link.py` appends "Nothing may be wrong: provisioning is
+Bluetooth, but this command needs a network route to the broker, and an isolated
+IoT VLAN usually denies one from a workstation" whenever the failure is a timeout.
+Seen in the wild 2026-08-19, which is what closed this.
+
+That workstation's route was separately fixed in the cluster the same day — the
+broker's pod attaches only to the IoT VLAN and so could not answer a host on
+another subnet — but that is this owner's network, not a property of the tool, and
+it is why the message stays.
 
 ### #70 — Write our own client identity to the robot, and drop the anonymous listener — **DONE 2026-08-18**
 
@@ -991,9 +1122,9 @@ at HA 2026.3.
 
 ## Added 2026-08-19 (from the bench night)
 
-### #79 — Decode `isDFIResetPending` and stop presenting a provisional drawer level as measured
+### #79 — Decode `isDFIResetPending` and stop presenting a provisional drawer level as measured — **DONE 2026-08-19**
 
-`IS_DFI_RESET_PENDING = 0x41` has a constant in `const.py` and is decoded **nowhere**
+`IS_DFI_RESET_PENDING = 0x41` had a constant in `const.py` and was decoded **nowhere**
 — not in `models.py`, not in the CLI, not in the integration. The firmware sets it
 the instant a Reset press zeroes the drawer gauge, and clears it when the next cycle's
 lasers actually measure. So between those two events the robot is telling us in as
@@ -1004,6 +1135,7 @@ Observed live 2026-08-19 (1.1.75): Reset at 01:23:43Z zeroed the gauge and raise
 `0x41`; the cycle measured at 01:28:44Z and cleared it. For those five minutes
 `whiskerless status` printed `waste drawer 0%` / `drawer full False`, and the HA
 `waste_drawer_level` sensor published `0`, with nothing marking either as a guess.
+**Both halves are now fixed.**
 
 **Do not justify this with "the 0% was wrong".** That reading was made and corrected
 on the night: the 14 % measured afterwards is explained by cat waste the globe dumped
@@ -1017,13 +1149,196 @@ This is not hypothetical exposure: `docs/setup/home-assistant.md` actively recom
 alerting on *Waste drawer level* crossing a threshold, which is exactly the automation
 a provisional value can mislead.
 
-Minimum: carry the flag on `LitterRobot4State` and decode it. Then decide separately —
-this is the design question, not the decode — what the CLI and the integration should
-do with it. An HA sensor going `unknown` while pending is one option and would break
+**Decode: DONE 2026-08-19.** `LitterRobot4State.is_dfi_reset_pending` carries the
+flag, and `whiskerless status` qualifies the drawer line with "not measured yet —
+reset, awaiting the next cycle" rather than printing a bare percentage. Absent is
+treated as not-pending, so a firmware that never sends the field is unaffected.
+
+**Home Assistant: DONE.** The owner chose the conservative option — the sensor keeps
+publishing the value, so nothing keyed on it breaks, and carries a
+`level_provisional` attribute. Absent flag means no attribute at all: `False` there
+would assert "measured" about a robot that never said so. An HA sensor going `unknown` while pending is one option and would break
 any automation keyed on the drawer reaching zero; an attribute plus a documented
 caveat is the conservative one. Whichever way, `docs/devices/litter-robot-4/registers.md`
 now carries the `0x41` row, so the wire meaning is settled and only the presentation
 is open.
+
+---
+
+## Added 2026-08-19 (from the bench night, second half)
+
+### #80 — **SOLVED 2026-08-19:** pairing mode takes the robot OFF WIFI, and never ends on its own
+
+**Owner-reported as recurring, timestamps captured 2026-08-19.** Robot 2 (upstairs)
+stopped publishing and never came back on its own; a re-provision is the only known
+cure and works every time.
+
+**Mechanism, established by measurement.** Pairing mode holds the WiFi station in
+`CONNECTING` and it never completes, so the robot is off the air for as long as the
+mode lasts — and the mode **never times out** on this firmware. The only thing that
+ends it is a completed provision, which is why a re-provision cures this every time:
+it finishes provisioning and reboots.
+
+The decisive evidence is a ping from the robot's OWN VLAN, which removes the
+cross-subnet and power-save excuses that made earlier ping results worthless:
+
+```
+from br3 (192.168.3.1, on the IoT VLAN):
+  robot 2 (stranded)   100% loss, ARP INCOMPLETE   <- not associated at all
+  robot 1 (control)    0% loss, 84 ms              <- healthy; 84 ms is power-save
+```
+
+`INCOMPLETE` means the gateway cannot even resolve its MAC. It is not "connected but
+unreachable" — the station is down. A BLE read of the stock `prov-config` GetStatus
+in the same state agrees: `state=CONNECTING` on 8 of 8 polls over 25 s, with no
+`fail_reason` and no address. That reading was initially discarded as confounded by
+pairing mode; once pairing mode turned out to BE the fault, it became the direct
+observation of it.
+
+**Whisker documents this themselves, and it goes further than our measurement.**
+<https://www.litter-robot.com/support/article/litter-robot-4-not-connecting/>: "If
+the Connect button is held too long and the Connect light starts blinking yellow, the
+robot has entered onboarding mode **and forgotten its saved WiFi network**." That is
+the missing half — the station is not merely held down, the credentials are gone, so
+there is nothing to reconnect to and only a completed provision restores it. Their
+recovery is the app's "Update Network" flow, which is what `whiskerless provision` is.
+
+**Whisker's own support pages say a press-and-release of Connect exits onboarding
+mode. On this hardware it does not** — it toggles the WiFi radio, observed three
+times out of three on 2026-08-19 (white light bar = radio off, a second press
+restores it). A Connect *hold* while already in pairing mode just re-arms pairing.
+There is no button that leaves the mode.
+
+**This is NOT local-broker-specific, and the owner's contrary impression is
+explained.** The Whisker page above is written for stock cloud users — it is their
+common failure, not ours. A cloud robot loses its credentials to the same press. What
+differs is only the distance to the cure: on cloud it is a two-minute "Update Network"
+tap in the app, so it never registers as a persistent fault; locally it needs a
+laptop, a BLE session and a completed provision. Same bug, different ergonomics.
+Do not treat this as evidence that local provisioning is more fragile.
+
+**The operational rule: do not put a robot into pairing mode unless you intend to
+complete a provision.** Holding Connect is not a free diagnostic — it takes the robot
+off the network until a provision finishes. Anything that asks a user to enter
+pairing mode "just to look" (a probe, a diagnostic subcommand) has to say this.
+
+**Ruled out by measurement, not argument:**
+
+- **Signal** — both robots report -59..-65 dBm; they are indistinguishable.
+- **The broker** — robot 1 held one session across the whole window and answers
+  normally right now.
+- **TLS / certificates** — mosquitto logged a keepalive timeout, never a handshake
+  failure, and the robot's certificate is the one the broker had already accepted.
+- **DHCP** — no lease churn for either robot across 12 days of dnsmasq logs.
+- **Reset as a cause in itself** — routine in normal use, never reproduces this.
+
+**Previously listed here as "unexplained: never happened on Whisker's cloud."
+Resolved — it does happen there; the app just fixes it immediately.**
+
+**Still worth confirming on the other unit** when a re-provision is cheap: put robot
+1 into pairing mode, leave it alone, and check `ping -I br3` for `ARP INCOMPLETE`.
+That would prove it is firmware behaviour rather than something specific to robot 2.
+n=1 on one robot is what this rests on.
+
+**Do not add warnings to `panel-reset` or the HA button on the strength of this.**
+Reset in normal operation is not implicated.
+
+---
+
+## Added 2026-08-19 (parity check against the Whisker app)
+
+### #81 — "Replace Filter" is the only app control whiskerless has no equivalent for
+
+Screenshots of the Whisker app's Controls page (2026-08-19) list seven controls.
+Six map onto things we already ship:
+
+| App control | whiskerless |
+|---|---|
+| Power | `power`, HA `power_toggle` |
+| Panel Lock | `keypad_lockout` switch |
+| Lights | `night_light_mode` + brightness |
+| Sleep Mode | sleep/wake times + `weekday_sleep` |
+| Manual Cycle | `clean-cycle` |
+| Reset Robot | `panel-reset` |
+| **Replace Filter** | **nothing** |
+
+We also ship several things the app does not: empty cycle, WiFi toggle, litter
+calibration, hopper level and fill, litter distance in mm, RSSI.
+
+**Whether Replace Filter is even reachable remotely is unresolved, and the evidence
+cuts both ways.** `commands.md` states the filter wizard is unreachable because its
+chord is a three-second hold and the write path declines holds. Against that, the app
+plainly offers it. For it: pylitterbot's fifteen LR4 verbs contain no filter command,
+and unlike Manual Cycle and Reset Robot — both of which show a confirmation dialog in
+those screenshots — Replace Filter shows none, which is consistent with an in-app
+wizard that talks the user through the panel hold rather than sending anything.
+
+**If the app really does trigger it remotely, then a path exists that we have not
+found — and finding it is the point of this item.** Our position is that hold-only
+chords are unreachable because writing press type `02` produces no event and an
+unknown type `00` is normalised to `01`. That is a statement about the panel-button
+register `0x01`. It is NOT a statement that the function itself is unreachable: a
+setting with a backing register is reachable by writing that register, which is how
+lockout and the night light are already done, and how pylitterbot reaches settings
+generally. The filter wizard was written off as having "no backing settings register
+to write instead" — that is the claim to re-examine, not the hold.
+
+**Do not re-test hold synthesis.** Writing type `02` has been tried and is inert;
+that result stands and the repo's instruction not to spend another trial on it stands
+with it. What is open is a *different* mechanism.
+
+Settling it needs one observation: press Replace Filter in the app for a robot **on
+Whisker's cloud** while capturing, and see whether any MQTT command reaches the robot
+— and if one does, exactly what it is. Both robots here are local, so this needs one
+deliberately left on cloud, or a capture taken before the next re-provision.
+
+Candidate mechanisms to look for in that capture, in rough order of likelihood:
+
+1. **A write to an unmapped settings register** that moves the globe to the filter
+   position, the way `0x17` does lockout. `registers.md` still lists a number of
+   registers with no known meaning.
+2. **A type-2 macro opcode** other than the panel-button register — the class
+   `NEVER_SEND_OPCODES` belongs to. Anything found here is refused by `safety.py`
+   until it is understood, and must stay refused.
+3. **Nothing at all** — the app walks the user through the physical hold and sends
+   no command, which the absence of a confirmation dialog and of any filter verb in
+   pylitterbot both hint at.
+
+Outcome 3 would close this and vindicate the current documentation. Outcomes 1 or 2
+mean `commands.md` is wrong that the function is unreachable, and the fix is to
+classify whatever is found in `safety.py` before anything sends it.
+
+**Not a gap:** per-cat weights (Arya/Nahla in the app). An activity CSV exported the
+same day lists only unattributed per-visit weights, so cat identity is cloud-side
+inference over the raw figure the robot reports. Nothing local can reproduce it, and
+`pet_weight` already carries what the robot actually knows.
+
+---
+
+## Added 2026-08-19 (loose ends)
+
+### #82 — Nobody has ever joined a hidden SSID with this, and the code says otherwise
+
+`_choose_network` offers a `-` option that takes a typed SSID, and its comment
+asserts "hidden SSIDs are real and the robot joins them fine; it just cannot list
+them." **The CLI path is tested; the claim about the robot is not.** There is no
+hardware evidence anywhere in this repo that an LR4 has ever joined a hidden
+network — the phrase appears once, in that comment, with nothing behind it.
+
+This is the inherited-confidence pattern the repo keeps catching: a plausible
+assertion, written once, that reads like a finding. It matters because a user with a
+hidden SSID is exactly the person who has no fallback — if the robot cannot join one,
+the `-` option is a trap that costs them a stranded robot (see #80) rather than an
+error message.
+
+To settle it: hide an SSID on a test AP, provision a robot onto it, and record the
+result. If it works, mark the comment PROVEN with a date. If it does not, the `-`
+option needs to say so before it writes anything.
+
+Cheap alternative if a hidden test network is inconvenient: the stock esp-idf
+`prov-config` SetConfig carries only SSID and passphrase, with no "hidden" flag, so
+whether the robot probes actively for a non-broadcast SSID is a firmware question a
+capture of the app onboarding a hidden network would also answer.
 
 ---
 

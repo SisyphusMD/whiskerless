@@ -184,9 +184,17 @@ remains an inference until somebody sends it; it costs a litter refill to find o
 Power and Connect have since been written (2026-08-16) and are shipped disabled for
 cost rather than for doubt — both can end with the robot off the network.
 
-**The filter-change wizard is unreachable**, and this is a finding rather than a gap:
-its chord is a long press, the write path declines those, and unlike lockout or the
-night light it has no backing settings register to write instead.
+**The filter-change wizard is unreachable from the panel-button register**, and that
+much is a finding rather than a gap: its chord is a long press, the write path
+declines those, and unlike lockout or the night light no backing settings register
+for it has been found.
+
+**But the Whisker app offers "Replace Filter" as a remote control**, which means
+either that a path exists we have not found, or that the app's button is a wizard
+that talks the user through the physical hold. Do not read the paragraph above as
+settled — see backlog #81, which lists what to look for and what to do with it. What
+IS settled, and not worth re-testing, is hold synthesis itself: writing press type
+`02` to `0x01` is inert.
 
 The **waste-drawer reset** is not a separate command: a Reset press performs it when
 the full flag is set, so it comes with `0x02010401`. Exercised on a genuinely full

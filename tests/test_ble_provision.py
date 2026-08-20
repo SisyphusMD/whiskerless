@@ -23,6 +23,7 @@ from whiskerless.ble.protobuf import read_fields
 from whiskerless.ble.provision import (
     ProvisioningConfig,
     _format_mac,
+    diagnose_wifi,
     provision_robot,
     read_device_mac,
 )
@@ -745,3 +746,58 @@ async def test_the_confirmation_sees_the_network_that_was_chosen() -> None:
             choose_network=chooser, confirm=confirm,
         )
     assert seen == ["PickedFromList"]
+
+
+# --- diagnose_wifi -------------------------------------------------------------
+async def test_diagnose_wifi_polls_and_writes_nothing() -> None:
+    """The whole point of this command is that it is safe on a robot you cannot
+    afford to break further. It sends GetStatus and nothing else — no config, no
+    apply, no reboot — so assert on the exact requests, not merely on the result.
+    """
+    robot = FakeRobot()
+    with _bleak(robot):
+        samples = await diagnose_wifi("AA:BB:CC:DD:EE:FF", polls=3, interval=0.0)
+
+    assert len(samples) == 3
+    # The COMPLETE request list, not a permissive subset: an earlier version of this
+    # test allowed anything at all on whisker-config, so a regression that slipped in
+    # a DEVICE_REBOOT would have passed a test named "writes nothing".
+    assert robot.requests == [(m.EP_PROV_CONFIG, m.wifi_get_status())] * 3, robot.requests
+
+
+async def test_diagnose_wifi_refuses_a_device_that_is_not_an_lr4() -> None:
+    robot = FakeRobot(service_uuid="0000ffff-0000-1000-8000-00805f9b34fb")
+    with _bleak(robot), pytest.raises(ProvisioningError, match="not a Litter-Robot 4"):
+        await diagnose_wifi("AA:BB:CC:DD:EE:FF", polls=1, interval=0.0)
+
+
+async def test_diagnose_wifi_records_a_dropped_link_rather_than_raising() -> None:
+    """A link that dies mid-run is itself the finding — an unrecognised message
+    type dropped one live on 2026-08-19. Reporting `None` for that sample keeps
+    the earlier ones, which are the useful part."""
+    robot = FakeRobot()
+    calls = {"n": 0}
+    original = robot.write_gatt_char
+
+    async def flaky(char: Any, data: bytes, response: bool = True) -> None:
+        calls["n"] += 1
+        if calls["n"] > 2:
+            raise RuntimeError("disconnected")
+        await original(char, data, response=response)
+
+    robot.write_gatt_char = flaky  # type: ignore[method-assign]
+    with _bleak(robot):
+        samples = await diagnose_wifi("AA:BB:CC:DD:EE:FF", polls=3, interval=0.0)
+    assert samples[-1] is None
+    assert len(samples) == 3
+
+
+async def test_diagnose_wifi_reports_each_sample_as_it_arrives() -> None:
+    """The steps are what a person watches while holding a button, so they have to
+    appear per poll rather than in one batch at the end."""
+    robot = FakeRobot()
+    lines: list[str] = []
+    with _bleak(robot):
+        await diagnose_wifi("AA:BB:CC:DD:EE:FF", polls=2, interval=0.0, on_step=lines.append)
+    assert len(lines) == 2
+    assert lines[0].strip().startswith("0")

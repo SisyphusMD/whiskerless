@@ -154,3 +154,43 @@ async def test_the_destructive_buttons_ship_disabled(
         entry = registry.async_get(entity_id)
         assert entry is not None
         assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION, key
+
+
+@pytest.mark.parametrize(
+    ("pending", "expected_attr"),
+    [(1, True), (0, False)],
+)
+async def test_the_drawer_level_says_when_it_is_not_a_measurement(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+    pending: int,
+    expected_attr: bool,
+) -> None:
+    """A Reset zeroes the gauge and the robot flags it unconfirmed until the next
+    cycle's lasers measure. The VALUE keeps publishing — going `unknown` would
+    strand automations watching for an emptied drawer — but the attribute has to
+    say the number is a claim. Live 2026-08-19 that window was five minutes.
+    """
+    payload = json.loads(state_payload)
+    payload["isDFIResetPending"] = pending
+    await setup_integration(hass, mock_config_entry, json.dumps(payload))
+
+    state = hass.states.get("sensor.litter_robot_4_waste_drawer_level")
+    assert state is not None
+    assert state.state == "35", "the value must keep publishing either way"
+    assert state.attributes["level_provisional"] is expected_attr
+
+
+async def test_the_drawer_level_claims_nothing_when_the_flag_is_absent(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Absent is not `False`: a firmware that never reports the flag must not have
+    its readings asserted as measured on its behalf."""
+    payload = json.loads(state_payload)
+    payload.pop("isDFIResetPending", None)
+    await setup_integration(hass, mock_config_entry, json.dumps(payload))
+
+    state = hass.states.get("sensor.litter_robot_4_waste_drawer_level")
+    assert state is not None
+    assert "level_provisional" not in state.attributes

@@ -3172,3 +3172,63 @@ def test_a_certificate_whose_only_san_is_irrelevant_falls_back_to_its_name(
     store.save_broker_certs(placed)
     assert _setup_run() == 0
     assert (store.broker_dir / "server.crt").read_text() == placed.cert_pem
+
+
+# --- diagnose -------------------------------------------------------------------
+async def _fake_diagnose(*_: object, **kw: object) -> list[Any]:
+    from whiskerless.ble.messages import WifiConnectFailedReason, WifiStationState, WifiStatus
+
+    on_step = kw.get("on_step")
+    samples = [
+        WifiStatus(WifiStationState.CONNECTING),
+        WifiStatus(WifiStationState.CONNECTION_FAILED,
+                   fail_reason=WifiConnectFailedReason.AUTH_ERROR),
+    ]
+    if callable(on_step):
+        for index, _sample in enumerate(samples):
+            on_step(f"{index:>2}  sample")
+    return samples
+
+
+def test_diagnose_reports_the_robots_own_verdict(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The command exists so "blinking blue" becomes an answer. AUTH_ERROR is one
+    of the two verdicts that survives the pairing-mode confound, so it must reach
+    the user rather than being buried in the sample list."""
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.diagnose_wifi", _fake_diagnose),
+    ):
+        assert main(["diagnose", "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert "AUTH_ERROR" in out
+    assert "provision" in out, "it must say how to put the robot back"
+
+
+def test_diagnose_warns_that_it_takes_the_robot_off_wifi(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reading status needs pairing mode, and pairing mode wipes the robot's saved
+    network. A diagnostic that strands the patient has to say so BEFORE it runs,
+    and must not run at all if the answer is no."""
+    monkeypatch.setattr("builtins.input", lambda *_: "no")
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.diagnose_wifi", _fake_diagnose),
+    ):
+        assert main(["diagnose"]) == 1
+    captured = capsys.readouterr()
+    assert "TAKES IT OFF WIFI" in captured.out
+    assert "aborted" in captured.err
+
+
+def test_diagnose_says_so_when_no_robot_is_advertising(
+    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    async def _nothing(**_: object) -> list[Any]:
+        return []
+
+    with patch("whiskerless.ble.scan", _nothing):
+        assert main(["diagnose", "--yes"]) == 1
+    assert "BLINKS YELLOW" in capsys.readouterr().err

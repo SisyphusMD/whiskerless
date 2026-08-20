@@ -50,22 +50,40 @@ from the firmware's own message descriptors. Of the config messages mapped so fa
 with data is the device-id read (a 6-byte value we format as a MAC — one proto
 comment suggests it may be the serial instead; unresolved, see the backlog's #52) —
 there is no mapped way to retrieve a certificate, host or topic at all. Whether the
-firmware offers a read we simply have not mapped is an open question (#51).
+firmware offers a read we simply have not mapped is settled: it does not (#51). Every message type on both endpoints was read out of the firmware's own descriptor tables, and none of them is a read for certificates, endpoints or the host.
 
 ## Re-enter pairing mode (to re-provision)
 
+> 🚨 **Entering pairing mode wipes the robot's saved WiFi, and there is no way
+> back except completing a provision.** Do not enter it to "have a look".
+
+The robot forgets its network as it enters pairing mode — that much is Whisker's
+own documented behaviour. On the one unit tested (ESP 1.1.75, 2026-08-19) nothing
+restored it by itself: the mode showed no sign of timing out over the half hour it
+was watched, no button tried would leave it (a short Connect press toggles the WiFi
+radio, a hold re-arms pairing), and the robot was off the network entirely — it did
+not answer a ping even from a host on its own VLAN, and the gateway could not resolve
+its MAC. Read "no way out but a provision" as that robot's behaviour rather than a
+firmware-wide guarantee; plan for it either way.
+
+This is the robot's behaviour and it affects cloud users identically — Whisker's
+own page says holding Connect too long means it "has entered onboarding mode and
+forgotten its saved WiFi network", recovered through the app's *Update Network*
+flow. `whiskerless provision` is the same fix; it just needs a laptop in
+Bluetooth range rather than a phone.
+
 If you need to re-run `whiskerless provision` (first time, a changed broker, or
-to recover from a bad config), put the robot back into BLE pairing mode:
+to recover from a bad config), and you are ready to finish it:
 
 1. **Hold** the robot's **Connect** button for about three seconds, until its
    light starts **blinking yellow**. That is pairing mode: the robot is
-   advertising over BLE again. **Hold it, do not tap it** — a short press
-   toggles WiFi off instead (the light goes white and the robot leaves the
-   broker); another short press brings it back.
-2. Run `whiskerless provision` near the robot.
+   advertising over BLE again — and has just dropped off WiFi. **Hold it, do not
+   tap it** — a short press toggles WiFi off instead (the light goes white);
+   another short press brings the radio back, but does *not* leave pairing mode.
+2. Run `whiskerless provision` near the robot, and complete it.
 
 You can re-provision as many times as you like; it's the same mechanism the
-Whisker app uses at onboarding.
+Whisker app uses at onboarding. What you must not do is start and abandon it.
 
 ## Everyday faults & how they clear
 

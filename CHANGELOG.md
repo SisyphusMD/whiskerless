@@ -87,6 +87,13 @@ is behind much of the hopper work. Protocol detail lives in
   proves it reports one), waste drawer last moved, panel brightness for bright and
   dark rooms, and excess-weight detection.
 - **`whiskerless status`, `calibrate` and `panel-reset`.**
+- **`whiskerless diagnose`** — when the panel says "blinking blue" and nothing else,
+  this asks the robot itself over Bluetooth. It reads and writes nothing. Reaching
+  the robot needs pairing mode, which takes it off WiFi, so it warns, asks first, and
+  costs a re-provision — and the answer is often just "the robot is trying to
+  connect", which is the state the command itself caused. It says so rather than
+  inventing a diagnosis. When the robot does volunteer a verdict — refused, network
+  not found, or joined-without-an-address — that verdict is real and worth the trip.
 - **New install channels**: apt and dnf repositories, Homebrew with prebuilt
   bottles, `.deb`/`.rpm`, a signed macOS `.pkg`, and standalone Linux binaries —
   none of which need a system Python. Packages are GPG-signed
@@ -109,9 +116,24 @@ is behind much of the hopper work. Protocol detail lives in
   robot's WiFi scan is fetched in pages, and the last page asked for more than
   remained — which this firmware answers by dropping the Bluetooth link, halfway
   through provisioning. It looked like flaky Bluetooth.
-- **Provisioning tells you to hold Connect**, and stops scanning the moment it
-  finds your robot — it only advertises while you hold the button, and the scan
-  was spending that window.
+- **Provisioning tells you to hold Connect until the light blinks yellow**, and
+  stops scanning the moment it finds your robot — it only advertises while you hold
+  the button, and the scan was spending that window. The instruction used to say to
+  hold "until it beeps"; the robot has no beep, so the one cue it offered was for
+  something that never happens.
+- **The waste drawer says when its number has not been measured.** A Reset zeroes
+  the gauge and the robot flags the result as unconfirmed until the next cycle's
+  lasers take a real reading — `whiskerless status` was printing that placeholder as
+  a measurement. In Home Assistant the sensor keeps publishing the value, so
+  nothing keyed on it breaks, and carries a `level_provisional` attribute instead.
+- **Provisioning warns that holding Connect wipes the robot's saved WiFi.** The robot
+  forgets its network the moment it enters pairing mode, does not come back on its
+  own, and cannot be taken out of that mode by any button — only a completed
+  provision restores it. This is the robot's behaviour, and it strands cloud users
+  too; whiskerless just never said so.
+- **The network list explains itself**, with a legend for the password marker, the
+  signal bars and the channel, and a clearer way to enter a hidden SSID than a bare
+  `-`. The confirmation screen's `identity` row no longer sits a column out.
 - **The robot's IP address is reported when the firmware gives a usable one.** It
   answers "connected" before DHCP replies, so the address was read a moment too
   early; provisioning now waits for it. Some robots report an address that is not

@@ -90,20 +90,21 @@ robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
    4 ▸ asking the robot which networks it can see
 
   networks the robot can see, strongest first:
+   * = password required   |||| = signal AT THE ROBOT   ch = channel
 
-    0  MyIoT                            * ||||  ch 6
-    1  HomeNet                          * ||||  ch 1
-    2  Guest                              ||    ch 11
-    -  not listed (hidden network)
+    0  MyIoT                            * |||| ch 6
+    1  HomeNet                          * |||| ch 1
+    2  Guest                              ||   ch 11
+    -  my network is not listed — type its name (hidden SSID)
 
-select [0-2, or -]: 0
+select a network by number (0-2), or - to type a hidden one: 0
 WiFi password for 'MyIoT':
 
   RE-PROVISION — this re-points the robot away from Whisker's cloud
-    robot   F8:B3:B7:xx:xx:xx (MAC f8:b3:b7:xx:xx:xx)
-    serial  LR4C123456
-    broker  192.168.1.10
-    wifi    MyIoT
+    robot    F8:B3:B7:xx:xx:xx (MAC f8:b3:b7:xx:xx:xx)
+    serial   LR4C123456
+    broker   192.168.1.10
+    wifi     MyIoT
     identity issued by your CA, CN=LR4C123456
     reversible — re-onboard the robot in the Whisker app
 
@@ -327,12 +328,32 @@ be spent waiting on a broker restart.
 
 ## Provision the robot
 
+> 🚨 **Holding Connect wipes the robot's saved WiFi. Only finish this if you are
+> going to complete the provision.**
+>
+> The moment it enters pairing mode the robot forgets its network — that part is
+> Whisker's own documented behaviour. On the unit we tested (ESP 1.1.75) it did
+> **not** come back on its own: the mode showed no sign of timing out, no button
+> we tried left it, and the robot stayed off the network entirely — not merely
+> unreachable, but not answering ARP on its own VLAN — until a provision
+> completed. Treat the "no way out but a provision" part as one robot's
+> behaviour rather than a firmware-wide guarantee, and plan accordingly.
+>
+> This is the robot's behaviour, not something whiskerless does. Whisker
+> documents it for their own app too: holding Connect too long means the robot
+> "has entered onboarding mode and forgotten its saved WiFi network", and their
+> recovery is the app's *Update Network* flow. `whiskerless provision` is ours.
+> The practical difference is distance to the cure — theirs is a phone tap,
+> ours needs this laptop within Bluetooth range of the robot.
+
 Put the robot in pairing mode — **hold** its **Connect** button for about three
 seconds, until the light **blinks yellow** — then, near it:
 
 > ⚠️ **Hold it, do not tap it.** A *short* press toggles the robot's WiFi off.
 > The light turns white and the robot vanishes from your broker, which looks
-> exactly like a dead unit. Press Connect once more to bring it back.
+> exactly like a dead unit. Press Connect once more to bring it back. A short
+> press does **not** leave pairing mode, whatever Whisker's support pages say —
+> observed three times out of three on hardware.
 
 ```bash
 whiskerless provision
@@ -431,6 +452,30 @@ whiskerless use LR4Cxxxxxx               # pick the default of several
 whiskerless state --serial LR4Cyyyyyy    # or name one per command
 whiskerless backup ~/Documents           # your CA and robots, in one file
 ```
+
+**When a robot will not stay on WiFi**, the panel tells you almost nothing — a
+blinking light, and that is it. The robot itself knows more, and Bluetooth still
+works when the network does not:
+
+```bash
+whiskerless diagnose                     # ask the robot why (read-only)
+```
+
+**Expect it to be inconclusive more often than not.** Reaching the robot needs
+pairing mode, and pairing mode takes it off WiFi — so the most common answer is the
+robot reporting that it is trying to connect, which is the state this command itself
+put it in. It says so plainly rather than dressing that up as a finding.
+
+When it *does* have something, it is worth the trip: refused (a wrong passphrase, or
+an access point turning it away), the network not found (it cannot see that SSID from
+where it sits — it is 2.4 GHz only), or joined but never given an address (look at
+DHCP, not the password). Those are verdicts the robot volunteers about an attempt it
+already made, so pairing mode does not confound them.
+
+> ⚠️ It needs **pairing mode** to reach the robot over Bluetooth, and entering that
+> mode makes the robot forget its saved WiFi. So it asks first, and you must follow
+> it with a `provision`. Run it on a robot that is already failing — not as a
+> routine check.
 
 There are no per-command broker flags: one machine points at one broker, behind
 one CA, and a flag naming a different one would still present this store's

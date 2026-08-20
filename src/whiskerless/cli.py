@@ -318,6 +318,24 @@ def _calibration_problem(full_mm: int | None, empty_mm: int | None) -> str | Non
     return None
 
 
+def _drawer_level(robot: LitterRobot4State) -> str:
+    """The waste-drawer percentage, said as firmly as the robot actually says it.
+
+    A Reset press zeroes the gauge and raises ``isDFIResetPending`` in the same
+    instant; the lasers only measure on the next cycle, which is when the flag
+    clears. Between the two the robot is reporting a number it has not taken, and
+    it says so — so printing a bare percentage there turns the robot's own
+    disclaimer into a reading. Live 2026-08-19 that window was five minutes long
+    and the provisional figure was 0 %.
+    """
+    if robot.waste_drawer_level is None:
+        return "unknown"
+    level = f"{robot.waste_drawer_level}%"
+    if robot.is_dfi_reset_pending:
+        return f"{level} (not measured yet — reset, awaiting the next cycle)"
+    return level
+
+
 async def _cmd_status(args: argparse.Namespace) -> int:
     """The derived view — what Home Assistant shows, from one document.
 
@@ -379,7 +397,12 @@ async def _cmd_status(args: argparse.Namespace) -> int:
         ("litter level", level),
         ("litter distance", "unknown" if robot.litter_level_mm is None else f"{robot.litter_level_mm} mm"),
         ("calibration", calibration),
-        ("waste drawer", "unknown" if robot.waste_drawer_level is None else f"{robot.waste_drawer_level}%"),
+        # The robot says outright when this number has not been measured yet — a
+        # Reset zeroes the gauge and flags it until the next cycle's lasers confirm
+        # it — and printing the bare percentage anyway presents a guess as a
+        # reading. The qualifier is on the value rather than a row of its own so it
+        # cannot be read past.
+        ("waste drawer", _drawer_level(robot)),
         ("drawer full", robot.is_dfi_full),
         ("cat present", robot.cat_detected),
         ("weight on the scale", robot.scale_loaded),
@@ -590,6 +613,55 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _cmd_diagnose(args: argparse.Namespace) -> int:
+    """Ask the robot why its WiFi will not hold. Reads only.
+
+    Exists because the panel says "blinking blue" and nothing else, while the robot
+    itself knows whether it was refused, could not see the network, or joined and
+    never got a lease. BLE does not need the WiFi up, so this works exactly when
+    nothing else does.
+    """
+    from . import ble
+
+    _console.banner("THIS PUTS THE ROBOT IN PAIRING MODE — WHICH TAKES IT OFF WIFI")
+    print(
+        "  Reading the robot's status needs it advertising over Bluetooth, and the\n"
+        "  only way in is pairing mode — which makes it forget its saved network.\n"
+        "  It will NOT rejoin on its own afterwards: finish with a `provision`.\n\n"
+        "  So run this when the robot is ALREADY failing and you are prepared to\n"
+        "  re-provision it. It is not a free look.\n"
+    )
+    if not (args.yes or _confirm("Continue? Type 'yes': ")):
+        print("aborted", file=sys.stderr)
+        return 1
+
+    print(
+        f"\n  Hold {_console.accent('Connect')} until the light "
+        f"{_console.accent('BLINKS YELLOW')}, and keep holding\n"
+        "  until the numbered lines below start.\n"
+    )
+    with _console.progress("scanning for robots over BLE"):
+        robots = await ble.scan(timeout=args.scan_timeout, address=args.address)
+    if not robots:
+        print(
+            "no LR4 found advertising — HOLD Connect for about three seconds, until "
+            "the light BLINKS YELLOW, then rerun.",
+            file=sys.stderr,
+        )
+        return 1
+    target = _pick_robot(robots, args.address)
+
+    samples = await ble.diagnose_wifi(
+        target.address,
+        polls=args.polls,
+        interval=args.interval,
+        on_step=lambda line: print(f"  {_console.dim(line)}"),
+    )
+    print(f"\n  {_console.accent(ble.wifi_diagnosis(samples))}\n")
+    print(_console.dim("  The robot is in pairing mode now. Run `whiskerless provision` to restore it.\n"))
+    return 0
+
+
 async def _cmd_provision(args: argparse.Namespace) -> int:
     from . import ble
 
@@ -693,6 +765,21 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         "  advertises while you hold, and the link is opened after the\n"
         "  scan finds it.\n"
     )
+    # Said at the moment of the hold, because that is the only moment it can still
+    # be avoided. Whisker documents the same behaviour for their own app
+    # (litter-robot.com/support/article/litter-robot-4-not-connecting/): entering
+    # onboarding mode makes the robot "forget its saved WiFi network". Confirmed on
+    # hardware 2026-08-19 — a robot left in pairing mode never rejoins, is not even
+    # ARP-resolvable from its own VLAN, and the mode never times out.
+    _console.banner("HOLDING CONNECT WIPES THE ROBOT'S SAVED WIFI — FINISH THIS PROVISION")
+    print(
+        "  The robot forgets its network the moment it enters pairing mode — that\n"
+        "  much is Whisker's own documented behaviour. On the unit we tested it did\n"
+        "  not come back on its own: nothing timed the mode out, and no button we\n"
+        "  tried left it. Assume only a completed provision restores it.\n\n"
+        "  If you abandon this run, the robot stays off your network until you come\n"
+        "  back with this laptop and finish one.\n"
+    )
     # The scan is the one stretch a first-time user stares at with nothing
     # moving — indistinguishable from hung without a liveness row.
     with _console.progress("scanning for robots over BLE"):
@@ -703,6 +790,8 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         print(
             "no LR4 found advertising — HOLD the robot's Connect button for about three "
             "seconds, until its light BLINKS YELLOW (that is pairing mode), then rerun.\n"
+            "If it is ALREADY blinking yellow it has forgotten its WiFi and is off your\n"
+            "network until a provision completes — rerun this and finish it.\n"
             "Hold it, do not tap it: a short press toggles the robot's WiFi off instead.",
             file=sys.stderr,
         )
@@ -729,11 +818,17 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         # Firmware that will not answer the device-id read leaves this unset; a
         # literal "MAC None" beside the address is worse than no MAC at all.
         mac_note = _console.dim(f"(MAC {mac})") if mac else ""
-        print(f"    robot   {_console.accent(target.address)} {mac_note}".rstrip())
-        print(f"    serial  {_console.accent(settled.serial)}")
-        print(f"    broker  {_console.accent(settled.host)}")
-        print(f"    wifi    {_console.accent(settled.wifi_ssid)}")
-        print(f"    identity {_console.accent(identity_note)}")
+        # Padded off ONE width, not per line: "identity" is the longest label and
+        # hand-spacing the other four to match it is how the values ended up a
+        # column apart from it.
+        def row(label: str, value: str) -> str:
+            return f"    {label:<9}{value}"
+
+        print(row("robot", f"{_console.accent(target.address)} {mac_note}").rstrip())
+        print(row("serial", _console.accent(settled.serial)))
+        print(row("broker", _console.accent(settled.host)))
+        print(row("wifi", _console.accent(settled.wifi_ssid)))
+        print(row("identity", _console.accent(identity_note)))
         print(_console.dim("    reversible — re-onboard the robot in the Whisker app\n"))
         if args.dry_run:
             print(_console.dim(
@@ -781,11 +876,23 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # only becomes the one every other command targets once a robot is actually
     # on it. An abort or a failed join must not retarget the whole machine.
     store.save_broker(broker)
+    # Read BEFORE the save, because the save is what would make them equal. An
+    # identity is reused whenever one is already on file and still current, so a
+    # re-provision usually writes the certificate the store already had — and
+    # telling someone their backup is missing a key it already contains teaches
+    # them to ignore the notice.
+    previous = (
+        store.load_robot_identity(serial).cert_pem
+        if store.has_robot_identity(serial)
+        else None
+    )
     if identity is not None:
         # Now: the robot has it, so the store recording it is a true statement.
         store.save_robot_identity(serial, identity)
     _save_profile(config, args, pki.issued_serial(identity) if identity else None)
-    _remind_to_back_up(store, serial, identity is not None)
+    _remind_to_back_up(
+        store, serial, identity is not None and identity.cert_pem != previous
+    )
     return 0
 
 
@@ -804,17 +911,28 @@ async def _choose_network(
         ssid = _ask("WiFi SSID: ", None, _check_ssid)
         return ssid, supplied_pass or _ask_secret(f"WiFi password for {ssid!r}: ")
 
-    print("\n  networks the robot can see, strongest first:\n")
+    # Legend, not a header row: two of the four columns are one character wide, so
+    # anything aligned above them reads as noise. The signal is qualified as being
+    # at the ROBOT because that is the whole reason this list is worth printing —
+    # it is the one thing the person holding the laptop cannot judge from where
+    # they are standing.
+    print("\n  networks the robot can see, strongest first:")
+    print(_console.dim(
+        "   * = password required   |||| = signal AT THE ROBOT   ch = channel\n"
+    ))
     for index, network in enumerate(networks):
         lock = "*" if network.secured else " "
         bars = _console.dim(("|" * network.bars).ljust(4))
         print(f"   {_console.dim(f'{index:>2}')}  {network.display:<32s} {lock} {bars} "
               f"{_console.dim(f'ch {network.channel}')}")
-    print(f"   {_console.dim(' -')}  {_console.dim('not listed (hidden network)')}\n")
+    print(f"   {_console.dim(' -')}  {_console.dim('my network is not listed — type its name (hidden SSID)')}\n")
 
     while True:
         try:
-            answer = input(f"select [0-{len(networks) - 1}, or -]: ").strip()
+            answer = input(
+                f"select a network by number (0-{len(networks) - 1}), "
+                "or - to type a hidden one: "
+            ).strip()
         except EOFError:
             raise WhiskerlessError("no network chosen (input ended)") from None
         if answer == "-":
@@ -1134,18 +1252,21 @@ def _load_certificate(pem: str) -> x509.Certificate:
         raise WhiskerlessError(f"that is not a readable PEM certificate: {exc}") from exc
 
 
-def _remind_to_back_up(store: ProfileStore, serial: str, stored_identity: bool) -> None:
+def _remind_to_back_up(store: ProfileStore, serial: str, new_identity: bool) -> None:
     """Say it after a provision, not only after setup.
 
-    Every provision adds material to the store that a backup taken before it does
-    not have: the profile, and — since identities are kept rather than minted per
-    run — a private key. In `supplied` mode that key cannot be produced again by
-    anything here, so a backup from before this moment is not merely stale, it is
-    missing the only copy.
+    A provision adds material to the store that a backup taken before it does not
+    have: the profile always, and a private key when this run actually issued one.
+    In `supplied` mode that key cannot be produced again by anything here, so a
+    backup from before it is not merely stale, it is missing the only copy.
+
+    ``new_identity`` is whether the certificate CHANGED, not whether one exists.
+    Identities are kept rather than minted per run, so re-provisioning a robot —
+    to move it to a new WiFi password, say — usually rewrites the certificate the
+    store already held, and announcing that as new material sends someone to
+    re-take a backup that would be byte-identical.
     """
-    what = (
-        f"{serial}'s certificate and profile" if stored_identity else f"{serial}'s profile"
-    )
+    what = f"{serial}'s certificate and profile" if new_identity else f"{serial}'s profile"
     where = Path.home() / "Documents"
     print(
         f"  {_console.dim('Back up again:')} {what} is new here.\n"
@@ -2471,6 +2592,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_power = add_parser("power", "toggle robot power (it may not come back)")
     add_conn(p_power)
     p_power.set_defaults(func=_cmd_power)
+
+    p_diag = add_parser(
+        "diagnose",
+        "ask the robot why its WiFi will not hold (read-only, BLE; often inconclusive)",
+    )
+    p_diag.add_argument("--address", help="BLE MAC to target directly (skip the picker)")
+    p_diag.add_argument("--scan-timeout", type=float, default=15.0)
+    p_diag.add_argument("--polls", type=int, default=8, help="how many status reads to take")
+    p_diag.add_argument("--interval", type=float, default=3.0, help="seconds between reads")
+    p_diag.add_argument("--yes", action="store_true", help="skip the pairing-mode confirmation")
+    p_diag.set_defaults(func=_cmd_diagnose)
 
     p_prov = add_parser("provision", "re-provision a robot onto your broker over BLE")
     p_prov.add_argument(

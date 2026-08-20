@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import override
+from typing import Any, override
 
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -60,6 +60,25 @@ class WhiskerlessSensorEntityDescription(SensorEntityDescription):
     """Describes a Whiskerless sensor."""
 
     value_fn: Callable[[LitterRobot4State], StateType]
+    #: Optional per-state attributes. Used where the robot qualifies its own
+    #: reading and dropping that qualification would publish a guess as a fact.
+    attributes_fn: Callable[[LitterRobot4State], dict[str, Any] | None] | None = None
+
+
+def _drawer_attrs(robot: LitterRobot4State) -> dict[str, Any] | None:
+    """Mark a drawer level the robot has not actually measured.
+
+    A Reset press zeroes the gauge and raises `isDFIResetPending` in the same
+    instant; only the next cycle's lasers confirm it. The level keeps publishing
+    so nothing keyed on it breaks — going `unknown` would strand automations
+    watching for an emptied drawer — but the attribute says the number is a claim.
+
+    Absent when the firmware does not report the flag at all: `False` there would
+    assert "measured" about a robot that never said so.
+    """
+    if robot.is_dfi_reset_pending is None:
+        return None
+    return {"level_provisional": robot.is_dfi_reset_pending}
 
 
 def _status(robot: LitterRobot4State) -> StateType:
@@ -81,6 +100,7 @@ SENSORS: tuple[WhiskerlessSensorEntityDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda robot: robot.waste_drawer_level,
+        attributes_fn=_drawer_attrs,
     ),
     WhiskerlessSensorEntityDescription(
         key="clean_cycle_count",
@@ -326,6 +346,12 @@ class WhiskerlessSensor(WhiskerlessEntity, SensorEntity):
     @override
     def native_value(self) -> StateType:
         return self.entity_description.value_fn(self._robot)
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        fn = self.entity_description.attributes_fn
+        return fn(self._robot) if fn else None
 
 
 class WhiskerlessDataSensor(WhiskerlessEntity, RestoreSensor):

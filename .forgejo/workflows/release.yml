@@ -114,7 +114,20 @@ jobs:
           sha256sum "$RUNNER_TEMP/intended-release.patch" \
             | awk '{print "sha256=" $1}' >> "$GITHUB_OUTPUT"
 
+      # Retried in-step: a transient versions-manifest fetch failure took all five CI
+      # jobs down together on 2026-08-17, and Forgejo exposes no rerun endpoint, so
+      # recovery has to happen inside the job. The guard is `!= 'success'`, not
+      # `== 'failure'`: if a runner ever leaves `outcome` unset, an equality test would
+      # silently skip the retry AND `continue-on-error` would have swallowed the first
+      # failure, letting later steps run against whatever interpreter happened to be
+      # present. This way an unknown outcome retries, and a failed retry fails the job.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: setup_python_1
+        continue-on-error: true
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.setup_python_1.outcome != 'success'
         with:
           python-version: "3.14"
       - name: Test gate (library)
@@ -149,7 +162,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Retried in-step: a transient versions-manifest fetch failure took all five CI
+      # jobs down together on 2026-08-17, and Forgejo exposes no rerun endpoint, so
+      # recovery has to happen inside the job. The guard is `!= 'success'`, not
+      # `== 'failure'`: if a runner ever leaves `outcome` unset, an equality test would
+      # silently skip the retry AND `continue-on-error` would have swallowed the first
+      # failure, letting later steps run against whatever interpreter happened to be
+      # present. This way an unknown outcome retries, and a failed retry fails the job.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: setup_python_2
+        continue-on-error: true
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.setup_python_2.outcome != 'success'
         with:
           python-version: "3.13"
       - name: Install

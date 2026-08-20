@@ -115,6 +115,35 @@ retires three separate qualifiers on its old note — see its row in `registers.
 Every command here was driven from the published **rc.34** Homebrew bottle over
 mutual TLS (`state`, `status`, `panel-reset`, `clean-cycle`), not a source build.
 
+**Cross-checked against Whisker's own app, same robot, seven minutes apart.** The
+app and `whiskerless status` agree exactly on both numbers the app exposes:
+
+| Whisker app 21:11 | whiskerless 21:18 |
+|---|---|
+| Ready | `ready` |
+| Waste **23 %** | waste drawer **23 %** |
+| Scoops Saved **3,191** | clean cycles **3191** |
+| Litter "Optimal" | litter level 80 % (they bucket, we quantify) |
+
+So **"Scoops Saved" is `odometerCleanCycles`** — a marketing name for a counter
+already mapped — and the `DFILevelPercent` decode matches the vendor's own figure to
+the point. Independent of our reverse engineering, which is what makes it worth
+recording.
+
+**No cat-identity signal appears anywhere we can see.** The app shows Arya 8.3 lb and
+Nahla 5.0 lb; an activity CSV exported from the same account the same day lists only
+unattributed per-visit weights (7.0, 8.2, 6.6 lb). So the attribution is not in that
+export and has never appeared on the wire — which is NOT the same as saying it cannot
+be done locally. The robot supplies raw weights, and classifying them against
+configured cats or learned distributions is a thing local software could attempt. What
+is established is only that the robot does not tell us which cat.
+
+**That export contains five distinct labels** — `Weight recorded`, `Clean Cycle In
+Progress`, `Clean Cycle Complete`, `Cat detected`, `Cycle interrupted` — over 60 rows
+of one robot's recent history. That is what one account's export showed, not a proven
+enumeration of everything the product can emit; a fault or an empty cycle would
+plainly produce something and neither occurred in the window.
+
 ### 2026-08-15→19, 3d22h — the pairing behind `0x3C`/`0x66`, and the panel's hold events
 
 Sixth pass. Loki, `{namespace="homeassistant", pod=~"lr4-capture.*"}`, paged forward

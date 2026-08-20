@@ -118,6 +118,70 @@ def test_status_reports_the_robot_in_plain_terms(
     assert "446 mm" in out
 
 
+def test_status_marks_a_drawer_level_the_robot_has_not_measured(
+    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A Reset zeroes the gauge and raises `isDFIResetPending` in the same instant;
+    only the next cycle's lasers measure. Printing the bare percentage in that
+    window turns the robot's own disclaimer into a reading — live 2026-08-19 it
+    published `0%` as measured for five minutes.
+
+    Whether that 0 % was *wrong* is not known and must not be implied: the cycle
+    that measured afterwards also dumped waste from the globe into the drawer, so
+    it read a drawer that had changed. Unconfirmed is the claim; inaccurate is not.
+    """
+    FakeLink.document = dict(IDLE, isDFIResetPending=1, DFILevelPercent=0)
+    assert main(["status", "--serial", SERIAL]) == 0
+    out = capsys.readouterr().out
+    assert "0%" in out
+    assert "not measured yet" in out, out
+
+
+def test_status_does_not_qualify_a_measured_drawer_level(
+    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The qualifier has to be absent in the ordinary case or it stops meaning
+    anything — the flag is clear on every document outside that one window."""
+    FakeLink.document = dict(IDLE, isDFIResetPending=0, DFILevelPercent=14)
+    assert main(["status", "--serial", SERIAL]) == 0
+    out = capsys.readouterr().out
+    assert "14%" in out
+    assert "not measured" not in out
+
+
+def test_status_says_unknown_when_the_robot_sends_no_drawer_level(
+    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No level is not a level of zero, and it must not pick up the qualifier
+    either — "unknown (not measured yet)" would imply a reading exists.
+
+    The pending flag is deliberately SET here. With both fields absent the test
+    passes whichever order the two checks run in, so it would stay green if the
+    absent-level branch were moved below the flag check and started qualifying.
+    """
+    doc = dict(IDLE, isDFIResetPending=1)
+    doc.pop("DFILevelPercent", None)
+    FakeLink.document = doc
+    assert main(["status", "--serial", SERIAL]) == 0
+    out = capsys.readouterr().out
+    row = next(line for line in out.splitlines() if "waste drawer" in line)
+    assert row.split("waste drawer")[1].strip() == "unknown", row
+
+
+def test_status_does_not_qualify_when_the_firmware_omits_the_flag(
+    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Absent is not pending. A firmware that never sends the field would other-
+    wise have every reading it makes labelled a guess."""
+    doc = dict(IDLE)
+    doc.pop("isDFIResetPending", None)
+    FakeLink.document = doc
+    assert main(["status", "--serial", SERIAL]) == 0
+    out = capsys.readouterr().out
+    assert "68%" in out
+    assert "not measured" not in out
+
+
 def test_status_says_what_a_one_shot_cannot_know(
     saved: ProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:

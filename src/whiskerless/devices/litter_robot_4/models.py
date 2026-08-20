@@ -77,6 +77,12 @@ class LitterRobot4State:
     globe_motor_retract_fault: int | None = None
 
     # Drawer
+    #: The drawer level below is a claim, not a measurement, while this is set. A
+    #: Reset press zeroes the gauge and raises this in the same instant; the next
+    #: cycle's lasers measure and lower it. Anything presenting the level without
+    #: consulting this reports a guess as a reading — which it did, for the five
+    #: minutes between a Reset and the following cycle.
+    is_dfi_reset_pending: bool | None = None
     is_dfi_full: bool | None = None
     is_dfi_partial_full: bool | None = None
     dfi_number_of_cycles: int | None = None
@@ -175,6 +181,7 @@ class LitterRobot4State:
             display_intensity_low=_int(g("DisplayIntensityLow")),
             globe_motor_fault=_int(g("globeMotorFaultStatus")),
             globe_motor_retract_fault=_int(g("globeMotorRetractFaultStatus")),
+            is_dfi_reset_pending=_bool(g("isDFIResetPending")),
             is_dfi_full=_bool(g("isDFIFull")),
             is_dfi_partial_full=_bool(g("isDFIPartialFull")),
             dfi_number_of_cycles=_int(g("DFINumberOfCycles")),

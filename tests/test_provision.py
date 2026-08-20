@@ -14,11 +14,17 @@ from whiskerless.ble.messages import (
     PROV_SERVICE_UUID,
     WifiConnectFailedReason,
     WifiStationState,
+    WifiStatus,
     parse_wifi_status,
     wifi_get_status,
 )
 from whiskerless.ble.protobuf import field_message, field_string, field_varint
-from whiskerless.ble.provision import ProvisioningConfig, _assert_lr4, _verify_wifi
+from whiskerless.ble.provision import (
+    ProvisioningConfig,
+    _assert_lr4,
+    _verify_wifi,
+    wifi_diagnosis,
+)
 from whiskerless.exceptions import ProvisioningError
 
 CA_PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
@@ -302,3 +308,106 @@ def test_verify_wifi_still_connecting_warns_and_continues(monkeypatch: pytest.Mo
     transport = _FakeTransport([CONNECTING])
     steps = _run_verify(transport, monkeypatch)
     assert any("still connecting" in s for s in steps)
+
+
+# --- wifi_diagnosis ------------------------------------------------------------
+def _status(state: str, *, reason: str | None = None, ip4: str | None = None) -> WifiStatus:
+    return WifiStatus(
+        WifiStationState[state],
+        fail_reason=None if reason is None else WifiConnectFailedReason[reason],
+        ip4=ip4,
+    )
+
+
+def test_diagnosis_refuses_to_call_pairing_mode_a_fault() -> None:
+    """The single most important output, and the reason this function exists.
+
+    Reading GetStatus needs the robot advertising, which needs pairing mode, and
+    pairing mode itself takes the station down. So an all-CONNECTING run is what
+    the tool PRODUCES. Reporting it as "stuck associating" is the mistake that was
+    actually made on 2026-08-19 against a live robot, and it sent the diagnosis
+    down an RF dead end for an hour.
+    """
+    verdict = wifi_diagnosis([_status("CONNECTING")] * 8)
+    assert "does NOT show a fault" in verdict
+    assert "pairing mode" in verdict
+    # The phrase appears only inside the disclaimer that warns against it — which
+    # is the wording that matters, so pin the disclaimer rather than the word.
+    assert "Do not read it as 'stuck associating'" in verdict
+
+
+def test_diagnosis_reports_a_refusal_as_a_real_verdict() -> None:
+    """AUTH_ERROR survives the pairing-mode confound: it is the robot reporting on
+    an attempt it already made, not a state this command induced."""
+    verdict = wifi_diagnosis([_status("CONNECTING"), _status("CONNECTION_FAILED", reason="AUTH_ERROR")])
+    assert "AUTH_ERROR" in verdict
+    assert "not an artefact" in verdict
+
+
+def test_diagnosis_reports_an_invisible_network_as_a_real_verdict() -> None:
+    verdict = wifi_diagnosis(
+        [_status("CONNECTION_FAILED", reason="NETWORK_NOT_FOUND")]
+    )
+    assert "NETWORK_NOT_FOUND" in verdict
+    assert "2.4 GHz" in verdict
+
+
+def test_diagnosis_calls_a_real_lease_fine() -> None:
+    verdict = wifi_diagnosis([_status("CONNECTING"), _status("CONNECTED", ip4="192.168.3.31")])
+    assert "192.168.3.31" in verdict
+    assert "fine" in verdict
+
+
+def test_diagnosis_ignores_an_implausible_address_when_summarising() -> None:
+    """Same guard as the join verify: 1.0.0.0 is not a lease, so it must not be
+    reported as one here either."""
+    verdict = wifi_diagnosis([_status("CONNECTED", ip4="1.0.0.0")])
+    assert "1.0.0.0" not in verdict
+    assert "no address arrived" in verdict
+
+
+def test_diagnosis_says_so_when_the_robot_answered_nothing() -> None:
+    """All-None means the link died or the firmware has no GetStatus. Either way
+    the honest output is that nothing can be concluded."""
+    verdict = wifi_diagnosis([None, None, None])
+    assert "Nothing can be concluded" in verdict
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (None, "no answer"),
+        (WifiStatus(WifiStationState.CONNECTING), "state=CONNECTING"),
+        (
+            WifiStatus(
+                WifiStationState.CONNECTION_FAILED,
+                fail_reason=WifiConnectFailedReason.AUTH_ERROR,
+            ),
+            "fail_reason=AUTH_ERROR",
+        ),
+        (WifiStatus(WifiStationState.CONNECTED, ip4="192.168.3.31"), "ip4=192.168.3.31"),
+    ],
+)
+def test_each_sample_line_carries_what_the_robot_said(
+    status: WifiStatus | None, expected: str
+) -> None:
+    """These lines are read live by someone holding a button, so the failure
+    reason and the address have to be ON the line, not summarised away."""
+    assert expected in provision_module._describe_status(0, status)
+
+
+@pytest.mark.parametrize("state", ["DISCONNECTED", "CONNECTION_FAILED"])
+def test_diagnosis_does_not_dress_a_real_failure_state_as_the_pairing_artefact(
+    state: str,
+) -> None:
+    """The pairing-mode disclaimer is only honest about an all-CONNECTING run.
+
+    `parse_wifi_status` also produces DISCONNECTED, and CONNECTION_FAILED with a
+    reason this build does not map. Falling through to "this run does NOT show a
+    fault" for those would bury the one interesting thing the robot said — the
+    opposite failure to the one the disclaimer exists to prevent.
+    """
+    verdict = wifi_diagnosis([_status("CONNECTING"), _status(state)])
+    assert "does NOT show a fault" not in verdict
+    assert "inconclusive" in verdict
+    assert state in verdict, "say which state it actually reported"
