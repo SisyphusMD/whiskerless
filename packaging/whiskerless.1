@@ -44,10 +44,9 @@ volunteer a verdict it is a real one, because
 and
 .B NETWORK_NOT_FOUND
 describe an attempt it already made and distinguish a wrong passphrase from a
-network the robot cannot see. Requires
-pairing mode, which makes the robot forget its saved WiFi, so it must be
-followed by a
-.BR provision .
+network the robot cannot see. Must therefore be followed by a
+.BR provision ,
+and warns and asks before doing anything.
 .TP
 .B provision
 Re-provision a robot onto your broker over Bluetooth. Prompts for the serial,
