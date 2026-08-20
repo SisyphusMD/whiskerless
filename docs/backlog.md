@@ -718,23 +718,52 @@ gate the feature, because recovery no longer depends on it.
 Until then the anonymous listener stands, and [setup/mqtt-broker.md](setup/mqtt-broker.md)
 says why.
 
-### #71 — Cut an rc, then prove the certificate flow on real hardware with it
+### #71 — Cut an rc, then prove the certificate flow on real hardware with it — **DONE 2026-08-19 on `v0.2.0-rc.34`**
 
-**NOT DONE — and the reason is the point of the item.** On 2026-08-18 both robots
-were re-provisioned onto a whiskerless-issued CA and now connect to the home
-broker with certificates of their own, and the LR4 listener refuses anonymous
-clients (`require_certificate true`, `use_identity_as_username true`). But that
-was done with a **source build**, not with the release candidate: `0.2.0-rc.32`'s
-artifact could not provision at all — its WiFi scan dropped the BLE link — so the
-run that proved the certificate flow is not the run this item asks for.
+**Done, and with the artifact this time.** Both robots — **both on ESP 1.1.75**, so
+this validates that firmware and says nothing about 1.4.4 — were re-provisioned from
+the published **Homebrew bottle** (`poured_from_bottle: True`, arm64; an editable
+install from `src/` would have passed the same commands while proving nothing about
+what users get).
 
-This item says "prove the certificate flow on real hardware **with it**", meaning
-with the rc. Doing it with `.venv/bin/whiskerless` proves the code and not the
-artifact, which is exactly the inherited-confidence failure this repo keeps
-having. **Redo on `0.2.0-rc.33`**, which carries the fix: install it from a
-published channel and provision a robot with that binary.
+**Two separate claims, proved by two different things — do not merge them.**
 
-**Nothing in the certificate work had touched a robot before that.** It was
+1. *The packaged artifact exercised the write path.* Proof: the robot's own
+   acknowledgements over BLE — `CERT_DEVICE_CERT` (1066 B), `CERT_DEVICE_KEY`
+   (1675 B), `APPLY_CONFIG committed`, `DEVICE_REBOOT` — and the stored files match
+   those byte counts.
+2. *The broker accepts the robot on a certificate.* Proof: it reconnected and
+   mosquitto logged the certificate CN as the username, which is what
+   `use_identity_as_username true` does on a listener running
+   `require_certificate true`.
+
+**The username alone does NOT prove the new certificate landed.** Both robots
+already held `CN=<serial>` certificates from the 2026-08-18 source run, so that log
+line would look identical if the BLE write had silently failed and the robot kept
+its old identity. Distinguishing them needs the presented certificate matched by
+fingerprint or serial, which mosquitto is not configured to log. The write is
+evidenced by claim 1, not claim 2.
+
+The store upgraded itself in the same runs: `robots/<serial>/client/` now exists for
+both (neither had a stored identity — they predate per-robot storage), and
+`broker.json` gained `"auth": "mutual"`.
+
+The earlier 2026-08-18 run is what this item existed to reject: it re-provisioned
+both robots successfully, but with `.venv/bin/whiskerless`, which proves the code
+and not the artifact — the inherited-confidence failure this repo keeps having.
+`0.2.0-rc.32`'s artifact could not provision at all (its WiFi scan dropped the BLE
+link), which is precisely why "it works from source" was not good enough.
+
+**The run found two defects nothing else would have** — both fixed in `9c429c1`:
+the hold hint told people to wait for a beep the LR4 cannot make (while this same
+command's failure path already said BLINKS YELLOW), and the lease guard excluded
+only `0.0.0.0`, so a robot answering `1.0.0.0` printed an address it did not hold
+*and* ended the wait that would have collected the real one. See #79 for the third
+thing the night turned up.
+
+**Nothing in the certificate work had touched a robot before the 2026-08-18 source
+run** — that run, not the rc.34 one above, was the first time any of it met
+hardware. It was
 verified against fakes and one decoded capture, with both suites green, and the
 identity write had never gone over BLE to a real LR4 — which is exactly why it
 carried two defects.
@@ -775,6 +804,15 @@ nothing is the check.
 (left there by the app-onboarding capture); downstairs is on the local broker at
 your broker, provisioned by an rc build, trusting the OpenBao-backed
 `LR4 Local Control Root CA`.
+
+#### HISTORICAL — the pre-test procedure, kept for its reasoning only
+
+**Do not follow the steps below.** They are the plan as it stood before any of this
+ran, and every premise has since changed: both robots are re-provisioned onto the
+whiskerless CA, the listener already enforces `require_certificate true`, and
+upstairs is not on Whisker's cloud. What is still worth reading is *why* the plan
+was staged the way it was — test the identity write against the existing CA first,
+so the broker's configuration never changes and the other robot is never at risk.
 
 #### Test the identity write first — this needs no broker change at all
 
