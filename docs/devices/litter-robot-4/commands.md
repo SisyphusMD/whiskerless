@@ -189,8 +189,9 @@ its chord is a long press, the write path declines those, and unlike lockout or 
 night light it has no backing settings register to write instead.
 
 The **waste-drawer reset** is not a separate command: a Reset press performs it when
-the full flag is set, so it comes with `0x02010401`. That path is established but has
-not yet been exercised on a genuinely full drawer.
+the full flag is set, so it comes with `0x02010401`. Exercised on a genuinely full
+drawer 2026-08-19 (1.1.75, `isDFIFull` 1 at 92 %): the press zeroed `0x42`–`0x46` and
+`0x4B` within 11 s and raised `0x41`, which the next cycle's measurement cleared.
 
 **The empty cycle's `robotStatus` integer has never been captured.** The decoder knows
 the cloud string `robot_empty` but no local int, and `empty_cycle` is in the set that

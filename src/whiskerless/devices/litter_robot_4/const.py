@@ -121,18 +121,30 @@ class Register(IntEnum):
     # countdown — the app's "replace filter" nag must be computed cloud-side,
     # so a local robot never nags and this only moves when the wizard runs.
     ODOMETER_FILTER_CYCLES = 0x40
+    # Goes to 1 at the same instant a Reset press zeroes the gauge, and back to 0 when
+    # the next cycle measures — so it marks that zero as a claim awaiting confirmation,
+    # NOT a reset still queued. A drawer level read while this is 1 is a guess, and
+    # nothing should present it as a measurement.
     IS_DFI_RESET_PENDING = 0x41      # read-only — NOT writable (0x02410001 is a no-op)
     DFI_NUMBER_OF_CYCLES = 0x42      # cycles since the firmware last DETECTED a
-                                     # drawer empty. Not cleared by the empty itself
-                                     # or by Reset; the firmware zeroes it (with
-                                     # 0x45/0x46) on the first post-empty cycle whose
-                                     # measurement confirms the drop — live-seen
-                                     # twice, one and two cycles after a bag change
-    # The drawer gauge is measurement-only on 1.4.4: it is read by three lasers
-    # during the CYCLE_DFI phase (globe inverted) and NOT cleared by emptying
-    # the drawer or pressing Reset — it self-corrects on the next cycle.
+                                     # drawer empty. Emptying alone does not move it;
+                                     # a Reset press zeroes it and the next cycle
+                                     # counts as 1
+    # The drawer gauge is read by three lasers during the CYCLE_DFI phase (globe
+    # inverted). Emptying the drawer does not clear it. A Reset press DOES: it zeroes
+    # this with 0x42/0x44/0x45/0x46/0x4B and raises 0x41 until a cycle measures
+    # (1.1.75, 2026-08-19 — ten state documents spanning a bag change moved nothing,
+    # then one press moved all six inside 11 s). The claim this replaces said Reset
+    # cleared none of them and was recorded against 1.4.4; with no 1.4.4 unit to
+    # retest, whether that is a firmware difference or an error stays open.
+    #
+    # Whether the zero Reset writes is ACCURATE is untested. The run that measured
+    # after it also dumped waste from the globe into the freshly lined drawer, so the
+    # 14 % that came back describes a drawer that changed in between — not a corrected
+    # zero. Testing it needs a Reset on an empty drawer with an empty globe.
+    #
     # Percent tracks the primary raw laser (activity reg 0x48) at ≈ 0.70×raw
-    # (r = 0.999 over a 38-cycle capture).
+    # (r = 0.999 over a 38-cycle capture; 0x48 = 20 → 14 % reproduced on 1.1.75).
     DFI_LEVEL_PERCENT = 0x43         # waste drawer % (derived, see above)
     IS_DFI_FULL = 0x44
     DFI_FULL_COUNTER = 0x45

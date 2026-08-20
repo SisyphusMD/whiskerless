@@ -54,7 +54,7 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | Is `0x4C` "a cycle is owed"? | Five days: 54 emissions, all while asleep, none awake; clears at all five wakes with a cycle following at four of them — but the fifth had sets, cleared normally and ran no cycle, which is what "owed" predicts against. Catch a deferred cycle with sleep OFF and a cat inside the deferral |
 | What do `0x3C` / `0x66` measure? | **`0x66` = 16 × `0x3C`, narrowed 2026-08-19.** Exact at two of the four cycle sample points (lag ≤1.3 units) and reproducibly ~38 and ~42 behind at the other two, across 143 paired seconds and both robots. `0x66` publishes on its own cadence and `0x3C`'s message repeats its last value, so the lag is sampling skew during movement, not a different quantity. Still open: what the shared quantity IS. Interrupt a cycle mid-way — the prediction is that the lag scales with globe speed |
 | What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`, `0x71`? | **`0x33` will not move** — 55 readings over four days, both robots, every one `34` (`0x22`). Look for a configuration word, not a sensor. **`0x5E` and `0x64` never co-occur** (0 of 165 seconds), alternate by cycle position (`0x5E` P1/P4, `0x64` P2/P3) and sit in disjoint per-robot bands — consistent with one quantity under two names, so test them together or not at all. `0x49`, `0x4A`, `0x71`: perturb something physical and watch which one moves |
-| What are `0x0C`, `0x41`, `0x67`? | `0x0C` is **demand-driven** — robot 2 ran it while starved, stopped after a refill and has been silent for five cycles; robot 1 has never needed a dispense. Whether it needs the *hardware* is still open: run a cycle with litter scooped out of the globe and the hopper off |
+| What are `0x0C`, `0x41`, `0x67`? | `0x0C` is **demand-driven** — robot 2 ran it while starved, stopped after a refill and has been silent for five cycles; robot 1 has never needed a dispense. Whether it needs the *hardware* is still open: run a cycle with litter scooped out of the globe and the hopper off. **`0x41` is answered** — it flags the drawer level as provisional after a Reset, see its row in `registers.md`. `0x67` remains open |
 | What are `0x5F`–`0x63`? | Twice, both in the same second as robot 2's `0x350001` raises and nowhere else in **nine** days: `0x5F` 55/12, `0x60` 14/14, `0x61` 326/172, `0x62` 65520 (`0xFFF0`, -16 int16) then 62, `0x63` 0/0. A further 3d22h to 2026-08-19 carried no `0x35` and none of the five, which is the cleanest negative test the reading has had. Still needs a second fault to decode |
 | ~~What does the `0x3402C0` tick count?~~ | **ANSWERED 2026-08-11, narrowed 2026-08-15.** It marks the clean delay: repeating ticks 2 min apart ahead of an automatic cycle. It does **not** count anything down — the value is constant (`0x02C0` = 704) — and neither the tick count nor the gap to the cycle is fixed: three ticks ending 13 s before the cycle on 08-11, two ticks ending 92 s before it on 08-15. The 2-minute spacing is the only part that has held |
 | Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | Looked settled (`1064` automatic, `0x01=0201` commanded) until a cycle carried the button code with nobody at the machine. Needs cycles where presence is certain |
@@ -69,6 +69,51 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | Does anything above `0x7F` exist on 1.1.75? | Not a null result any more: robot 2 emits `0xB9` (×48+57) and `0xBC` (×51+60) across five days and then four more to 2026-08-19, and robot 1 emits neither in either window. Both are on ESP 1.1.75, which rules the ESP build out but does not by itself name the cause: the main-board versions differ too (#19), and so does everything else about two physical robots. Ask what else separates them before crediting the board |
 
 ## Sessions
+
+### 2026-08-19, narrated — a drawer bag change, and what a Reset actually clears
+
+Live session on robot 1 (**1.1.75**), watched on the capture stream while the owner
+worked. Not a Loki pass: this is one narrated sequence, so read every count as n=1
+unless it says otherwise.
+
+**Emptying the drawer moves nothing.** Ten state documents span the removal and the
+reseat (01:22:22→01:23:22Z) with `DFILevelPercent` 92, `isDFIFull` 1 and
+`isDFIPartialFull` 1 unchanged throughout. What that supports is narrow — removing or
+reseating the drawer does not itself refresh the gauge — and specifically **not** that
+the gauge is measurement-only, which the next paragraph disproves.
+
+**A Reset press clears all of it, which the map said it could not.** One `0x02010401`
+at 01:23:43Z, and by 01:23:54Z `0x42`, `0x43`, `0x44`, `0x45`, `0x46` and `0x4B` had
+all gone to zero, with no cycle in between. The replaced claim said the empty "or …
+Reset" cleared none of them and was recorded against 1.4.4; with no 1.4.4 unit here,
+whether that is a firmware split or an error stays open.
+
+The repo already half-knew this and disagreed with itself: `compatibility.md` lists
+"reset waste drawer" as solved *because* it is what a Reset press does, while
+`const.py` said a Reset cleared none of these registers. The observation settles that
+contradiction in `compatibility.md`'s favour.
+
+**`0x41` means provisional, not queued.** It rose to `1` in the same instant the
+values zeroed — not when the drawer moved — and fell to `0` at 01:28:44Z when the
+cycle's lasers measured. It marks the displayed zero as unconfirmed.
+
+**The 14 % that came back is NOT evidence the zero was wrong.** The globe held cat
+waste, and this cycle dumped it into the freshly lined drawer — so the measurement
+describes a drawer that physically changed in between. Nothing here tests whether
+Reset's optimistic zero is accurate; that needs a Reset on an empty drawer with an
+empty globe. **This is the one fact in this entry the capture cannot supply, and
+without it the obvious reading of the trace — "the zero was fiction, off by 14
+points" — is wrong.** It was in fact reached, and corrected by the owner.
+
+**The 0.70 laser coefficient reproduced.** At the measuring instant `0x48` = 20 and
+`0x43` = 14; 0.70 × 20 = 14.0 exactly. The original fit (r = 0.999, 38 cycles) came
+off different firmware, so this is independent corroboration.
+
+**`0x4F` carried `12` in the state field** during an ordinary commanded cycle, which
+retires three separate qualifiers on its old note — see its row in `registers.md`.
+
+Every command here was driven from the published **rc.34** Homebrew bottle over
+mutual TLS (`state`, `status`, `panel-reset`, `clean-cycle`), not a source build.
 
 ### 2026-08-15→19, 3d22h — the pairing behind `0x3C`/`0x66`, and the panel's hold events
 

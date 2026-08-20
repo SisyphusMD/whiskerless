@@ -951,6 +951,44 @@ at HA 2026.3.
 
 ---
 
+## Added 2026-08-19 (from the bench night)
+
+### #79 — Decode `isDFIResetPending` and stop presenting a provisional drawer level as measured
+
+`IS_DFI_RESET_PENDING = 0x41` has a constant in `const.py` and is decoded **nowhere**
+— not in `models.py`, not in the CLI, not in the integration. The firmware sets it
+the instant a Reset press zeroes the drawer gauge, and clears it when the next cycle's
+lasers actually measure. So between those two events the robot is telling us in as
+many words that the number it is reporting is unconfirmed, and we throw that away and
+publish the number.
+
+Observed live 2026-08-19 (1.1.75): Reset at 01:23:43Z zeroed the gauge and raised
+`0x41`; the cycle measured at 01:28:44Z and cleared it. For those five minutes
+`whiskerless status` printed `waste drawer 0%` / `drawer full False`, and the HA
+`waste_drawer_level` sensor published `0`, with nothing marking either as a guess.
+
+**Do not justify this with "the 0% was wrong".** That reading was made and corrected
+on the night: the 14 % measured afterwards is explained by cat waste the globe dumped
+into the freshly lined drawer during that same cycle, so the drawer had genuinely
+changed and the zero may well have been right when written. Whether Reset's optimistic
+zero is ACCURATE is untested and needs a Reset on an empty drawer with an empty globe.
+The defect is that we present an explicitly-unconfirmed value as a measurement,
+regardless of how often it happens to be correct.
+
+This is not hypothetical exposure: `docs/setup/home-assistant.md` actively recommends
+alerting on *Waste drawer level* crossing a threshold, which is exactly the automation
+a provisional value can mislead.
+
+Minimum: carry the flag on `LitterRobot4State` and decode it. Then decide separately —
+this is the design question, not the decode — what the CLI and the integration should
+do with it. An HA sensor going `unknown` while pending is one option and would break
+any automation keyed on the drawer reaching zero; an attribute plus a documented
+caveat is the conservative one. Whichever way, `docs/devices/litter-robot-4/registers.md`
+now carries the `0x41` row, so the wire meaning is settled and only the presentation
+is open.
+
+---
+
 ## Done (archive)
 
 - #63 provision collects the username: **done 2026-08-15** — an optional prompt, offered from what the saved robots agree on, `-` to decline an inherited one, and skipped entirely when stdin is not a TTY so a fully-flagged run never hangs on an optional question. The password stays per-run and unwritten

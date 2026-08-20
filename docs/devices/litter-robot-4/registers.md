@@ -93,13 +93,14 @@ was.
 | `0x3A` | isBonnetRemoved | bonnet interlock — `1` on lift, `0` on reseat, in lockstep with `robotStatus 5` on both robots | PROVEN |
 | `0x3B` | isNightLightLEDOn | LED state | HIGH |
 | `0x3D–0x40` | odometer Power/Clean/Empty/Filter cycles | lifetime counts | HIGH |
-| `0x42` | DFINumberOfCycles | drawer cycles | HIGH |
+| `0x41` | isDFIResetPending | **the drawer level is provisional, not queued work.** Goes to `1` in the same instant a Reset press zeroes `0x42`–`0x46`/`0x4B`, and back to `0` when the next cycle's lasers measure. So it does not mean "a reset is pending"; it means the zero on display has not been confirmed by a measurement. Read-only — `0x02410001` is a no-op | PROVEN (1.1.75) |
+| `0x42` | DFINumberOfCycles | drawer cycles. Emptying alone does not move it. A Reset press zeroed it and the next cycle counted as 1 — once, on 1.1.75, **with the full flag already set**, which is the path `commands.md` describes; a Reset on a not-full drawer is untested, as is 1.4.4 | HIGH |
 | `0x43` | DFILevelPercent | waste drawer % full | PROVEN |
 | `0x44` / `0x4B` | isDFIFull / isDFIPartialFull | drawer full / partial | HIGH |
 | `0x47` | litterLevel | litter distance in mm | PROVEN |
 | `0x4D` | globeMotorRetractFaultStatus | fault enum | HIGH |
 | `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
-| `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum. Like `0x34`, the activity stream carries values outside the enum (5 seen, all on one robot, all in interrupted cycles) | PROVEN (field) |
+| `0x4F` | robotCycleState | `1` = idle; `4` = cat-interrupt pause — see enum. **Out-of-enum values are not activity-only and not interrupt-only.** An ordinary commanded clean cycle on the other robot (1.1.75, 2026-08-19) carried `12` in the *state field* — twice, each time returning to `3` within a second — and `356` and `404` on the activity stream. That supersedes the earlier note on every count it made: those five sightings were not the whole set, not confined to one robot, not confined to interrupted cycles, and not activity-only. Nothing is known about what any stray value means | PROVEN (field) |
 | `0x56` | drawer bay | fires when a drawer MOVES, in either direction. A seat-only asymmetry held for 5 seats and 5 removals on one robot and broke on the first test of the other, which emitted the same code for a pull and a seat. Neither the value nor the presence of a message carries direction | PROVEN (movement) / direction NOT recoverable |
 | `0x57` | hopper subsystem | activity-only, and **not usable as a link state** — positives fire on a robot with the hopper physically detached, and `-15` fires for a drawer pull as well as a full detach. Reattach emits no distinct code. Negatives seen: `-15`, `-17`, `-30`, `-31`, none reliably reproducible | LOW |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
