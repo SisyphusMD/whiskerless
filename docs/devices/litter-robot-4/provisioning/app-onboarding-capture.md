@@ -132,11 +132,22 @@ to `min(page, count - start)`.
 At `14:25:11.596` the robot reports itself connected — with `ip4_addr = "0.0.0.0"`.
 That is the pre-DHCP window: a `CONNECTED` status does not imply a lease.
 
-The address **does** arrive, a second or two later, and it is worth waiting for —
-it is what tells you where the robot actually landed. Reading the status once at
-the moment of association therefore always finds `0.0.0.0` and throws the lease
-away; whiskerless now keeps polling briefly after association and reports the real
-address (proven live 2026-08-18: both robots leased within the extra window).
+The address often arrives a second or two later, so reading the status once at the
+moment of association finds `0.0.0.0` and throws away a lease that was seconds off;
+whiskerless keeps polling briefly after association instead.
+
+**But the address is not dependable, and `0.0.0.0` is not the only way it fails.**
+Both robots leased inside the extra window on 2026-08-18, which is what the earlier
+claim of "proven" rested on. On 2026-08-19 neither did: one answered `1.0.0.0` while
+its real lease was a `192.168` address, and the other never reported one at all.
+`1.0.0.0` is what `esp_ip4addr_ntoa()` prints for the integer `1`, so the likeliest
+reading is a firmware field holding something that is not an address — and nothing
+on this side can parse an address out of a value the robot never sent.
+
+So the address is reported only when it is plausibly a LAN lease, and its absence is
+not mentioned at all: the join is what that step verifies, and it is confirmed either
+way. Do not restore a bare "is it `0.0.0.0`" guard — that is exactly what let
+`1.0.0.0` end the wait early and print an address the robot did not have.
 
 ### The certificate writes
 

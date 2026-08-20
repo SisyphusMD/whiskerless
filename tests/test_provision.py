@@ -192,6 +192,72 @@ def test_verify_wifi_waits_for_the_lease_before_reporting(
     assert not any("no IP lease yet" in s for s in steps)
 
 
+def test_verify_wifi_keeps_waiting_through_an_implausible_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A well-formed address that no robot on a LAN could hold must not end the wait.
+
+    A live re-provision reported `ip=1.0.0.0` from a robot whose actual lease was a
+    192.168 address. `1.0.0.0` is a valid public address, so every "is it 0.0.0.0"
+    guard passes it — the wait ended on the first answer and the real lease, still
+    seconds away, was never collected. Printing it also pointed the reader at an
+    address the robot does not have.
+    """
+    bogus = _resp_get_status(
+        field_message(11, field_string(1, "1.0.0.0") + field_varint(5, 6))
+    )
+    transport = _FakeTransport([bogus, bogus, CONNECTED])
+    steps = _run_verify(transport, monkeypatch, wifi_wait=5.0)
+    assert any("192.168.2.41" in s for s in steps), steps
+    assert not any("1.0.0.0" in s for s in steps), "the implausible address is never shown"
+
+
+def test_verify_wifi_says_nothing_about_a_lease_that_never_arrives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No lease is our plumbing, not a fact about the robot.
+
+    The join is confirmed either way, and a trailing "(no IP lease yet)" reads as a
+    half-finished provision to somebody who has just watched thirteen steps succeed.
+    """
+    no_lease = _resp_get_status(
+        field_message(11, field_string(1, "0.0.0.0") + field_varint(5, 6))
+    )
+    # The lease window has to be SHORTER than the total wait or the loop never
+    # reaches its own give-up arm — it keeps polling until `wifi_wait` expires and
+    # the post-loop fallback prints instead, leaving the in-loop line unpinned and a
+    # revert of it green. At the shipped 20 s / 12 s that arm is what a real run hits.
+    monkeypatch.setattr(provision_module, "WIFI_LEASE_WAIT", 0.0)
+    steps = _run_verify(_FakeTransport([no_lease, no_lease]), monkeypatch, wifi_wait=5.0)
+    assert any(s == "WiFi connected" for s in steps), steps
+    assert not any("lease" in s for s in steps)
+
+
+@pytest.mark.parametrize(
+    "reported",
+    [
+        "0.0.0.0", "1.0.0.0", "169.254.10.4", "127.0.0.1", "8.8.8.8", "not-an-ip", "",
+        # Every one of these is `is_private`, which is why membership is tested
+        # against the three RFC 1918 ranges instead of that flag.
+        "192.0.2.1", "198.51.100.1", "203.0.113.1", "240.0.0.1", "255.255.255.255",
+        # Just outside 172.16/12 — the range whose boundary is easiest to get wrong.
+        "172.32.0.1", "172.15.255.254",
+    ],
+)
+def test_lan_address_rejects_what_a_robot_cannot_hold(reported: str) -> None:
+    """169.254.x is the one that looks like a lease and is the opposite of one:
+    it is what a client assigns itself when DHCP does NOT answer."""
+    assert provision_module._lan_address(reported) is None
+
+
+@pytest.mark.parametrize(
+    "reported",
+    ["192.168.3.30", "10.0.0.7", "172.16.4.9", "172.31.255.254", "172.16.0.1"],
+)
+def test_lan_address_accepts_a_private_lease(reported: str) -> None:
+    assert provision_module._lan_address(reported) == reported
+
+
 def test_verify_wifi_rides_out_a_gatt_hiccup(monkeypatch: pytest.MonkeyPatch) -> None:
     """One failed GetStatus is a radio hiccup, not a failed join. Treating it as
     fatal would abort a provision that was working, at the step immediately

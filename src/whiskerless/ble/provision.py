@@ -21,6 +21,7 @@ firmware names that failure (AuthError) if asked; now we ask.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -58,8 +59,48 @@ WIFI_SETTLE = 1.0
 #: reports CONNECTED the moment it associates, which is BEFORE DHCP answers, so
 #: reading the address once at that point always finds it unset. This is the extra
 #: budget for the lease alone — short, because the join is already confirmed and
-#: the address is a nicety, and bounded by ``wifi_wait`` either way.
-WIFI_LEASE_WAIT = 8.0
+#: the address is a nicety, and bounded by ``wifi_wait`` either way. Eight seconds
+#: was not enough for a robot that associated and then had DHCP answer later, and
+#: the BLE link is already open by this point, so the extra budget costs a slower
+#: provision rather than a missed pairing window.
+WIFI_LEASE_WAIT = 12.0
+
+
+#: The only ranges a robot on a home network can hold a DHCP lease in. Membership is
+#: tested against these explicitly rather than with ``IPv4Address.is_private``, which
+#: is a wider "special use" test: it is also true of 192.0.2.0/24 and the other
+#: documentation ranges, of 240.0.0.0/4, and of 255.255.255.255 — every one of which
+#: would sail through as a lease and reintroduce exactly the bug this closes.
+_LAN_NETWORKS = (
+    ipaddress.IPv4Network("10.0.0.0/8"),
+    ipaddress.IPv4Network("172.16.0.0/12"),
+    ipaddress.IPv4Network("192.168.0.0/16"),
+)
+
+
+def _lan_address(reported: str | None) -> str | None:
+    """The reported STA address, or None unless it is one a robot could hold here.
+
+    Emptiness and ``0.0.0.0`` are not the only ways this arrives unusable: a robot
+    answered ``1.0.0.0`` while its actual lease was a 192.168 address. That is a
+    well-formed *public* address, so it survives any "is it 0.0.0.0" check — it was
+    printed as the robot's address, and worse, it satisfied the wait and stopped the
+    poll that would have collected the real one.
+
+    169.254.x is absent from the list deliberately, not by oversight: it is what a
+    client assigns itself when DHCP does NOT answer, so reporting it as the address
+    would dress a failure up as a result. A robot on a LAN outside RFC 1918 loses the
+    line and nothing else — the address has never been load-bearing.
+    """
+    if not reported:
+        return None
+    try:
+        addr = ipaddress.IPv4Address(reported)
+    except ValueError:
+        return None
+    if not any(addr in network for network in _LAN_NETWORKS):
+        return None
+    return reported
 
 
 #: Bytes per CERT_WRITE chunk. The app's own number; see
@@ -424,13 +465,24 @@ async def _verify_wifi(
             # threw away an address that arrives a second or two later. So keep
             # asking, briefly: the join is already confirmed either way, and the
             # address is what tells you where the robot actually landed.
-            leased = status.ip4 if status.ip4 not in (None, "", "0.0.0.0") else None
+            leased = _lan_address(status.ip4)
+            if leased is None and status.ip4 not in (None, "", "0.0.0.0"):
+                # The only record of what the firmware actually said. A rejected
+                # value is the interesting case precisely because it is the one
+                # nobody predicted, and without this the next surprise is diagnosed
+                # from scratch off a robot somebody is standing next to.
+                log.debug("ignoring implausible STA address %r", status.ip4)
             if leased is None:
                 if associated is None:
                     associated = loop.time()
                 if loop.time() - associated < WIFI_LEASE_WAIT:
                     continue
-            step(f"WiFi connected (ip={leased})" if leased else "WiFi connected (no IP lease yet)")
+            # No "(no IP lease yet)" tail when it never arrives. The join is what
+            # this step verifies and it is confirmed either way; whether DHCP had
+            # answered by the time the poll gave up is our plumbing, and reporting
+            # it as though it were a result about the robot invites someone to
+            # treat a successful provision as half-finished.
+            step(f"WiFi connected (ip={leased})" if leased else "WiFi connected")
             await asyncio.sleep(WIFI_SETTLE)
             return
         if status.state is m.WifiStationState.CONNECTION_FAILED:
@@ -461,7 +513,7 @@ async def _verify_wifi(
         # is confirmed, so this must not read like the unresolved case below —
         # saying "still connected, verify the robot appears" about a robot that
         # demonstrably joined sends people looking for a problem they do not have.
-        step("WiFi connected (no IP lease yet)")
+        step("WiFi connected")
         # The same settle the in-loop return takes. It is not cosmetic: the
         # endpoint and certificate writes follow immediately, and a join that has
         # only just resolved needs the beat before them.

@@ -112,8 +112,11 @@ is behind much of the hopper work. Protocol detail lives in
 - **Provisioning tells you to hold Connect**, and stops scanning the moment it
   finds your robot — it only advertises while you hold the button, and the scan
   was spending that window.
-- **The robot's IP address is reported** instead of "no lease yet". It answers
-  "connected" before DHCP replies, so the address was read a moment too early.
+- **The robot's IP address is reported when the firmware gives a usable one.** It
+  answers "connected" before DHCP replies, so the address was read a moment too
+  early; provisioning now waits for it. Some robots report an address that is not
+  theirs, so only a plausible LAN lease is shown — and when none arrives the step
+  simply says the WiFi is connected, which is what it verified either way.
 - **Errors are sentences, not stack traces.** `--debug` gives the traceback and
   the request log — with the WiFi password and the robot's key left out of it.
 - **A short press of Connect toggles WiFi off**, which the docs called harmless —

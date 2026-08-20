@@ -681,10 +681,17 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # "until it says connected", not "while this scans": the scan ENDS before the
     # link is opened, and somebody who releases at the end of the scan spends the
     # window in the gap — which is the failure `scan()` was rewritten to avoid.
+    # The signal is the LIGHT, which is what Whisker's own documentation and this
+    # command's own failure path both name. An earlier version of this hint said to
+    # hold "until it beeps": the robot has no beep, so the one cue it gave was for
+    # something that never happens, and the reader is left guessing during the only
+    # step with a hard physical deadline.
     print(
-        f"\n  Hold {_console.accent('Connect')} on the robot now, until it beeps, and keep\n"
-        f"  holding until the {_console.accent('connected')} line appears — it only advertises\n"
-        "  while you do, and the link is opened after the scan finds it.\n"
+        f"\n  Hold {_console.accent('Connect')} on the robot now until its light\n"
+        f"  {_console.accent('BLINKS YELLOW')} (about three seconds) — that is pairing mode — and\n"
+        "  keep holding until the numbered steps below start. It only\n"
+        "  advertises while you hold, and the link is opened after the\n"
+        "  scan finds it.\n"
     )
     # The scan is the one stretch a first-time user stares at with nothing
     # moving — indistinguishable from hung without a liveness row.

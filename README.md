@@ -77,9 +77,11 @@ broker IP (e.g. 192.168.1.10): 192.168.1.10
 $ whiskerless provision
 robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
 
-  Hold Connect on the robot now, until it beeps, and keep
-  holding until the connected line appears — it only advertises
-  while you do, and the link is opened after the scan finds it.
+  Hold Connect on the robot now until its light
+  BLINKS YELLOW (about three seconds) — that is pairing mode — and
+  keep holding until the numbered steps below start. It only
+  advertises while you hold, and the link is opened after the
+  scan finds it.
 
 ⠹ scanning for robots over BLE — done (3s)
    1 ▸ connected to F8:B3:B7:xx:xx:xx (MTU=500, cert chunk=100)
