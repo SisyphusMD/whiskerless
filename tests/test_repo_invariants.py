@@ -868,3 +868,73 @@ def test_the_manifest_keys_are_ordered_the_way_hassfest_wants() -> None:
     assert keys[:2] == ["domain", "name"], keys[:2]
     assert keys[2:] == sorted(keys[2:]), keys[2:]
 
+
+# --- the public surface, and the one consumer that proves it ------------------------
+def test_the_integration_imports_nothing_the_library_does_not_promise() -> None:
+    """The bundled integration is this library's reference consumer, so what it reaches for IS the
+    API whether or not anything says so.
+
+    It was reaching past the declared surface — `devices.litter_robot_4.calibration` and `.derive`
+    were imported by the integration and absent from the device package's `__all__`. That is the
+    quiet failure mode of a compatibility promise: the promise stays small and true while the real
+    consumed surface grows around it, so a "safe" rename breaks a consumer the promise said was not
+    there. Anything the integration needs is public; if that feels like too much to promise, the
+    answer is for the integration to need less, not for the promise to look smaller than reality.
+    """
+    import ast
+
+    core = _module_names(REPO / "src" / "whiskerless" / "__init__.py")
+    device = _module_names(REPO / "src" / "whiskerless" / "devices" / "litter_robot_4" / "__init__.py")
+
+    unpromised: list[str] = []
+    for path in sorted((REPO / "custom_components" / "whiskerless").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not (node.module or "").startswith("whiskerless"):
+                continue
+            parts = node.module.split(".")
+            # `from whiskerless.devices.litter_robot_4.<sub> import X` is reaching into a submodule:
+            # the submodule itself has to be public, and X has to be in ITS __all__.
+            if len(parts) == 4:
+                sub = REPO / "src" / "whiskerless" / "devices" / "litter_robot_4" / f"{parts[3]}.py"
+                if parts[3] not in device:
+                    unpromised.append(f"{path.name}: submodule {parts[3]}")
+                    continue
+                names = _module_names(sub)
+                if not names:
+                    # A module with no `__all__` promises nothing, so skipping it here let every
+                    # import from it pass — the check reported parity while enforcing nothing.
+                    unpromised.append(f"{path.name}: {parts[3]} declares no __all__")
+                    continue
+                unpromised += [
+                    f"{path.name}: {parts[3]}.{a.name}"
+                    for a in node.names
+                    if a.name not in names
+                ]
+            elif node.module == "whiskerless":
+                unpromised += [f"{path.name}: {a.name}" for a in node.names if a.name not in core]
+            elif node.module == "whiskerless.devices.litter_robot_4":
+                unpromised += [f"{path.name}: {a.name}" for a in node.names if a.name not in device]
+            else:
+                # Everything else under `whiskerless.` is INTERNAL, per CONTRIBUTING.md. Falling
+                # through silently meant `from whiskerless.safety import assert_sendable` passed
+                # this check entirely, so moving `safety` could have broken the published-library
+                # consumer with nothing in CI noticing.
+                unpromised.append(f"{path.name}: {node.module} is an internal module")
+
+    assert unpromised == [], "the integration imports names the library does not promise:\n  " + "\n  ".join(unpromised)
+
+
+def _module_names(path: Path) -> set[str]:
+    """The names a module declares in `__all__`, or an empty set if it declares none."""
+    import ast
+
+    if not path.exists():
+        return set()
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+        ):
+            return {e.value for e in node.value.elts if isinstance(e, ast.Constant)}  # type: ignore[attr-defined]
+    return set()
