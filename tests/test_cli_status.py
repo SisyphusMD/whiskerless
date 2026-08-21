@@ -18,7 +18,7 @@ import pytest
 from whiskerless.cli import main
 from whiskerless.devices.litter_robot_4.models import LitterRobot4State
 from whiskerless.devices.litter_robot_4.protocol import ActivityMessage, StateMessage
-from whiskerless.profiles import Broker, ProfileStore, RobotProfile, Serial
+from whiskerless.robot_profiles import Broker, RobotProfile, RobotProfileStore, Serial
 
 SERIAL = "LR4C123456"
 IDLE = {
@@ -99,8 +99,8 @@ def _no_broker(_cli_loop: Any) -> Any:
 
 
 @pytest.fixture
-def saved() -> ProfileStore:
-    store = ProfileStore.from_env()
+def saved() -> RobotProfileStore:
+    store = RobotProfileStore.from_env()
     store.save_broker(Broker(host="192.0.2.10"))
     store.save(RobotProfile(serial=Serial(SERIAL), name="Upstairs"))
     return store
@@ -108,7 +108,7 @@ def saved() -> ProfileStore:
 
 # --- status -------------------------------------------------------------------
 def test_status_reports_the_robot_in_plain_terms(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main(["status", "--serial", SERIAL]) == 0
     out = capsys.readouterr().out
@@ -119,7 +119,7 @@ def test_status_reports_the_robot_in_plain_terms(
 
 
 def test_status_marks_a_drawer_level_the_robot_has_not_measured(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A Reset zeroes the gauge and raises `isDFIResetPending` in the same instant;
     only the next cycle's lasers measure. Printing the bare percentage in that
@@ -138,7 +138,7 @@ def test_status_marks_a_drawer_level_the_robot_has_not_measured(
 
 
 def test_status_does_not_qualify_a_measured_drawer_level(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The qualifier has to be absent in the ordinary case or it stops meaning
     anything — the flag is clear on every document outside that one window."""
@@ -150,7 +150,7 @@ def test_status_does_not_qualify_a_measured_drawer_level(
 
 
 def test_status_says_unknown_when_the_robot_sends_no_drawer_level(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """No level is not a level of zero, and it must not pick up the qualifier
     either — "unknown (not measured yet)" would imply a reading exists.
@@ -169,7 +169,7 @@ def test_status_says_unknown_when_the_robot_sends_no_drawer_level(
 
 
 def test_status_does_not_qualify_when_the_firmware_omits_the_flag(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Absent is not pending. A firmware that never sends the field would other-
     wise have every reading it makes labelled a guess."""
@@ -183,7 +183,7 @@ def test_status_does_not_qualify_when_the_firmware_omits_the_flag(
 
 
 def test_status_says_what_a_one_shot_cannot_know(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A command that silently omitted cat weight would read as "no cat weight"."""
     assert main(["status", "--serial", SERIAL]) == 0
@@ -193,14 +193,14 @@ def test_status_says_what_a_one_shot_cannot_know(
 
 
 def test_status_names_an_uncalibrated_robot_as_uncalibrated(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main(["status", "--serial", SERIAL]) == 0
     assert "not calibrated" in capsys.readouterr().out
 
 
 def test_status_uses_the_calibration_a_person_measured(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     saved.save(replace(saved.load(SERIAL), litter_full_mm=446))
     assert main(["status", "--serial", SERIAL]) == 0
@@ -211,7 +211,7 @@ def test_status_uses_the_calibration_a_person_measured(
 
 
 def test_status_reports_a_silent_robot_rather_than_inventing_one(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     FakeLink.stream = "silent"
     assert main(["status", "--serial", SERIAL, "--timeout", "0.01"]) == 1
@@ -220,14 +220,14 @@ def test_status_reports_a_silent_robot_rather_than_inventing_one(
 
 # --- calibrate ----------------------------------------------------------------
 def test_calibrate_full_stores_the_current_distance(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main(["calibrate", "full", "--serial", SERIAL]) == 0
     assert saved.load(SERIAL).litter_full_mm == 446
     assert "446 mm" in capsys.readouterr().out
 
 
-def test_calibrate_empty_stores_the_other_end(saved: ProfileStore) -> None:
+def test_calibrate_empty_stores_the_other_end(saved: RobotProfileStore) -> None:
     assert main(["calibrate", "empty", "--serial", SERIAL]) == 0
     stored = saved.load(SERIAL)
     assert stored.litter_empty_mm == 446
@@ -235,7 +235,7 @@ def test_calibrate_empty_stores_the_other_end(saved: ProfileStore) -> None:
 
 
 def test_calibrate_refuses_a_reading_the_robot_is_not_making(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Mid-cycle the sensors see the globe, not the litter — capturing that would
     bake a garbage reference in permanently."""
@@ -248,21 +248,21 @@ def test_calibrate_refuses_a_reading_the_robot_is_not_making(
 def test_calibrate_needs_somewhere_to_keep_it(capsys: pytest.CaptureFixture[str]) -> None:
     """A broker to reach, but nothing saved for this robot, so there is no profile
     to write the measurement into."""
-    from whiskerless.profiles import Broker, ProfileStore
+    from whiskerless.robot_profiles import Broker, RobotProfileStore
 
-    ProfileStore.from_env().save_broker(Broker(host="192.0.2.10"))
+    RobotProfileStore.from_env().save_broker(Broker(host="192.0.2.10"))
     assert main(["calibrate", "full", "--serial", SERIAL]) == 1
     assert "nowhere to keep a calibration" in capsys.readouterr().err
 
 
 # --- panel-reset --------------------------------------------------------------
-def test_panel_reset_presses_the_button(saved: ProfileStore) -> None:
+def test_panel_reset_presses_the_button(saved: RobotProfileStore) -> None:
     assert main(["panel-reset", "--serial", SERIAL]) == 0
     assert FakeLink.published == ["0x02010401"]
 
 
 def test_status_survives_a_stream_that_never_answers(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The robot talked — just not about its state. Ending the stream without a
     document is not the same as timing out, and both mean the same to a user."""
@@ -272,7 +272,7 @@ def test_status_survives_a_stream_that_never_answers(
 
 
 def test_status_shows_both_calibration_points_when_they_exist(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     saved.save(replace(saved.load(SERIAL), litter_full_mm=430, litter_empty_mm=486))
     assert main(["status", "--serial", SERIAL]) == 0
@@ -281,7 +281,7 @@ def test_status_shows_both_calibration_points_when_they_exist(
 
 
 def test_calibrate_reports_a_silent_robot(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     FakeLink.stream = "silent"
     assert main(["calibrate", "full", "--serial", SERIAL, "--timeout", "0.01"]) == 1
@@ -290,10 +290,10 @@ def test_calibrate_reports_a_silent_robot(
 
 
 def test_a_hand_edited_calibration_loses_the_calibration_not_the_robot(
-    saved: ProfileStore,
+    saved: RobotProfileStore,
 ) -> None:
     """An unreachable profile is a far worse outcome than an unanchored percentage."""
-    path = ProfileStore.from_env().robots_dir / SERIAL / "profile.json"
+    path = RobotProfileStore.from_env().robots_dir / SERIAL / "profile.json"
     raw = json.loads(path.read_text())
     raw["litter_full_mm"] = "about four hundred"
     path.write_text(json.dumps(raw))
@@ -303,7 +303,7 @@ def test_a_hand_edited_calibration_loses_the_calibration_not_the_robot(
 
 
 def test_status_never_reports_the_globe_fault_field_as_an_all_clear(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The field read 0 through a live 50-minute fault, so a one-shot that
     printed 'globe motor fault: 0' would be answering a question it cannot."""
@@ -315,7 +315,7 @@ def test_status_never_reports_the_globe_fault_field_as_an_all_clear(
 
 
 def test_status_does_report_a_fault_the_field_admits_to(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     FakeLink.document = {**IDLE, "globeMotorFaultStatus": 1}
     assert main(["status", "--serial", SERIAL]) == 0
@@ -323,10 +323,10 @@ def test_status_does_report_a_fault_the_field_admits_to(
 
 
 def test_an_impossible_stored_calibration_does_not_break_every_command(
-    saved: ProfileStore,
+    saved: RobotProfileStore,
 ) -> None:
     """JSON accepts 1e400; Python parses it to infinity and int() gives up."""
-    path = ProfileStore.from_env().robots_dir / SERIAL / "profile.json"
+    path = RobotProfileStore.from_env().robots_dir / SERIAL / "profile.json"
     path.write_text(path.read_text().replace('"litter_full_mm": null', '"litter_full_mm": 1e400'))
 
     stored = saved.load(SERIAL)
@@ -334,7 +334,7 @@ def test_an_impossible_stored_calibration_does_not_break_every_command(
 
 
 def test_status_marks_a_reading_taken_while_a_cat_is_in_the_globe(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The ToF measures whatever is in front of it — a captured visit read 253 mm
     against a 428-462 mm bed — and a one-shot is whatever moment you asked in."""
@@ -344,7 +344,7 @@ def test_status_marks_a_reading_taken_while_a_cat_is_in_the_globe(
 
 
 def test_calibrate_refuses_a_distance_no_litter_bed_can_be_at(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Settled and empty by status, but 253 mm is a cat's back. A reference is
     permanent, so physics gets a vote as well as the status flags."""
@@ -355,18 +355,18 @@ def test_calibrate_refuses_a_distance_no_litter_bed_can_be_at(
 
 
 def test_a_stored_distance_in_kilometres_is_damage_not_calibration(
-    saved: ProfileStore,
+    saved: RobotProfileStore,
 ) -> None:
     """JSON accepts a thousand-digit integer; int() takes it and the first float
     division that touches it overflows."""
-    path = ProfileStore.from_env().robots_dir / SERIAL / "profile.json"
+    path = RobotProfileStore.from_env().robots_dir / SERIAL / "profile.json"
     path.write_text(path.read_text().replace('"litter_full_mm": null', f'"litter_full_mm": {10**40}'))
 
     assert saved.load(SERIAL).litter_full_mm is None
 
 
 def test_calibrate_refuses_a_pair_that_cannot_be_a_scale(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """More litter means a shorter distance, so empty must read FARTHER than
     full. Swapped, the percentage silently ignores the pair while status calls
@@ -380,7 +380,7 @@ def test_calibrate_refuses_a_pair_that_cannot_be_a_scale(
 
 
 def test_status_does_not_blame_calibration_for_a_number_it_did_not_make(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Some firmware publishes its own percentage, which outranks any reference
     we hold — "not calibrated" would be answering a different question."""
@@ -392,7 +392,7 @@ def test_status_does_not_blame_calibration_for_a_number_it_did_not_make(
 
 
 def test_calibrate_refuses_a_span_wider_than_the_globe_holds(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Both readings can sit inside the plausible band and still be an
     impossible PAIR: the globe holds a couple of inches of litter."""
@@ -405,7 +405,7 @@ def test_calibrate_refuses_a_span_wider_than_the_globe_holds(
 
 
 def test_status_does_not_call_a_settled_robot_unsettled(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A document with no distance is missing telemetry, not a cat in the globe."""
     FakeLink.document = {k: v for k, v in IDLE.items() if k != "litterLevel"}
@@ -414,7 +414,7 @@ def test_status_does_not_call_a_settled_robot_unsettled(
 
 
 def test_status_refuses_to_present_a_hand_edited_scale_as_calibration(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A profile is a file on disk. A pair `calibrate` would have refused must
     not come back as fact through the other door."""
@@ -427,7 +427,7 @@ def test_status_refuses_to_present_a_hand_edited_scale_as_calibration(
 
 
 def test_status_rejects_a_stored_reference_no_litter_bed_could_produce(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """300 mm is a cat's back, not a litter bed. The store keeps it (it is a
     plausible number); the thing that reads it decides whether it is a scale."""
@@ -439,7 +439,7 @@ def test_status_rejects_a_stored_reference_no_litter_bed_could_produce(
 
 
 def test_calibrate_ignores_a_document_that_predates_the_request(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The robot pushes state on its own cadence, and `calibrate` runs seconds
     after someone changed the globe. A queued document describes the globe they
@@ -452,7 +452,7 @@ def test_calibrate_ignores_a_document_that_predates_the_request(
 
 
 def test_calibrate_can_repair_a_calibration_that_cannot_be_a_scale(
-    saved: ProfileStore, capsys: pytest.CaptureFixture[str]
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`status` tells the user to re-run this command; validating the new reading
     against the bad endpoint would make that advice impossible to follow."""

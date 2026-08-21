@@ -106,10 +106,39 @@ Toggle robot power. Same warning \(em nothing over MQTT can undo it.
 List the robots set up on this machine. Damaged profiles are shown as such.
 .TP
 .B use " \fIserial\fR"
-Choose which robot the bare commands act on.
+Choose which robot the bare commands act on. Accepts a name as well as a serial.
+.TP
+.B rename " [\fIrobot\fR] [\fIname\fR]"
+Relabel a saved robot. Purely cosmetic: identity stays the serial, so topics, the
+MQTT client\-id, the certificate CN and the stored profile are all untouched.
+Prompts for the new name when it is omitted.
+.IP
+Worth doing. The serial appears in every header this tool prints, and it is the
+one field that must not reach a paste, a log or an issue \(em with a name set,
+output shows the name instead.
 .TP
 .B forget " \fIserial\fR"
 Remove a robot's saved details from this machine. The robot keeps running.
+.SH MAINTENANCE
+.TP
+.B uninstall
+Find every install of
+.B whiskerless
+on this machine \(em Homebrew, the macOS
+.IR .pkg ,
+a
+.IR .deb / .rpm ,
+.BR pipx ,
+.B "uv tool"
+\(em list them with the command that removes each, and remove them after you
+confirm. More than one can be installed at once, with
+.B PATH
+alone deciding which runs.
+.IP
+Never touches your store: the certificate authority's private key lives there
+and every robot's certificate chains to it, so losing it means provisioning
+every robot again. The Home Assistant integration is reported but never
+removed \(em HACS owns its lifecycle.
 .SH PROTOCOL COMMANDS
 .TP
 .B read " \fIregister\fR"

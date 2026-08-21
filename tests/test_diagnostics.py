@@ -86,3 +86,30 @@ def test_every_serial_shape_provisioning_accepts_is_redacted(serial: str) -> Non
     """Provisioning accepts the whole `LR3/LR4<letter>` shape, so a future `LR4D…` was logged by
     the DEVICE_ID_SET step and survived a scrubber that had just promised to redact serials."""
     assert serial not in scrub(f"device {serial} joined")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "ssid=My,Home; verifying join",
+        "ssid=Plain",
+        "network: My Home",
+        'ssid=has"a"quote',
+        "ssid=trailing; semicolons; everywhere",
+    ],
+)
+def test_an_unquoted_ssid_is_redacted_to_the_end_of_the_line(line: str) -> None:
+    """An SSID may contain any octet — comma, semicolon, quote — so every "stop at punctuation"
+    rule published the tail of somebody's network name. Unquoted values fail safe."""
+    out = scrub(line)
+    assert out.endswith("<redacted-network>")
+    assert "Home" not in out
+    assert "Plain" not in out
+
+
+def test_a_quoted_ssid_keeps_the_rest_of_the_line() -> None:
+    """This project's own provisioning log quotes the value, so the scrubber can end it precisely
+    and keep the context that makes the log worth reading."""
+    out = scrub("ssid='My,Home'; verifying join (30s)")
+    assert "My,Home" not in out
+    assert "verifying join (30s)" in out

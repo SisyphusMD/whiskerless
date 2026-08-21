@@ -23,13 +23,26 @@ from pathlib import Path
 #: just promised redacts robot serials.
 _SERIAL = re.compile(r"\bLR[34][A-Z][A-Za-z0-9]{4,}\b")
 #: A WiFi SSID as this tool prints it, QUOTED — `ssid="HomeNet"`.
-_SSID_QUOTED = re.compile(r"((?:SSID|ssid|network)\s*[=:]?\s*)(['\"])([^'\"]{1,64})\2")
+# ESCAPING-AWARE. `repr()` escapes the delimiter when the value contains it, and a pattern that
+# stopped at the first bare quote treated that `\'` as the end — publishing the rest of somebody's
+# network name out of a record the tool had just called redacted.
+_SSID_QUOTED = re.compile(
+    r"((?:SSID|ssid|network)\s*[=:]?\s*)(['\"])((?:\\.|(?!\2).){0,128})\2"
+)
 #: The same, UNQUOTED — `ssid=HomeNet`, which is how most of this project's own output prints
 #: it. The quoted pattern alone let the network name straight through, which is most of what a
 #: person is trying not to publish when they redact a log at all.
-# Runs to a DELIMITER, not to the first space: plenty of networks are called "My Home", and
-# stopping at the space redacted "My" and published " Home".
-_SSID_BARE = re.compile(r"((?:SSID|ssid|network)\s*[=:]\s*)([^,;'\"\n]{1,64}?)(?=\s*(?:[,;\n]|$))")
+# Runs to the END OF THE LINE, deliberately. An SSID may contain any octet — commas, semicolons
+# and quotes included — so every "stop at punctuation" rule leaks the tail of somebody's network
+# name, and stopping at the first space published " Home" out of "My Home". This project's own
+# provisioning log quotes the value so `_SSID_QUOTED` can end it precisely and keep the rest of
+# the line; anything unquoted is from somewhere that made no such promise, and over-redacting
+# there costs a few words of context instead of the thing the scrubber exists to hide.
+# The lookahead skips a value that is quoted or already redacted: `_SSID_QUOTED` runs first and
+# ends those precisely, so re-matching them here would swallow the rest of the line it just kept.
+_SSID_BARE = re.compile(
+    r"((?:SSID|ssid|network)\s*[=:]\s*)(?!['\"<])(\S.{0,127})$", re.MULTILINE
+)
 #: Any bare IPv4 literal. A broker address is a home network's shape.
 _HOST = re.compile(r"\b(?:mqtts?://)?(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b")
 #: An IPv6 literal, bracketed or bare. `_HOST` is IPv4-only and `_HOST_LABELLED` stops at the

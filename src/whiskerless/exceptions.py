@@ -42,5 +42,15 @@ class ProvisioningError(WhiskerlessError):
     """A BLE re-provisioning step failed."""
 
 
-class ProfileError(WhiskerlessError):
+class RobotProfileError(WhiskerlessError):
     """A stored robot profile is missing, unreadable, or ambiguous."""
+
+
+class AmbiguousRobotError(RobotProfileError):
+    """A name identifies more than one saved robot.
+
+    Its own type because the CLI must not treat it like an unknown serial. The fallback for an
+    unknown serial is to act on it as a one-off, which for an ambiguous NAME meant publishing to
+    a topic built from the name — a robot that does not exist — while the command reported
+    success.
+    """

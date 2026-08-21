@@ -166,6 +166,9 @@ EXAMPLE_SERIALS = frozenset(
 EXAMPLE_NETWORKS = frozenset(
     {
         "", "MyIoT", "HomeNet", "Guest", "IoT", "home", "hidden",
+        # Punctuation on purpose: an SSID may contain any octet, and this one proves the scrubber
+        # does not stop at a comma and publish the rest of somebody's network name.
+        "My,Home",
         "Near", "Far", "Cafe", "Seen", "x",
         r"Guest\x1b[31m\nEvil",  # the control-character escaping fixture
     }
