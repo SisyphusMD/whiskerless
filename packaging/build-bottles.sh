@@ -47,6 +47,16 @@ version="${tag#v}"
 # PEP 440, the same normalization update-tap.sh applies: the tag says 0.2.0-rc.1
 # and the formula's URL says 0.2.0rc1. The bottle filename follows the formula.
 pypi_version="$(printf '%s' "$version" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
+# WHICH SPELLING the formula's url carries is a per-project fact, because the two projects build
+# their formula from different places. whiskerless installs from the PyPI sdist, whose filename is
+# PEP 440 (`0.2.0rc1`); dreame-valetudo installs from a release asset named for the tag
+# (`0.3.0-rc.1`). Hardcoding either one made every prerelease bottle build in the OTHER project
+# wait the full thirty minutes and then fail against a tap that had published correctly.
+case "${PROJECT_TAP_TARBALL_VERSION:-tag}" in
+  pypi) tarball_version="$pypi_version" ;;
+  tag)  tarball_version="$version" ;;
+  *) echo "project.env: PROJECT_TAP_TARBALL_VERSION must be 'pypi' or 'tag'" >&2; exit 2 ;;
+esac
 root_url="https://forgejo.bryantserver.com/${OWNER}/${PKG}/releases/download/${tag}"
 
 case "$tag" in
@@ -91,14 +101,14 @@ for _ in $(seq 1 90); do
   git -C "$tapdir" pull --quiet --ff-only >/dev/null 2>&1 || true
   ready=true
   for formula in $formulae; do
-    grep -Fq "${PKG}-${pypi_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || ready=false
+    grep -Fq "${PKG}-${tarball_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || ready=false
   done
   [ "$ready" = true ] && break
   sleep 20
 done
 for formula in $formulae; do
-  grep -Fq "${PKG}-${pypi_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || {
-    echo "::error::the tap never published ${formula} at ${pypi_version} — nothing to bottle" >&2
+  grep -Fq "${PKG}-${tarball_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || {
+    echo "::error::the tap never published ${formula} at ${tarball_version} — nothing to bottle" >&2
     exit 1
   }
 done
