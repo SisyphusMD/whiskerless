@@ -3,7 +3,7 @@
     ".editorconfig": "27f0a420340998f882c86c46436e722cf924be3d81e96d23ddca9a182f24175c",
     ".github/PULL_REQUEST_TEMPLATE.md": "8582cf583c3af1f61aa9e2f5214616e66b151470a9b61e211f4b03d257b57da6",
     "packaging/bottle-block.py": "f177e14d16ec56bdae29b2f6f07bc5df186b2e1fc303bb40e3f2b290446c0cc6",
-    "packaging/build-bottles.sh": "fd239429b2c0ba62ba63a5313bb8cfed7312f88f2ee71404624479e4a09f3d69",
+    "packaging/build-bottles.sh": "f815b3429cf93803e9ddfb788a3627af7aa51f32dd92859cd0ef9c0bdd5da073",
     "packaging/changelog-section.sh": "8146468c131e46cf60cd691df1aa1aef7cc0788ad93a42d4f63e91821bd3101f",
     "packaging/check-doc-links.py": "44c9b053672d2b2c73379205490ba9ff61f06b48c3acc85de9c1a2057d27038d",
     "packaging/check-gitignore-base.py": "2a7a5e2f770d8879c43a32f8d9901eb54f0ebe6f3107a0b17318fed1b5563141",
@@ -22,7 +22,8 @@
     "packaging/render-formula.sh": "688b6838aedf4d87ab66d166a4eee0c7c88e505fa8dac06d74e782ed74638ae9",
     "packaging/sisyphusmd-signing-key.asc": "739991cf1057257f55168c9e898f219d46134e86df804f3136205e5f3a5f2c54",
     "packaging/stamp_common.py": "193824c3c314239432d9648c7f1c98c9ceafebbaa9ffba30806ea39d41b6f701",
-    "packaging/triage-infra-failure.py": "d89fbad38ac887bd1a88c4fa3414d25ee3d89d435b4ab760779817ce0499bc51"
+    "packaging/triage-infra-failure.py": "d89fbad38ac887bd1a88c4fa3414d25ee3d89d435b4ab760779817ce0499bc51",
+    "packaging/update-tap.sh": "0cb11d828ce3127ba550125af4d3583e59adb008342e089757454b0eae9bbcb4"
   },
   "source_commit": "(no commit)",
   "source_repo": "SisyphusMD/project-standard",

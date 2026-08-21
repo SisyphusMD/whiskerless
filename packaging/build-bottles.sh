@@ -47,22 +47,13 @@ version="${tag#v}"
 # PEP 440, the same normalization update-tap.sh applies: the tag says 0.2.0-rc.1
 # and the formula's URL says 0.2.0rc1. The bottle filename follows the formula.
 pypi_version="$(printf '%s' "$version" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
-# WHERE the formula installs from, which is what decides the version spelling in its url — and
-# so the spelling this readiness check has to search for.
-#
-# `pypi`: the project publishes to PyPI and the formula builds from the sdist, whose filename PyPI
-# normalises to PEP 440 (`0.2.0rc1`). Not a choice; PyPI names that file.
-# `release-asset`: the project does not publish to PyPI, and the formula builds from an asset this
-# release named for its tag (`0.3.0-rc.1`).
-#
-# Hardcoding either spelling made every prerelease bottle build in the OTHER project wait the full
-# thirty minutes and then fail against a tap that had published correctly. The two only differ for
-# release candidates — a stable `0.3.0` is spelled the same either way.
-case "${PROJECT_FORMULA_SOURCE:-release-asset}" in
-  pypi)          tarball_version="$pypi_version" ;;
-  release-asset) tarball_version="$version" ;;
-  *) echo "project.env: PROJECT_FORMULA_SOURCE must be 'pypi' or 'release-asset'" >&2; exit 2 ;;
-esac
+# The exact sdist filename `update-tap.sh` writes into the formula, so this readiness check greps
+# for the string that is actually there. TWO normalisations, and missing either one makes every
+# bottle leg wait its full timeout and then fail against a tap that published correctly:
+#   PEP 440 — the version: `0.2.0-rc.1` is served as `0.2.0rc1`
+#   PEP 625 — the name:    `dreame-valetudo` is served as `dreame_valetudo`
+# A project whose name has no hyphen never sees the second one, which is how it stayed hidden.
+sdist_stem="$(printf '%s' "$PKG" | tr '-' '_')-${pypi_version}"
 root_url="https://forgejo.bryantserver.com/${OWNER}/${PKG}/releases/download/${tag}"
 
 case "$tag" in
@@ -107,14 +98,14 @@ for _ in $(seq 1 90); do
   git -C "$tapdir" pull --quiet --ff-only >/dev/null 2>&1 || true
   ready=true
   for formula in $formulae; do
-    grep -Fq "${PKG}-${tarball_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || ready=false
+    grep -Fq "${sdist_stem}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || ready=false
   done
   [ "$ready" = true ] && break
   sleep 20
 done
 for formula in $formulae; do
-  grep -Fq "${PKG}-${tarball_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || {
-    echo "::error::the tap never published ${formula} at ${tarball_version} — nothing to bottle" >&2
+  grep -Fq "${sdist_stem}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || {
+    echo "::error::the tap never published ${formula} at ${pypi_version} — nothing to bottle" >&2
     exit 1
   }
 done
