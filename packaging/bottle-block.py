@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Merge `brew bottle --json` manifests into the `bottle do` block a formula carries.
 
-    bottle-block.py --formula whiskerless --version 0.2.0rc28 --root-url URL manifest.json...
+    bottle-block.py --formula <name> --version 0.2.0rc28 --root-url URL manifest.json...
 
 Each platform bottles on its own runner and emits its own manifest; this is what
 turns the pile back into one block. Written here rather than reached for through
@@ -12,8 +12,8 @@ exactly the failure that would publish a formula pointing at bottles that do not
 exist. Everything below that can be checked is checked.
 
 The keg inside a bottle is rooted at `<formula-name>/<version>/`, so a bottle
-built for `whiskerless` cannot be renamed and served as `whiskerless-rc`. That is
-why a stable tag builds eight bottles and not four.
+built for `<name>` cannot be renamed and served as `<name>-rc`. That is why a
+stable tag builds two sets of bottles and not one.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def collect(paths: list[Path], formula: str, version: str) -> tuple[dict[str, st
 
     for path in paths:
         data = json.loads(path.read_text())
-        # The outer key is tap-qualified (`sisyphusmd/tap/whiskerless`), so it is
+        # The outer key is tap-qualified (`<owner>/tap/<name>`), so it is
         # not something to match on; the inner `formula.name` is the short name.
         for entry in data.values():
             info = entry["formula"]

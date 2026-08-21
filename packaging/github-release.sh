@@ -2,78 +2,95 @@
 # Create (or reuse) a GitHub release and upload assets, idempotently.
 #   github-release.sh <token> <tag> <notes-file> [asset...]
 #
-# Mirror of forgejo-release.sh for the GitHub API. Both Forgejo (which adds the
-# Linux binary, via GH_REPO_WRITE_PAT) and GitHub itself (which adds the .pkg, via
-# the automatic GITHUB_TOKEN) call this with the SAME CHANGELOG notes, so whoever
-# creates the release first sets identical notes and the other just appends.
+# Mirror of forgejo-release.sh for the GitHub API. Both publishers pass the SAME CHANGELOG notes, so
+# whoever creates the release first sets identical notes and the other just appends its asset.
+# Shared wait/lookup/state/verify logic lives in release-common.sh; GitHub's asset upload uses a
+# separate host and data-binary, so it stays here.
 set -euo pipefail
-# Every curl is time-bounded: an unreachable host would otherwise hang here with
-# no deadline at all, stranding the release targets sequenced after this one.
-# Reads retry; creates and uploads do not, because a timed-out mutation may
-# already have been applied and repeating it would duplicate rather than
-# recover. The tag-wait loop is its own retry, so its request does not nest one.
+here="$(cd "$(dirname "$0")" && pwd)"
+. "$here/release-common.sh"
+# Named explicitly: this is the file a project writes when it adopts the standard, so its absence is
+# a setup mistake someone is actively making, not a runtime fault. A raw "No such file" from the
+# shell sends them reading this script instead of writing that one.
+[ -f "$here/project.env" ] || {
+  echo "missing $here/project.env — create it with PROJECT_REPO_SLUG=\"SisyphusMD/<project>\"" >&2
+  exit 1
+}
+. "$here/project.env"
 
 token="$1"; tag="$2"; notes_file="$3"; shift 3
-repo="SisyphusMD/whiskerless"
+repo="${PROJECT_REPO_SLUG:?project.env must set PROJECT_REPO_SLUG}"
 api="https://api.github.com/repos/$repo"
 auth=(-H "Authorization: Bearer $token" -H "Accept: application/vnd.github+json")
+rel_validate_tag "$tag"
 
-echo "waiting for tag $tag on GitHub…"
-# 30 minutes, not 10: the push-mirror is asynchronous and a network blip on
-# either side stretches it. rc.27 timed out at ten and cost that release its
-# GitHub assets, on a tag that arrived shortly afterwards.
-for _ in $(seq 1 180); do
-  curl --max-time 20 -sf "${auth[@]}" "$api/git/refs/tags/$tag" >/dev/null && break
-  sleep 10
-done
 
-id=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -sf "${auth[@]}" "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
+# The tag must exist before the release is created. Using the SINGULAR, exact `git/ref/` endpoint:
+# the plural `git/refs/` form is a PREFIX match, so waiting for `v0.2.0` is satisfied by an existing
+# `v0.2.0-rc.1` and the wait returns immediately for a tag that does not exist. The release POST
+# below sends no target_commitish, so GitHub would then mint that tag from the default branch.
+echo "waiting for tag $tag on GitHub..."
+rel_wait_for_tag "$api/git/ref/tags/$tag" || { echo "tag $tag never appeared on GitHub" >&2; exit 1; }
+
+# A semver prerelease tag (contains a hyphen) is published as a prerelease so it never becomes
+# GitHub's "latest" release.
+pre=false; case "$tag" in *-*) pre=true ;; esac
+id="$(rel_release_id "$api/releases" "$tag")"
 if [ -z "$id" ]; then
-  # Three workflows race to create this release (Forgejo publish.yml, and
-  # GitHub's release-macos.yml + release-linux.yml). The read above is a
-  # check-then-create, so two of them can both see nothing and both POST; the
-  # loser gets 422 already_exists. Adopt the winner's release rather than
-  # failing — every caller passes the same CHANGELOG section, so the notes it
-  # already set are byte-identical to the ones being abandoned here.
-  id=$(curl --max-time 300 -sS "${auth[@]}" -X POST "$api/releases" \
-    -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" '{tag_name:$t,name:$t,body:$b,prerelease:($t|test("-rc\\."))}')" | jq -r '.id // empty')
-  if [ -z "$id" ]; then
-    id=$(curl --max-time 30 --retry 3 --retry-connrefused --retry-max-time 90 -sf "${auth[@]}" \
-      "$api/releases/tags/$tag" 2>/dev/null | jq -r '.id // empty' || true)
+  if created=$(curl -fsS "${REL_MUTATE[@]}" "${auth[@]}" -X POST "$api/releases" \
+      -d "$(jq -n --arg t "$tag" --rawfile b "$notes_file" --argjson pre "$pre" \
+            '{tag_name:$t,name:$t,body:$b,draft:false,prerelease:$pre}')"); then
+    id=$(jq -r '.id // empty' <<<"$created")
+  else
+    # Another publisher can create the same release between the lookup above and this POST.
+    id="$(rel_release_id "$api/releases" "$tag")"
   fi
-  [ -n "$id" ] || { echo "could not create or find the GitHub release for $tag" >&2; exit 1; }
 fi
+[ -n "$id" ] && [ "$id" != "null" ] || { echo "could not create/find GitHub release for $tag" >&2; exit 1; }
+rel_ensure_release_state "$api/releases/$id" "$pre" \
+  || { echo "could not repair/verify GitHub release state for $tag" >&2; exit 1; }
 echo "GitHub release id: $id"
 
+upload_asset() {
+  curl -fsS "${REL_MUTATE[@]}" -H "Authorization: Bearer $token" \
+    -H "Content-Type: application/octet-stream" --data-binary @"$1" \
+    "https://uploads.github.com/repos/$repo/releases/$id/assets?name=$2" >/dev/null
+}
+
 for f in "$@"; do
-  name=$(basename "$f")
-  # GitHub rewrites `~` to `.` in the STORED asset name, and enforces uniqueness
-  # on that rewritten name. Looking up the local spelling therefore never matches
-  # an asset already there, the delete is skipped, and the re-upload comes back
-  # 422 already_exists — which under `set -e` aborts this script partway through
-  # its asset list. That is the difference between "re-running a partial publish
-  # completes it" (which this workflow is dispatchable in order to do) and a
-  # re-run that replaces the raw binaries and then dies before SHA256SUMS,
-  # leaving a checksum file that does not describe the binaries beside it.
-  gh_name="${name//\~/.}"
-  old=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 -sf "${auth[@]}" "$api/releases/$id/assets" 2>/dev/null \
-    | jq -r --arg n "$gh_name" '.[] | select(.name==$n) | .id' || true)
-  if [ -n "$old" ]; then
-    # `/releases/assets/{asset_id}` — the asset id is global, and GitHub's delete
-    # endpoint does NOT take the release id, even though the LIST endpoint beside
-    # it does. Addressed the natural-looking way it 404s, the replace becomes a
-    # silent no-op, and the re-upload then hits 422 already_exists.
-    #
-    # Checked rather than swallowed: a delete that fails stops the upload that
-    # would 422 anyway, and names the asset.
-    code=$(curl --max-time 300 -sS -o /dev/null -w '%{http_code}' "${auth[@]}" \
-      -X DELETE "$api/releases/assets/$old")
-    case "$code" in
-      20*|404) ;;
-      *) echo "could not replace the existing $gh_name on GitHub (DELETE returned $code)" >&2; exit 1 ;;
-    esac
+  [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] \
+    || { echo "release asset is missing, empty, non-regular, or symlinked: $f" >&2; exit 1; }
+  name=$(rel_github_asset_name "$(basename "$f")")
+  if rel_asset_state "$api/releases/$id/assets" "$name" "$f"; then
+    echo "  verified existing $name on GitHub"
+    continue
+  else
+    state=$?
   fi
-  curl --max-time 300 -sSf -H "Authorization: Bearer $token" -H "Content-Type: application/octet-stream" \
-    --data-binary @"$f" "https://uploads.github.com/repos/$repo/releases/$id/assets?name=$gh_name" >/dev/null
-  echo "  uploaded $gh_name → GitHub"
+  case "$state" in
+    10) ;;                       # absent — upload below
+    11)
+      [ "$REL_REPLACE_POLICY" = replace ] || { rel_reject_conflict "$name"; exit 1; }
+      old=$(rel_asset_id "$api/releases/$id/assets" "$name")
+      [ -n "$old" ] || { echo "cannot replace $name on GitHub: asset id not resolvable" >&2; exit 1; }
+      # `/releases/assets/{asset_id}` — the asset id is global and GitHub's DELETE does NOT take the
+      # release id, even though the LIST endpoint beside it does. Addressed the natural-looking way
+      # it 404s, the delete becomes a silent no-op, and the re-upload then hits 422 already_exists.
+      curl -fsS "${REL_MUTATE[@]}" "${auth[@]}" -X DELETE "$api/releases/assets/$old" >/dev/null \
+        || { echo "could not remove the superseded $name on GitHub" >&2; exit 1; }
+      echo "  replacing $name on GitHub (REL_REPLACE_POLICY=replace)"
+      ;;
+    *) exit "$state" ;;
+  esac
+  if upload_asset "$f" "$name"; then
+    rel_verify_uploaded_asset "$api/releases/$id/assets" "$name" "$f" \
+      || { echo "could not verify uploaded $name on GitHub" >&2; exit 1; }
+    echo "  uploaded immutable $name -> GitHub"
+  elif rel_verify_uploaded_asset "$api/releases/$id/assets" "$name" "$f"; then
+    # A rejected upload is also what losing the race to an identical concurrent upload looks like.
+    echo "  concurrent publisher uploaded identical $name -> GitHub"
+  else
+    echo "upload failed or raced with different bytes for $name on GitHub" >&2
+    exit 1
+  fi
 done

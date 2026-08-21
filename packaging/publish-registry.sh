@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Push the built .deb/.rpm into Forgejo's native Debian and RPM registries, so a
-# user gets `apt install whiskerless` and `dnf install whiskerless` instead of
+# user gets `apt install <project>` and `dnf install <project>` instead of
 # downloading a file and running `dpkg -i` on it.
 #   publish-registry.sh <host> <token> <tag> <package...>
 #
@@ -14,6 +14,20 @@
 #   PUT /api/packages/{owner}/debian/pool/{distribution}/{component}/upload
 #   PUT /api/packages/{owner}/rpm/{group}/upload
 set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+# The project's identity, so this file is byte-identical in every repo that vendors it. A missing
+# project.env is named rather than allowed to expand to an empty owner and publish into `/api/
+# packages//debian/...`, which a forge would answer with a confusing 404.
+[ -f "$here/project.env" ] || {
+  echo "$0: packaging/project.env is missing — cannot resolve this project's registry" >&2
+  exit 2
+}
+# shellcheck source=/dev/null
+. "$here/project.env"
+: "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
+OWNER="${PROJECT_REPO_SLUG%%/*}"
+PKG="${PROJECT_REPO_SLUG#*/}"
 
 [ "$#" -ge 4 ] || { echo "usage: $0 <host> <token> <tag> <package...>" >&2; exit 2; }
 host="$1"; token="$2"; tag="$3"; shift 3
@@ -38,7 +52,7 @@ case "$tag" in
   *)   dists="stable testing" ;;
 esac
 
-api="https://${host}/api/packages/SisyphusMD"
+api="https://${host}/api/packages/${OWNER}"
 auth="Authorization: token ${token}"
 body="$(mktemp)"
 trap 'rm -f "$body"' EXIT
@@ -58,10 +72,10 @@ version="${version/-rc./~rc.}"
 # after a failed build, not a hypothetical.
 expected_files() {
   printf '%s\n' \
-    "whiskerless_${version}_amd64.deb" \
-    "whiskerless_${version}_arm64.deb" \
-    "whiskerless-${version}.x86_64.rpm" \
-    "whiskerless-${version}.aarch64.rpm"
+    "${PKG}_${version}_amd64.deb" \
+    "${PKG}_${version}_arm64.deb" \
+    "${PKG}-${version}.x86_64.rpm" \
+    "${PKG}-${version}.aarch64.rpm"
 }
 given=""
 for pkg in "$@"; do given="$given $(basename "$pkg")"; done
@@ -78,7 +92,50 @@ if [ -n "$short" ]; then
   exit 1
 fi
 
-upload() {  # upload <file> <url>
+# remote_matches <file> <download-url> — whether the already-published object is byte-identical.
+#
+# The DOWNLOAD url, never the upload one. `.../upload` is a PUT endpoint and answers GET with 405,
+# so comparing against it failed for every existing file and reported each idempotent re-run as a
+# differing artifact — which made finishing a partially-failed publish impossible, the one job the
+# 409 branch exists to do. Both download paths below were confirmed against the live instance:
+#
+#   deb  GET {api}/debian/pool/{distribution}/{component}/{filename}
+#   rpm  GET {api}/rpm/{group}/package/{name}/{version}/{arch}
+#
+# rpm is not the name it was uploaded under: the registry renames on ingest and appends the release
+# suffix, so the stored version is `<version>-1` and the arch is a path segment rather than part of
+# a filename.
+# A 409 is idempotent only if it is; otherwise the name has been reused for different content, and
+# an unreadable object is not evidence either way, so that counts as a mismatch too.
+remote_matches() {
+  local stored rc
+  stored=$(mktemp)
+  if curl --max-time 300 -sSfL -H "$auth" -o "$stored" "$2"; then
+    cmp -s "$1" "$stored"
+    rc=$?
+  else
+    rc=1
+  fi
+  rm -f "$stored"
+  return "$rc"
+}
+
+# download_url <file> <upload-url> — where the registry will SERVE what this upload stores.
+download_url() {
+  local file="$1" up="$2" name version arch
+  name="$(basename "$file")"
+  case "$name" in
+    *.deb) printf '%s/%s' "${up%/upload}" "$name" ;;
+    *.rpm)
+      # `<pkg>-<version>.<arch>.rpm` -> group, name, version-1, arch.
+      arch="${name%.rpm}"; arch="${arch##*.}"
+      version="${name%.*.rpm}"; version="${version#"${PKG}-"}"
+      printf '%s/rpm/%s/package/%s/%s-1/%s' "$api" "$dist" "$PKG" "$version" "$arch" ;;
+    *) printf '%s' "$up" ;;
+  esac
+}
+
+upload() {  # upload <file> <upload-url>
   local code
   code=$(curl --max-time 300 -sS -o "$body" -w '%{http_code}' -X PUT \
     -H "$auth" --upload-file "$1" "$2")
@@ -87,8 +144,18 @@ upload() {  # upload <file> <url>
     # This workflow is dispatchable so a partly-failed publish can be finished
     # without cutting a new release, which means every step has to survive being
     # run twice. Forgejo answers a re-upload with 409 "package file already
-    # exists" — the desired end state, reached by the first run.
-    409) echo "    $(basename "$1") → 409 already present" ;;
+    # exists" — which is the desired end state ONLY IF the stored bytes are the
+    # ones being uploaded. 409 says a file with this name exists, not that the
+    # same file exists, so a re-drive after a rebuild would otherwise report
+    # success while the registry kept serving the superseded package. Confirm it.
+    409)
+      if remote_matches "$1" "$(download_url "$1" "$2")"; then
+        echo "    $(basename "$1") → 409 already present (bytes verified)"
+      else
+        echo "::error::$2 already holds DIFFERENT bytes; publish these under a new version" >&2
+        return 1
+      fi
+      ;;
     *)   echo "::error::PUT $2 returned $code: $(cat "$body")"; return 1 ;;
   esac
 }
@@ -115,8 +182,8 @@ done
 #   version   rpm reports the release suffix (`0.2.0~rc.28-1`), debian is bare.
 #   filename  rpm is RENAMED on ingest to its canonical
 #             `<name>-<version>-<release>.<arch>.rpm`, so what was uploaded as
-#             `whiskerless-0.2.0~rc.28.x86_64.rpm` is stored as
-#             `whiskerless-0.2.0~rc.28-1.x86_64.rpm`. debian keeps the name it was
+#             `<pkg>-0.2.0~rc.28.x86_64.rpm` is stored as
+#             `<pkg>-0.2.0~rc.28-1.x86_64.rpm`. debian keeps the name it was
 #             given, so comparing the local basename passes there and fails here.
 #
 # The `-1` comes from the same place as the version suffix above, so if nfpm's
@@ -125,8 +192,8 @@ verify() {  # verify <type> <registry-version> <expected-file>...
   local type="$1" rv="$2" listed missing=""
   shift 2
   listed=$(curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 120 -sSf -H "$auth" \
-    "https://${host}/api/v1/packages/SisyphusMD/${type}/whiskerless/${rv}/files" | jq -r '.[].name') || {
-      echo "::error::could not list $type files for whiskerless $rv"; return 1; }
+    "https://${host}/api/v1/packages/${OWNER}/${type}/${PKG}/${rv}/files" | jq -r '.[].name') || {
+      echo "::error::could not list $type files for $PKG $rv"; return 1; }
   for want in "$@"; do
     printf '%s\n' "$listed" | grep -Fqx "$want" || missing="$missing $want"
   done
@@ -150,7 +217,7 @@ if [ -n "$debs" ]; then
   verify debian "$version" $debs || failed="$failed debian-verify"
 fi
 if [ -n "$rpms" ]; then
-  # whiskerless-0.2.0~rc.28.x86_64.rpm -> whiskerless-0.2.0~rc.28-1.x86_64.rpm
+  # <pkg>-0.2.0~rc.28.x86_64.rpm -> <pkg>-0.2.0~rc.28-1.x86_64.rpm
   stored_rpms=$(printf '%s' "$rpms" | tr ' ' '\n' | sed -E '/^$/d; s/\.([^.]+)\.rpm$/-1.\1.rpm/' | tr '\n' ' ')
   # shellcheck disable=SC2086
   verify rpm "$version-1" $stored_rpms || failed="$failed rpm-verify"

@@ -35,56 +35,59 @@ stamp = _load()
 
 
 @pytest.fixture
-def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A miniature repo holding the four strings, wired into the module."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text('[project]\nname = "whiskerless"\nversion = "0.1.3"\n')
-    init = tmp_path / "__init__.py"
-    init.write_text('"""doc."""\n\n__version__ = "0.1.3"\n')
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text(
+def tree(tmp_path: Path) -> Path:
+    """A miniature repo holding the five strings, in the real relative layout.
+
+    No module surgery: the script takes the root as an argument, so a temporary tree is addressed
+    the same way the real repository is.
+    """
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "whiskerless"\nversion = "0.1.3"\n')
+    package = tmp_path / "src" / "whiskerless"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text('"""doc."""\n\n__version__ = "0.1.3"\n')
+    component = tmp_path / "custom_components" / "whiskerless"
+    component.mkdir(parents=True)
+    (component / "manifest.json").write_text(
         json.dumps(
             {"domain": "whiskerless", "requirements": ["whiskerless==0.1.3"], "version": "0.1.3"},
             indent=2,
         )
     )
-    readme = tmp_path / "README.md"
-    readme.write_text(
+    (tmp_path / "README.md").write_text(
         "download whiskerless-<version>-linux-x86_64 or whiskerless_<version>_amd64.deb\n"
     )
-    monkeypatch.setattr(stamp, "ROOT", tmp_path)
-    monkeypatch.setattr(stamp, "README", readme)
-    monkeypatch.setattr(stamp, "PYPROJECT", pyproject)
-    monkeypatch.setattr(stamp, "INIT", init)
-    monkeypatch.setattr(stamp, "MANIFEST", manifest)
     return tmp_path
 
 
+INIT = Path("src/whiskerless/__init__.py")
+MANIFEST = Path("custom_components/whiskerless/manifest.json")
+
+
 def _versions(tree: Path) -> dict[str, str]:
-    manifest = json.loads((tree / "manifest.json").read_text())
+    manifest = json.loads((tree / MANIFEST).read_text())
     return {
         "pyproject": (tree / "pyproject.toml").read_text().split('version = "')[1].split('"')[0],
-        "init": (tree / "__init__.py").read_text().split('__version__ = "')[1].split('"')[0],
+        "init": (tree / INIT).read_text().split('__version__ = "')[1].split('"')[0],
         "manifest": manifest["version"],
         "requirement": manifest["requirements"][0].split("==")[1],
     }
 
 
 def test_a_stamp_moves_all_four_strings_together(tree: Path) -> None:
-    stamp._rewrite("0.2.0")
+    stamp.stamp(tree, "0.2.0")
     assert set(_versions(tree).values()) == {"0.2.0"}
 
 
 def test_the_requirement_pin_moves_with_the_manifest_version(tree: Path) -> None:
     """The sharp one: a pin PyPI does not have breaks setup entirely."""
-    stamp._rewrite("0.2.0")
-    manifest = json.loads((tree / "manifest.json").read_text())
+    stamp.stamp(tree, "0.2.0")
+    manifest = json.loads((tree / MANIFEST).read_text())
     assert manifest["requirements"] == ["whiskerless==0.2.0"]
     assert manifest["version"] == manifest["requirements"][0].split("==")[1]
 
 
 def test_a_release_candidate_is_stamped_the_same_way(tree: Path) -> None:
-    stamp._rewrite("0.2.0-rc.1")
+    stamp.stamp(tree, "0.2.0-rc.1")
     assert set(_versions(tree).values()) == {"0.2.0-rc.1"}
 
 
@@ -103,47 +106,46 @@ def test_anything_that_is_not_a_release_version_is_refused(version: str) -> None
 
 
 def test_check_passes_on_a_tree_that_agrees(tree: Path) -> None:
-    stamp._rewrite("0.2.0")
-    stamp._check("0.2.0")  # must not raise
+    stamp.stamp(tree, "0.2.0")
+    assert stamp.stamp(tree, "0.2.0", check=True)
 
 
 def test_check_names_every_file_that_disagrees(tree: Path) -> None:
     """It is run right after a stamp, so its job is to describe the damage."""
-    stamp._rewrite("0.2.0")
-    (tree / "__init__.py").write_text('__version__ = "0.1.9"\n')
+    stamp.stamp(tree, "0.2.0")
+    (tree / INIT).write_text('__version__ = "0.1.9"\n')
 
-    with pytest.raises(SystemExit) as exit_info:
-        stamp._check("0.2.0")
-    assert "__init__.py" in str(exit_info.value)
+    disagreed = stamp.stamp_common.stamp(tree, stamp.rendered, "0.2.0", check=True)
+    assert [p.name for p in disagreed] == ["__init__.py"]
 
 
 def test_a_requirement_left_behind_is_caught(tree: Path) -> None:
     """The failure mode with no other symptom: HACS installs, then cannot resolve."""
-    manifest = tree / "manifest.json"
+    manifest = tree / MANIFEST
     manifest.write_text(
         json.dumps({"requirements": ["whiskerless==0.1.3"], "version": "0.2.0"}, indent=2)
     )
     (tree / "pyproject.toml").write_text('version = "0.2.0"\n')
-    (tree / "__init__.py").write_text('__version__ = "0.2.0"\n')
+    (tree / INIT).write_text('__version__ = "0.2.0"\n')
 
-    with pytest.raises(SystemExit, match="whiskerless=="):
-        stamp._check("0.2.0")
+    disagreed = stamp.stamp_common.stamp(tree, stamp.rendered, "0.2.0", check=True)
+    assert [p.name for p in disagreed] == ["manifest.json"]
 
 
 def test_a_file_the_pattern_no_longer_matches_stops_the_stamp(tree: Path) -> None:
     """A reformat that breaks a regex must fail loudly, not skip a file silently."""
     (tree / "pyproject.toml").write_text('[project]\nversion="0.1.3"\n')  # no spaces
 
-    with pytest.raises(SystemExit, match="expected exactly one match"):
-        stamp._rewrite("0.2.0")
+    with pytest.raises(ValueError, match="exactly one version record"):
+        stamp.stamp(tree, "0.2.0")
 
 
 def test_a_second_version_key_is_an_error_not_a_coin_flip(tree: Path) -> None:
     """Two matches means the wrong one could be rewritten; refuse instead."""
     (tree / "pyproject.toml").write_text('version = "0.1.3"\nversion = "0.1.3"\n')
 
-    with pytest.raises(SystemExit, match="expected exactly one match"):
-        stamp._rewrite("0.2.0")
+    with pytest.raises(ValueError, match="exactly one version record"):
+        stamp.stamp(tree, "0.2.0")
 
 
 def test_the_real_repository_agrees_with_itself_right_now() -> None:
@@ -154,4 +156,4 @@ def test_the_real_repository_agrees_with_itself_right_now() -> None:
     version = json.loads(
         (REPO / "custom_components" / "whiskerless" / "manifest.json").read_text()
     )["version"]
-    stamp._check(version)
+    assert stamp.stamp(REPO, version, check=True)

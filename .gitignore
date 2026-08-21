@@ -36,3 +36,14 @@ secrets.yaml
 # Generated from packaging/whiskerless.1 at build time, never committed —
 # a checked-in copy drifts the first time the page is edited.
 packaging/whiskerless.1.gz
+
+# Shared base (packaging/gitignore.base). Signing material matters here specifically: this project
+# signs and notarises a macOS .pkg, so an Apple certificate and an App Store Connect key are exactly
+# the two files that end up sitting in a working tree.
+*.p12
+*.p8
+*.deb
+*.rpm
+*.pkg
+*.tar
+*.tar.gz

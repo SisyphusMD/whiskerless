@@ -2,11 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- The PyInstaller bootloader unpacks and executes code at runtime, so under
-       the hardened runtime (required for notarization) it needs these exceptions.
-       Bluetooth itself is governed by TCC: when run from a terminal, macOS prompts
-       for the terminal's Bluetooth access on first use — no sandbox entitlement is
-       required for a non-sandboxed Developer ID command-line tool. -->
+  <!-- A PyInstaller bootloader unpacks and executes an interpreter at runtime, so under the
+       hardened runtime (required for notarization) it needs the JIT and unsigned-memory exceptions.
+       disable-library-validation additionally lets a bundled helper load dylibs shipped beside it
+       rather than only system ones.
+
+       Device access needs no sandbox entitlement here: for a non-sandboxed Developer ID
+       command-line tool, Bluetooth and USB are governed by TCC, and macOS prompts for the
+       *terminal's* access on first use. -->
   <key>com.apple.security.cs.allow-jit</key>
   <true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
