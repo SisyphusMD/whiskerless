@@ -157,6 +157,9 @@ EXAMPLE_SERIALS = frozenset(
     {
         "LR3C000001", "LR3C123456", "LR4C000000", "LR4C000001",
         "LR4C111111", "LR4C123456", "LR4C222222", "LR4C654321", "LR4C999999",
+        # A model letter this project has never seen, used to prove the scrubber redacts the whole
+        # `LR3/LR4<letter>` shape provisioning accepts and not just the LR4C it happens to know.
+        "LR4D123456",
     }
 )
 #: Every network name the repository is allowed to use as an example.
