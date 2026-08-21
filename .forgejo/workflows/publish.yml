@@ -200,6 +200,30 @@ jobs:
             cp "out-$ARCH/whiskerless" "whiskerless-${raw}-linux-$suffix"
             nfpm_pkg deb "whiskerless_${VERSION}_${ARCH}.deb"
             nfpm_pkg rpm "whiskerless-${VERSION}.${rpmarch}.rpm"
+            # nfpm assembles the package OUTSIDE the build image, so nothing else in the release
+            # path compares what shipped against what was frozen. A .deb carrying a stale or
+            # wrong-arch binary still installs, still reports a version, and still passes the
+            # install smoke — which runs whatever is named `whiskerless`. Compare the bytes.
+            # (dreame-valetudo does the same with check-package-parity.py, over whole trees.)
+            # Extracted INSIDE a pinned image, not on the runner: nothing else in these workflows
+            # uses dpkg, so its presence here would be an assumption rather than a fact — and the
+            # first time it were wrong would be a failed release. Same docker create/cp shape the
+            # rest of this job uses, for the same reason (no bind mounts from inside a container).
+            # renovate: datasource=docker depName=debian-13-current packageName=debian
+            PARITY_IMAGE="debian:13-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258"
+            built=$(sha256sum dist/whiskerless | cut -d" " -f1)
+            pcid=$(docker create -w /w "$PARITY_IMAGE" sh -c \
+              'dpkg-deb -x /w/pkg.deb /x && sha256sum /x/usr/bin/whiskerless | cut -d" " -f1')
+            CIDS="$CIDS $pcid"
+            docker cp "whiskerless_${VERSION}_${ARCH}.deb" "$pcid":/w/pkg.deb
+            packaged=$(docker start -a "$pcid" 2>/dev/null | tr -d "[:space:]") || true
+            docker rm -f "$pcid" >/dev/null
+            [ -n "$packaged" ] || { echo "::error::could not read the packaged binary back"; exit 1; }
+            [ "$built" = "$packaged" ] || {
+              echo "::error::the .deb does not carry the binary that was built ($packaged != $built)"
+              exit 1
+            }
+            echo "  package parity ok: $packaged"
           }
           build_arch linux/amd64 amd64 x86_64 x86_64 "$MANYLINUX_AMD64"
           build_arch linux/arm64 arm64 aarch64 arm64  "$MANYLINUX_ARM64"
