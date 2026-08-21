@@ -77,7 +77,7 @@ artifacts, it proves integrity and not authenticity.
 
 **Then the condition it named came true.** The repositories in #77 are exactly
 the "something verifies it automatically" case, so the packages are now signed
-with `4BBACD5A6FF38564` as well. On dnf that signature is what `gpgcheck` checks
+with `CCE50015D058E9BF` as well. On dnf that signature is what `gpgcheck` checks
 on every install; on apt it stays belt-and-braces, since apt authenticates the
 repository index Forgejo signs rather than the `_gpgorigin` member nfpm embeds.
 

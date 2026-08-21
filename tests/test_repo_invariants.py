@@ -615,7 +615,7 @@ def test_nothing_renders_a_formula_behind_the_renderers_back() -> None:
 # that host — Forgejo keeps its registry keys in the database, in plaintext.
 REPO_FILES = sorted((REPO / "packaging").glob("*.repo"))
 FORGEJO_REGISTRY_KEY = "/api/packages/SisyphusMD/rpm/repository.key"
-OUR_KEY = "packaging/whiskerless-signing-key.asc"
+OUR_KEY = "packaging/sisyphusmd-signing-key.asc"
 
 
 def test_there_are_repo_files_to_check() -> None:
@@ -624,9 +624,9 @@ def test_there_are_repo_files_to_check() -> None:
 
 OUR_KEY_URL = (
     "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
-    "/raw/branch/main/packaging/whiskerless-signing-key.asc"
+    "/raw/branch/main/packaging/sisyphusmd-signing-key.asc"
 )
-SIGNING_KEY_ID = "4BBACD5A6FF38564"
+SIGNING_KEY_ID = "CCE50015D058E9BF"
 
 
 def _gpgkey_urls(text: str) -> list[str]:
@@ -671,7 +671,7 @@ def test_the_dnf_config_trusts_our_key_alone(path: Path) -> None:
 
 def test_the_pinned_key_is_the_one_this_repository_ships() -> None:
     """The URL could be right while the file behind it is some other key."""
-    key = REPO / "packaging" / "whiskerless-signing-key.asc"
+    key = REPO / "packaging" / "sisyphusmd-signing-key.asc"
     assert key.exists(), "the signing key the .repo files pin is not in the repository"
     if not shutil.which("gpg"):
         pytest.skip("no gpg available to read the key's fingerprint")

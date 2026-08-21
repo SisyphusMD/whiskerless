@@ -97,7 +97,7 @@ is behind much of the hopper work. Protocol detail lives in
 - **New install channels**: apt and dnf repositories, Homebrew with prebuilt
   bottles, `.deb`/`.rpm`, a signed macOS `.pkg`, and standalone Linux binaries —
   none of which need a system Python. Packages are GPG-signed
-  (`4BBACD5A6FF38564`); setup is in the README.
+  (`CCE50015D058E9BF`); setup is in the README.
 
 ### Fixed
 

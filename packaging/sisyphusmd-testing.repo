@@ -1,0 +1,39 @@
+# SisyphusMD packages — TESTING (release-candidate) channel. Shipped in the repository so that
+# `dnf config-manager --add-repo <raw url to this file>` produces a correct config in one command.
+#
+# ONE key for the whole SisyphusMD namespace, not one per project. Forgejo's package registry is
+# scoped to the OWNER: every project here publishes into the same `/api/packages/SisyphusMD/rpm/
+# testing` group. A dnf repository has a single `gpgkey=` list and accepts a package signed by ANY
+# key in it, so per-project keys in a shared group would have to all be listed anyway — and any one
+# of them could then sign a package named for another project. The isolation would be imaginary,
+# paid for with an extra key import per project.
+#
+# Do NOT substitute the .repo file Forgejo generates at
+# /api/packages/SisyphusMD/rpm/testing.repo. It names Forgejo's own registry key, and two things
+# follow from that — both checked against the live registry rather than assumed:
+#
+#   1. Our packages will not install through it at all. Forgejo stores and serves the exact bytes
+#      we upload, so the signature on the .rpm is OURS; Forgejo's key cannot verify it and dnf
+#      stops with `GPG check FAILED`.
+#   2. Listing its key ALONGSIDE ours is worse than it looks. dnf accepts a package signed by ANY
+#      key in gpgkey, so a package signed only by Forgejo's key then installs happily — verified.
+#      That key lives in Forgejo's database in plaintext, on the same host that serves the
+#      packages, so listing it would make a compromise of that one host sufficient to install
+#      arbitrary code on every subscriber. Ours lives off-host; it is the anchor worth pinning.
+#
+# repo_gpgcheck is 0 deliberately. It would verify the repository index against Forgejo's key — but
+# that key sits on the very host the check defends against, so it buys little, and buying it costs
+# the property above. Packages are still signed by us and still verified, so nothing installs
+# without our key; the residual gap is that a compromised host could withhold an update rather than
+# forge one.
+#
+# Subscribing here means every `dnf upgrade` may move you onto a release candidate. A stable release
+# publishes to BOTH channels, so a subscriber is never stranded on the last rc — but rc packages are
+# PRUNED once their stable ships, so this channel intentionally forgets its history.
+[sisyphusmd-testing]
+name=SisyphusMD packages (testing)
+baseurl=https://forgejo.bryantserver.com/api/packages/SisyphusMD/rpm/testing
+enabled=1
+gpgcheck=1
+repo_gpgcheck=0
+gpgkey=https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc

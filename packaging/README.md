@@ -246,7 +246,7 @@ asymmetry is theirs, not a choice made here:
   to make the registry sign the index with a key of ours, and substituting one
   would mean hand-writing a private key into a plaintext database column.
 - **dnf authenticates the package**, and that signature is **ours**
-  (`4BBACD5A6FF38564`). Forgejo stores and serves the uploaded bytes unmodified,
+  (`CCE50015D058E9BF`). Forgejo stores and serves the uploaded bytes unmodified,
   so it survives intact.
 
 Forgejo generates a **separate key per registry type**: `debian/repository.key`
@@ -259,8 +259,16 @@ control with one living in plaintext on the machine that serves the packages, an
 it would make the registry copy of a release differ from the identical-looking
 file on the release page.
 
-**The dnf config ships in this repository** (`whiskerless.repo`,
-`whiskerless-testing.repo`) rather than pointing users at the one Forgejo
+**`whiskerless-signing-key.asc` is kept, and must not be deleted.** It is a
+byte-identical copy of `sisyphusmd-signing-key.asc`. Two 0.2.0 release candidates
+shipped a `whiskerless.repo` naming that URL in `gpgkey=`, and a machine
+configured from one of them reads its own copy under `/etc/yum.repos.d` — never
+this repository's. Removing the key it points at would leave dnf unable to import
+the key the packages are now signed with, so that machine could not upgrade at
+all. A repo invariant pins the two files identical.
+
+**The dnf config ships in this repository** (`sisyphusmd.repo`,
+`sisyphusmd-testing.repo`) rather than pointing users at the one Forgejo
 generates, and it lists **only our key**. Both halves matter, and both were
 checked against the live registry:
 
@@ -341,7 +349,7 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`). OIDC trusted publishing isn't available on Forgejo, so this is a token. Scope it to the project once it exists. |
 | `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. Held at the **org** level, not on this repo. |
 | `CLUSTER_FORGEJO_REGISTRY_PUSH_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. Held at the **org** level and shared with the sister repos' container pushes — one scope covers every package type. Needed because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with a 403 rather than anything obvious. |
-| `GPG_SIGNING_KEY` | The armoured private half of the package signing key (`4BBACD5A6FF38564`). Written to a tmp file **outside** the workspace and `docker cp`'d in separately, so it is never part of a build context. |
+| `GPG_SIGNING_KEY` | The armoured private half of the package signing key (`CCE50015D058E9BF`). Written to a tmp file **outside** the workspace and `docker cp`'d in separately, so it is never part of a build context. |
 
 ### On GitHub (`github.com/SisyphusMD/whiskerless` → Settings → Secrets and variables → Actions)
 

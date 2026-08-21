@@ -96,18 +96,27 @@ jobs:
           set -uo pipefail
           # deb/rpm carry the tilde spelling; everything else uses the tag's.
           PKGVER="${VERSION/-rc./~rc.}"
+          # GitHub rewrites `~` to `.` in the STORED asset name, so the same package has a
+          # different filename there than on Forgejo. The deb-file-github target downloads
+          # the name a README reader would actually construct.
+          GH_PKGVER="${PKGVER//\~/.}"
+          GH_DL="https://github.com/SisyphusMD/whiskerless/releases/download/$TAG"
           # publish-registry.sh puts a candidate in `testing` and a release in
           # BOTH, so a stable tag has to be installed from `stable` — testing it
           # through `testing` would leave the distribution real users are on
           # unexercised by a matrix that claims to cover every channel.
           case "$TAG" in
-            *-rc.*) DIST=testing; REPOFILE=whiskerless-testing.repo ;;
-            *)      DIST=stable;  REPOFILE=whiskerless.repo ;;
+            *-rc.*) DIST=testing; REPOFILE=sisyphusmd-testing.repo ;;
+            *)      DIST=stable;  REPOFILE=sisyphusmd.repo ;;
           esac
           echo "installing from the '$DIST' distribution, for $PLATFORM"
 
           failed=""
-          for channel in deb-file apt-repo rpm-file dnf-repo zypper raw-binary pypi-uvx pipx pip bottle-pour broker provision auth-modes hacs; do
+          # Channel breadth AND distro depth. The *-floor / ubuntu / fedora targets install the
+          # same .deb and .rpm on the oldest and newest releases the glibc floor promises: a
+          # package that installs on Debian 13 can still fail on Debian 12, and until these existed
+          # nothing here would have noticed. Same pinned digests dreame-valetudo qualifies against.
+          for channel in deb-file deb-lifecycle deb-file-github deb-file-floor deb-file-ubuntu-floor deb-file-ubuntu rpm-file rpm-file-floor rpm-file-fedora apt-repo dnf-repo zypper raw-binary pypi-uvx pipx pip bottle-pour broker provision auth-modes hacs; do
             echo "──────── $channel"
             rm -rf "out/$channel"
             ok=""
@@ -120,7 +129,8 @@ jobs:
                  --build-arg DIST="$DIST" --build-arg REPOFILE="$REPOFILE" \
                  --build-arg FORGE="$FORGE" \
                  --build-arg ARCH_DEB="$ARCH_DEB" --build-arg ARCH_RPM="$ARCH_RPM" \
-                 --build-arg ARCH_BIN="$ARCH_BIN" --build-arg TAG="$TAG" .; then
+                 --build-arg ARCH_BIN="$ARCH_BIN" --build-arg TAG="$TAG" \
+                 --build-arg GH_DL="$GH_DL" --build-arg GH_PV="$GH_PKGVER" .; then
               # The exported FILE, not merely the exit status: the marker is the
               # only thing that cannot be produced by a build that did nothing.
               [ -f "out/$channel/passed" ] && ok=1

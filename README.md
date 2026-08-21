@@ -218,9 +218,9 @@ arrive with the rest of the system:
 ```bash
 sudo install -d /etc/apt/keyrings
 curl -fsSL https://forgejo.bryantserver.com/api/packages/SisyphusMD/debian/repository.key \
-  | sudo tee /etc/apt/keyrings/whiskerless.asc >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/whiskerless.asc] https://forgejo.bryantserver.com/api/packages/SisyphusMD/debian stable main" \
-  | sudo tee /etc/apt/sources.list.d/whiskerless.list >/dev/null
+  | sudo tee /etc/apt/keyrings/sisyphusmd.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/sisyphusmd.asc] https://forgejo.bryantserver.com/api/packages/SisyphusMD/debian stable main" \
+  | sudo tee /etc/apt/sources.list.d/sisyphusmd.list >/dev/null
 
 sudo apt update && sudo apt install whiskerless
 ```
@@ -228,6 +228,13 @@ sudo apt update && sudo apt install whiskerless
 That first step is the one part that cannot come from the repository: apt will not
 install a package to obtain the key it needs to trust that package. Fetch it over
 HTTPS once and apt verifies everything afterwards on its own.
+
+The key and list files are named for the **namespace**, not this project: the
+repository holds every SisyphusMD package, so adding a sibling project later is
+`apt install <name>` with nothing new to configure. (Unlike dnf, apt verifies the
+repository *index*, which Forgejo signs — hence Forgejo's key here rather than
+the SisyphusMD one. The per-package signature is belt-and-braces on this side;
+see `packaging/README.md`.)
 
 Swap `stable` for `testing` to track release candidates. A release lands in
 **both**, so a `testing` subscriber receives it too and is never stranded on the
@@ -239,35 +246,36 @@ last candidate.
 
 ```bash
 sudo dnf config-manager --add-repo \
-  https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless.repo
+  https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd.repo
 
 sudo dnf install whiskerless
 ```
 
-(`whiskerless-testing.repo` in place of `whiskerless.repo` tracks release
+(`sisyphusmd-testing.repo` in place of `sisyphusmd.repo` tracks release
 candidates. On dnf4, `--add-repo` is the same flag; on dnf5 it is
 `dnf config-manager addrepo --from-repofile=<url>`.)
 
-That file pins **our** signing key, `4BBACD5A6FF38564`, and dnf verifies every
-package against it on every install. Do **not** substitute the `.repo` file
-Forgejo generates at `…/rpm/stable.repo`: it names Forgejo's own key, which
-cannot verify a package we signed, so the install fails with `GPG check FAILED`.
-Adding that key alongside ours "to be safe" is worse still — dnf accepts a package
-signed by *any* listed key, which would let the machine hosting the packages sign
-its own.
+That file pins the **SisyphusMD** signing key, `CCE50015D058E9BF`, and dnf
+verifies every package against it on every install. Do **not** substitute the
+`.repo` file Forgejo generates at `…/rpm/stable.repo`: it names Forgejo's own key,
+which cannot verify a package signed with the SisyphusMD one, so the install fails
+with `GPG check FAILED`. Adding Forgejo's key alongside it "to be safe" is worse
+still — dnf accepts a package signed by *any* listed key, which would let the
+machine hosting the packages sign its own.
 
 **openSUSE:** the same repository —
 
 ```bash
-sudo rpm --import https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless-signing-key.asc
+sudo rpm --import https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc
 sudo zypper install ./whiskerless-<version>.x86_64.rpm
 ```
 
 **The repository is apt and dnf only.** zypper insists on verifying the
 repository index even with `repo_gpgcheck=0` (checked — it fails with `Signature
-verification failed for repomd.xml`), and the key that would satisfy it is
-Forgejo's, which we deliberately do not ask you to trust. Downloading the `.rpm`
-and verifying it against our key is the same guarantee without that trade.
+verification failed for repomd.xml`), and the only key that would satisfy it is
+Forgejo's, which this configuration deliberately does not trust. Downloading the
+`.rpm` and verifying it against the SisyphusMD key is the same guarantee without
+that trade.
 
 **A single file instead** — every `.deb` and `.rpm` is also attached to each
 release, if you would rather not point a package manager at another host:
