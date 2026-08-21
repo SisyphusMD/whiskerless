@@ -96,18 +96,6 @@ asset_count() {
 . "$here/asset-roles.sh"
 [ "${#_ASSET_ROLES[@]}" -gt 0 ] || { echo "$0: _ASSET_ROLES is empty" >&2; exit 2; }
 
-# An asset that is known, expected, and deliberately outside the quorum model. Reported as ignored
-# rather than as unexpected, so the warning about a genuinely stray upload stays worth reading.
-ignored_asset() {
-  local wanted="$1" pattern
-  for pattern in "${_IGNORED_ASSETS[@]}"; do
-    # shellcheck disable=SC2254 # $pattern is a deliberate glob, not a literal
-    case "$wanted" in
-      $pattern) return 0 ;;
-    esac
-  done
-  return 1
-}
 
 
 # resolve_expected <merged-metadata> — print the one observed name per role, or fail.
@@ -128,6 +116,12 @@ resolve_expected() {
   local -A representative=()
   while IFS= read -r name; do
     [ -n "$name" ] || continue
+    # Ignored assets are dropped HERE, before roles are matched. Filtering them only at download
+    # time was too late: a Homebrew bottle is named `<pkg>-<version>.<platform>.bottle.tar.gz`,
+    # which the arch-independent source-tarball role matches, so every bottled release resolved
+    # that role to several names, was called ambiguous, and skipped reconciliation entirely —
+    # warn-only, so the release looked fine while nothing was replicated.
+    ignored_asset "$name" && continue
     key="$(canon "$name")"
     case "${representative[$key]-}" in
       "") representative[$key]="$name" ;;

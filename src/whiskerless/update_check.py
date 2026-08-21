@@ -72,8 +72,21 @@ def _channel_hint() -> str:
     site = Path(__file__).resolve().parent.parent
     if site.name in {"site-packages", "dist-packages"}:
         return f"{sys.executable} -m pip install --upgrade whiskerless"
-    if text.startswith("/usr/bin/") or text.startswith("/usr/local/bin/"):
-        return "your package manager (apt/dnf), or re-download the .pkg"
+    # PATH FIRST, then frozen-ness. The .deb and .rpm install the SAME PyInstaller binary to
+    # /usr/bin, so testing `sys.frozen` before the package paths told every apt and dnf user to
+    # re-download a raw binary instead of upgrading through the package manager that owns it.
+    if text.startswith("/usr/bin/"):
+        return "your package manager (apt/dnf)"
+    if text.startswith("/usr/local/bin/"):
+        # The macOS .pkg and the standalone Linux binary both land here, and both are frozen. The
+        # platform is what separates them: only one of the two exists on each.
+        return (
+            "re-download the .pkg"
+            if sys.platform == "darwin"
+            else "re-download the binary from the releases page"
+        )
+    if getattr(sys, "frozen", False):
+        return "re-download the binary from the releases page"
     return "uv tool upgrade whiskerless, pipx upgrade whiskerless, or re-download the binary"
 
 

@@ -250,3 +250,30 @@ def test_the_two_channels_keep_separate_daily_caches(
     update_check.check(tmp_path, env={})
     assert calls == [], "a cached answer for this channel was ignored"
     assert (tmp_path / ".update-check-rc").exists(), "the other channel's cache was overwritten"
+
+
+def test_a_standalone_linux_binary_is_told_to_re_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The standalone Linux build is installed by copying it to /usr/local/bin. Neither apt/dnf
+    nor a .pkg can upgrade that, and both were being suggested."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/whiskerless"])
+    assert "re-download the binary" in update_check._channel_hint()
+
+
+def test_a_packaged_install_is_told_to_use_its_package_manager(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The .deb and .rpm install the SAME frozen binary, to /usr/bin. Testing `sys.frozen` first
+    told every apt and dnf user to re-download a raw binary instead of upgrading in place."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "argv", ["/usr/bin/whiskerless"])
+    assert update_check._channel_hint() == "your package manager (apt/dnf)"
+
+
+def test_the_macos_package_is_told_to_re_download_the_pkg(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/whiskerless"])
+    assert update_check._channel_hint() == "re-download the .pkg"

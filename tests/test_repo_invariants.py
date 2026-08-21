@@ -872,6 +872,43 @@ def test_the_manifest_keys_are_ordered_the_way_hassfest_wants() -> None:
     assert keys[2:] == sorted(keys[2:]), keys[2:]
 
 
+
+# --- Renovate policy, shared with dreame-valetudo ------------------------------------
+#
+# Both projects automerge patch, minor and digest on green, and both allow a dependency to be held
+# back ONLY when green cannot see the risk. The identical test lives in both repos.
+def test_every_renovate_hold_says_what_CI_cannot_reach() -> None:
+    """A hold must carry its reason, and the only admissible reason is that green says nothing.
+
+    A hold with no stated reason is a chore: it stops a bump for a risk nobody can name, and the
+    person who added it is not the person who has to clear the PR six months later. But a blanket
+    ban is too strong, because some dependencies are genuinely outside what CI can exercise —
+    `bleak` here, `pyusb` in the sibling. No runner has a Bluetooth radio, and the transport is
+    faked at the bleak boundary, so a green run is silent about the code that re-points a robot.
+    Automerging on a signal that cannot see the risk is worse than holding.
+
+    So: hold if you must, but say what CI cannot reach, in `prBodyNotes`, where the reviewer sees it.
+    """
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    undocumented = [
+        rule.get("matchDepNames") or rule.get("matchManagers") or rule.get("description", "?")[:60]
+        for rule in config["packageRules"]
+        if rule.get("automerge") is False and not rule.get("prBodyNotes")
+    ]
+    assert undocumented == [], f"held with no stated reason: {undocumented}"
+
+
+def test_renovate_automerges_patch_minor_and_digest_on_green() -> None:
+    """The same set as the sibling. CI here is the stronger of the two — two suites at a 99% floor,
+    two strict mypy invocations, a 25-channel install matrix, hassfest — so if green is trustworthy
+    anywhere it is trustworthy here. Runtime deps are floors with no rangeStrategy, so a satisfied
+    `>=` bound never moves and what actually lands is the dev toolchain and pinned action SHAs."""
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    blanket = [r for r in config["packageRules"] if r.get("automerge") is True]
+    assert len(blanket) == 1, "more than one blanket automerge rule"
+    assert sorted(blanket[0]["matchUpdateTypes"]) == ["digest", "minor", "patch"]
+
+
 # --- the public surface, and the one consumer that proves it ------------------------
 def test_the_integration_imports_nothing_the_library_does_not_promise() -> None:
     """The bundled integration is this library's reference consumer, so what it reaches for IS the
@@ -941,3 +978,60 @@ def _module_names(path: Path) -> set[str]:
         ):
             return {e.value for e in node.value.elts if isinstance(e, ast.Constant)}  # type: ignore[attr-defined]
     return set()
+
+
+def test_the_infra_retry_watches_every_github_workflow() -> None:
+    """A runner fault is not selective about which workflow it lands on, so a partial watch list is
+    just an undetected flake somewhere else. This started at three of seven — missing the bottle
+    build and the install matrix, which are the longest-running and most exposed of the lot."""
+    retry = REPO / ".github" / "workflows" / "retry-infra-failures.yml"
+    watched = set(yaml.safe_load(retry.read_text(encoding="utf-8"))[True]["workflow_run"]["workflows"])
+    present = {}
+    for path in sorted((REPO / ".github" / "workflows").glob("*.y*ml")):
+        found = re.search(r"^name:\s*(.+)$", path.read_text(encoding="utf-8"), re.M)
+        if found:
+            present[found.group(1).strip()] = path.name
+    # Itself excluded: a retry workflow retrying its own runner failure would recurse.
+    unwatched = {n: f for n, f in present.items() if n not in watched and f != retry.name}
+    assert unwatched == {}, f"GitHub workflows with no infra-retry cover: {unwatched}"
+    assert watched <= set(present), f"watches workflows that do not exist: {watched - set(present)}"
+
+
+def test_the_retired_signing_key_is_referenced_nowhere() -> None:
+    """The key migration replaced the uppercase spelling everywhere and missed the lowercase one
+    in two rpm signature assertions, which would have failed the install matrix for every
+    correctly-signed package. Matched case-insensitively so a spelling cannot hide again."""
+    # Assembled rather than written out, or this test is itself an offender.
+    retired = "4bbacd5a" + "6ff38564"
+    listed = subprocess.run(
+        ["git", "-C", str(REPO), "ls-files", "-co", "--exclude-standard"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    offenders = []
+    for name in listed:
+        path = REPO / name
+        if not path.is_file() or path.suffix in {".asc", ".png", ".gz"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        # The CHANGELOG legitimately records the migration itself.
+        if retired in text.lower() and name not in {"CHANGELOG.md", "docs/backlog.md"}:
+            offenders.append(name)
+    assert offenders == [], f"retired signing key still referenced: {offenders}"
+
+
+def test_the_retired_key_path_still_serves_the_current_key() -> None:
+    """`packaging/whiskerless-signing-key.asc` is kept as a byte-identical copy of the namespace
+    key, and must not be deleted.
+
+    Two 0.2.0 release candidates shipped a `whiskerless.repo` whose `gpgkey=` names that URL. A
+    machine configured from one of them never rereads the file in this repository — it has its own
+    copy under /etc/yum.repos.d — so deleting the key it points at leaves dnf unable to import the
+    key the new packages are signed with, and that machine cannot upgrade at all.
+    """
+    legacy = REPO / "packaging" / "whiskerless-signing-key.asc"
+    current = REPO / "packaging" / "sisyphusmd-signing-key.asc"
+    assert legacy.exists(), "a machine configured from a 0.2.0 rc fetches this exact path"
+    assert legacy.read_bytes() == current.read_bytes()

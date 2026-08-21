@@ -202,6 +202,8 @@ them needs a system Python except PyPI's.
 **Homebrew (macOS and Linux):**
 
 ```bash
+brew tap sisyphusmd/tap
+brew trust sisyphusmd/tap    # one-time; Homebrew 6+ won't load a third-party tap until trusted
 brew install sisyphusmd/tap/whiskerless
 ```
 
@@ -340,9 +342,9 @@ be spent waiting on a broker restart.
 > going to complete the provision.**
 >
 > The moment it enters pairing mode the robot forgets its network — that part is
-> Whisker's own documented behaviour. On the unit we tested (ESP 1.1.75) it did
+> Whisker's own documented behaviour. On the one unit tested (ESP 1.1.75) it did
 > **not** come back on its own: the mode showed no sign of timing out, no button
-> we tried left it, and the robot stayed off the network entirely — not merely
+> tried left it, and the robot stayed off the network entirely — not merely
 > unreachable, but not answering ARP on its own VLAN — until a provision
 > completed. Treat the "no way out but a provision" part as one robot's
 > behaviour rather than a firmware-wide guarantee, and plan accordingly.
@@ -350,9 +352,9 @@ be spent waiting on a broker restart.
 > This is the robot's behaviour, not something whiskerless does. Whisker
 > documents it for their own app too: holding Connect too long means the robot
 > "has entered onboarding mode and forgotten its saved WiFi network", and their
-> recovery is the app's *Update Network* flow. `whiskerless provision` is ours.
-> The practical difference is distance to the cure — theirs is a phone tap,
-> ours needs this laptop within Bluetooth range of the robot.
+> recovery is the app's *Update Network* flow. The equivalent here is
+> `whiskerless provision`. The practical difference is distance to the cure —
+> theirs is a phone tap, this one needs a laptop within Bluetooth range.
 
 Put the robot in pairing mode — **hold** its **Connect** button for about three
 seconds, until the light **blinks yellow** — then, near it:
@@ -568,7 +570,8 @@ Release candidates go out before each stable release for testing on real
 hardware:
 
 - **Homebrew**: `brew install sisyphusmd/tap/whiskerless-rc` tracks the newest
-  candidate (it conflicts with the stable formula — one or the other). When the
+  candidate (it conflicts with the stable formula — one or the other). The
+  one-time `brew trust sisyphusmd/tap` above already covers both formulae. When the
   stable release lands, the rc formula is re-pointed at it, so staying on
   `whiskerless-rc` converges to stable by itself; to switch channels explicitly,
   `brew uninstall whiskerless-rc && brew install sisyphusmd/tap/whiskerless`.
@@ -580,17 +583,34 @@ hardware:
 ## Uninstalling
 
 The robot needs nothing installed anywhere to keep running — these only remove
-the tools:
+the tools.
 
-- **Home Assistant**: Settings → Devices & Services → Whiskerless → ⋮ →
-  **Delete** (per robot), then uninstall Whiskerless in HACS and restart. The
-  full walkthrough is in
+```bash
+whiskerless uninstall
+```
+
+It finds every install on the machine, shows you each one with the command that
+removes it, and removes them after you confirm. That matters more than it
+sounds: Homebrew and the macOS `.pkg` can both be installed at once, and `PATH`
+order alone decides which one runs — so `whiskerless --version` can disagree
+with what you think you have.
+
+Two things it will not do for you:
+
+- **Home Assistant**: reported, never removed. HACS owns the integration's
+  lifecycle and deleting the folder behind its back leaves a config entry
+  pointing at nothing. Settings → Devices & Services → Whiskerless → ⋮ →
+  **Delete** (per robot), then uninstall Whiskerless in HACS and restart. Full
+  walkthrough in
   [docs/setup/home-assistant.md](docs/setup/home-assistant.md#removing-the-integration).
-- **Homebrew**: `brew uninstall whiskerless` (or `whiskerless-rc`).
-- **macOS .pkg**: `sudo rm /usr/local/bin/whiskerless` — the installer places
-  that one file.
-- **.deb / .rpm**: `sudo apt remove whiskerless` / `sudo dnf remove whiskerless`.
-- **PyPI**: `pipx uninstall whiskerless` / `pip uninstall whiskerless`.
+- **A raw binary you downloaded**: delete the file — nothing else was placed, so
+  there is nothing to detect.
+
+If you would rather do it by hand: `brew uninstall whiskerless` (or
+`whiskerless-rc`); `sudo rm /usr/local/bin/whiskerless` and
+`sudo pkgutil --forget com.sisyphusmd.whiskerless` for the `.pkg`;
+`sudo apt remove whiskerless` or `sudo dnf remove whiskerless`;
+`pipx uninstall whiskerless` or `uv tool uninstall whiskerless`.
 
 Your certificate authority and saved robots stay in `~/whiskerless`; delete that
 folder to remove them. Run `whiskerless backup` first if you ever want to add a
@@ -676,3 +696,7 @@ BLE provisioning, and safety guard. See [CONTRIBUTING.md](CONTRIBUTING.md).
 [MIT](https://github.com/SisyphusMD/whiskerless/blob/main/LICENSE). Not affiliated with or endorsed by Whisker. "Litter-Robot" is a
 trademark of its respective owner; this project is independent and interoperates
 with hardware you own.
+
+---
+
+<sub>Built with AI assistance. Directed decision by decision, not prompted and shipped. Backed by 99% coverage floors, transcript-equivalence tests, install channels exercised each release, hardware bench runs.</sub>

@@ -25,6 +25,9 @@ here="$(cd "$(dirname "$0")" && pwd)"
 }
 # shellcheck source=/dev/null
 . "$here/project.env"
+# For rel_validate_tag — one definition of what a release tag is, shared with every other step.
+# shellcheck source=/dev/null
+. "$here/release-common.sh"
 : "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
 OWNER="${PROJECT_REPO_SLUG%%/*}"
 PKG="${PROJECT_REPO_SLUG#*/}"
@@ -32,10 +35,11 @@ PKG="${PROJECT_REPO_SLUG#*/}"
 [ "$#" -ge 4 ] || { echo "usage: $0 <host> <token> <tag> <package...>" >&2; exit 2; }
 host="$1"; token="$2"; tag="$3"; shift 3
 
-case "$tag" in
-  v[0-9]*.[0-9]*.[0-9]*) : ;;
-  *) echo "not a release tag: $tag" >&2; exit 2 ;;
-esac
+# The SAME grammar the release helpers enforce, not a looser glob of its own. `v1.2.3.dev1` and
+# `v1.2.3-anything` passed the glob, were classified stable for having no hyphen in the right
+# place, and would have been published into the `stable` distribution that real installs track —
+# while every other step in the release path rejected the same tag.
+rel_validate_tag "$tag" || exit 2
 
 # A release candidate must never reach a subscriber who asked for releases, and
 # deb/rpm version ordering cannot express that on its own: `0.2.0~rc.28` sorts

@@ -154,3 +154,22 @@ rel_verify_uploaded_asset() {
   echo "uploaded release asset did not become visible: $2" >&2
   return 1
 }
+
+# ignored_asset <name> — an asset that is known, expected, and deliberately outside the
+# cross-registry quorum. `_IGNORED_ASSETS` is per-project and comes from `asset-roles.sh`, which
+# the caller must have sourced.
+#
+# Lives here rather than in reconcile because reconcile is not its only caller: prune compares
+# each stable's asset-name set across all three registries, and an asset published to only two of
+# them by design (a Homebrew bottle) made every bottled stable look permanently half-fanned-out,
+# so its superseded candidates were never pruned at all.
+ignored_asset() {
+  local wanted="$1" pattern
+  for pattern in "${_IGNORED_ASSETS[@]}"; do
+    # shellcheck disable=SC2254 # $pattern is a deliberate glob, not a literal
+    case "$wanted" in
+      $pattern) return 0 ;;
+    esac
+  done
+  return 1
+}

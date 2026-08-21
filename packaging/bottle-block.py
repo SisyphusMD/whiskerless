@@ -50,10 +50,15 @@ def _cellar_literal(cellar: str) -> str:
     return json.dumps(cellar)
 
 
-def collect(paths: list[Path], formula: str, version: str) -> tuple[dict[str, str], str]:
-    """Return {tag: sha256} plus the one cellar value every manifest agreed on."""
-    tags: dict[str, str] = {}
-    cellars: set[str] = set()
+def collect(paths: list[Path], formula: str, version: str) -> dict[str, tuple[str, str]]:
+    """Return {tag: (sha256, cellar)} — the cellar recorded PER TAG.
+
+    Homebrew's bottle DSL puts `cellar:` on each tag's own `sha256` line, and the platforms
+    legitimately disagree: macOS bottles are typically `:any_skip_relocation` while Linux ones are
+    `:any`. Demanding one global value rejected a perfectly valid four-platform set, and the
+    second tap pass could then publish no bottle block at all.
+    """
+    tags: dict[str, tuple[str, str]] = {}
     seen_formula = False
 
     for path in paths:
@@ -78,33 +83,35 @@ def collect(paths: list[Path], formula: str, version: str) -> tuple[dict[str, st
             # runner poured a stale keg and the filenames would not match.
             if bottle.get("rebuild", 0) != 0:
                 raise SystemExit(f"{path}: rebuild={bottle['rebuild']}, expected 0")
-            cellars.add(bottle["cellar"])
+            cellar = bottle["cellar"]
             for tag, spec in bottle["tags"].items():
                 sha = spec["sha256"]
-                if tags.get(tag, sha) != sha:
+                if tag in tags and tags[tag] != (sha, cellar):
                     raise SystemExit(
                         f"{path}: two different bottles claim tag {tag} "
-                        f"({tags[tag]} vs {sha})"
+                        f"({tags[tag]} vs {(sha, cellar)})"
                     )
-                tags[tag] = sha
+                tags[tag] = (sha, cellar)
 
     if not seen_formula:
         raise SystemExit(f"no manifest mentions formula {formula}")
     if not tags:
         raise SystemExit(f"no bottle tags found for {formula}")
-    if len(cellars) != 1:
-        # Merging these would mean picking one and silently mis-describing the
-        # others, and `cellar` is what decides whether a bottle is poured at all.
-        raise SystemExit(f"manifests disagree on cellar: {sorted(cellars)}")
-    return tags, cellars.pop()
+    return tags
 
 
-def render(tags: dict[str, str], cellar: str, root_url: str, indent: str = "  ") -> str:
+def render(tags: dict[str, tuple[str, str]], root_url: str, indent: str = "  ") -> str:
     ordered = sorted(tags, key=lambda t: (TAG_ORDER.index(t) if t in TAG_ORDER else len(TAG_ORDER), t))
-    cellar_part = f"cellar: {_cellar_literal(cellar)}, "
-    width = max(len(t) for t in ordered)
+    # Aligned on the PREFIX, not the tag: the cellar literal differs per platform, so padding the
+    # tag alone left the hashes ragged in a file that ends up committed to the tap.
+    prefixes = {t: f"cellar: {_cellar_literal(tags[t][1])}, {t}:" for t in ordered}
+    width = max(len(x) for x in prefixes.values())
+    # Padded to `width`, not width+1: the literal space in the format string supplies the
+    # separator, so the extra column put two spaces after the longest tag.
     lines = [f"{indent}bottle do", f'{indent}  root_url "{root_url}"']
-    lines += [f'{indent}  sha256 {cellar_part}{tag + ":":{width + 1}} "{tags[tag]}"' for tag in ordered]
+    lines += [
+        f'{indent}  sha256 {prefixes[tag]:{width}} "{tags[tag][0]}"' for tag in ordered
+    ]
     lines.append(f"{indent}end")
     return "\n".join(lines)
 
@@ -118,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("manifests", nargs="+", type=Path)
     args = parser.parse_args(argv)
 
-    tags, cellar = collect(args.manifests, args.formula, args.version)
+    tags = collect(args.manifests, args.formula, args.version)
     # A missing platform is silent otherwise: the formula publishes, and everyone
     # on the platform that did not bottle quietly compiles for several minutes —
     # which is the entire problem bottles were added to solve.
@@ -127,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
             f"merged {len(tags)} bottle tag(s) for {args.formula} "
             f"({', '.join(sorted(tags))}), expected {args.expect_tags}"
         )
-    print(render(tags, cellar, args.root_url))
+    print(render(tags, args.root_url))
     return 0
 
 

@@ -47,12 +47,43 @@
       ]
     },
     {
-      "description": "Automerge patches and digests (keeps the pinned action SHAs fresh); minor/major reviewed manually.",
+      "description": "Automerge patch, minor and digest updates. Every dependency that ships or builds this project is exercised by a CI job — two suites at a 99% floor, two strict mypy invocations, a 25-channel install matrix and hassfest — and Renovate only automerges on green, so a breaking bump fails the PR before it can merge. Runtime deps are declared as floors and no rangeStrategy is set, so a satisfied `>=` bound never moves: what lands here is the dev toolchain and the pinned action SHAs. Major updates, and the holds below, are reviewed by hand.",
       "matchUpdateTypes": [
         "patch",
+        "minor",
         "digest"
       ],
       "automerge": true
+    },
+    {
+      "description": "RELEASE-ONLY build pins: nothing in PR CI builds with them. publish.yml runs on a tag, and the install matrix tests artifacts that are already published — so a minor bump to the packager, the freezer, the manylinux image, the emulator or the bundled interpreter merges on a green PR that never executed the changed build path, and fails at the next release instead. By then the PyPI upload has already happened, because that job does not wait for the packaging legs. Reviewed by hand, and proven by cutting a release candidate.",
+      "matchDepNames": [
+        "goreleaser/nfpm",
+        "pyinstaller",
+        "python",
+        "quay.io/pypa/manylinux_2_28_aarch64",
+        "quay.io/pypa/manylinux_2_28_x86_64",
+        "tonistiigi/binfmt",
+        "debian-13-current"
+      ],
+      "automerge": false,
+      "prBodyNotes": [
+        "**CI cannot reach this.** Nothing in a pull request builds with this pin: `publish.yml` runs only on a tag, and the install matrix exercises artifacts that are already published. A green PR here says the code still lints and tests — it says nothing about whether the release still builds.",
+        "Clear it by cutting a release candidate with the bump in place, then merge."
+      ],
+      "addLabels": [
+        "release-path"
+      ]
+    },
+    {
+      "description": "bleak is the BLE transport provisioning speaks to the robot over. CI proves only that the code around it behaves: tests/test_ble_transport.py fakes the bleak boundary outright, and no runner has a Bluetooth radio, so scanning, pairing, GATT writes and the esp-idf protocomm exchange are never executed against the real library. Green CI therefore says nothing about the path that re-points a robot onto a new broker, so a bump is read by a human. Same reason dreame-valetudo holds pyusb — see its .renovaterc.json.",
+      "automerge": false,
+      "matchDepNames": [
+        "bleak"
+      ],
+      "prBodyNotes": [
+        "CI cannot reach the BLE path: no runner has a radio and the transport is faked at the bleak boundary. Bench-provisioning a real robot is what exercises this."
+      ]
     },
     {
       "description": "The integration's pinned lib requirement is bumped by the release workflow, not Renovate.",

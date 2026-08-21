@@ -98,6 +98,19 @@ is behind much of the hopper work. Protocol detail lives in
   bottles, `.deb`/`.rpm`, a signed macOS `.pkg`, and standalone Linux binaries —
   none of which need a system Python. Packages are GPG-signed
   (`CCE50015D058E9BF`); setup is in the README.
+- **`whiskerless uninstall`** finds every copy of the tool on the machine — brew,
+  the `.pkg`, apt/dnf, uv, pipx, pip and a source checkout — names the command that
+  removes each one, and asks before running any of them. Your robots and the CA are
+  never touched. It exists because brew and the `.pkg` both provide `whiskerless`
+  and nothing had ever noticed you had both.
+- **`whiskerless rename`** gives a robot a name you choose. Commands accept it
+  anywhere a serial works, and the prompts say the name back to you.
+- **Commands that write to a robot name it before they ask.** With more than one
+  robot set up, the confirmation now says which one it is about.
+- **WiFi passwords are read without echoing**, and never from a shell argument.
+- **A once-a-day check tells you when a newer release is out**, with the upgrade
+  command for the way this copy was installed. Turn it off with
+  `WHISKERLESS_NO_UPDATE_CHECK=1`; it never blocks and never fails loudly.
 
 ### Fixed
 

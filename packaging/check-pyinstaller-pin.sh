@@ -27,6 +27,14 @@
 # tells you when upstream has changed something worth spending a release
 # candidate on.
 #
+# THE OTHER WAY OUT, proven in the sibling repo: dreame-valetudo hit this identical bug (it cost
+# that project's rc.13 Linux assets, as it cost this one's rc.18) and escaped it by building Linux
+# ONEDIR instead of onefile. A onedir bundle spawns no child, so the parent-executable check never
+# runs — the protection is not disabled, the two-process model it guards is simply absent. That
+# removes the constraint at its root rather than waiting upstream out, at the cost of a single-file
+# download. If lifting this pin ever looks more expensive than losing that, the recipe is in
+# dreame-valetudo's packaging/README.md under BUNDLE_MODE. See project-standard/VARIANCE.md.
+#
 # Upstream is actively working the same area — as of 2026-08-15 two commits
 # relax the check to skip when /proc/<ppid> is unreadable — but an emulated
 # /proc entry is readable and merely points somewhere else, so those particular

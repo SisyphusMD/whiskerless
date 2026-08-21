@@ -47,15 +47,21 @@ version="${tag#v}"
 # PEP 440, the same normalization update-tap.sh applies: the tag says 0.2.0-rc.1
 # and the formula's URL says 0.2.0rc1. The bottle filename follows the formula.
 pypi_version="$(printf '%s' "$version" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
-# WHICH SPELLING the formula's url carries is a per-project fact, because the two projects build
-# their formula from different places. whiskerless installs from the PyPI sdist, whose filename is
-# PEP 440 (`0.2.0rc1`); dreame-valetudo installs from a release asset named for the tag
-# (`0.3.0-rc.1`). Hardcoding either one made every prerelease bottle build in the OTHER project
-# wait the full thirty minutes and then fail against a tap that had published correctly.
-case "${PROJECT_TAP_TARBALL_VERSION:-tag}" in
-  pypi) tarball_version="$pypi_version" ;;
-  tag)  tarball_version="$version" ;;
-  *) echo "project.env: PROJECT_TAP_TARBALL_VERSION must be 'pypi' or 'tag'" >&2; exit 2 ;;
+# WHERE the formula installs from, which is what decides the version spelling in its url — and
+# so the spelling this readiness check has to search for.
+#
+# `pypi`: the project publishes to PyPI and the formula builds from the sdist, whose filename PyPI
+# normalises to PEP 440 (`0.2.0rc1`). Not a choice; PyPI names that file.
+# `release-asset`: the project does not publish to PyPI, and the formula builds from an asset this
+# release named for its tag (`0.3.0-rc.1`).
+#
+# Hardcoding either spelling made every prerelease bottle build in the OTHER project wait the full
+# thirty minutes and then fail against a tap that had published correctly. The two only differ for
+# release candidates — a stable `0.3.0` is spelled the same either way.
+case "${PROJECT_FORMULA_SOURCE:-release-asset}" in
+  pypi)          tarball_version="$pypi_version" ;;
+  release-asset) tarball_version="$version" ;;
+  *) echo "project.env: PROJECT_FORMULA_SOURCE must be 'pypi' or 'release-asset'" >&2; exit 2 ;;
 esac
 root_url="https://forgejo.bryantserver.com/${OWNER}/${PKG}/releases/download/${tag}"
 

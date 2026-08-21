@@ -82,10 +82,13 @@ test-ha = [
     "syrupy>=4.0",
 ]
 
+# Source points at Forgejo because that is where the code actually lives and where releases are
+# cut; GitHub is a mirror. Homepage, docs and issues point at GitHub because that is where users
+# are — HACS installs from it, and issues and pull requests are handled there.
 [project.urls]
 Homepage = "https://github.com/SisyphusMD/whiskerless"
 Documentation = "https://github.com/SisyphusMD/whiskerless/tree/main/docs"
-Source = "https://github.com/SisyphusMD/whiskerless"
+Source = "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
 Issues = "https://github.com/SisyphusMD/whiskerless/issues"
 
 [project.scripts]
@@ -107,7 +110,11 @@ src = ["src", "tests", "custom_components"]
 "custom_components/**" = "py313"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PTH", "BLE"]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PTH", "BLE",
+          # PLW catches module-global mutation, which is how robot_profiles.py used to hand
+          # migration results to the CLI. PLC0415 is deliberately NOT enabled: the lazy
+          # imports for optional heavy dependencies are an architectural choice.
+          "PLW"]
 ignore = [
     "E501",                       # long protocol comments/tables are allowed
     "ASYNC109",                   # a `timeout` param that wraps asyncio.timeout is a fine API

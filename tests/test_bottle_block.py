@@ -77,9 +77,9 @@ def test_the_four_platforms_merge_into_one_block(tmp_path: Path) -> None:
         _manifest(tmp_path / f"{tag}.json", tag=tag, sha=chr(97 + i) * 64)
         for i, tag in enumerate(["arm64_sequoia", "sequoia", "x86_64_linux", "arm64_linux"])
     ]
-    tags, cellar = bb.collect(paths, "whiskerless", "0.2.0rc28")
+    tags = bb.collect(paths, "whiskerless", "0.2.0rc28")
     assert set(tags) == {"arm64_sequoia", "sequoia", "x86_64_linux", "arm64_linux"}
-    assert cellar == "/opt/homebrew/Cellar"
+    assert {cellar for _, cellar in tags.values()} == {"/opt/homebrew/Cellar"}
 
 
 def test_macos_is_listed_before_linux(tmp_path: Path) -> None:
@@ -89,8 +89,8 @@ def test_macos_is_listed_before_linux(tmp_path: Path) -> None:
         _manifest(tmp_path / f"{tag}.json", tag=tag)
         for tag in ["arm64_linux", "sequoia", "x86_64_linux", "arm64_sequoia"]
     ]
-    tags, cellar = bb.collect(paths, "whiskerless", "0.2.0rc28")
-    rendered = [line.split()[-2].rstrip(":") for line in bb.render(tags, cellar, "u").splitlines()[2:-1]]
+    tags = bb.collect(paths, "whiskerless", "0.2.0rc28")
+    rendered = [line.split()[-2].rstrip(":") for line in bb.render(tags, "u").splitlines()[2:-1]]
     assert rendered == ["arm64_sequoia", "sequoia", "x86_64_linux", "arm64_linux"]
 
 
@@ -108,8 +108,8 @@ def test_the_cellar_is_a_symbol_only_when_homebrew_means_one(
     tmp_path: Path, cellar: str, expected: str
 ) -> None:
     path = _manifest(tmp_path / "m.json", cellar=cellar)
-    tags, merged = bb.collect([path], "whiskerless", "0.2.0rc28")
-    assert expected in bb.render(tags, merged, "https://example.invalid")
+    tags = bb.collect([path], "whiskerless", "0.2.0rc28")
+    assert expected in bb.render(tags, "https://example.invalid")
 
 
 def test_a_manifest_from_another_release_is_refused(tmp_path: Path) -> None:
@@ -133,8 +133,8 @@ def test_the_other_formulas_manifests_are_ignored(tmp_path: Path) -> None:
     directory; each block must take only its own."""
     mine = _manifest(tmp_path / "a.json", formula="whiskerless", sha="b" * 64)
     theirs = _manifest(tmp_path / "b.json", formula="whiskerless-rc", sha="c" * 64)
-    tags, _ = bb.collect([mine, theirs], "whiskerless", "0.2.0rc28")
-    assert tags == {"arm64_sequoia": "b" * 64}
+    tags = bb.collect([mine, theirs], "whiskerless", "0.2.0rc28")
+    assert tags == {"arm64_sequoia": ("b" * 64, "/opt/homebrew/Cellar")}
 
 
 def test_a_formula_with_no_manifest_at_all_is_an_error(tmp_path: Path) -> None:
@@ -150,13 +150,16 @@ def test_two_bottles_claiming_one_platform_are_refused(tmp_path: Path) -> None:
         bb.collect([a, b], "whiskerless", "0.2.0rc28")
 
 
-def test_disagreeing_cellars_are_refused(tmp_path: Path) -> None:
-    """Merging them would mean picking one and mis-describing the rest, and the
-    cellar is what decides whether a bottle is poured at all."""
-    a = _manifest(tmp_path / "a.json", tag="arm64_sequoia", cellar="/opt/homebrew/Cellar")
-    b = _manifest(tmp_path / "b.json", tag="sequoia", cellar="/usr/local/Cellar")
-    with pytest.raises(SystemExit, match="disagree on cellar"):
-        bb.collect([a, b], "whiskerless", "0.2.0rc28")
+def test_each_platform_keeps_its_own_cellar(tmp_path: Path) -> None:
+    """Homebrew puts `cellar:` on each tag's own sha256 line, and the platforms legitimately
+    disagree — macOS bottles are typically :any_skip_relocation while Linux ones are :any.
+    Demanding one global value rejected a valid set and published no block at all."""
+    a = _manifest(tmp_path / "a.json", tag="arm64_sequoia", cellar="any_skip_relocation")
+    b = _manifest(tmp_path / "b.json", tag="x86_64_linux", cellar="any")
+    tags = bb.collect([a, b], "whiskerless", "0.2.0rc28")
+    block = bb.render(tags, "https://example.invalid")
+    assert "cellar: :any_skip_relocation, arm64_sequoia:" in block
+    assert "cellar: :any, x86_64_linux:" in block
 
 
 def test_a_short_set_is_refused_when_a_count_is_demanded(tmp_path: Path) -> None:
@@ -181,8 +184,8 @@ def test_the_rendered_block_is_the_shape_homebrew_parses(tmp_path: Path) -> None
     """Homebrew fetches `<root_url>/<filename>`; both halves are asserted live in
     the pour test, so what matters here is that the block keeps its shape."""
     path = _manifest(tmp_path / "m.json", cellar="any")
-    tags, cellar = bb.collect([path], "whiskerless", "0.2.0rc28")
-    block = bb.render(tags, cellar, "https://forgejo.example/releases/download/v0.2.0-rc.28")
+    tags = bb.collect([path], "whiskerless", "0.2.0rc28")
+    block = bb.render(tags, "https://forgejo.example/releases/download/v0.2.0-rc.28")
     assert block.splitlines()[0] == "  bottle do"
     assert block.splitlines()[1] == '    root_url "https://forgejo.example/releases/download/v0.2.0-rc.28"'
     assert block.splitlines()[-1] == "  end"
