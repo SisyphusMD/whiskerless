@@ -105,11 +105,32 @@ jobs:
           docker start -a "$cid" || rc=$?
           docker rm "$cid" >/dev/null
           exit "$rc"
+      - name: Release-script integration (curl stubbed, no network)
+        # The release publishers are the code with the least margin for error and the fewest
+        # chances to catch a mistake: they run once, during a release, against three live
+        # registries. Until this existed they were shellcheck'd and never executed.
+        #
+        # `tests/release/`, not `tests/integration/` — the latter is this project's Home Assistant
+        # test package, and the sibling project uses the same directory name for shell tests.
+        # Same word, two meanings, so both now say `release` for this.
+        run: |
+          set -euo pipefail
+          for t in tests/release/*.sh; do echo "== $t =="; bash "$t"; done
+
       - name: Documentation links
         # Relative links rot silently: a doc moves and the link keeps rendering,
         # just pointing at nothing. The setup guide alone links to the recovery
         # guide, the compatibility notes and the examples directory.
         run: python3 packaging/check-doc-links.py .
+
+      - name: Vendored standard has not drifted
+        # A shared helper improved by editing the copy here never reaches the sibling project —
+        # which is how these two drifted apart in the first place. Change it in project-standard,
+        # re-vendor both, land them together.
+        run: python3 packaging/check-standard-sync.py
+
+      - name: .gitignore contains the shared base
+        run: python3 packaging/check-gitignore-base.py .
 
       - name: Cited external sources still resolve
         # Only the pages we relied ON as evidence — Whisker's control-panel

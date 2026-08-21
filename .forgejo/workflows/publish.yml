@@ -534,6 +534,37 @@ jobs:
             exit 1
           fi
 
+  reconcile:
+    name: Reconcile releases across registries (heal history)
+    # `always()`, and needs only `releases`: this exists precisely for the case where publishing to
+    # one of the three registries failed, so gating it on that job succeeding would disable it in
+    # the only situation it is for. It is warn-only for the same reason — a reconcile problem must
+    # not make an otherwise valid release disappear, and the next release retries every tag.
+    needs: releases
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # all tags needed for the reconcile loop
+      - name: Reconcile every tag across all three registries
+        # A remote filename or byte count is not evidence that an artifact is intact. This downloads
+        # each recognised asset, accepts bytes only when at least two registries agree on the
+        # SHA-256, and fills that content into any registry MISSING it. A registry already serving
+        # DIFFERENT bytes is reported for a human, never overwritten: replacing means deleting
+        # first, and a delete plus a failed re-upload destroys the only good copy.
+        #
+        # Homebrew bottles are deliberately outside this — see packaging/asset-roles.sh for why a
+        # content quorum is the wrong model for an artifact that is not reproducible.
+        env:
+          CLUSTER_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+          NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}
+          GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
+        run: |
+          set -uo pipefail
+          chmod +x packaging/reconcile-releases.sh packaging/forgejo-release.sh packaging/github-release.sh
+          bash packaging/reconcile-releases.sh
+
   prune-rcs:
     name: Prune the candidates this release supersedes
     # Last, not after `releases`: the sweep deletes a candidate only once its
@@ -548,7 +579,12 @@ jobs:
     # homebrew-bottles too, since #15: the sweep now deletes registry packages as
     # well as releases, and it must not start while this release is still
     # assembling the artifacts that replace them.
-    needs: [releases, nas-pkg, homebrew-bottles]
+    #
+    # And reconcile: the sweep's own precondition is that the stable is present and identical on
+    # all three hosts, which is exactly what reconcile repairs. Pruning first would read a gap that
+    # was about to be healed as a reason to keep every candidate — or, worse, delete the rc that
+    # still held the only copy of content one host was missing.
+    needs: [releases, nas-pkg, homebrew-bottles, reconcile]
     # An rc publishes through this same workflow, and its own stable does not
     # exist yet, so the sweep would enumerate every host to print zero. Skip it
     # rather than pay for the round trip.
