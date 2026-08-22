@@ -211,7 +211,7 @@ FROM scratch AS deb-file-ubuntu-floor-result
 COPY --from=deb-file-ubuntu-floor /passed /passed
 
 # renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
-FROM ubuntu:26.04@sha256:6df9e8dd1eac389ebfef692c9648449adeb815d01e16e29cd6f3e50fe64ba9a6 AS deb-file-ubuntu
+FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b AS deb-file-ubuntu
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
 RUN set -eux; \
