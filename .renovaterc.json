@@ -61,6 +61,7 @@
         "goreleaser/nfpm",
         "pyinstaller",
         "python",
+        "python/cpython",
         "quay.io/pypa/manylinux_2_28_aarch64",
         "quay.io/pypa/manylinux_2_28_x86_64",
         "debian-13-current"
@@ -90,6 +91,27 @@
         "custom_components/whiskerless/manifest.json"
       ],
       "enabled": false
+    },
+    {
+      "description": "release-macos.yml's `python-version` is not a test runner: PyInstaller freezes that exact interpreter into the shipped .pkg, so it has to move with PYTHON_VERSION in packaging/release-pins.env and the checksum a human reviews alongside it. The annotation hands the line to the cpython tag dep; disabling the built-in manager here leaves that dep as its only owner rather than an automerging second one that could ship a different Python than the Linux bundles carry.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "python"
+      ],
+      "matchFileNames": [
+        ".github/workflows/release-macos.yml"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "This dep reads CPython's git tag, which has two consequences. The tag carries a leading `v` that no consumer accepts \u2014 setup-python resolves `python-version: v3.14.8` to nothing and the source build fetches `Python-v3.14.8.tar.xz`, which does not exist \u2014 so it is stripped here. And a tag exists before actions/python-versions publishes the manifest setup-python installs from, so a bump raised inside that window installs nothing; hold it until the manifest is certain to list it. Both are why the sibling project carries this identical rule.",
+      "matchDepNames": [
+        "python/cpython"
+      ],
+      "extractVersion": "^v(?<version>.+)$",
+      "minimumReleaseAge": "3 days"
     },
     {
       "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. The HA integration CI job must run whatever Python Home Assistant itself runs (3.13) — testing it on a newer one stops testing what users actually run, and installing HA there fails outright. No datasource maps a package to its supported Python, so Renovate cannot derive this; matched on the value because both jobs live in ci.yml. Raise this when HA moves.",
@@ -153,7 +175,7 @@
         "/^packaging/release-pins\\.env$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>pypi|python-version) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[^\\n]*?[:=]=?\\s*\"?(?<currentValue>\\d[\\w.-]*)"
+        "# renovate: datasource=(?<datasource>pypi|python-version|github-tags) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[^\\n]*?[:=]=?\\s*\"?(?<currentValue>\\d[\\w.-]*)"
       ]
     }
   ],

@@ -35,10 +35,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          # The SAME datasource and depName the Linux pin uses, so Renovate treats the two as one
-          # dependency and bumps them in a single PR. A different identity here would let the two
-          # halves of one release drift a version apart with both PRs green.
-          # renovate: datasource=python-version depName=python
+          # NOT a test runner: PyInstaller freezes this exact interpreter into the shipped .pkg, so
+          # it moves with the Linux bundle pin and its reviewed checksum. `depName=python` would
+          # collide with Renovate's BUILT-IN github-actions manager, which owns every
+          # `python-version:` key and automerges — two owners for one line, one of which could ship
+          # a macOS .pkg built on a different Python than the Linux artifacts of the same release.
+          # The packageRule in .renovaterc.json disables that built-in owner for this file, leaving
+          # the tag dep below as the only one. Same arrangement as the sibling project.
+          # renovate: datasource=github-tags depName=python/cpython versioning=pep440
           python-version: "3.14.7"   # exact interpreter frozen into the bundle
       - name: Build the binary
         run: |
