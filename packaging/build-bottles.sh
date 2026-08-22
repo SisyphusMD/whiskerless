@@ -78,8 +78,21 @@ export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1
 brew update --quiet
 # `brew tap-new`/`brew bottle` are developer commands and shell out to git for a
 # commit; a runner has no identity configured and the command dies on it.
-git config --global user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
-git config --global user.name "forgejo-actions[bot]"
+# Only when there is no identity to preserve. --global is required rather than
+# --local because `brew bottle` commits inside the TAP checkout, not this one, so
+# a repo-local setting never reaches it - but that same reach means running this
+# script on a machine that already has an identity would overwrite the user's own.
+# Exported, not written to a config file. `brew bottle` commits inside the TAP
+# checkout rather than this one, so a repo-local setting never reaches it - but
+# `git config --global` reaches it by clobbering the caller's own identity, which
+# is destructive on any machine that already has one. Environment variables reach
+# every child git in every repository, win over an identity a runner image may
+# already carry, and leave ~/.gitconfig alone. Verified: they satisfy git's ident
+# requirement with nothing configured at all.
+export GIT_AUTHOR_NAME="forgejo-actions[bot]"
+export GIT_AUTHOR_EMAIL="forgejo-actions[bot]@users.noreply.bryantserver.com"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 
 # Tapped from Forgejo, the primary. The GitHub copy is a push mirror and can lag
 # a tap update by a poll interval — long enough to bottle the previous version.
