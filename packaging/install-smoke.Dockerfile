@@ -327,8 +327,12 @@ COPY --from=pip /passed /passed
 # zypper insists on verifying a repository index even with repo_gpgcheck=0, and the
 # key that would satisfy it is Forgejo's — which the README deliberately does not ask
 # anyone to trust. So this is the documented route: import OUR key, install the file.
-# renovate: datasource=docker depName=opensuse-leap-15.6-compat packageName=opensuse/leap
-FROM opensuse/leap:15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421 AS zypper
+#
+# Two ends, the same way the deb and rpm channels carry a floor and a current: an .rpm that installs
+# on Leap 16 can still fail on 15.6, and nothing else here would notice. Both stages below are
+# identical apart from the base image. The sibling project runs the same pair, under the same names.
+# renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
+FROM opensuse/leap:16.0@sha256:f239b4819f4dd322d99509f1b5b14f2107bf23857f9ccd3c14333f0928a2bcc6 AS zypper
 ARG V PV DL ARCH_RPM FORGE
 RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
@@ -343,6 +347,23 @@ RUN set -eux; \
     touch /passed
 FROM scratch AS zypper-result
 COPY --from=zypper /passed /passed
+
+# renovate: datasource=docker depName=opensuse-leap-15.6-compat packageName=opensuse/leap
+FROM opensuse/leap:15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421 AS zypper-floor
+ARG V PV DL ARCH_RPM FORGE
+RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
+COPY packaging/installed-smoke.sh /smoke.sh
+RUN set -eux; \
+    rpm --import "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc"; \
+    curl -fsSL -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    # Not --allow-unsigned-rpm: the imported key has to be what makes this work,
+    # or the test proves nothing about the signature.
+    zypper --non-interactive install /tmp/w.rpm >/dev/null; \
+    rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS zypper-floor-result
+COPY --from=zypper-floor /passed /passed
 
 # --- provisioning, as far as a machine with no robot and no radio can take it --------
 # The BLE re-provisioner is why this CLI exists, and until now nothing here ran it:

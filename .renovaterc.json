@@ -124,6 +124,48 @@
       "minimumReleaseAge": "3 days"
     },
     {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "debian-12-compat"
+      ],
+      "allowedVersions": "/^12-slim$/"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "ubuntu-22.04-compat"
+      ],
+      "allowedVersions": "/^22\\.04$/"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "rocky-8-compat"
+      ],
+      "allowedVersions": "/^8$/"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "rocky-9-compat"
+      ],
+      "allowedVersions": "/^9$/"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "opensuse-leap-15.6-compat"
+      ],
+      "allowedVersions": "/^15\\.6$/"
+    },
+    {
+      "description": "openSUSE's tag namespace still carries the legacy 42.x line, which sorts ABOVE 16.0 \u2014 so without this Renovate reads 42.3 as an upgrade from Leap 16 and proposes replacing the current qualification image with a release from the previous naming era. Verified against Docker Hub: `42` and `42.3` are both live tags. Digests still refresh.",
+      "matchDepNames": [
+        "opensuse-leap-16-current"
+      ],
+      "allowedVersions": "/^16\\.0$/"
+    },
+    {
       "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. The HA integration CI job must run whatever Python Home Assistant itself runs (3.13) — testing it on a newer one stops testing what users actually run, and installing HA there fails outright. No datasource maps a package to its supported Python, so Renovate cannot derive this; matched on the value because both jobs live in ci.yml. Raise this when HA moves.",
       "matchManagers": [
         "github-actions"
