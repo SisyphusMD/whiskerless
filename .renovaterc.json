@@ -56,6 +56,19 @@
       "automerge": true
     },
     {
+      "description": "The shared standard lives on the self-hosted Forgejo, so the gitea-tags datasource has to be told which host to ask; there is no public registry to infer it from. Held for review rather than automerged: a bumped pin only says a new standard EXISTS, and the vendored files are re-synced by a separate act, so a human has to land both together.",
+      "matchDepNames": [
+        "SisyphusMD/project-standard"
+      ],
+      "registryUrls": [
+        "https://forgejo.bryantserver.com"
+      ],
+      "automerge": false,
+      "prBodyNotes": [
+        "CI cannot reach this: the pin records which standard version this repo SHOULD carry, but nothing in this repo re-vendors the files. Run `tools/vendor.py` in project-standard for BOTH consumers and land them together, or the invariant test will refuse the mismatch."
+      ]
+    },
+    {
       "description": "RELEASE-ONLY build pins: nothing in PR CI builds with them. publish.yml runs on a tag, and the install matrix tests artifacts that are already published — so a minor bump to the packager, the freezer, the manylinux image or the bundled interpreter merges on a green PR that never executed the changed build path, and fails at the next release instead. By then the PyPI upload has already happened, because that job does not wait for the packaging legs. Reviewed by hand, and proven by cutting a release candidate.",
       "matchDepNames": [
         "goreleaser/nfpm",
@@ -227,7 +240,7 @@
         "/^packaging/release-pins\\.env$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>pypi|python-version|github-tags) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[^\\n]*?[:=]=?\\s*\"?(?<currentValue>\\d[\\w.-]*)"
+        "# renovate: datasource=(?<datasource>pypi|python-version|github-tags|gitea-tags) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[^\\n]*?[:=]=?\\s*\"?(?<currentValue>\\d[\\w.-]*)"
       ]
     }
   ],

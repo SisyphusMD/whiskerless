@@ -33,7 +33,7 @@
     "tests/release/mirror-ci.sh": "7ab441ab71e6b02ed137494ac17f5bb31ec8bcbd134ca6d1c6e48e2c54f69796",
     "tests/release/prune-rcs.sh": "cff9a7c2680a9173b48216a55418c0872e17a7f035c00db3532dd01d93836ea4"
   },
-  "source_commit": "5c4d0dfd9cdcb1ef67ebb37e2054e9a6358fe8fe",
+  "source_commit": "33af7b0cac98d3a6d45b906d98074644c2bcc45d",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "(untagged working tree)"
+  "source_tag": "v0.1.0"
 }

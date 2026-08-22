@@ -1121,3 +1121,66 @@ def test_the_retired_key_path_still_serves_the_current_key() -> None:
     current = REPO / "packaging" / "sisyphusmd-signing-key.asc"
     assert legacy.exists(), "a machine configured from a 0.2.0 rc fetches this exact path"
     assert legacy.read_bytes() == current.read_bytes()
+
+
+def test_the_pinned_standard_version_matches_what_is_actually_vendored() -> None:
+    """Renovate bumps the pin. It does not re-vendor the files.
+
+    The pin in `packaging/release-pins.env` records which standard this repo SHOULD carry;
+    `STANDARD.lock` records which one it actually does. Nothing else compares them, and a bumped pin
+    whose files were never re-synced leaves this repo green while running a different standard than
+    it claims — the drift the lock exists to prevent, arriving through the one door the lock does not
+    watch, since every vendored file still matches the older lock perfectly.
+
+    The pin omits the leading `v` the tag carries, because the shared Renovate matchString requires a
+    digit first and a `v`-prefixed value matches nothing at all, silently.
+    """
+    pins = (REPO / "packaging" / "release-pins.env").read_text(encoding="utf-8")
+    found = re.search(r'^PROJECT_STANDARD="([^"]+)"', pins, re.M)
+    assert found, "packaging/release-pins.env does not pin PROJECT_STANDARD"
+    pinned = found.group(1)
+    assert not pinned.startswith("v"), f"the pin carries a leading v, which Renovate will not match: {pinned}"
+
+    lock = json.loads((REPO / "STANDARD.lock").read_text(encoding="utf-8"))
+    assert lock["source_tag"] == f"v{pinned}", (
+        f"pinned v{pinned}, but the vendored files come from {lock['source_tag']} — "
+        "re-vendor from the pinned tag and land both together"
+    )
+
+
+def test_every_hold_survives_rule_ordering() -> None:
+    """Renovate applies every matching packageRule in order, and the LAST one to set a field wins.
+
+    So a hold placed ABOVE the broad patch/minor/digest automerge rule is silently undone by it: the
+    config still reads as a hold, review still looks required, and the dependency automerges anyway.
+    Position is not the property, so this resolves the rules the way Renovate does and asserts the
+    value that actually results — for every held dependency, not just the newest one.
+    """
+    rules = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))["packageRules"]
+
+    def resolved(dep: str, update_type: str) -> object:
+        value: object = None
+        for rule in rules:
+            names = rule.get("matchDepNames") or rule.get("matchPackageNames")
+            if names is not None and dep not in names:
+                continue
+            types = rule.get("matchUpdateTypes")
+            if types is not None and update_type not in types:
+                continue
+            if "automerge" in rule:
+                value = rule["automerge"]
+        return value
+
+    held = sorted({
+        dep
+        for rule in rules
+        if rule.get("automerge") is False
+        for dep in (rule.get("matchDepNames") or rule.get("matchPackageNames") or [])
+    })
+    assert held, "no held dependencies found; this invariant would assert nothing"
+    for dep in held:
+        for update_type in ("patch", "minor", "digest"):
+            assert resolved(dep, update_type) is False, (
+                f"{dep} is written as a hold but resolves to automerge on {update_type}: "
+                "its rule sits above the broad automerge rule, which overrides it"
+            )
