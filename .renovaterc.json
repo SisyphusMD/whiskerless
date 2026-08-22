@@ -147,13 +147,13 @@
     },
     {
       "customType": "regex",
-      "description": "Version pins annotated with a `# renovate:` comment in a shell assignment — the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them. They live in packaging/release-pins.env because two forges build this release (amd64 on Forgejo, arm64 on GitHub) and one file is what keeps them equal; a pattern listing only the workflows would silently stop bumping all of them.",
+      "description": "Version pins annotated with a `# renovate:` comment — a shell assignment in packaging/release-pins.env, a `python-version:` key or a `pip install pkg==` line in the macOS release workflow. The tail is deliberately loose: the ANNOTATION is the anchor, and a pattern that only understood UPPERCASE=\"value\" silently skipped the macOS half of the same two dependencies, so Renovate could bump Linux and leave macOS a version behind — the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them. They live in packaging/release-pins.env because two forges build this release (amd64 on Forgejo, arm64 on GitHub) and one file is what keeps them equal; a pattern listing only the workflows would silently stop bumping all of them.",
       "managerFilePatterns": [
         "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/",
         "/^packaging/release-pins\\.env$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>pypi|python-version) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[A-Z_]+=\"(?<currentValue>[^\"]+)\""
+        "# renovate: datasource=(?<datasource>pypi|python-version) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[^\\n]*?[:=]=?\\s*\"?(?<currentValue>\\d[\\w.-]*)"
       ]
     }
   ],

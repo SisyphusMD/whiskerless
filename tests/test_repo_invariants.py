@@ -919,6 +919,38 @@ def test_every_renovate_hold_says_what_CI_cannot_reach() -> None:
     assert undocumented == [], f"held with no stated reason: {undocumented}"
 
 
+def test_the_macos_and_linux_releases_freeze_with_the_same_toolchain() -> None:
+    """One release, one PyInstaller, one CPython — across two forges and three architectures.
+
+    The Linux pins live in packaging/release-pins.env; the macOS job installs its own, because it
+    builds on a Mac and never sources that file. Nothing structural keeps the two equal, so they
+    drifted: macOS asked for an unpinned `pyinstaller` and a fuzzy `3.14` while Linux pinned exact
+    versions. That means the .pkg and the .deb of the SAME release could be frozen by different
+    versions of the one dependency that has already cost this project a release, silently.
+
+    Renovate holds both under one depName, so they bump in a single PR — this is what makes sure
+    they were equal to begin with. The sibling project pins the same coupling.
+    """
+    pins = (REPO / "packaging" / "release-pins.env").read_text(encoding="utf-8")
+    macos = (REPO / ".github" / "workflows" / "release-macos.yml").read_text(encoding="utf-8")
+
+    linux_pyi = re.search(r'PYINSTALLER="([^"]+)"', pins)
+    macos_pyi = re.search(r"pyinstaller==([0-9][\w.]*)", macos)
+    assert linux_pyi and macos_pyi, "a PyInstaller pin is missing or unrecognisable"
+    assert linux_pyi.group(1) == macos_pyi.group(1), (
+        f"PyInstaller differs: linux {linux_pyi.group(1)}, macOS {macos_pyi.group(1)}"
+    )
+
+    linux_py = re.search(r'PYTHON_VERSION="([^"]+)"', pins)
+    macos_py = re.search(r'python-version: "([^"]+)"', macos)
+    assert linux_py and macos_py, "a CPython pin is missing or unrecognisable"
+    assert linux_py.group(1) == macos_py.group(1), (
+        f"CPython differs: linux {linux_py.group(1)}, macOS {macos_py.group(1)}"
+    )
+    # Exact, not a series: "3.14" resolves to whatever the runner image happens to ship that week.
+    assert macos_py.group(1).count(".") == 2, f"macOS CPython is not exact: {macos_py.group(1)}"
+
+
 def test_renovate_still_reads_the_pins_after_they_moved() -> None:
     """The build pins live in `packaging/release-pins.env` because two forges build one
     release and one file is what keeps their pins equal. Renovate's custom managers are

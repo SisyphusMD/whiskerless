@@ -35,10 +35,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          # The SAME datasource and depName the Linux pin uses, so Renovate treats the two as one
+          # dependency and bumps them in a single PR. A different identity here would let the two
+          # halves of one release drift a version apart with both PRs green.
+          # renovate: datasource=python-version depName=python
+          python-version: "3.14.7"   # exact interpreter frozen into the bundle
       - name: Build the binary
         run: |
-          python -m pip install --upgrade pip pyinstaller
+          python -m pip install --upgrade pip
+          # PINNED, like the Linux half. An unpinned PyInstaller here means the .pkg and the Linux
+          # artifacts of the same release can be frozen by different, unreviewed versions of the one
+          # dependency that has already cost this project a release — and nothing would report it.
+          # Renovate holds both under the same depName, so they bump in one PR.
+          # renovate: datasource=pypi depName=pyinstaller
+          python -m pip install pyinstaller==6.22.2
           python -m pip install ".[ble]"
           pyinstaller --onefile --name whiskerless \
             --collect-all bleak --collect-all aiomqtt packaging/launcher.py
