@@ -8,6 +8,7 @@
 # separate host and data-binary, so it stays here.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
 . "$here/release-common.sh"
 # Named explicitly: this is the file a project writes when it adopts the standard, so its absence is
 # a setup mistake someone is actively making, not a runtime fault. A raw "No such file" from the
@@ -16,6 +17,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
   echo "missing $here/project.env — create it with PROJECT_REPO_SLUG=\"SisyphusMD/<project>\"" >&2
   exit 1
 }
+# shellcheck source=/dev/null
 . "$here/project.env"
 
 token="$1"; tag="$2"; notes_file="$3"; shift 3

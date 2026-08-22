@@ -10,6 +10,7 @@
 # Unlike GitHub, Forgejo stores the asset name verbatim, so no name normalisation happens here.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
 . "$here/release-common.sh"
 # Named explicitly: this is the file a project writes when it adopts the standard, so its absence is
 # a setup mistake someone is actively making, not a runtime fault. A raw "No such file" from the
@@ -18,6 +19,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
   echo "missing $here/project.env — create it with PROJECT_REPO_SLUG=\"SisyphusMD/<project>\"" >&2
   exit 1
 }
+# shellcheck source=/dev/null
 . "$here/project.env"
 
 host="$1"; token="$2"; tag="$3"; notes_file="$4"; shift 4
