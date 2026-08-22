@@ -29,7 +29,14 @@ set -euo pipefail
 # optional, because an unset token would silently skip the packages and report a
 # clean sweep.
 : "${PACKAGE_TOKEN:?required}"
-DRY_RUN="${DRY_RUN:-true}"
+# Fail CLOSED: only an exact "false" authorizes deletion. `${DRY_RUN:-true}` guarded an UNSET
+# value and nothing else — "True", "1", "yes", or an API dispatch that passed the input through
+# unevaluated all fell past the `= "true"` tests below and deleted for real. Every legitimate
+# caller already passes one of the two exact strings.
+case "${DRY_RUN:-true}" in
+  false) DRY_RUN=false ;;
+  *)     DRY_RUN=true ;;
+esac
 
 # All three targets publish.yml releases to. Missing one would leave its objects
 # behind while the sweep reported the rc pruned.

@@ -17,7 +17,14 @@ jobs:
     name: Sweep every rc a published stable supersedes
     runs-on: ubuntu-latest
     steps:
+      # A registry-wide destructive sweep must run the REVIEWED main-branch script, never a
+      # dispatched branch's copy: the prune is global — branch content is irrelevant to what it
+      # deletes — and the automatic path in publish.yml runs the main-derived script. Pinning to
+      # main keeps the CURRENT deletion guards in force even when dispatched from a stale or
+      # feature branch. The sibling project pins it for the same reason.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
       - name: Prune
         env:
           DRY_RUN: ${{ inputs.dry_run }}
