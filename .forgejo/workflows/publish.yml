@@ -530,19 +530,23 @@ jobs:
     # repositories, so running while that upload is still in flight reads a not-yet-published
     # stable as a reason to keep every candidate — and then exits 0. Nothing re-runs the sweep,
     # so the leftovers would sit there until some later stable happened to win the race.
-    needs: [releases, registry, nas-bridge, homebrew-bottles, reconcile]
+    needs: [releases, registry, nas-bridge, homebrew-tap, homebrew-bottles, reconcile]
     # An rc publishes through this same workflow, and its own stable does not
     # exist yet, so the sweep would enumerate every host to print zero. Skip it
     # rather than pay for the round trip.
-    if: ${{ !contains(github.ref_name, '-rc.') }}
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Prune
         env:
           DRY_RUN: "false"
-          FORGEJO_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+          CLUSTER_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
           NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}
           GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
           PACKAGE_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REGISTRY_PUSH_PAT }}
-        run: bash packaging/prune-rcs.sh
+        run: |
+          # Warn-only. The stable is already published by this point, so a prune problem must never
+          # redden the release or make a valid stable look failed.
+          bash packaging/prune-rcs.sh \
+            || echo "::warning::prune-rcs exited nonzero; the stable release is unaffected"

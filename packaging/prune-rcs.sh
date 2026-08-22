@@ -1,154 +1,263 @@
 #!/usr/bin/env bash
-# Delete every release candidate whose stable release has since shipped, on all
-# three hosts — releases, tags, AND the apt/dnf packages. Driven by env, not
-# arguments:
-#   DRY_RUN=true|false (default true), GH_TOKEN, FORGEJO_TOKEN, NAS_TOKEN,
-#   PACKAGE_TOKEN
+# Delete every release candidate a shipped stable has superseded — releases, git tags, AND the
+# apt/dnf packages — across the cluster Forgejo, NAS Forgejo, and GitHub registries.
 #
-# Idempotent and safe to re-run: candidates are enumerated from the REGISTRIES
-# rather than from local git tags, so a sweep that deleted the tag but failed a
-# later call still finds the leftovers next time. A group is deleted only once
-# its stable exists on all three hosts, so a half-published stable can never
-# strand its own candidates.
+#   prune-rcs.sh
 #
-# The package registry is swept on the same terms and for a sharper reason than
-# the releases are: a release nobody links to is only clutter, while a candidate
-# left in the `testing` apt distribution is still being *served*, and anyone
-# subscribed to it keeps being offered a version that was superseded and
-# withdrawn everywhere else.
-set -euo pipefail
+# There is no version argument. The sweep enumerates every vX.Y.Z-rc.N across all three registries
+# and the package repository, groups them by their stable stem vX.Y.Z, and deletes a group only once
+# that stable is verified fully published everywhere. One script therefore serves both the automatic
+# post-stable prune and an on-demand backlog sweep, and an rc whose stable has not shipped is kept —
+# that is the point.
+#
+# Env: CLUSTER_TOKEN, NAS_TOKEN, GH_TOKEN, PACKAGE_TOKEN, DRY_RUN. Stdlib shell + curl + jq only.
+#
+# Deletion is the one irreversible release operation, so it is gated hard:
+#
+#   * Per stem, the stable must be a PUBLISHED (non-draft, non-prerelease) release on all three
+#     registries AND the three must serve an IDENTICAL, non-empty, duplicate-free asset-name set.
+#     There is no fixed asset count to check against — an older stable legitimately serves fewer
+#     assets than a current one — so cross-registry AGREEMENT is what proves the fan-out finished.
+#   * A published RELEASE does not prove a published PACKAGE. The registry upload is a separate step
+#     with its own failure modes, so the candidate must also be replaced everywhere it is currently
+#     SERVED: same distributions, same architectures, read off the published index because that is
+#     the only thing a user's package manager ever sees.
+#   * Removal is VERIFIED per registry by re-reading live state, never by trusting a 204 or 404.
+#   * Warn-only. A prune problem must never fail the release or make a valid stable disappear: every
+#     problem is reported and the sweep still exits 0.
+#   * Fail-closed throughout. Every "is it safe to delete" question answers "no" when it cannot be
+#     answered at all, so an unreachable host is never mistaken for evidence.
+#
+# Removal is written against how the release-tag APIs actually behave, not how a naive stub pretends:
+#
+#   * A release and its git tag are two objects. Deleting the release leaves the git tag; deleting the
+#     tag strands the release as an untagged draft that GET /releases/tags/<tag> then 404s for while
+#     the LIST still shows it. So enumeration and verification read the LIST and the git refs, never
+#     GET-by-tag, and the release id is captured during enumeration rather than looked up later.
+#   * The release must be deleted BEFORE its tag: Forgejo 409s on deleting a tag that still has a
+#     release attached, and a tag-first delete strands that untagged draft.
+#   * The tag ref goes through the git-refs endpoint on all three. On Forgejo that leaves a stale tag
+#     DB row the Releases UI still shows though every read API reports the tag gone; the plain
+#     .../tags/<name> route clears it once no release is attached, so it is issued afterwards,
+#     best-effort — the row is invisible to the read APIs and so can never be verified.
+#   * Tags are never removed with `git push`: the cluster mirrors commits onward, and tag push churn
+#     re-triggers the macOS workflows on old tags.
+set -uo pipefail
 
-# Missing credentials must not read as "nothing to prune". GitHub's releases are
-# public, so an empty GH_TOKEN would enumerate fine and only fail at the DELETE,
-# after the other hosts had already been swept.
-: "${GH_TOKEN:?required}"
-: "${FORGEJO_TOKEN:?required}"
-: "${NAS_TOKEN:?required}"
-# Forgejo scopes the package registry separately: `write:repository`, which every
-# other call here uses, cannot read or delete a package. Required rather than
-# optional, because an unset token would silently skip the packages and report a
-# clean sweep.
-: "${PACKAGE_TOKEN:?required}"
-# Fail CLOSED: only an exact "false" authorizes deletion. `${DRY_RUN:-true}` guarded an UNSET
-# value and nothing else — "True", "1", "yes", or an API dispatch that passed the input through
-# unevaluated all fell past the `= "true"` tests below and deleted for real. Every legitimate
-# caller already passes one of the two exact strings.
-case "${DRY_RUN:-true}" in
-  false) DRY_RUN=false ;;
-  *)     DRY_RUN=true ;;
-esac
-
-# For ignored_asset (release-common.sh) over _IGNORED_ASSETS (asset-roles.sh) — ONE definition of
-# which assets sit outside the cross-registry quorum, shared with reconcile. Sourced rather than
-# reimplemented, and sourced at all because an undefined ignored_asset returns 127, the `||` beside
-# it fires, every bottle counts toward the signature, the NAS never carries bottles, and the sweep
-# then keeps every candidate forever while reporting success.
-here="$(cd "$(dirname "$0")" && pwd)"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# For ignored_asset (release-common) over _IGNORED_ASSETS (asset-roles) — one definition of which
+# assets sit outside the cross-registry quorum, shared with reconcile. extglob because the role
+# patterns use `!(...)`. Sourced rather than reimplemented, and sourced at all because an undefined
+# ignored_asset returns 127, the `||` beside it fires, every bottle counts toward the signature, the
+# NAS never carries bottles, and the sweep then keeps every candidate forever while reporting success.
 shopt -s extglob
+# shellcheck source=/dev/null
+. "$here/project.env"
 # shellcheck source=/dev/null
 . "$here/release-common.sh"
 # shellcheck source=/dev/null
 . "$here/asset-roles.sh"
+: "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
 
-# All three targets publish.yml releases to. Missing one would leave its objects
-# behind while the sweep reported the rc pruned.
-GH="https://api.github.com/repos/SisyphusMD/whiskerless"
-FJ="https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless"
-NAS="https://forgejo.nas.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless"
-GH_AUTH="Authorization: Bearer ${GH_TOKEN}"
-FJ_AUTH="Authorization: token ${FORGEJO_TOKEN}"
-NAS_AUTH="Authorization: token ${NAS_TOKEN}"
-# The apt/dnf repositories are owner-scoped, not repo-scoped, and only the public
-# instance serves them (publish-registry.sh explains why the NAS does not).
-#
-# TWO base URLs, and the difference is not cosmetic. The generic API deletes a
-# package version in one call, which is the tempting one — but on the RPM side it
-# does NOT rebuild the group's repodata, so `primary.xml` keeps advertising a
-# version whose file now 404s, and `dnf install` offers it and then fails to
-# download it. Proven against the live registry, both ways. The registry-native
-# endpoints are distribution- and architecture-aware and do regenerate, so those
-# are what a sweep has to use.
-PKG="https://forgejo.bryantserver.com/api/v1/packages/SisyphusMD"
-REG="https://forgejo.bryantserver.com/api/packages/SisyphusMD"
+# Missing credentials must not read as "nothing to prune". GitHub's releases are public, so an empty
+# GH_TOKEN enumerates fine and only fails at the DELETE, after the other hosts have been swept.
+: "${CLUSTER_TOKEN:?required}"
+: "${NAS_TOKEN:?required}"
+: "${GH_TOKEN:?required}"
+# Forgejo scopes the package registry separately: `write:package`, which the repo tokens above do not
+# carry. Required rather than optional, because an unset token would silently skip every package and
+# report a clean sweep.
+: "${PACKAGE_TOKEN:?required — write:package scope}"
+
+# Fail CLOSED: only an exact "false" authorizes deletion. A `${DRY_RUN:-true}` default guards an
+# UNSET value and nothing else — "True", "1", "yes", or an API dispatch that passed the input through
+# unevaluated would all fall past a `= "true"` test and delete for real.
+case "${DRY_RUN:-true}" in
+  false) dry_run=false ;;
+  *)     dry_run=true ;;
+esac
+
+REPO="$PROJECT_REPO_SLUG"
+CLUSTER_HOST="forgejo.bryantserver.com"
+NAS_HOST="forgejo.nas.bryantserver.com"
+REGISTRIES=(cluster nas github)
+
+# The apt/dnf package name. Derived from the slug rather than configured: a second source of truth
+# for the same string is a second thing to get wrong, and every project here publishes its packages
+# under its own repository name.
+PKG_NAME="${REPO##*/}"
+# The apt/dnf repositories are owner-scoped, not repo-scoped, and only the public instance serves
+# them. TWO base URLs, and the difference is not cosmetic — see delete_package.
+PKG_OWNER="${REPO%%/*}"
+PKG_API="https://${CLUSTER_HOST}/api/v1/packages/${PKG_OWNER}"
+REG="https://${CLUSTER_HOST}/api/packages/${PKG_OWNER}"
 PKG_AUTH="Authorization: token ${PACKAGE_TOKEN}"
-# The one package name this project owns. Everything else under this owner —
-# the container images the sister repos push, among others — must be invisible
-# to a sweep that deletes by version.
-PKG_NAME="whiskerless"
+
+# Eventual consistency: a just-deleted release or tag can briefly still list, so verification is
+# retried. The sleep is overridable (0 under test) so a stubbed run stays fast.
+RETRY_ATTEMPTS=3
+RETRY_SLEEP="${PRUNE_RETRY_SLEEP:-2}"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# Every call is checked. A sweep that reports success while leaving a release or
-# tag behind is worse than not running at all, because the next run's
-# enumeration is what has to find it.
-#
-# Every curl is time-bounded, like the release helpers beside it: a host that
-# accepts the connection and then stops responding would otherwise hang this
-# job with no deadline, and a stable publish now waits on it. Reads retry;
-# deletes do not, because a timed-out mutation may already have been applied.
-status() {
-  curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 \
-    -sS -o /dev/null -w '%{http_code}' -H "$2" "$1"
+registry_releases_api() {
+  case "$1" in
+    cluster) printf 'https://%s/api/v1/repos/%s/releases' "$CLUSTER_HOST" "$REPO" ;;
+    nas)     printf 'https://%s/api/v1/repos/%s/releases' "$NAS_HOST" "$REPO" ;;
+    github)  printf 'https://api.github.com/repos/%s/releases' "$REPO" ;;
+  esac
 }
-delete() {  # delete <url> <auth> [extra-acceptable-code]
+
+registry_tags_api() {
+  case "$1" in
+    cluster) printf 'https://%s/api/v1/repos/%s/tags' "$CLUSTER_HOST" "$REPO" ;;
+    nas)     printf 'https://%s/api/v1/repos/%s/tags' "$NAS_HOST" "$REPO" ;;
+    github)  printf 'https://api.github.com/repos/%s/tags' "$REPO" ;;
+  esac
+}
+
+# The git tag (ref) endpoint, used for BOTH the DELETE and the verifying GET. Forgejo and GitHub
+# agree on the git-refs shape, and the ref is the source of truth for verification.
+registry_tag_ref_url() {
+  case "$1" in
+    cluster) printf 'https://%s/api/v1/repos/%s/git/refs/tags/%s' "$CLUSTER_HOST" "$REPO" "$2" ;;
+    nas)     printf 'https://%s/api/v1/repos/%s/git/refs/tags/%s' "$NAS_HOST" "$REPO" "$2" ;;
+    github)  printf 'https://api.github.com/repos/%s/git/refs/tags/%s' "$REPO" "$2" ;;
+  esac
+}
+
+# Forgejo only: the plain .../tags/<name> route that clears the stale tag DB row a git-refs delete
+# leaves behind. GitHub has no such split.
+registry_tag_db_url() {
+  case "$1" in
+    cluster) printf 'https://%s/api/v1/repos/%s/tags/%s' "$CLUSTER_HOST" "$REPO" "$2" ;;
+    nas)     printf 'https://%s/api/v1/repos/%s/tags/%s' "$NAS_HOST" "$REPO" "$2" ;;
+  esac
+}
+
+registry_auth() {
+  case "$1" in
+    cluster) printf 'token %s' "$CLUSTER_TOKEN" ;;
+    nas)     printf 'token %s' "$NAS_TOKEN" ;;
+    github)  printf 'Bearer %s' "$GH_TOKEN" ;;
+  esac
+}
+
+# Forgejo caps a listing with ?limit, GitHub with ?per_page.
+registry_page_param() {
+  case "$1" in
+    github) printf 'per_page' ;;
+    *)      printf 'limit' ;;
+  esac
+}
+
+# A superseded rc tag: exactly the vX.Y.Z-rc.N grammar the workflows cut. Its stem is vX.Y.Z.
+is_rc_tag() {
+  [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+}
+
+# $1 registry, $2 url. Prints the body; empty on any transport error (fail-closed downstream).
+http_get() {
+  curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 180 \
+    -sSL -H "Authorization: $(registry_auth "$1")" "$2" 2>/dev/null || true
+}
+
+# $1 registry, $2 url. Prints the body followed by a final line holding the HTTP status ("000" on a
+# transport failure). Used where the status must gate interpretation: a JSON error body (a 401/403/5xx
+# that still returns {"message":...}) must never be mistaken for a valid empty result.
+http_get_status() {
+  curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 180 \
+    -sSL -w '\n%{http_code}' -H "Authorization: $(registry_auth "$1")" "$2" 2>/dev/null \
+    || printf '\n000'
+}
+
+# $1 registry, $2 url. Issues the DELETE (a no-op under dry run). The returned HTTP code is NOT
+# trusted — a 204 or 404 can lie — so every caller confirms removal by re-reading live state.
+http_delete() {
+  if [ "$dry_run" = true ]; then
+    echo "  DRY-RUN would DELETE $2"
+    return 0
+  fi
+  curl --max-time 120 -sS -X DELETE -H "Authorization: $(registry_auth "$1")" "$2" >/dev/null 2>&1 || true
+  return 0
+}
+
+# Every tag name a registry knows, from BOTH the release listing and the git tag listing, paged.
+#
+# Both collections, because they fail apart: a publish that died before creating releases, or a sweep
+# that removed releases and then failed on the tags, leaves tags with no release. Enumerating only
+# the releases would strand those permanently — nothing else ever names them again.
+#
+# Prints `<tag>|<release-id>` for releases and `<tag>|` for bare tags. Returns nonzero if any page
+# could not be read, so the caller can fail closed rather than sweep against a partial list.
+list_registry_tags() {  # list_registry_tags <registry>
+  local registry="$1" page param body kind api
+  param="$(registry_page_param "$registry")"
+  for kind in releases tags; do
+    case "$kind" in
+      releases) api="$(registry_releases_api "$registry")" ;;
+      tags)     api="$(registry_tags_api "$registry")" ;;
+    esac
+    page=1
+    while :; do
+      body="$(http_get "$registry" "$api?$param=100&page=$page")"
+      # An empty [] is a valid "nothing here". A non-array is a failed read, and treating it as end
+      # of pages would sweep against a partial picture and still report success.
+      jq -e 'type == "array"' <<<"$body" >/dev/null 2>&1 || return 1
+      jq -e 'length > 0' <<<"$body" >/dev/null 2>&1 || break
+      if [ "$kind" = releases ]; then
+        jq -r '.[]? | [(.tag_name // ""), ((.id // "") | tostring)] | join("|")' <<<"$body" || return 1
+      else
+        jq -r '.[]? | [(.name // ""), ""] | join("|")' <<<"$body" || return 1
+      fi
+      page=$((page + 1))
+    done
+  done
+}
+
+# --- the apt/dnf registry half of the sweep ----------------------------------------------------
+#
+# Deleting an rc's release is only half the job: its .deb and .rpm keep being SERVED from the
+# repositories until they are removed there too, so `apt-cache policy` goes on offering a candidate
+# whose release page is gone, and `apt install` hands it to whoever asks. The endpoint asymmetry
+# below was established against the LIVE registry rather than from the API docs, and is invisible at
+# the API because every call returns 204 either way.
+
+# A DELETE against the package registry. Dry-run aware like http_delete, but unlike it the status IS
+# checked: the release path re-reads live state to confirm removal, and there is no equivalent cheap
+# re-read for a registry version, so a refused delete has to surface here.
+pkg_delete() {  # pkg_delete <url>
   local code
-  code=$(curl --max-time 120 -sS -o /dev/null -w '%{http_code}' -X DELETE -H "$2" "$1")
+  if [ "$dry_run" = true ]; then
+    echo "  DRY-RUN would DELETE $1"
+    return 0
+  fi
+  code=$(curl --max-time 120 -sS -o /dev/null -w '%{http_code}' -X DELETE -H "$PKG_AUTH" "$1")
   case "$code" in
     20*|404) return 0 ;;
-    "${3:-__none__}") return 0 ;;
     *) echo "::error::DELETE $1 returned $code"; return 1 ;;
   esac
 }
 
-# GitHub answers a DELETE for a ref that does not exist with 422 "Reference does
-# not exist", not 404 — so the ordinary already-gone case reads as a hard error
-# and aborts the sweep. That matters more now than it did: candidates are also
-# enumerated from the package registry, which surfaces versions whose git tag was
-# deleted by an earlier partial sweep and never existed to delete again.
-delete_gh_ref() { delete "$1" "$2" 422; }
-
-# Union of what each registry actually holds, not what a checkout happens to
-# know about — a previous partial sweep may have deleted the local tag while
-# leaving remote objects behind. Paged, so the sweep does not quietly stop at
-# 100 releases.
-# Both surfaces: a publish that failed before creating releases, or a sweep that
-# deleted releases and then failed on the tags, leaves tags with no release.
-# Enumerating only /releases would strand those.
-all_tags() {  # all_tags <api> <auth> <page-param> <collection>
-  local page=1 body got
-  while :; do
-    # curl and jq failures must abort: treating a transient error as "end of
-    # pages" would sweep against a partial list and still report success.
-    body=$(curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 180 \
-      -sSf -H "$2" "$1/$4?$3=100&page=$page")
-    got=$(printf '%s' "$body" | jq -r '.[] | .tag_name // .name')
-    [ -n "$got" ] || break
-    printf '%s\n' "$got"
-    page=$((page + 1))
-  done
-}
-
-# Every apt/dnf package this project owns, as `<type> <registry-version> <tag>`.
+# Every apt/dnf package this project owns, as `<type> <registry-version>`.
 #
-# The two spellings differ and neither is guessable from the tag alone, so the
-# registry is asked rather than told: debian keeps `0.2.0~rc.28`, while rpm
-# appends its release and reports `0.2.0~rc.28-1`. Deleting by a constructed
-# version 404s on rpm every time — checked against the live registry.
+# The two spellings differ and neither is guessable from the tag alone, so the registry is asked
+# rather than told: debian keeps `0.2.0~rc.28`, while rpm appends its release and reports
+# `0.2.0~rc.28-1`. Deleting by a constructed version 404s on rpm every time.
 #
-# Filtered by name as well as type: the delete is by version, and this owner also
-# holds the sister projects' container images.
-# Every failure is returned explicitly rather than relied on `set -e`: this is
-# called on the left of `||`, which switches errexit off for everything inside
-# it. Without the explicit returns a failed curl would leave an empty body, the
-# filter would yield nothing, the loop would break and the function would report
-# success — and the sweep would then delete releases and tags while leaving the
-# still-served packages behind, reporting a clean pass.
+# Filtered by name as well as type: the delete is by version, and this owner also holds the sibling
+# projects' packages and container images.
+#
+# Every failure is returned explicitly rather than left to `set -e`, which is off here: without the
+# explicit returns a failed curl would leave an empty body, the filter would yield nothing, the loop
+# would break and the function would report success — and the sweep would then delete releases while
+# leaving the still-served packages behind, reporting a clean pass.
 all_packages() {
   local page=1 body got names
   while :; do
     body=$(curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 180 \
-      -sSf -H "$PKG_AUTH" "$PKG?limit=100&page=$page") || return 1
+      -sSf -H "$PKG_AUTH" "$PKG_API?limit=100&page=$page") || return 1
     names=$(printf '%s' "$body" | jq -r '.[].name') || return 1
     [ -n "$names" ] || break
     got=$(printf '%s' "$body" | jq -r --arg name "$PKG_NAME" '
@@ -159,30 +268,15 @@ all_packages() {
   done
 }
 
-# `0.2.0~rc.28-1` (rpm) and `0.2.0~rc.28` (debian) both belong to tag
-# `v0.2.0-rc.28`: drop rpm's trailing release, then undo the tilde that deb and
-# rpm need in order to sort a candidate below its release.
+# `0.2.0~rc.28-1` (rpm) and `0.2.0~rc.28` (debian) both belong to tag `v0.2.0-rc.28`: drop rpm's
+# trailing release, then undo the tilde that deb and rpm need in order to sort a candidate below its
+# release.
 pkg_tag() { printf 'v%s\n' "$(printf '%s' "$1" | sed -E 's/-[0-9]+$//; s/~rc\./-rc./')"; }
 
-# Delete one registry version — and, just as importantly, get the repository
-# metadata rebuilt so a package manager stops offering it.
-#
-# THE TWO FORMATS NEED OPPOSITE ENDPOINTS. This is not a style choice and not
-# guessable; it was established against the live registry by deleting through
-# each and reading the published index afterwards:
-#
-#   debian  the GENERIC endpoint rebuilds `dists/*/main/binary-*/Packages`;
-#           the pool endpoint deletes the file and leaves the index advertising
-#           a version that now 404s.
-#   rpm     the NATIVE endpoint rebuilds `repodata/`; the generic one deletes the
-#           file and leaves `primary.xml` advertising it.
-#
-# Getting this backwards is invisible at the API — every call still returns 204 —
-# and shows up only as a user being offered a version that cannot be downloaded.
 # The architectures a registry version actually carries, from its own file list.
 arches_of() {  # arches_of <type> <version>
   curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 120 -sSf \
-    -H "$PKG_AUTH" "$PKG/$1/$PKG_NAME/$2/files" | jq -r '.[].name' | while read -r n; do
+    -H "$PKG_AUTH" "$PKG_API/$1/$PKG_NAME/$2/files" | jq -r '.[].name' | while read -r n; do
       case "$1" in
         debian) n="${n##*_}"; printf '%s\n' "${n%.deb}" ;;
         rpm)    n="${n%.rpm}"; printf '%s\n' "${n##*.}" ;;
@@ -190,15 +284,15 @@ arches_of() {  # arches_of <type> <version>
     done | sort -u
 }
 
-# Whether a version is being SERVED from a distribution — read off the published
-# index, because that is the only thing a user's package manager ever sees. The
-# registry listing says a version exists somewhere; it does not say it reached
-# the distribution whose subscribers are about to lose the candidate.
-# 0 = being served here, 1 = definitely not, 2 = could not tell. The third state
-# is the point: `-sf` alone collapses "the index says no" and "the index did not
-# load" into the same answer, and this guard's whole job is to keep a candidate
-# alive until its replacement is demonstrably serving. A timeout must read as
-# keep, never as prune.
+# Whether a version is being SERVED from a distribution — read off the published index, because that
+# is the only thing a user's package manager ever sees. The registry listing says a version exists
+# somewhere; it does not say it reached the distribution whose subscribers are about to lose the
+# candidate.
+#
+# 0 = being served here, 1 = definitely not, 2 = could not tell. The third state is the point: `-sf`
+# alone collapses "the index says no" and "the index did not load" into the same answer, and this
+# guard's whole job is to keep a candidate alive until its replacement is demonstrably serving. A
+# timeout must read as keep, never as prune.
 index_has() {  # index_has <type> <distribution> <arch> <version>
   local url code body="$work/index-body"
   case "$1" in
@@ -219,13 +313,12 @@ index_has() {  # index_has <type> <distribution> <arch> <version>
   # not. Version-only matching would report the stable as serving and license deleting a candidate
   # that is still the only installable copy.
   if [ "$1" = rpm ]; then
-    # Decompressed to a file first, deliberately. Piping gunzip into grep loses
-    # gunzip's failure — a truncated or corrupt index would come back as "no
-    # match", which the caller reads as "definitely not served here" and treats
-    # as licence to delete. An index it cannot read has to stay unknown.
+    # Decompressed to a file first, deliberately. Piping gunzip into grep loses gunzip's failure — a
+    # truncated or corrupt index would come back as "no match", which the caller reads as "definitely
+    # not served here" and treats as licence to delete. An index it cannot read has to stay unknown.
     gunzip -c "$body" > "$body.xml" 2>/dev/null || return 2
-    # One <package> element at a time: name, arch and version must belong to the SAME entry. The
-    # rpm index is not arch-scoped by URL the way the debian one is, so arch is checked here.
+    # One <package> element at a time: name, arch and version must belong to the SAME entry. The rpm
+    # index is not arch-scoped by URL the way the debian one is, so arch is checked here.
     awk -v n="$PKG_NAME" -v a="$3" -v v="${4%-*}" '
       BEGIN { RS = "<package" ; found = 0 }
       index($0, "<name>" n "</name>") \
@@ -249,30 +342,41 @@ index_has() {  # index_has <type> <distribution> <arch> <version>
   fi
 }
 
+# Delete one registry version — and, just as importantly, get the repository metadata rebuilt so a
+# package manager stops offering it.
+#
+# THE TWO FORMATS NEED OPPOSITE ENDPOINTS. This is not a style choice and not guessable; it was
+# established against the live registry by deleting through each and reading the published index
+# afterwards:
+#
+#   debian  the GENERIC endpoint rebuilds `dists/*/main/binary-*/Packages`; the pool endpoint
+#           deletes the file and leaves the index advertising a version that now 404s.
+#   rpm     the NATIVE endpoint rebuilds `repodata/`; the generic one deletes the file and leaves
+#           `primary.xml` advertising it.
+#
+# Getting this backwards is invisible at the API — every call still returns 204 — and shows up only
+# as a user being offered a version that cannot be downloaded.
 delete_package() {  # delete_package <type> <version>
   local type="$1" version="$2" files arch dist
   case "$type" in
     debian)
       # One call takes every architecture and every distribution at once.
-      delete "$PKG/debian/$PKG_NAME/$version" "$PKG_AUTH" || return 1
+      pkg_delete "$PKG_API/debian/$PKG_NAME/$version" || return 1
       echo "        deleted debian $version"
       ;;
     rpm)
-      # Per group and per architecture, so the architectures are read back off
-      # the version's own file list rather than assumed. Both groups are tried
-      # because a 404 for one it never reached is free, while missing the one it
-      # did reach leaves it being served — publish-registry.sh puts candidates in
-      # `testing` only, but a sweep should not depend on that rule still holding.
+      # Per group and per architecture, so the architectures are read back off the version's own file
+      # list rather than assumed. Both groups are tried because a 404 for one it never reached is
+      # free, while missing the one it did reach leaves it being served.
       files=$(curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 120 -sSf \
-        -H "$PKG_AUTH" "$PKG/rpm/$PKG_NAME/$version/files" | jq -r '.[].name') || {
+        -H "$PKG_AUTH" "$PKG_API/rpm/$PKG_NAME/$version/files" | jq -r '.[].name') || {
           echo "::error::could not list rpm files for $PKG_NAME $version"; return 1; }
       [ -n "$files" ] || { echo "::error::rpm $version reported no files"; return 1; }
       while read -r name; do
         [ -n "$name" ] || continue
-        # whiskerless-0.2.0~rc.28-1.x86_64.rpm → x86_64
         arch="${name%.rpm}"; arch="${arch##*.}"
         for dist in testing stable; do
-          delete "$REG/rpm/$dist/package/$PKG_NAME/$version/$arch" "$PKG_AUTH" || return 1
+          pkg_delete "$REG/rpm/$dist/package/$PKG_NAME/$version/$arch" || return 1
         done
         echo "        deleted rpm $version $arch"
       done <<< "$files"
@@ -281,53 +385,37 @@ delete_package() {  # delete_package <type> <version>
   esac
 }
 
-all_packages > "$work/packages" || { echo "::error::could not enumerate the package registry"; exit 1; }
-
-{ all_tags "$GH" "$GH_AUTH" per_page releases
-  all_tags "$FJ" "$FJ_AUTH" limit releases
-  all_tags "$NAS" "$NAS_AUTH" limit releases
-  all_tags "$GH" "$GH_AUTH" per_page tags
-  all_tags "$FJ" "$FJ_AUTH" limit tags
-  all_tags "$NAS" "$NAS_AUTH" limit tags
-  # A previous sweep may have deleted the release and failed before the package,
-  # leaving a candidate that is still being served and is named nowhere else.
-  while read -r _type version; do
-    [ -n "$version" ] && pkg_tag "$version"
-  done < "$work/packages"
-} | sort -u > "$work/all-tags"
-
-rc=0
-grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' "$work/all-tags" > "$work/rc-tags" || rc=$?
-# grep exits 1 on no match, which is a legitimate empty result; any other status
-# is a real failure.
-[ "$rc" -le 1 ] || exit "$rc"
-
-# 0 only when the stable is a PUBLISHED release on all three registries AND the three serve an
-# IDENTICAL, non-empty, duplicate-free asset-name set. A 200 alone is too weak a licence for a
-# permanent delete: an interrupted publisher leaves a draft or a misclassified prerelease that
-# answers 200 and that nobody can install, and a half-fanned-out stable answers 200 on a registry
+# $1 stem tag (vX.Y.Z). 0 only when the stable is a published release on all three registries AND the
+# three serve an IDENTICAL, non-empty, duplicate-free asset-name set. A 200 alone is too weak a
+# licence for a permanent delete: an interrupted publisher leaves a draft or misclassified prerelease
+# that answers 200 and that nobody can install, and a half-fanned-out stable answers 200 on a registry
 # serving fewer assets than its siblings. Either way the candidate is still the only complete copy.
 #
-# No fixed asset COUNT is assumed — a pre-.rpm-era stable legitimately serves fewer assets than a
-# current one — so the test is agreement between registries, not a number. Ported from the sibling,
-# which has carried it since its own retention policy landed.
-stable_is_uniformly_published() {
-  local stable="$1" pair url auth json names signature="" have_signature=0 ok=1
-  for pair in "$GH|$GH_AUTH" "$FJ|$FJ_AUTH" "$NAS|$NAS_AUTH"; do
-    url="${pair%%|*}"; auth="${pair#*|}"
-    json="$(curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 120 -sSf \
-              -H "$auth" "$url/releases/tags/$stable" 2>/dev/null)" || {
-      # LOUD, and fatal, like the status probe above it. A timeout or 5xx here is not evidence
-      # about the release — silently folding it into "keep" makes an infrastructure failure
-      # indistinguishable from a stable that is legitimately still fanning out, and this sweep is
-      # one-shot, so nothing revisits the decision. Refusing to conclude is the same answer the
-      # neighbouring lookup gives for an unexpected status.
-      echo "::error::prune: could not read $stable on $url — refusing to conclude anything about it" >&2
-      return 2
-    }
+# Returns 2 when a registry could not be read at all — not a keep decision but the absence of one.
+#
+# The stem's own tag and release are never pruned, so reading it GET-by-tag stays reliable here.
+stable_present_everywhere() {
+  local stem="$1" registry resp code json names signature="" have_signature=0 ok=1
+  for registry in "${REGISTRIES[@]}"; do
+    # http_get_status, not http_get: the STATUS has to gate the interpretation. A 401/403/5xx that
+    # still returns {"message":...} is a non-empty body, so an emptiness check would pass it through
+    # and the jq gate below would then report "not a published release" about a registry that was
+    # never successfully read — the wrong sentence, in a one-shot sweep that never revisits it.
+    resp="$(http_get_status "$registry" "$(registry_releases_api "$registry")/tags/$stem")"
+    code="${resp##*$'\n'}"
+    json="${resp%$'\n'*}"
+    case "$code" in
+      2[0-9][0-9]) ;;
+      404)
+        echo "::warning::prune: stable $stem is not published on $registry; keeping its rc" >&2
+        ok=0; continue ;;
+      *)
+        echo "::error::prune: could not read $stem on $registry (HTTP $code) — refusing to conclude anything about it" >&2
+        return 2 ;;
+    esac
     # Present AND consumable: mirrors rel_ensure_release_state's draft==false && prerelease==false.
     if ! jq -e '(.id != null) and (.draft == false) and (.prerelease == false)' <<<"$json" >/dev/null 2>&1; then
-      echo "::warning::prune: stable $stable is not a published release on $url; keeping its rc" >&2
+      echo "::warning::prune: stable $stem is not a published (non-draft, non-prerelease) release on $registry; keeping its rc" >&2
       ok=0; continue
     fi
     # Non-empty and duplicate-free: a repeated name is the ambiguous copy reconcile refuses to treat
@@ -338,7 +426,7 @@ stable_is_uniformly_published() {
         then $n | unique | join("\n")
         else error("empty or duplicated asset set")
         end' <<<"$json" 2>/dev/null)" \
-      || { echo "::warning::prune: stable $stable serves no clean asset set on $url; keeping its rc" >&2
+      || { echo "::warning::prune: stable $stem does not serve a clean, non-empty asset set on $registry; keeping its rc" >&2
            ok=0; continue; }
     # Assets outside the quorum are dropped BEFORE the signature is built. Homebrew bottles reach
     # GitHub and the cluster Forgejo but never the NAS, by design — comparing raw sets would make
@@ -347,163 +435,241 @@ stable_is_uniformly_published() {
       [ -n "$_n" ] || continue
       ignored_asset "$_n" || printf '%s\n' "$_n"
     done <<<"$names")"
-    [ -n "$names" ] || { echo "::warning::prune: stable $stable serves only ignored assets on $url; keeping its rc" >&2
+    [ -n "$names" ] || { echo "::warning::prune: stable $stem serves only ignored assets on $registry; keeping its rc" >&2
                          ok=0; continue; }
+    # First qualifying registry sets the baseline; every other must match it byte for byte.
     if [ "$have_signature" -eq 0 ]; then
       signature="$names"; have_signature=1
     elif [ "$names" != "$signature" ]; then
-      echo "::warning::prune: stable $stable serves a different asset set on $url (partial fan-out); keeping its rc" >&2
+      echo "::warning::prune: stable $stem serves a different asset set on $registry than another registry (partial fan-out); keeping its rc" >&2
       ok=0
     fi
   done
   [ "$ok" -eq 1 ]
 }
 
-pruned=0
-while read -r tag; do
-  [ -n "$tag" ] || continue
-  stable="${tag%-rc.*}"
-  gh_stable=$(status "$GH/releases/tags/$stable" "$GH_AUTH")
-  fj_stable=$(status "$FJ/releases/tags/$stable" "$FJ_AUTH")
-  nas_stable=$(status "$NAS/releases/tags/$stable" "$NAS_AUTH")
-  # Only a verified 404 means the stable is absent. A 5xx or a rate-limit would
-  # otherwise read as "not published yet", and the sweep would keep every
-  # candidate and still exit 0 — the automatic pass reporting success having
-  # pruned nothing is exactly the silent failure this script is written against.
-  for code in "$gh_stable" "$fj_stable" "$nas_stable"; do
-    case "$code" in
-      200|404) ;;
-      *) echo "::error::stable lookup for $stable returned $code"; exit 1 ;;
-    esac
+# $1 registry, $2 id. 0 when no release with that id appears in the current LIST; nonzero if it still
+# appears OR the list could not be re-read (an unreadable list is not proof of absence — fail closed).
+# An empty id means this registry never listed a release for the rc, so there is nothing to remove.
+release_absent() {
+  local registry=$1 id=$2 body param page=1
+  [ -n "$id" ] || return 0
+  param="$(registry_page_param "$registry")"
+  # Paged, like the enumeration. Reading only the first page would report a release "absent" as soon
+  # as the repository holds more than one page of them — and absent is the answer that authorizes
+  # deleting its tag, which is what strands the untagged draft this ordering exists to prevent.
+  while :; do
+    body="$(http_get "$registry" "$(registry_releases_api "$registry")?$param=100&page=$page")"
+    jq -e 'type == "array"' <<<"$body" >/dev/null 2>&1 || return 1
+    jq -e 'length > 0' <<<"$body" >/dev/null 2>&1 || return 0
+    if jq -e --arg want "$id" 'any(.[]?; ((.id? // "") | tostring) == $want)' <<<"$body" >/dev/null 2>&1; then
+      return 1
+    fi
+    page=$((page + 1))
   done
-  if [ "$gh_stable$fj_stable$nas_stable" != "200200200" ]; then
-    echo "keep    $tag — $stable not published everywhere" \
-      "(gh=$gh_stable fj=$fj_stable nas=$nas_stable)"
-    continue
+}
+
+# $1 registry, $2 tag. 0 only when the git host AUTHORITATIVELY reports refs/tags/<tag> gone: a 404,
+# or a 2xx read whose body contains no matching ref. Any other status — 000 transport failure, auth
+# rejection, 5xx, or a JSON error body — is NOT proof of absence and fails closed, so a broken read is
+# retried rather than mistaken for a completed prune.
+tag_ref_absent() {
+  local registry=$1 tag=$2 resp code body
+  resp="$(http_get_status "$registry" "$(registry_tag_ref_url "$registry" "$tag")")"
+  code="${resp##*$'\n'}"
+  body="${resp%$'\n'*}"
+  case "$code" in
+    404) return 0 ;;
+    2[0-9][0-9])
+      jq -e --arg r "refs/tags/$tag" '
+        (if type == "array" then .[] else . end) | select(.ref? == $r)
+      ' <<<"$body" >/dev/null 2>&1 && return 1
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# $1 registry, $2 tag, $3 id (may be empty where the registry lists no release for this rc, including
+# an orphan tag a previous partial sweep left behind). Removes the rc and confirms it gone by
+# RE-READING live state, retried for eventual consistency. The release is deleted and CONFIRMED absent
+# from the LIST before its tag is touched at all, so a still-attached release is never turned into a
+# stranded untagged draft. Returns 0 only once BOTH the release is gone from the list AND the git ref
+# is gone.
+remove_rc_on_registry() {
+  local registry=$1 tag=$2 id=$3 attempt
+  if [ "$dry_run" = true ]; then
+    [ -n "$id" ] && http_delete "$registry" "$(registry_releases_api "$registry")/$id"
+    http_delete "$registry" "$(registry_tag_ref_url "$registry" "$tag")"
+    [ "$registry" != github ] && http_delete "$registry" "$(registry_tag_db_url "$registry" "$tag")"
+    return 0
   fi
-  # 200 everywhere is necessary, not sufficient — see the helper above. Status 2 means a registry
-  # could not be read at all, which is not a keep decision but an absence of one.
-  stable_is_uniformly_published "$stable" || case $? in
+  for ((attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++)); do
+    if ! release_absent "$registry" "$id"; then
+      [ -n "$id" ] && http_delete "$registry" "$(registry_releases_api "$registry")/$id"
+    fi
+    # ONLY once the release is verified absent is the now-orphaned tag ref removed. If the release
+    # delete has not taken yet, the tag is deliberately left alone this pass and retried.
+    if release_absent "$registry" "$id"; then
+      if ! tag_ref_absent "$registry" "$tag"; then
+        http_delete "$registry" "$(registry_tag_ref_url "$registry" "$tag")"
+      fi
+      if tag_ref_absent "$registry" "$tag"; then
+        # Ref gone: clear Forgejo's stale tag DB row. The /tags/<name> route is reliable only once no
+        # ref or release is attached, so it runs here. Best-effort — the row cannot be re-read to
+        # confirm, and github has no such row.
+        [ "$registry" != github ] && http_delete "$registry" "$(registry_tag_db_url "$registry" "$tag")"
+        return 0
+      fi
+    fi
+    [ "$attempt" -lt "$RETRY_ATTEMPTS" ] && sleep "$RETRY_SLEEP"
+  done
+  return 1
+}
+
+declare -A rc_id=()        # rc_id["<registry>|<tag>"] = that registry's release id for the rc
+declare -A rc_tag_seen=()  # rc_tag_seen["<tag>"] = 1
+declare -A stem_seen=()    # stem_seen["<stem>"] = 1
+
+# Fail closed: a registry whose listings cannot be read makes the all-three view unreliable, so the
+# sweep deletes nothing this run rather than enumerate a partial picture and orphan a copy.
+for registry in "${REGISTRIES[@]}"; do
+  if ! listing="$(list_registry_tags "$registry")"; then
+    echo "::warning::prune: could not read the release or tag listing on $registry; nothing pruned this run" >&2
+    exit 0
+  fi
+  while IFS='|' read -r tname tid; do
+    [ -n "$tname" ] || continue
+    is_rc_tag "$tname" || continue
+    rc_tag_seen["$tname"]=1
+    stem_seen["${tname%-rc.*}"]=1
+    [ -n "$tid" ] && rc_id["$registry|$tname"]="$tid"
+  done <<< "$listing"
+done
+
+# Enumerated ONCE, before any deletion: an unreadable registry must stop the sweep rather than read
+# as "this candidate published no packages", which would license deleting a release whose .deb is
+# still being served.
+all_packages > "$work/packages" || { echo "::error::could not enumerate the package registry"; exit 1; }
+
+# ALSO from the package registry, not only the listings. Releases are removed before packages, so a
+# package DELETE that fails after its release is gone leaves an rc that no listing mentions and that a
+# later sweep would never revisit, while apt goes on offering it. Enumerating the registry too makes
+# that residue self-healing; the stable-replacement gate still has to pass before anything is deleted.
+while read -r _ptype _pversion; do
+  [ -n "$_pversion" ] || continue
+  _ptag="$(pkg_tag "$_pversion")"
+  is_rc_tag "$_ptag" || continue
+  rc_tag_seen["$_ptag"]=1
+  stem_seen["${_ptag%-rc.*}"]=1
+done < "$work/packages"
+
+if [ "${#stem_seen[@]}" -eq 0 ]; then
+  echo "prune: no vX.Y.Z-rc.* releases, tags or packages found on any registry; nothing to prune"
+  exit 0
+fi
+
+fail=0
+pruned=0
+while IFS= read -r stem; do
+  [ -n "$stem" ] || continue
+  stable_present_everywhere "$stem" || case $? in
     2) exit 1 ;;
-    *) echo "keep    $tag — $stable is not uniformly published across the three registries"
+    *) echo "prune: $stem is not fully published on all three registries; its rc releases are kept"
        continue ;;
   esac
-  # The registry versions this tag published, looked up rather than constructed.
-  pkgs=""
-  while read -r ptype pversion; do
-    [ -n "$pversion" ] || continue
-    [ "$(pkg_tag "$pversion")" = "$tag" ] && pkgs="$pkgs $ptype:$pversion"
-  done < "$work/packages"
-
-  # A published RELEASE does not prove a published PACKAGE. The registry upload is
-  # a separate step with its own failure modes, and it deliberately runs even when
-  # the release step went red — so a stable can exist on all three hosts while its
-  # .deb and .rpm never reached the repository. Deleting the candidate then leaves
-  # an apt subscriber with no installable version at all, which is worse than the
-  # leftover this sweep exists to remove.
-  #
-  # Only the types this candidate actually has are required, so the candidates
-  # that predate the repositories still prune on the release check alone.
-  # Existing SOMEWHERE is not the test. The candidate must be replaced everywhere
-  # it is currently being served: same distributions, same architectures. A stable
-  # whose `testing` upload failed while `stable` succeeded still shows up in the
-  # registry listing, and deleting the candidate on that evidence strands exactly
-  # the testers the `testing` distribution exists for.
-  missing_stable=""
-  for entry in $pkgs; do
-    ptype="${entry%%:*}"; pversion="${entry#*:}"
-    sversion=""
-    while read -r qtype qversion; do
-      [ -n "$qversion" ] || continue
-      if [ "$qtype" = "$ptype" ] && [ "$(pkg_tag "$qversion")" = "$stable" ]; then sversion="$qversion"; fi
+  group_tags=()
+  for tag in "${!rc_tag_seen[@]}"; do
+    [ "${tag%-rc.*}" = "$stem" ] && group_tags+=("$tag")
+  done
+  [ "${#group_tags[@]}" -gt 0 ] || continue
+  while IFS= read -r tag; do
+    [ -n "$tag" ] || continue
+    # A published RELEASE does not prove a published PACKAGE, and existing SOMEWHERE is not the test
+    # either: the candidate must be replaced everywhere it is currently SERVED, same distributions
+    # and same architectures.
+    pkgs=""
+    while read -r ptype pversion; do
+      [ -n "$pversion" ] || continue
+      [ "$(pkg_tag "$pversion")" = "$tag" ] && pkgs="$pkgs $ptype:$pversion"
     done < "$work/packages"
-    if [ -z "$sversion" ]; then
-      missing_stable="$missing_stable $ptype"
-      continue
-    fi
-    # Captured, not iterated inline: bash discards the exit status of a command
-    # substitution in a `for` word list, so a failed lookup would silently
-    # produce an empty list, skip every check below, and license the delete this
-    # guard exists to prevent.
-    if ! parches=$(arches_of "$ptype" "$pversion"); then
-      echo "::error::could not list $ptype files for $PKG_NAME $pversion"
-      exit 1
-    fi
-    if ! sarches=$(arches_of "$ptype" "$sversion"); then
-      echo "::error::could not list $ptype files for $PKG_NAME $sversion"
-      exit 1
-    fi
-    if [ -z "$parches" ]; then
-      missing_stable="$missing_stable $ptype/no-files"
-      continue
-    fi
-    for parch in $parches; do
-      printf '%s\n' "$sarches" | grep -Fqx "$parch" \
-        || missing_stable="$missing_stable $ptype/$parch"
-      for pdist in testing stable; do
-        if index_has "$ptype" "$pdist" "$parch" "$pversion"; then
-          here=0
-        else
-          here=$?
-        fi
-        [ "$here" -eq 1 ] && continue          # candidate not served here
-        if [ "$here" -eq 2 ]; then
-          missing_stable="$missing_stable $ptype/$pdist(unreadable)"
-          continue
-        fi
-        if index_has "$ptype" "$pdist" "$parch" "$sversion"; then :; else
-          missing_stable="$missing_stable $ptype/$pdist"
-        fi
+    missing_stable=""
+    for entry in $pkgs; do
+      ptype="${entry%%:*}"; pversion="${entry#*:}"
+      sversion=""
+      while read -r qtype qversion; do
+        [ -n "$qversion" ] || continue
+        if [ "$qtype" = "$ptype" ] && [ "$(pkg_tag "$qversion")" = "$stem" ]; then sversion="$qversion"; fi
+      done < "$work/packages"
+      if [ -z "$sversion" ]; then missing_stable="$missing_stable $ptype"; continue; fi
+      # Captured, not iterated inline: bash discards the exit status of a command substitution in a
+      # `for` word list, so a failed lookup would produce an empty list, skip every check below, and
+      # license the delete this guard exists to prevent.
+      if ! parches=$(arches_of "$ptype" "$pversion"); then
+        echo "::error::could not list $ptype files for $PKG_NAME $pversion"; exit 1
+      fi
+      if ! sarches=$(arches_of "$ptype" "$sversion"); then
+        echo "::error::could not list $ptype files for $PKG_NAME $sversion"; exit 1
+      fi
+      if [ -z "$parches" ]; then missing_stable="$missing_stable $ptype/no-files"; continue; fi
+      for parch in $parches; do
+        printf '%s\n' "$sarches" | grep -Fqx "$parch" \
+          || missing_stable="$missing_stable $ptype/$parch"
+        for pdist in testing stable; do
+          if index_has "$ptype" "$pdist" "$parch" "$pversion"; then here_code=0; else here_code=$?; fi
+          [ "$here_code" -eq 1 ] && continue          # candidate not served here
+          if [ "$here_code" -eq 2 ]; then
+            missing_stable="$missing_stable $ptype/$pdist(unreadable)"; continue
+          fi
+          index_has "$ptype" "$pdist" "$parch" "$sversion" \
+            || missing_stable="$missing_stable $ptype/$pdist"
+        done
       done
     done
-  done
-  if [ -n "$missing_stable" ]; then
-    # Deduplicated: the checks run per architecture, so one missing distribution
-    # is otherwise reported once for each.
-    echo "keep    $tag — $stable does not yet replace it in:$(printf '%s' "$missing_stable" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/^ */ /')"
-    continue
-  fi
+    if [ -n "$missing_stable" ]; then
+      # Deduplicated: the checks run per architecture, so one missing distribution is otherwise
+      # reported once for each.
+      echo "keep: $tag — $stem does not yet replace it in:$(printf '%s' "$missing_stable" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+      continue
+    fi
 
-  if [ "$DRY_RUN" = "true" ]; then
-    echo "would prune $tag (superseded by $stable)${pkgs:+ — packages:$pkgs}"
-    pruned=$((pruned + 1))
-    continue
-  fi
-  echo "prune   $tag (superseded by $stable)"
-  # Releases before tags: a bare tag is tidy, a release pointing at a tag that
-  # no longer exists is not.
-  # Only a verified 404 means "no release to delete". Anything else would orphan
-  # a release behind its just-deleted tag.
-  gh_code=$(status "$GH/releases/tags/$tag" "$GH_AUTH")
-  case "$gh_code" in
-    200)
-      gh_id=$(curl --max-time 30 --retry 2 --retry-connrefused --retry-max-time 90 \
-        -sSf -H "$GH_AUTH" "$GH/releases/tags/$tag" | jq -re '.id')
-      delete "$GH/releases/$gh_id" "$GH_AUTH"
-      ;;
-    404) ;;
-    *) echo "::error::GET $GH/releases/tags/$tag returned $gh_code"; exit 1 ;;
-  esac
-  delete "$FJ/releases/tags/$tag" "$FJ_AUTH"
-  delete "$NAS/releases/tags/$tag" "$NAS_AUTH"
-  # Before the tags, and only for versions the registry actually reported. Any
-  # failure above this line aborts the sweep, and of everything being deleted the
-  # package is the one still being SERVED — a leftover release is clutter, a
-  # leftover package keeps being offered by `apt upgrade`. One DELETE takes the
-  # whole version: every architecture, and every distribution it went into, so
-  # `testing` and `stable` need no separate calls.
-  for entry in $pkgs; do
-    delete_package "${entry%%:*}" "${entry#*:}"
-  done
-  delete_gh_ref "$GH/git/refs/tags/$tag" "$GH_AUTH"
-  delete "$FJ/tags/$tag" "$FJ_AUTH"
-  delete "$NAS/tags/$tag" "$NAS_AUTH"
-  pruned=$((pruned + 1))
-done < "$work/rc-tags"
+    if [ "$dry_run" = true ]; then
+      echo "prune (dry-run): $tag superseded by stable $stem (present on all three); would remove release + git tag on each registry${pkgs:+ — packages:$pkgs}"
+    else
+      echo "prune: $tag superseded by stable $stem (present on all three); removing release + git tag"
+    fi
 
-echo "---"
-if [ "$DRY_RUN" = "true" ]; then
-  echo "$pruned release candidate(s) would be pruned"
+    residue=""
+    for registry in "${REGISTRIES[@]}"; do
+      id="${rc_id[$registry|$tag]-}"
+      if ! remove_rc_on_registry "$registry" "$tag" "$id"; then
+        residue+="${residue:+, }$registry"
+      fi
+    done
+    # AFTER the releases, and only for versions the registry actually reported. Of everything being
+    # removed, the package is the one still being SERVED: a leftover release is clutter, a leftover
+    # package keeps being offered by `apt upgrade`.
+    if [ -z "$residue" ]; then
+      for entry in $pkgs; do
+        delete_package "${entry%%:*}" "${entry#*:}" \
+          || residue+="${residue:+, }registry(${entry%%:*})"
+      done
+    fi
+    if [ -n "$residue" ]; then
+      # Both listings are enumerated, so residue of either shape — a surviving release or a
+      # release-less orphan tag — is re-found and retried by a later sweep.
+      echo "::warning::prune: $tag still has residue on: $residue (release, git tag and/or package survived delete+verify); a later sweep re-enumerates and retries it" >&2
+      fail=$((fail + 1))
+    elif [ "$dry_run" != true ]; then
+      pruned=$((pruned + 1))
+    fi
+  done < <(printf '%s\n' "${group_tags[@]}" | sort)
+done < <(printf '%s\n' "${!stem_seen[@]}" | sort)
+
+if [ "$dry_run" = true ]; then
+  echo "prune (dry-run): reported the selection above; no deletions issued"
+elif [ "$fail" -eq 0 ]; then
+  echo "prune: $pruned superseded rc tag(s) removed and verified gone across all three registries"
 else
-  echo "$pruned release candidate(s) pruned"
+  echo "::warning::prune finished with $fail rc tag(s) still carrying residue on at least one registry; a later sweep re-enumerates and retries them" >&2
 fi
+exit 0

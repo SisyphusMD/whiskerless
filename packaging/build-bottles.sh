@@ -29,6 +29,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 }
 # shellcheck source=/dev/null
 . "$here/project.env"
+# shellcheck source=/dev/null
+. "$here/release-common.sh"
 : "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
 OWNER="${PROJECT_REPO_SLUG%%/*}"
 PKG="${PROJECT_REPO_SLUG#*/}"
@@ -38,10 +40,10 @@ TAP="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')/tap"
 [ "$#" -eq 2 ] || { echo "usage: $0 <tag> <outdir>" >&2; exit 2; }
 tag="$1"; outdir="$2"
 
-case "$tag" in
-  v[0-9]*.[0-9]*.[0-9]*) : ;;
-  *) echo "not a release tag: $tag" >&2; exit 2 ;;
-esac
+# The shared grammar, not a glob: `v[0-9]*.[0-9]*.[0-9]*` also accepts `v0.2.0-rc1` and
+# `v0.2.0junk`, whose derived sdist name can never match a published formula — so instead of
+# failing here they enter the readiness loop below and spend its full timeout before saying so.
+rel_validate_tag "$tag" || exit 2
 
 version="${tag#v}"
 # PEP 440, the same normalization update-tap.sh applies: the tag says 0.2.0-rc.1

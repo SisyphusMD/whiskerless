@@ -3,8 +3,8 @@
     ".editorconfig": "27f0a420340998f882c86c46436e722cf924be3d81e96d23ddca9a182f24175c",
     ".github/PULL_REQUEST_TEMPLATE.md": "8582cf583c3af1f61aa9e2f5214616e66b151470a9b61e211f4b03d257b57da6",
     "packaging/bottle-block.py": "f177e14d16ec56bdae29b2f6f07bc5df186b2e1fc303bb40e3f2b290446c0cc6",
-    "packaging/build-bottles.sh": "f815b3429cf93803e9ddfb788a3627af7aa51f32dd92859cd0ef9c0bdd5da073",
-    "packaging/changelog-section.sh": "8146468c131e46cf60cd691df1aa1aef7cc0788ad93a42d4f63e91821bd3101f",
+    "packaging/build-bottles.sh": "5a1c934f35ff97a1201f1721f92c1378d7c1219271087a2e77c27ffae0a9402e",
+    "packaging/changelog-section.sh": "acacfbeca5807ef8e886e7692e5c75c5e60348e0d3f90303cf080eddef59b301",
     "packaging/check-doc-links.py": "44c9b053672d2b2c73379205490ba9ff61f06b48c3acc85de9c1a2057d27038d",
     "packaging/check-gitignore-base.py": "2a7a5e2f770d8879c43a32f8d9901eb54f0ebe6f3107a0b17318fed1b5563141",
     "packaging/check-glibc-floor.py": "301fc10d2895a43c88343952fbfbda0ca71b7c6fb4e811363739f31eae904614",
@@ -18,6 +18,7 @@
     "packaging/gitignore.base": "f87bec1f6d1ec56ea3678d45920689ac26c7c3a737316a22570121dadac9a9ac",
     "packaging/glibc-floor.txt": "19665c22e6e4f27b0b855ba2bf5873d4619ee970fcb76bcc4fc1f25384e7cea9",
     "packaging/next-version.sh": "56c3a240d250e26bc09c7b7a4af4f2946e5f3ec454d43bd438c046c6572f44f8",
+    "packaging/prune-rcs.sh": "277c434c7198d44e38bf13214bcc71eaa117595f0547bd08c7092d4839080666",
     "packaging/publish-registry.sh": "b415d3ec7b55e6ec14ea70bdb2bb2702bb9433bd49b1316b6cd0f973230e98a0",
     "packaging/push-tag.sh": "6b30628f7b9b635bd537c3e4c3d8777f123a9ac580ffe4d5af148a945cb74ff2",
     "packaging/reconcile-releases.sh": "d41f41546138327a028420544cf59951609698f21b92175b38c1b797c2b9ba0e",
@@ -29,9 +30,10 @@
     "packaging/triage-infra-failure.py": "d89fbad38ac887bd1a88c4fa3414d25ee3d89d435b4ab760779817ce0499bc51",
     "packaging/update-tap.sh": "0cb11d828ce3127ba550125af4d3583e59adb008342e089757454b0eae9bbcb4",
     "packaging/wait-for-pypi.sh": "117d43e6f681b15f941ae99020010797345f4a8c1678c14a91e8a2264b41f3c2",
-    "tests/release/mirror-ci.sh": "7ab441ab71e6b02ed137494ac17f5bb31ec8bcbd134ca6d1c6e48e2c54f69796"
+    "tests/release/mirror-ci.sh": "7ab441ab71e6b02ed137494ac17f5bb31ec8bcbd134ca6d1c6e48e2c54f69796",
+    "tests/release/prune-rcs.sh": "cff9a7c2680a9173b48216a55418c0872e17a7f035c00db3532dd01d93836ea4"
   },
-  "source_commit": "(no commit)",
+  "source_commit": "5c4d0dfd9cdcb1ef67ebb37e2054e9a6358fe8fe",
   "source_repo": "SisyphusMD/project-standard",
   "source_tag": "(untagged working tree)"
 }

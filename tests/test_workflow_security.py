@@ -201,3 +201,45 @@ def test_the_prerelease_tag_push_never_trusts_a_branch_supplied_destination() ->
     assert '[ "$(git cat-file -t "refs/tags/$TAG")" = tag ]' in step
     assert '[ "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)" ]' in step
     assert 'test -z "$(git status --porcelain)"' in step
+
+
+def test_the_prune_job_never_runs_on_a_prerelease_tag() -> None:
+    """The rc sweep is the only irreversible release operation, and it publishes through the same
+    workflow the rc itself does.
+
+    Gating it on `-rc.` reads as correct and is not: it excludes exactly one prerelease spelling, so
+    any other (`-beta.1`, `-alpha`) is treated as a stable and authorizes a sweep that deletes real
+    releases, tags and packages. Every prerelease tag is hyphenated and no stable one is, so the
+    hyphen is the honest test.
+
+    Ordering is asserted too. The sweep must not start until the tap has re-pointed the rc formula at
+    the stable, or the rc brew channel resolves to a release that has just been deleted. That
+    dependency travels through `homebrew-bottles` today, which means an edit to the bottles job could
+    drop it with nothing to say so.
+    """
+    document = yaml.safe_load((_ROOT / ".forgejo" / "workflows" / "publish.yml").read_text())
+    prune = document["jobs"]["prune-rcs"]
+
+    condition = str(prune["if"])
+    assert "'-'" in condition, f"prune is not gated on the hyphen every prerelease tag carries: {condition}"
+    assert "'-rc.'" not in condition, (
+        f"prune is gated on one prerelease spelling, so every other one prunes: {condition}"
+    )
+
+    needs = prune["needs"]
+    for required in ("homebrew-tap", "reconcile", "registry", "nas-bridge"):
+        assert required in needs, f"prune does not wait for {required}: {needs}"
+
+
+def test_the_prune_sweep_cannot_fail_an_already_published_release() -> None:
+    """By the time the sweep runs the stable is published on all three registries.
+
+    A non-zero exit here would redden a release that fully succeeded, and send somebody looking for a
+    publishing failure that did not happen. The sweep reports its own problems and exits 0; the guard
+    at the call site is what holds when it ever does not.
+    """
+    document = yaml.safe_load((_ROOT / ".forgejo" / "workflows" / "publish.yml").read_text())
+    steps = document["jobs"]["prune-rcs"]["steps"]
+    run = next(str(s["run"]) for s in steps if isinstance(s, dict) and "run" in s)
+    assert "prune-rcs.sh" in run
+    assert "::warning::" in run, f"a failing prune would fail the release: {run}"
