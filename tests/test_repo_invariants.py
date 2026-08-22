@@ -11,6 +11,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -1042,6 +1043,13 @@ def test_the_integration_imports_nothing_the_library_does_not_promise() -> None:
     answer is for the integration to need less, not for the promise to look smaller than reality.
     """
     import ast
+
+    # The integration is written for Home Assistant's interpreter (3.13+) and uses PEP 695 syntax —
+    # `type X = ...`, `def f[T]`. This suite also runs on the LIBRARY's 3.11.0 floor, where parsing
+    # that is a SyntaxError in ast itself, not a finding about the code. The floor exists for the
+    # library; the integration has its own 3.13 job and its own mypy invocation.
+    if sys.version_info < (3, 12):
+        pytest.skip("the integration uses PEP 695 syntax, which this interpreter cannot parse")
 
     core = _module_names(REPO / "src" / "whiskerless" / "__init__.py")
     device = _module_names(REPO / "src" / "whiskerless" / "devices" / "litter_robot_4" / "__init__.py")
