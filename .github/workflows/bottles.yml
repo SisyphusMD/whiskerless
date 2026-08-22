@@ -142,6 +142,14 @@ jobs:
           # the bottle block's root_url, so letting a transient GitHub failure
           # skip it would guarantee the tap pass times out for a reason that has
           # nothing to do with the tap.
+          #
+          # BOTTLES ONLY, and replaceable on purpose. Every other asset is immutable once published,
+          # which is what makes the cross-registry quorum meaningful — but a bottle is not
+          # byte-reproducible (its gzip header carries the build timestamp), so a dispatched rebuild
+          # after a partial run legitimately produces different bytes. Under the default `immutable`
+          # the first already-published platform raises a conflict, and the recovery this workflow
+          # is dispatchable FOR cannot complete. The sibling sets it for the same reason.
+          export REL_REPLACE_POLICY=replace
           failed=""
           packaging/github-release.sh "${{ secrets.GITHUB_TOKEN }}" \
             "$TAG" notes.md bottles/* || failed="$failed github.com"
