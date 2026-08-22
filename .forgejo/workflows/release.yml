@@ -46,6 +46,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Shellcheck every shipped and integration script
+        run: bash packaging/shellcheck-all.sh
+
       - name: Compute next version
         id: ver
         env:
@@ -230,7 +233,14 @@ jobs:
           # This job still holds no WRITE credential, which is the property that
           # matters: it cannot push anything.
           MIRROR_CI_TOKEN: ${{ secrets.GH_REPO_READ_PAT }}
-        run: bash packaging/check-mirror-ci.sh "${{ github.sha }}"
+        run: |
+          set -euo pipefail
+          # BOTH macOS workflows, not just the formula one. `CI (macOS)` is the only place the
+          # library's own tests run on a Mac, and gating on the formula alone let a release be cut
+          # from a commit whose macOS test suite was red. Named by file: a display name is prose,
+          # and a reworded one would match no runs and read as "not delivered yet".
+          bash packaging/check-mirror-ci.sh "${{ github.sha }}" .github/workflows/formula-macos.yml
+          bash packaging/check-mirror-ci.sh "${{ github.sha }}" .github/workflows/ci-macos.yml
 
   candidate-gate:
     name: Qualify the candidate this release promotes (no write credential)
@@ -324,14 +334,14 @@ jobs:
           python3 packaging/stamp-version.py "$VERSION" --check
           git tag -a -m "release: ${VERSION}" "$TAG"
 
-      - name: Push the release commit and tag
+      # ATOMIC, via the shared helper this repo already vendors and — until now — never called.
+      # Two sequential pushes have a window between them: a network or server failure after the
+      # first advances main with the release commit and no tag, and the re-run then meets an
+      # already-promoted CHANGELOG and version. `push --atomic` makes both refs land or neither.
+      # The helper also refuses to push unless the tag is an annotated object pointing at HEAD with
+      # a clean tree, which the inline version never checked. The sibling has used it throughout.
+      - name: Push the commit and tag atomically
         env:
           TAG: ${{ needs.gate.outputs.tag }}
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
-        run: |
-          set -euo pipefail
-          REMOTE="https://x-access-token:${TOKEN}@forgejo.bryantserver.com/SisyphusMD/whiskerless.git"
-          # Branch first: a tag that exists without the commit on main is the harder state to
-          # recover from, because publish.yml starts building the moment the tag lands.
-          git push "$REMOTE" "HEAD:${{ github.ref_name }}"
-          git push "$REMOTE" "refs/tags/${TAG}"
+        run: bash packaging/push-tag.sh "$TAG" "$TOKEN" "${{ github.ref_name }}"

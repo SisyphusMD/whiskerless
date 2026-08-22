@@ -15,9 +15,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Keyed per COMMIT and never cancelled, because the release gates read this workflow's verdict for
+# one exact SHA. Under a ref-keyed group with cancel-in-progress, a push landing while the release
+# is being cut cancels the very run the gate is waiting on, and a commit whose only run was
+# cancelled has no verdict — which the gate can only read as "not green", permanently, for a commit
+# that never failed anything.
 concurrency:
-  group: macos-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: macos-ci-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   test:
