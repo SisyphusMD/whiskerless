@@ -24,13 +24,24 @@ jobs:
     name: Refuse anything that is not a release tag
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Check the ref
         run: |
           set -euo pipefail
+          # The SAME grammar every other release step enforces, not a glob. `v0.3.0.dev1`
+          # matches `v*.*.*` and is rejected by rel_validate_tag — and by every helper
+          # downstream — so a glob here lets a dispatch start the PyPI upload and the builds
+          # before anything refuses it.
           case "${GITHUB_REF}" in
-            refs/tags/v*.*.*) echo "publishing ${GITHUB_REF_NAME}" ;;
-            *) echo "::error::${GITHUB_REF} is not a release tag — dispatch this with a v*.*.* tag as the ref" >&2; exit 1 ;;
+            refs/tags/*) : ;;
+            *) echo "::error::${GITHUB_REF} is not a tag — dispatch this with a release tag as the ref" >&2; exit 1 ;;
           esac
+          # shellcheck source=/dev/null
+          . packaging/release-common.sh
+          rel_validate_tag "${GITHUB_REF_NAME}"
+          echo "publishing ${GITHUB_REF_NAME}"
 
   pypi:
     name: Publish to PyPI
@@ -187,11 +198,11 @@ jobs:
           fi
   registry:
     name: Publish .deb/.rpm into the apt/dnf repositories
-    needs: releases
+    needs: [guard, releases]
     # Runs even when a release UPLOAD failed — the repository is a fourth destination
     # with its own failure modes, and #76's lesson was that a job publishing to
     # independent places must not let the first failure skip the rest.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -296,11 +307,11 @@ jobs:
       cancel-in-progress: false
     # The tap must already hold this version (the bottles were built by
     # installing it) and the release must exist (the bottles are its assets).
-    needs: [homebrew-tap, releases]
+    needs: [guard, homebrew-tap, releases]
     # `releases` going red does not mean the bottles are missing — they are
     # appended by the GitHub workflow, to a release that may well have been
     # created successfully before some later host failed. #76 again.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -403,13 +414,13 @@ jobs:
 
   nas-bridge:
     name: Bridge the GitHub-built assets → NAS
-    needs: releases
+    needs: [guard, releases]
     # Runs even when `releases` went red. It needs exactly one thing — the GitHub-built
     # assets on the public Forgejo release — and that has nothing to do with whether
     # GitHub accepted its copy. rc.27 proved the cost of coupling them: GitHub's release
     # step timed out waiting for a mirrored tag, the job failed, and the NAS was left
     # permanently short its two .pkg files for a reason entirely unrelated to the NAS.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.guard.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -471,8 +482,8 @@ jobs:
     # bridge copies them to the NAS. Sweeping before that, there is no quorum to heal from: an
     # arm64 set that failed to upload to GitHub would stay missing, and prune-rcs (which needs
     # this job) would then delete the candidates that still had it.
-    needs: [releases, nas-bridge]
-    if: ${{ always() }}
+    needs: [guard, releases, nas-bridge]
+    if: ${{ always() && needs.guard.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

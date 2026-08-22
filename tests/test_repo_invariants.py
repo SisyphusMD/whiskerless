@@ -951,6 +951,35 @@ def test_the_macos_and_linux_releases_freeze_with_the_same_toolchain() -> None:
     assert macos_py.group(1).count(".") == 2, f"macOS CPython is not exact: {macos_py.group(1)}"
 
 
+def test_no_publish_job_outruns_the_ref_guard() -> None:
+    """publish.yml is dispatchable so a partly-failed release can be finished. The guard job refuses
+    a dispatch whose ref is not a release tag, because "main" would otherwise BE the version:
+    packages named for it, and releases called `main` created on all three registries.
+
+    But several jobs carry `always()` or `!cancelled()` so that one registry failing does not skip
+    the others — and those override a FAILED dependency, not merely an unsuccessful release. A guard
+    that refused the ref therefore stopped nothing: every external-write job downstream still ran.
+    Naming the guard in `needs` is not enough either; the condition has to test its result.
+    """
+    workflow = yaml.safe_load(
+        (REPO / ".forgejo" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    )
+    assert "guard" in workflow["jobs"], "the ref guard is gone"
+    unguarded = []
+    for name, job in workflow["jobs"].items():
+        condition = str(job.get("if") or "")
+        if "always()" not in condition and "cancelled()" not in condition:
+            continue  # the implicit needs-success gate already covers it
+        needs = job.get("needs") or []
+        needs = [needs] if isinstance(needs, str) else list(needs)
+        if "guard" not in needs or "needs.guard.result" not in condition:
+            unguarded.append(name)
+    assert unguarded == [], (
+        "these run even when the guard refused the ref, and write to registries while they do: "
+        f"{unguarded}"
+    )
+
+
 def test_renovate_still_reads_the_pins_after_they_moved() -> None:
     """The build pins live in `packaging/release-pins.env` because two forges build one
     release and one file is what keeps their pins equal. Renovate's custom managers are
