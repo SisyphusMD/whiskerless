@@ -20,6 +20,14 @@
 #      archives under an unchanged tag, so a tag-shaped check would pass instantly
 #      while the tap still advertised the replaced bytes — the state that once
 #      broke `brew install` for everyone.
+#
+#   3. The apt/dnf REGISTRY serves this version. The matrix installs from those
+#      repositories, and registry publishing is a separate job that waits for BOTH
+#      architectures to land — arm64 is built on the other forge now — so it can
+#      finish after the bottles. It used to be a step of the release job, which
+#      ordered it ahead of everything here by accident rather than by design.
+#      Without this, a healthy release gets a red apt-repo leg for having been
+#      asked too early.
 set -euo pipefail
 
 TAG="${1:?usage: $0 <tag>}"
@@ -42,6 +50,37 @@ esac
 # too — a connection that is accepted and then stalls would otherwise hang past
 # it, to whatever the runner's own timeout is.
 fetch() { curl -sfL --connect-timeout 10 --max-time 60 --retry 2 --retry-connrefused "$1"; }
+
+# The registry versions publish-registry.sh writes: debian keeps the native `~rc.`
+# form, and rpm carries nfpm's release suffix. Derived the same way there, so the
+# two move together if that suffix ever changes.
+PKGVER="${TAG#v}"; PKGVER="${PKGVER/-rc./~rc.}"
+PKGAPI="$FORGE/api/v1/packages/SisyphusMD"
+
+# Scope: this answers "has the registry been written yet", not "is the release good". A
+# distribution whose upload FAILED already fails publish-registry.sh, which exits non-zero and
+# reddens its job — a red apt-repo leg there is a correct report, not the premature one this
+# guards against.
+registry_ready() {
+  local kind ver a b
+  for kind in debian rpm; do
+    # BOTH architectures, by filename. A non-empty list is not enough: the two are
+    # uploaded one after the other, so a poll landing between them would release
+    # the arm64 legs against a repository that only has amd64 — and that fails
+    # deterministically on a retry after a partial publish, not just rarely.
+    case "$kind" in
+      debian) ver="$PKGVER";    a="_amd64.deb";  b="_arm64.deb" ;;
+      rpm)    ver="$PKGVER-1";  a=".x86_64.rpm"; b=".aarch64.rpm" ;;
+    esac
+    # `fetch` carries curl's -f, and that is load-bearing rather than tidiness.
+    # Without it a 404 still writes its JSON error object to stdout and jq would
+    # be reading that object instead of a file list. Verified against this
+    # registry, as were the two version spellings above.
+    fetch "$PKGAPI/$kind/whiskerless/$ver/files" 2>/dev/null \
+      | jq -e --arg a "$a" --arg b "$b" \
+          '[.[].name] | any(endswith($a)) and any(endswith($b))' >/dev/null 2>&1 || return 1
+  done
+}
 
 tap_ready() {  # tap_ready <release-json>
   local rel="$1" rb want have
@@ -74,11 +113,11 @@ for _ in $(seq 1 "$ATTEMPTS"); do
   if have '\.deb$' && have '\.rpm$' && have 'linux-x86_64$' && have 'linux-arm64$' \
      && have 'macos-arm64\.pkg$' && have 'bottle\.tar\.gz$' \
      && { { have 'SHA256SUMS-x86_64' && have 'SHA256SUMS-aarch64'; } || have '^SHA256SUMS$'; }; then
-    if tap_ready "$rel"; then
-      echo "$TAG is complete and the tap advertises the bottles it is serving"
+    if tap_ready "$rel" && registry_ready; then
+      echo "$TAG is complete, the tap advertises the bottles it is serving, and apt/dnf have it"
       exit 0
     fi
-    echo "  release complete; waiting for the tap to match $TAG's current bottles"
+    echo "  release complete; waiting for the tap and the apt/dnf registry to catch up to $TAG"
   fi
   sleep "$INTERVAL"
 done
