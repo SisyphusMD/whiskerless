@@ -9,8 +9,14 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
-WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.yml")) + sorted(
-    (REPO / ".forgejo" / "workflows").glob("*.yml")
+# Both spellings, in both directories: a forge accepts `.yaml` too, and one that escaped this glob
+# would be exempt from the parse while still running. The non-empty guard below cannot notice a
+# single missing file, so the glob has to be the thing that is right.
+WORKFLOWS = sorted(
+    path
+    for directory in (REPO / ".github" / "workflows", REPO / ".forgejo" / "workflows")
+    for pattern in ("*.yml", "*.yaml")
+    for path in directory.glob(pattern)
 )
 
 
