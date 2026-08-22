@@ -1208,3 +1208,23 @@ def test_renovate_never_edits_a_vendored_file() -> None:
     assert not scanned, (
         f"customManagers scan vendored files, whose bumps would fail the drift check: {scanned}"
     )
+
+
+def test_the_inline_shellcheck_pin_matches_the_vendored_script() -> None:
+    """Two copies of one pin, and they have to move together.
+
+    `packaging/shellcheck-all.sh` is vendored, and the fork-PR workflow deliberately does NOT call
+    it: that job runs on untrusted refs, where `actions/checkout` puts a FORK's copy of the script in
+    the workspace, so the command has to be text this repo defines. The cost of that safety is a
+    second copy of the image pin, which silently rots unless something compares them — a fork PR then
+    qualifies against a different shellcheck than every other gate.
+    """
+    workflow = (REPO / ".github" / "workflows" / "ci-pr.yml").read_text(encoding="utf-8")
+    script = (REPO / "packaging" / "shellcheck-all.sh").read_text(encoding="utf-8")
+
+    found = re.search(r'SHELLCHECK="([^"]+)"', script)
+    assert found, "packaging/shellcheck-all.sh no longer pins SHELLCHECK"
+    assert f'SHELLCHECK="{found.group(1)}"' in workflow, (
+        "the fork-PR workflow pins a different shellcheck image than the vendored script; "
+        "the pin is owned by the standard, so re-vendor and update both copies together"
+    )

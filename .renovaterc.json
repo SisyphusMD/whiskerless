@@ -56,6 +56,13 @@
       "automerge": true
     },
     {
+      "description": "The shellcheck image pin is owned by the shared standard: it lives in the VENDORED packaging/shellcheck-all.sh, and this repo also carries an inline copy in the fork-PR workflow, which must stay byte-equal to it (a test asserts that). Renovate cannot move both halves consistently - bumping the vendored file fails the drift check, bumping only the workflow breaks the equality - so the bump happens in project-standard and arrives here as a re-vendor that updates both copies in one commit.",
+      "matchDepNames": [
+        "koalaman/shellcheck"
+      ],
+      "enabled": false
+    },
+    {
       "description": "The shared standard lives on the self-hosted Forgejo, so the gitea-tags datasource has to be told which host to ask; there is no public registry to infer it from. Held for review rather than automerged: a bumped pin only says a new standard EXISTS, and the vendored files are re-synced by a separate act, so a human has to land both together.",
       "matchDepNames": [
         "SisyphusMD/project-standard"
