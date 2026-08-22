@@ -97,6 +97,10 @@ def _embedded_elfs(bundle: Path, destination: Path) -> list[tuple[str, Path]]:
     # are indistinguishable here — and quietly treating the first as the second would let a onefile
     # payload through this gate entirely unscanned.
     try:
+        # Deferred deliberately: PyInstaller is not a dependency of this check, and importing it
+        # at module level would break the script everywhere it is not installed. Projects that
+        # enable PLC0415 exempt this path in their own ruff config, not with a suppression here —
+        # a `noqa` for a rule the other consumer does not enable is itself an error there (RUF100).
         from PyInstaller.archive.readers import ArchiveReadError, CArchiveReader
     except ImportError as exc:  # pragma: no cover - environment error, not a code path
         raise SystemExit(

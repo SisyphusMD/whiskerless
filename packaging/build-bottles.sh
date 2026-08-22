@@ -78,10 +78,6 @@ export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1
 brew update --quiet
 # `brew tap-new`/`brew bottle` are developer commands and shell out to git for a
 # commit; a runner has no identity configured and the command dies on it.
-# Only when there is no identity to preserve. --global is required rather than
-# --local because `brew bottle` commits inside the TAP checkout, not this one, so
-# a repo-local setting never reaches it - but that same reach means running this
-# script on a machine that already has an identity would overwrite the user's own.
 # Exported, not written to a config file. `brew bottle` commits inside the TAP
 # checkout rather than this one, so a repo-local setting never reaches it - but
 # `git config --global` reaches it by clobbering the caller's own identity, which

@@ -1184,3 +1184,27 @@ def test_every_hold_survives_rule_ordering() -> None:
                 f"{dep} is written as a hold but resolves to automerge on {update_type}: "
                 "its rule sits above the broad automerge rule, which overrides it"
             )
+
+
+def test_renovate_never_edits_a_vendored_file() -> None:
+    """A vendored file is owned by the standard, and editing it in place breaks STANDARD.lock.
+
+    Renovate does not know that. Pointed at a locked path that carries a `# renovate:` annotation it
+    opens a perfectly reasonable pin bump — and that PR then fails this repo's own drift check,
+    because the file no longer matches the lock it was vendored under. The bump has to originate in
+    the standard and arrive here as a re-vendor, so no manager may scan a locked path at all.
+    """
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    vendored = set(json.loads((REPO / "STANDARD.lock").read_text(encoding="utf-8"))["files"])
+    assert vendored, "no vendored files recorded; this invariant would assert nothing"
+
+    scanned = [
+        (index, path)
+        for index, manager in enumerate(config.get("customManagers", []))
+        for pattern in manager.get("managerFilePatterns", [])
+        for path in sorted(vendored)
+        if re.search(pattern.strip("/"), path)
+    ]
+    assert not scanned, (
+        f"customManagers scan vendored files, whose bumps would fail the drift check: {scanned}"
+    )
