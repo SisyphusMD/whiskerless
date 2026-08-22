@@ -38,6 +38,18 @@ case "${DRY_RUN:-true}" in
   *)     DRY_RUN=true ;;
 esac
 
+# For ignored_asset (release-common.sh) over _IGNORED_ASSETS (asset-roles.sh) — ONE definition of
+# which assets sit outside the cross-registry quorum, shared with reconcile. Sourced rather than
+# reimplemented, and sourced at all because an undefined ignored_asset returns 127, the `||` beside
+# it fires, every bottle counts toward the signature, the NAS never carries bottles, and the sweep
+# then keeps every candidate forever while reporting success.
+here="$(cd "$(dirname "$0")" && pwd)"
+shopt -s extglob
+# shellcheck source=/dev/null
+. "$here/release-common.sh"
+# shellcheck source=/dev/null
+. "$here/asset-roles.sh"
+
 # All three targets publish.yml releases to. Missing one would leave its objects
 # behind while the sweep reported the rc pruned.
 GH="https://api.github.com/repos/SisyphusMD/whiskerless"
@@ -266,6 +278,63 @@ grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' "$work/all-tags" > "$work/rc-tags
 # is a real failure.
 [ "$rc" -le 1 ] || exit "$rc"
 
+# 0 only when the stable is a PUBLISHED release on all three registries AND the three serve an
+# IDENTICAL, non-empty, duplicate-free asset-name set. A 200 alone is too weak a licence for a
+# permanent delete: an interrupted publisher leaves a draft or a misclassified prerelease that
+# answers 200 and that nobody can install, and a half-fanned-out stable answers 200 on a registry
+# serving fewer assets than its siblings. Either way the candidate is still the only complete copy.
+#
+# No fixed asset COUNT is assumed — a pre-.rpm-era stable legitimately serves fewer assets than a
+# current one — so the test is agreement between registries, not a number. Ported from the sibling,
+# which has carried it since its own retention policy landed.
+stable_is_uniformly_published() {
+  local stable="$1" pair url auth json names signature="" have_signature=0 ok=1
+  for pair in "$GH|$GH_AUTH" "$FJ|$FJ_AUTH" "$NAS|$NAS_AUTH"; do
+    url="${pair%%|*}"; auth="${pair#*|}"
+    json="$(curl --max-time 60 --retry 2 --retry-connrefused --retry-max-time 120 -sSf \
+              -H "$auth" "$url/releases/tags/$stable" 2>/dev/null)" || {
+      # LOUD, and fatal, like the status probe above it. A timeout or 5xx here is not evidence
+      # about the release — silently folding it into "keep" makes an infrastructure failure
+      # indistinguishable from a stable that is legitimately still fanning out, and this sweep is
+      # one-shot, so nothing revisits the decision. Refusing to conclude is the same answer the
+      # neighbouring lookup gives for an unexpected status.
+      echo "::error::prune: could not read $stable on $url — refusing to conclude anything about it" >&2
+      return 2
+    }
+    # Present AND consumable: mirrors rel_ensure_release_state's draft==false && prerelease==false.
+    if ! jq -e '(.id != null) and (.draft == false) and (.prerelease == false)' <<<"$json" >/dev/null 2>&1; then
+      echo "::warning::prune: stable $stable is not a published release on $url; keeping its rc" >&2
+      ok=0; continue
+    fi
+    # Non-empty and duplicate-free: a repeated name is the ambiguous copy reconcile refuses to treat
+    # as usable, because its download URL is undefined.
+    names="$(jq -r '
+      [.assets[]?.name | select(. != null)] as $n
+      | if ($n | length) > 0 and ($n | length) == ($n | unique | length)
+        then $n | unique | join("\n")
+        else error("empty or duplicated asset set")
+        end' <<<"$json" 2>/dev/null)" \
+      || { echo "::warning::prune: stable $stable serves no clean asset set on $url; keeping its rc" >&2
+           ok=0; continue; }
+    # Assets outside the quorum are dropped BEFORE the signature is built. Homebrew bottles reach
+    # GitHub and the cluster Forgejo but never the NAS, by design — comparing raw sets would make
+    # every bottled stable look permanently half-fanned-out and keep its candidates forever.
+    names="$(while IFS= read -r _n; do
+      [ -n "$_n" ] || continue
+      ignored_asset "$_n" || printf '%s\n' "$_n"
+    done <<<"$names")"
+    [ -n "$names" ] || { echo "::warning::prune: stable $stable serves only ignored assets on $url; keeping its rc" >&2
+                         ok=0; continue; }
+    if [ "$have_signature" -eq 0 ]; then
+      signature="$names"; have_signature=1
+    elif [ "$names" != "$signature" ]; then
+      echo "::warning::prune: stable $stable serves a different asset set on $url (partial fan-out); keeping its rc" >&2
+      ok=0
+    fi
+  done
+  [ "$ok" -eq 1 ]
+}
+
 pruned=0
 while read -r tag; do
   [ -n "$tag" ] || continue
@@ -288,6 +357,13 @@ while read -r tag; do
       "(gh=$gh_stable fj=$fj_stable nas=$nas_stable)"
     continue
   fi
+  # 200 everywhere is necessary, not sufficient — see the helper above. Status 2 means a registry
+  # could not be read at all, which is not a keep decision but an absence of one.
+  stable_is_uniformly_published "$stable" || case $? in
+    2) exit 1 ;;
+    *) echo "keep    $tag — $stable is not uniformly published across the three registries"
+       continue ;;
+  esac
   # The registry versions this tag published, looked up rather than constructed.
   pkgs=""
   while read -r ptype pversion; do
