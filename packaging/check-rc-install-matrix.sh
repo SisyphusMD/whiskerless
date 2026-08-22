@@ -3,6 +3,11 @@
 # never passed its install matrix.
 #   check-rc-install-matrix.sh <version>       e.g. 0.2.0
 #
+# Shared between both projects: they run the same two-forge install matrix, under the same two
+# workflow names, and a gate that exists in one and not the other is how a release ships untested
+# in exactly the repo nobody was looking at. The only per-project value is the repo slug, which
+# comes from packaging/project.env.
+#
 # The install matrix runs AFTER a release — it installs published artifacts — so
 # it can never gate the release it tests. What it can gate is the promotion: a
 # candidate whose apt, dnf, Homebrew, .pkg, raw-binary or PyPI install is broken
@@ -16,7 +21,11 @@
 set -euo pipefail
 
 VERSION="${1:?usage: $0 <version>}"
-REPO="SisyphusMD/whiskerless"
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+. "$here/project.env"
+: "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
+REPO="$PROJECT_REPO_SLUG"
 API="https://api.github.com/repos/$REPO"
 FORGE="https://forgejo.bryantserver.com"
 

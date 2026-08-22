@@ -8,6 +8,7 @@
     "packaging/check-doc-links.py": "44c9b053672d2b2c73379205490ba9ff61f06b48c3acc85de9c1a2057d27038d",
     "packaging/check-gitignore-base.py": "2a7a5e2f770d8879c43a32f8d9901eb54f0ebe6f3107a0b17318fed1b5563141",
     "packaging/check-glibc-floor.py": "301fc10d2895a43c88343952fbfbda0ca71b7c6fb4e811363739f31eae904614",
+    "packaging/check-rc-install-matrix.sh": "9291d1c489bc729efdffaa3337c01da984343e5ab9eda261bc16642d83b1b999",
     "packaging/check-standard-sync.py": "80a42b514811cf69b9493ebee035a68199f0c117732be9d01457faccc48ef4f4",
     "packaging/entitlements.plist": "7d4b164998eb6084488799c470d3b7b3d7e01fc3071eedadd00dc4374f56a5c1",
     "packaging/fetch-release-assets.sh": "4ec89018ccf56002f89e462c919e9cb72d29dfff2faea294163f5f074a4273a1",
