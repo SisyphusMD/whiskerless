@@ -213,15 +213,39 @@ index_has() {  # index_has <type> <distribution> <arch> <version>
     200) ;;
     *) return 2 ;;
   esac
+  # Matched on NAME + ARCH + VERSION together, never version alone. Forgejo scopes the package
+  # registry to the OWNER, so this repository holds the sibling project's packages too — and the two
+  # release in lockstep, so "some package here is at 0.3.0" is routinely true while THIS package is
+  # not. Version-only matching would report the stable as serving and license deleting a candidate
+  # that is still the only installable copy.
   if [ "$1" = rpm ]; then
     # Decompressed to a file first, deliberately. Piping gunzip into grep loses
     # gunzip's failure — a truncated or corrupt index would come back as "no
     # match", which the caller reads as "definitely not served here" and treats
     # as licence to delete. An index it cannot read has to stay unknown.
     gunzip -c "$body" > "$body.xml" 2>/dev/null || return 2
-    grep -Fq "ver=\"${4%-*}\"" "$body.xml"
+    # One <package> element at a time: name, arch and version must belong to the SAME entry. The
+    # rpm index is not arch-scoped by URL the way the debian one is, so arch is checked here.
+    awk -v n="$PKG_NAME" -v a="$3" -v v="${4%-*}" '
+      BEGIN { RS = "<package" ; found = 0 }
+      index($0, "<name>" n "</name>") \
+        && index($0, "<arch>" a "</arch>") \
+        && index($0, "ver=\"" v "\"") { found = 1 }
+      END { exit !found }' "$body.xml"
   else
-    grep -Fqx "Version: $4" "$body"
+    # The debian index IS arch-scoped by URL (binary-<arch>), so only name and version are matched
+    # here — but both, and within one stanza. Stanzas are blank-line separated.
+    awk -v n="$PKG_NAME" -v v="$4" '
+      BEGIN { RS = "" ; FS = "\n" ; found = 0 }
+      {
+        haveName = 0; haveVer = 0
+        for (i = 1; i <= NF; i++) {
+          if ($i == "Package: " n) haveName = 1
+          if ($i == "Version: " v) haveVer = 1
+        }
+        if (haveName && haveVer) found = 1
+      }
+      END { exit !found }' "$body"
   fi
 }
 
