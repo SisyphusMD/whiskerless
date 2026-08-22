@@ -67,8 +67,13 @@ for _ in $(seq 1 "$ATTEMPTS"); do
   rel=$(fetch "$API" || true)
   names=$(printf '%s' "$rel" | jq -r '.assets[]?.name' 2>/dev/null || true)
   have() { printf '%s\n' "$names" | grep -q "$1"; }
+  # Either checksum layout. A dispatch deliberately runs the CURRENT scripts against an older
+  # tag — that is the whole point of the tag input — and a release cut before the per-architecture
+  # split carries one `SHA256SUMS` instead of two. Demanding the new pair would make such a
+  # dispatch wait out its full deadline and then fail for a release that is perfectly complete.
   if have '\.deb$' && have '\.rpm$' && have 'linux-x86_64$' && have 'linux-arm64$' \
-     && have 'macos-arm64\.pkg$' && have 'bottle\.tar\.gz$' && have 'SHA256SUMS'; then
+     && have 'macos-arm64\.pkg$' && have 'bottle\.tar\.gz$' \
+     && { { have 'SHA256SUMS-x86_64' && have 'SHA256SUMS-aarch64'; } || have '^SHA256SUMS$'; }; then
     if tap_ready "$rel"; then
       echo "$TAG is complete and the tap advertises the bottles it is serving"
       exit 0

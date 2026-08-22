@@ -1,11 +1,16 @@
-name: Install matrix (macOS)
+name: Install matrix (macOS + Linux arm64)
 
-# Installs every channel we publish, from the PUBLISHED artifacts, and then runs
-# the tool. CI already builds all of this; until now it did not install most of
-# it, so the .pkg, a poured bottle, PyPI and the apt/dnf repositories were proven
-# by nobody. Each leg ends in `packaging/installed-smoke.sh`, which is the single
-# definition of "an installed whiskerless works" — adding a channel later means
-# installing it and calling that.
+# Installs every channel we publish that needs a macOS or an arm64 machine, from
+# the PUBLISHED artifacts, and then runs the tool. CI already builds all of this;
+# until now it did not install most of it, so the .pkg, a poured bottle, PyPI and
+# the apt/dnf repositories were proven by nobody. Each leg ends in
+# `packaging/installed-smoke.sh`, which is the single definition of "an installed
+# whiskerless works" — adding a channel later means installing it and calling that.
+#
+# The Linux amd64 half is `.forgejo/workflows/install-matrix.yml`. Architecture
+# decides the forge: everything that can run natively on ours does, and what needs
+# hardware we do not have runs here on GitHub's. Nothing is emulated on either.
+# The rule is in docs/design/ci-split.md and an invariant test enforces it.
 #
 # It runs AFTER a release by necessity, so it cannot gate the release it tests.
 # What it gates is the next STABLE cut: release.yml's `candidate-gate` refuses to
@@ -15,7 +20,7 @@ name: Install matrix (macOS)
 # head_branch, but a DISPATCH is deliberately made from main (so a fix to these
 # scripts is what re-runs, not the copies frozen at the tag) and would otherwise
 # record nothing about which tag it tested. `candidate-gate` matches on this.
-run-name: Install matrix (macOS) ${{ inputs.tag || github.ref_name }}
+run-name: Install matrix (macOS + Linux arm64) ${{ inputs.tag || github.ref_name }}
 
 on:
   push:
@@ -124,15 +129,41 @@ jobs:
           chmod +x /tmp/wskl
           bash packaging/installed-smoke.sh /tmp/wskl "$VERSION"
 
+  # Every Linux channel, on real arm64 silicon. Its amd64 twin runs on Forgejo and
+  # calls the SAME script, which is what keeps the two architectures testing the
+  # same list of channels rather than two lists that were equal once.
+  linux-arm64:
+    name: Linux installs (arm64)
+    needs: wait
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Needed for `--output type=local`, which the default docker driver does not
+      # support. No registry mirror here: that one is on our network, not this one.
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Install every Linux channel and smoke each one
+        env:
+          VERSION: ${{ needs.wait.outputs.version }}
+        run: bash packaging/install-matrix-arch.sh arm64
+
   summary:
-    name: Every macOS channel installed and ran
-    needs: [macos]
+    name: Every macOS and Linux arm64 channel installed and ran
+    needs: [macos, linux-arm64]
     if: ${{ always() && github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     steps:
       - name: Verdict
         run: |
           set -euo pipefail
-          echo "macos: ${{ needs.macos.result }}"
-          [ "${{ needs.macos.result }}" = success ] \
-            || { echo "::error::a macOS install channel is broken for $TAG"; exit 1; }
+          echo "macos:       ${{ needs.macos.result }}"
+          echo "linux-arm64: ${{ needs.linux-arm64.result }}"
+          # Both, and named separately: a summary that only reported the worse of the
+          # two would say "something is broken" about a matrix whose whole job is to
+          # say WHICH thing is.
+          bad=""
+          [ "${{ needs.macos.result }}" = success ] || bad="$bad macOS"
+          [ "${{ needs.linux-arm64.result }}" = success ] || bad="$bad Linux-arm64"
+          [ -z "$bad" ] || { echo "::error::install channels are broken for $TAG:$bad"; exit 1; }

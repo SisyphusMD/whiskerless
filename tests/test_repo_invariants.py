@@ -474,11 +474,13 @@ def test_both_install_matrices_record_which_tag_they_tested() -> None:
     unfindable, and the gate blocks a release that is fine."""
     gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
 
-    macos = yaml.safe_load(INSTALL_MATRIX.read_text(encoding="utf-8"))
-    run_name = macos.get("run-name", "")
-    assert run_name.startswith("Install matrix (macOS)"), run_name
+    github = yaml.safe_load(INSTALL_MATRIX.read_text(encoding="utf-8"))
+    run_name = github.get("run-name", "")
+    assert run_name.startswith("Install matrix (macOS + Linux arm64)"), run_name
     assert "inputs.tag" in run_name and "github.ref_name" in run_name, run_name
-    assert "Install matrix (macOS) $TAG" in gate, "the gate stopped matching the macOS run-name"
+    assert "Install matrix (macOS + Linux arm64) $TAG" in gate, (
+        "the gate stopped matching the GitHub run-name"
+    )
 
     linux = yaml.safe_load(INSTALL_MATRIX_LINUX.read_text(encoding="utf-8"))
     assert "run-name" not in linux, "Forgejo ignores run-name; it would be a decoy here"
@@ -490,33 +492,46 @@ def test_both_install_matrices_record_which_tag_they_tested() -> None:
 
 
 def test_a_stable_cut_requires_both_halves_of_the_install_matrix() -> None:
-    """Linux runs on Forgejo and macOS on GitHub, so a gate that asked only one
-    forge would qualify a candidate on half a matrix — the same fail-open as not
-    asking at all."""
+    """Linux amd64 runs on Forgejo, macOS and Linux arm64 on GitHub, so a gate that
+    asked only one forge would qualify a candidate on half a matrix — the same
+    fail-open as not asking at all."""
     gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
-    assert "api.github.com" in gate, "the gate stopped asking GitHub about the macOS half"
-    assert "forgejo.bryantserver.com" in gate, "the gate stopped asking Forgejo about the Linux half"
+    assert "api.github.com" in gate, "the gate stopped asking GitHub about the macOS + arm64 half"
+    assert "forgejo.bryantserver.com" in gate, "the gate stopped asking Forgejo about the amd64 half"
     # Scoped server-side on both forges. Unscoped, each asks for a page of every
     # run there has ever been and stops containing the one it wants.
-    assert "actions/workflows/install-matrix.yml/runs" in gate, "the macOS query lost its scope"
-    assert "workflow_id=install-matrix.yml" in gate, "the Linux query lost its scope"
+    assert "actions/workflows/install-matrix.yml/runs" in gate, "the GitHub query lost its scope"
+    assert "workflow_id=install-matrix.yml" in gate, "the Forgejo query lost its scope"
+
+
+def test_both_architectures_install_test_the_same_channels() -> None:
+    """One script, two callers, because the amd64 and arm64 halves of the matrix now
+    live in different files on different forges. Inlining either channel list is how
+    an arm64-only packaging break survives a green matrix."""
+    forgejo = (REPO / ".forgejo" / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
+    github = INSTALL_MATRIX.read_text(encoding="utf-8")
+    assert "install-matrix-arch.sh amd64" in forgejo, "the amd64 half stopped using the shared list"
+    assert "install-matrix-arch.sh arm64" in github, "the arm64 half stopped using the shared list"
+    script = (REPO / "packaging" / "install-matrix-arch.sh").read_text(encoding="utf-8")
+    # It refuses to run for an architecture the host is not, so a leg that lands on
+    # the wrong runner fails loudly instead of quietly reporting on an emulator.
+    assert "that would be emulation" in script, "the shared script stopped refusing emulation"
 
 
 def test_every_install_channel_is_actually_run() -> None:
-    """The Dockerfile is the definition and the workflow is the caller. A channel
+    """The Dockerfile is the definition and the shared script is the caller. A channel
     added to one and not the other fails silently in the direction that matters:
     buildx errors on a target that does not exist, but a target nobody builds is
     never tested while still looking like coverage."""
     dockerfile = (REPO / "packaging" / "install-smoke.Dockerfile").read_text(encoding="utf-8")
     defined = set(re.findall(r"^FROM scratch AS ([a-z0-9-]+)-result$", dockerfile, re.M))
     assert defined, "the Dockerfile defines no channels"
-    listed = re.search(
-        r"for channel in ([a-z0-9 -]+); do", INSTALL_MATRIX_LINUX.read_text(encoding="utf-8")
-    )
-    assert listed, "the Linux matrix no longer iterates a channel list"
-    assert set(listed.group(1).split()) == defined, (
-        f"workflow runs {sorted(set(listed.group(1).split()))}, "
-        f"Dockerfile defines {sorted(defined)}"
+    script = (REPO / "packaging" / "install-matrix-arch.sh").read_text(encoding="utf-8")
+    listed = re.search(r"^CHANNELS=\(\n(.*?)^\)$", script, re.M | re.S)
+    assert listed, "install-matrix-arch.sh no longer declares a channel list"
+    channels = set(listed.group(1).split())
+    assert channels == defined, (
+        f"the matrix runs {sorted(channels)}, Dockerfile defines {sorted(defined)}"
     )
 
 
@@ -773,17 +788,20 @@ GITHUB_ONLY: dict[tuple[str, str], str] = {
     ("retry-infra-failures.yml", "*"):
         "it re-runs GitHub workflow runs through the GitHub API — nothing to do elsewhere",
     ("bottles.yml", "*"):
-        "arm64_linux has no native arm64 runner here and a bottle is a FROM-SOURCE build "
-        "(~18 min natively), so emulating it is not a trade worth making; the other three "
-        "are built beside it because bottle-block.py refuses a set whose manifests disagree "
-        "on cellar, and one matrix on one forge is how that stays true",
+        "three of the four tags need macOS or native arm64 anyway; x86_64_linux is built "
+        "beside them because bottle-block.py refuses a set whose manifests disagree on "
+        "cellar, and one matrix in one run is how that stays true — splitting this one leg "
+        "across forges would mean collecting manifests across them too",
     ("release-macos.yml", "publish"):
         "it appends the artifacts the macOS jobs produced IN THE SAME RUN; artifacts are "
         "run-scoped, so on another forge there would be nothing to append",
     ("install-matrix.yml", "wait"):
-        "sequences the macOS legs that must run on this forge",
+        "sequences the macOS and native-arm64 legs that must run on this forge",
     ("install-matrix.yml", "summary"):
-        "reports the macOS legs that must run on this forge",
+        "reports the macOS and native-arm64 legs that must run on this forge",
+    ("release-linux-arm64.yml", "build"):
+        "ubuntu-24.04-arm is native arm64, which nothing here has; the alternative is "
+        "the emulation this project removed",
 }
 
 
@@ -824,8 +842,11 @@ def test_there_are_github_jobs_to_check() -> None:
 def test_github_only_runs_what_only_github_can_run() -> None:
     unjustified = []
     for workflow, job_id, labels in _github_jobs():
-        if labels and all(label.startswith("macos") for label in labels):
-            continue  # Forgejo has no macOS runner; nothing else to say.
+        # Architecture decides the forge: macOS and arm64 have no native runner here,
+        # and the alternative to GitHub for either is emulation, which this project
+        # does not do anywhere. Everything else belongs on Forgejo.
+        if labels and all(label.startswith("macos") or label.endswith("-arm") for label in labels):
+            continue
         if (workflow, "*") in GITHUB_ONLY or (workflow, job_id) in GITHUB_ONLY:
             continue
         unjustified.append(f"{workflow}:{job_id} runs on {sorted(labels)}")
@@ -896,6 +917,44 @@ def test_every_renovate_hold_says_what_CI_cannot_reach() -> None:
         if rule.get("automerge") is False and not rule.get("prBodyNotes")
     ]
     assert undocumented == [], f"held with no stated reason: {undocumented}"
+
+
+def test_renovate_still_reads_the_pins_after_they_moved() -> None:
+    """The build pins live in `packaging/release-pins.env` because two forges build one
+    release and one file is what keeps their pins equal. Renovate's custom managers are
+    path-scoped, and they were written when those pins were inline in a workflow. A
+    pattern that no longer matches does not fail — it finds nothing, opens no PR, and
+    every pin quietly stops being updated while the config still looks correct.
+
+    Same for `refresh-pins.sh`: it recomputes PYTHON_SHA256, and Renovate runs it as a
+    postUpgradeTask on a branch nobody reads. Pointed at the wrong file it would rewrite
+    a checksum that is not there, and a Python bump would automerge green and break every
+    later release inside linux.Dockerfile.
+    """
+    pins = REPO / "packaging" / "release-pins.env"
+    assert pins.exists(), "the shared build pins are gone"
+    annotated = {
+        line.split("=", 1)[0]
+        for line in pins.read_text(encoding="utf-8").splitlines()
+        if "=" in line and line[:1].isupper()
+    }
+    assert {"PYINSTALLER", "PYTHON_VERSION", "PYTHON_SHA256"} <= annotated, annotated
+
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    managers = config.get("customManagers", [])
+    reaching = [
+        m for m in managers
+        if any("release-pins" in pattern for pattern in m.get("managerFilePatterns", []))
+    ]
+    assert len(reaching) == 2, (
+        "both custom managers must scan release-pins.env — the docker-digest one for the "
+        f"manylinux and nfpm images, the version one for PyInstaller and CPython; {len(reaching)} do"
+    )
+    assert config["postUpgradeTasks"]["fileFilters"] == ["packaging/release-pins.env"], (
+        "refresh-pins.sh rewrites release-pins.env, so that is the file Renovate must keep"
+    )
+    refresh = (REPO / "packaging" / "refresh-pins.sh").read_text(encoding="utf-8")
+    assert "release-pins.env" in refresh, "refresh-pins.sh is still editing the old location"
 
 
 def test_renovate_automerges_patch_minor_and_digest_on_green() -> None:

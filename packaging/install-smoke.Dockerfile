@@ -2,12 +2,14 @@
 # Every Linux install channel we publish, installed from the PUBLISHED artifacts
 # and then run, one buildx target per channel.
 #
-# A Dockerfile rather than the obvious `docker run`, for the two reasons
-# publish.yml already hit on this runner: a plain `docker run --platform arm64`
-# dies with `exec format error` because the host has no usable binfmt, and a bind
-# mount of the workspace is invisible to the daemon because the job itself runs
-# in a container. BuildKit carries its own QEMU and streams its context, so both
-# problems go away — and it is the pattern package-smoke.Dockerfile established.
+# A Dockerfile rather than the obvious `docker run`, because on Forgejo the job
+# itself runs in a container and a bind mount of the workspace is invisible to the
+# daemon. BuildKit streams its context instead, so there is nothing to mount — and
+# it is the pattern package-smoke.Dockerfile established.
+#
+# Built for the architecture the runner already is, never emulated: the amd64 legs
+# run on Forgejo and the arm64 legs on GitHub's native arm runner, and
+# install-matrix-arch.sh refuses to run when host and target disagree.
 #
 # Each channel ends by touching /passed and exporting it through a `scratch`
 # stage, so the workflow asserts a FILE rather than trusting an exit code that

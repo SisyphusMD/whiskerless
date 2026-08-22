@@ -17,8 +17,18 @@ _ASSET_ROLES=(
   # The standalone binaries carry no extension at all.
   'whiskerless-*-linux-x86_64'
   'whiskerless-*-linux-arm64'
-  # One file, one name, every release.
-  'SHA256SUMS'
+  # One checksum file per architecture, each written by the machine that built those bytes. Named
+  # for `uname -m` so the verify command is copy-pasteable. Listed separately rather than as a
+  # `SHA256SUMS-*` glob: one role matching two names is what resolve_expected calls ambiguous, and
+  # it skips the whole tag for it.
+  #
+  # The pre-split `SHA256SUMS` is deliberately NOT kept alongside them. Reconcile walks every
+  # surviving tag, so the question is which surviving tags carry that name: checked against the
+  # live releases, it is eight v0.2.0-rc.* and no stable, and every one of those is deleted by
+  # prune-rcs the moment 0.2.0 ships. A third role would earn a permanent "no asset matches" on
+  # every release thereafter to heal releases that are about to stop existing.
+  'SHA256SUMS-x86_64'
+  'SHA256SUMS-aarch64'
 )
 
 # Homebrew bottles are NOT reconciled, and that is deliberate rather than an oversight.

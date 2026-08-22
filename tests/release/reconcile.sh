@@ -108,9 +108,13 @@ seed github/990/whiskerless_9.9.0_arm64.deb RGHT
 # by a role table written from memory.
 seed cluster/990/whiskerless-9.9.0-linux-x86_64 BINARY
 seed github/990/whiskerless-9.9.0-linux-x86_64 BINARY
-# SHA256SUMS: one fixed name, every release, and the thing a careful user checks the rest against.
-seed cluster/990/SHA256SUMS SUMS
-seed nas/990/SHA256SUMS SUMS
+# One checksum file per architecture, each written by the forge that built that half. They are two
+# roles, not one `SHA256SUMS-*` glob, because a role matching two names is what reconcile calls
+# ambiguous — and it skips the entire tag when it sees one.
+seed cluster/990/SHA256SUMS-x86_64 SUMS
+seed nas/990/SHA256SUMS-x86_64 SUMS
+seed cluster/990/SHA256SUMS-aarch64 ARMSUMS
+seed github/990/SHA256SUMS-aarch64 ARMSUMS
 # Bottles: present on the real releases, deliberately outside the quorum model.
 seed cluster/990/whiskerless-9.9.0.arm64_sequoia.bottle.tar.gz BOTTLE
 seed cluster/990/whiskerless-9.9.0.arm64_sequoia.bottle.json MANIFEST
@@ -137,8 +141,12 @@ fi
 # A registry missing an asset two others agree on is filled from that content quorum.
 [ "$(cat "$remotes/nas/990/whiskerless-9.9.0-linux-x86_64" 2>/dev/null)" = BINARY ] \
   || fail "the missing standalone binary was not filled from the quorum"
-[ "$(cat "$remotes/github/990/SHA256SUMS" 2>/dev/null)" = SUMS ] \
-  || fail "the missing SHA256SUMS was not filled from the quorum"
+[ "$(cat "$remotes/github/990/SHA256SUMS-x86_64" 2>/dev/null)" = SUMS ] \
+  || fail "the missing SHA256SUMS-x86_64 was not filled from the quorum"
+# The arm64 file is a separate role and must reconcile on its own terms; a glob collapsing the two
+# would have made this tag ambiguous and skipped it, quietly, since reconcile is warn-only.
+[ "$(cat "$remotes/nas/990/SHA256SUMS-aarch64" 2>/dev/null)" = ARMSUMS ] \
+  || fail "the missing SHA256SUMS-aarch64 was not filled from the quorum"
 
 # Published bytes are immutable: a dissenting copy is reported for an operator, never overwritten.
 [ "$(cat "$remotes/github/990/whiskerless_9.9.0_amd64.deb")" = EVIL ] \

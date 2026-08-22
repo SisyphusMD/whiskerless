@@ -56,14 +56,13 @@
       "automerge": true
     },
     {
-      "description": "RELEASE-ONLY build pins: nothing in PR CI builds with them. publish.yml runs on a tag, and the install matrix tests artifacts that are already published — so a minor bump to the packager, the freezer, the manylinux image, the emulator or the bundled interpreter merges on a green PR that never executed the changed build path, and fails at the next release instead. By then the PyPI upload has already happened, because that job does not wait for the packaging legs. Reviewed by hand, and proven by cutting a release candidate.",
+      "description": "RELEASE-ONLY build pins: nothing in PR CI builds with them. publish.yml runs on a tag, and the install matrix tests artifacts that are already published — so a minor bump to the packager, the freezer, the manylinux image or the bundled interpreter merges on a green PR that never executed the changed build path, and fails at the next release instead. By then the PyPI upload has already happened, because that job does not wait for the packaging legs. Reviewed by hand, and proven by cutting a release candidate.",
       "matchDepNames": [
         "goreleaser/nfpm",
         "pyinstaller",
         "python",
         "quay.io/pypa/manylinux_2_28_aarch64",
         "quay.io/pypa/manylinux_2_28_x86_64",
-        "tonistiigi/binfmt",
         "debian-13-current"
       ],
       "automerge": false,
@@ -149,7 +148,8 @@
       "description": "Docker images pinned tag@digest inside a workflow `docker` shell block, or in the packaging Dockerfiles. The github-actions manager does not look inside `run:` scripts and the dockerfile manager is not enabled, so without this every base image freezes at whatever digest it was pinned to.",
       "managerFilePatterns": [
         "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/",
-        "/^packaging/.+\\.Dockerfile$/"
+        "/^packaging/.+\\.Dockerfile$/",
+        "/^packaging/release-pins\\.env$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+)(?: packageName=(?<packageName>\\S+))?\\s+[^\\n]*?:(?<currentValue>[\\w][\\w.-]*)@(?<currentDigest>sha256:[0-9a-f]+)"
@@ -157,9 +157,10 @@
     },
     {
       "customType": "regex",
-      "description": "Version pins annotated with a `# renovate:` comment in a workflow shell block — the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them.",
+      "description": "Version pins annotated with a `# renovate:` comment in a shell assignment — the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them. They live in packaging/release-pins.env because two forges build this release (amd64 on Forgejo, arm64 on GitHub) and one file is what keeps them equal; a pattern listing only the workflows would silently stop bumping all of them.",
       "managerFilePatterns": [
-        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/"
+        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/",
+        "/^packaging/release-pins\\.env$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>pypi|python-version) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[A-Z_]+=\"(?<currentValue>[^\"]+)\""
@@ -171,7 +172,7 @@
       "bash packaging/refresh-pins.sh"
     ],
     "fileFilters": [
-      ".forgejo/workflows/publish.yml"
+      "packaging/release-pins.env"
     ],
     "executionMode": "branch"
   }

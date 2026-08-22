@@ -287,10 +287,17 @@ sudo apt install ./whiskerless_<version>_amd64.deb     # arm64 for a Pi
 sudo dnf install ./whiskerless-<version>.x86_64.rpm    # aarch64 for ARM
 ```
 
-Verify one before installing it with `rpm -K ./whiskerless-<version>.x86_64.rpm`
-(after importing the key above) or against the release's `SHA256SUMS`. Note that
-`dpkg`/`apt` do not check package signatures for a local file at all — that is
-what the repository above is for.
+Verifying is optional — every install path above checks itself. If you want to
+anyway, `rpm -K ./whiskerless-<version>.x86_64.rpm` (after importing the key
+above), or download the release's checksums for your architecture:
+
+```bash
+sha256sum -c --ignore-missing SHA256SUMS-$(uname -m)
+```
+
+Note that `dpkg`/`apt` do not check package signatures for a local file at all —
+that is what the repository above is for, and it is why the checksums matter more
+for a downloaded `.deb` than for anything else here.
 
 **Raw Linux binary** — `whiskerless-<version>-linux-x86_64` / `…-arm64` from the
 same releases page:

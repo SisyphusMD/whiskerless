@@ -1,10 +1,10 @@
-# Builds the self-contained whiskerless binary for the TARGET platform, then exports just that
-# binary. Driven by publish.yml through buildx so the arm64 leg runs inside BuildKit's builder
-# (which carries QEMU) — the sister repos build their arm64 artifacts the same way. This is
-# necessary because the Forgejo runner is on a Talos node with no usable host binfmt for a plain
-# `docker run --platform arm64` (that gets `exec format error`); buildx sidesteps it. nfpm packages
-# the exported binary into the .deb/.rpm OUTSIDE this build (nfpm is arch-independent and stays on
-# its own pinned-image path).
+# Builds the self-contained whiskerless binary for the NATIVE platform, then exports just that
+# binary. Driven by build-linux-arch.sh through buildx, which both forges call: amd64 on Forgejo,
+# arm64 on GitHub's native arm runner. `--platform` names the architecture the host already is and
+# that script refuses the mismatch, so this never runs under emulation. buildx rather than
+# `docker run` because the Forgejo job is itself containerised and a bind mount of the workspace
+# does not reach the daemon. nfpm packages the exported binary into the .deb/.rpm OUTSIDE this
+# build (nfpm is arch-independent and stays on its own pinned-image path).
 #
 # CPython is built from source with --enable-shared rather than taken from /opt/python. manylinux
 # ships only STATIC interpreters — Py_ENABLE_SHARED is 0 for every one of 3.9 through 3.15 — and
@@ -37,8 +37,7 @@ COPY . /w
 # --collect-all for both radio/broker libraries: PyInstaller's static analysis misses bleak's
 # per-platform backend imports and aiomqtt's paho plumbing, and a missing hidden import fails at
 # run time rather than build time. The --help calls below are what catch that: they exercise the
-# whole import graph the CLI touches on startup, and under the emulated arm64 leg they run the
-# frozen onefile through qemu-user, so an emulation limitation shows up here rather than on a Pi.
+# whole import graph the CLI touches on startup, on the architecture the binary is actually for.
 RUN python3 -m pip install --quiet ".[ble]" \
  && python3 -m PyInstaller --onefile --name whiskerless \
       --collect-all bleak --collect-all aiomqtt packaging/launcher.py \

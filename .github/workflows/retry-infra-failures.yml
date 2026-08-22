@@ -31,7 +31,8 @@ on:
       - "CI (macOS)"
       - "CI (pull requests)"
       - "Homebrew formula (macOS)"
-      - "Install matrix (macOS)"
+      - "Install matrix (macOS + Linux arm64)"
+      - "Release (Linux arm64)"
       - "Release (macOS pkg)"
       - "Validate (hassfest + HACS)"
     types: [completed]

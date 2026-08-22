@@ -78,10 +78,14 @@ signature would sit unverified unless a user manually imported a key. macOS is
 not the counterexample it appears to be: notarization is not a practice we
 followed, it is Gatekeeper refusing to run the thing otherwise.
 
-So `publish.yml` now ships a **`SHA256SUMS`** covering every Linux artifact,
-which closes the real gap ("did this arrive intact") with no key to hold, rotate
-or revoke. Its limit is stated in the workflow: served from the same host as the
-artifacts, it proves integrity and not authenticity.
+So each release now ships **`SHA256SUMS-x86_64`** and **`SHA256SUMS-aarch64`**
+covering the Linux artifacts, which closes the real gap ("did this arrive
+intact") with no key to hold, rotate or revoke. One file per architecture because
+each is written by the forge that built those bytes and published assets are
+immutable; they are named for `uname -m` so `sha256sum -c --ignore-missing
+SHA256SUMS-$(uname -m)` needs no editing. Their limit is stated in the workflow:
+served from the same host as the artifacts, they prove integrity and not
+authenticity.
 
 **Then the condition it named came true.** The repositories in #77 are exactly
 the "something verifies it automatically" case, so the packages are now signed
@@ -111,6 +115,9 @@ on the public Forgejo release, which has nothing to do with GitHub. `prune-rcs`
 gained `needs: [releases, nas-pkg]` so it cannot prune while this release is
 itself incomplete. The GitHub tag wait went from 10 minutes to 30, since rc.27
 timed out at ten on a tag that arrived shortly after.
+
+(`nas-pkg` is now `nas-bridge`: once arm64 moved to a native GitHub runner it had
+more than the `.pkg` to carry.)
 
 ### #74 — Forgejo has no infra-retry, and no rerun API to fall back on — **CLOSED 2026-08-19: recovery shipped, and the rest rested on a misdiagnosis**
 
