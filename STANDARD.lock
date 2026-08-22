@@ -10,6 +10,7 @@
     "packaging/check-glibc-floor.py": "301fc10d2895a43c88343952fbfbda0ca71b7c6fb4e811363739f31eae904614",
     "packaging/check-standard-sync.py": "80a42b514811cf69b9493ebee035a68199f0c117732be9d01457faccc48ef4f4",
     "packaging/entitlements.plist": "7d4b164998eb6084488799c470d3b7b3d7e01fc3071eedadd00dc4374f56a5c1",
+    "packaging/fetch-release-assets.sh": "4ec89018ccf56002f89e462c919e9cb72d29dfff2faea294163f5f074a4273a1",
     "packaging/forgejo-release.sh": "6392f9a0d438c81aea29ef7084529e756d8e53e262800c301495a0b6b3a0ab0f",
     "packaging/github-release.sh": "7bd5149925871868fd5e18504ea5751a10503eea3028b736c95794117e358d0d",
     "packaging/gitignore.base": "f87bec1f6d1ec56ea3678d45920689ac26c7c3a737316a22570121dadac9a9ac",
@@ -23,7 +24,8 @@
     "packaging/sisyphusmd-signing-key.asc": "739991cf1057257f55168c9e898f219d46134e86df804f3136205e5f3a5f2c54",
     "packaging/stamp_common.py": "193824c3c314239432d9648c7f1c98c9ceafebbaa9ffba30806ea39d41b6f701",
     "packaging/triage-infra-failure.py": "d89fbad38ac887bd1a88c4fa3414d25ee3d89d435b4ab760779817ce0499bc51",
-    "packaging/update-tap.sh": "0cb11d828ce3127ba550125af4d3583e59adb008342e089757454b0eae9bbcb4"
+    "packaging/update-tap.sh": "0cb11d828ce3127ba550125af4d3583e59adb008342e089757454b0eae9bbcb4",
+    "packaging/wait-for-pypi.sh": "117d43e6f681b15f941ae99020010797345f4a8c1678c14a91e8a2264b41f3c2"
   },
   "source_commit": "(no commit)",
   "source_repo": "SisyphusMD/project-standard",
