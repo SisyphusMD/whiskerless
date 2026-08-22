@@ -95,7 +95,7 @@ jobs:
       # runner (.github/workflows/release-linux-arm64.yml). buildx is still used because its
       # context and output are client-side streams, which dodges the workspace-visibility problem
       # a bind mount hits when the job itself runs in a container — not because anything emulates.
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           # BuildKit has its own registry client and does not inherit dockerd's mirror.
           buildkitd-config-inline: |

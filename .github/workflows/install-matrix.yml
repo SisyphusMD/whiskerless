@@ -143,7 +143,7 @@ jobs:
           persist-credentials: false
       # Needed for `--output type=local`, which the default docker driver does not
       # support. No registry mirror here: that one is on our network, not this one.
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Install every Linux channel and smoke each one
         env:
           VERSION: ${{ needs.wait.outputs.version }}
