@@ -37,6 +37,15 @@ secrets.yaml
 # a checked-in copy drifts the first time the page is edited.
 packaging/whiskerless.1.gz
 
+# Build and smoke outputs. Every one of these is a buildx --output destination or a staging
+# directory that packaging/ recreates from scratch, so a copy in the tree is always stale.
+build/
+/out/
+/dist/
+/formula-smoke-dist/
+/homebrew-smoke-result/
+/package-smoke-*/
+
 # Shared base (packaging/gitignore.base). Signing material matters here specifically: this project
 # signs and notarises a macOS .pkg, so an Apple certificate and an App Store Connect key are exactly
 # the two files that end up sitting in a working tree.

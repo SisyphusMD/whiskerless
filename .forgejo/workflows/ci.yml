@@ -99,22 +99,9 @@ jobs:
         # a mistake in one surfaces while cutting it rather than in review. ruff
         # already covers packaging's Python; this covers the rest.
         #
-        # Through a pinned image, not a preinstalled binary: GitHub's hosted runners
-        # ship shellcheck and the Forgejo runner does not, so calling it directly
-        # passes on one forge and fails on the other. docker create/cp/start rather
-        # than a bind mount, because the Forgejo runner is itself containerised and
-        # a -v path from inside it does not resolve on the host daemon.
-        run: |
-          set -euo pipefail
-          # renovate: datasource=docker depName=koalaman/shellcheck
-          SHELLCHECK="koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d"
-          mapfile -t scripts < <(git ls-files '*.sh')
-          cid=$(docker create -w /work "$SHELLCHECK" "${scripts[@]}")
-          docker cp . "$cid":/work
-          rc=0
-          docker start -a "$cid" || rc=$?
-          docker rm "$cid" >/dev/null
-          exit "$rc"
+        # The pinned image and the docker create/cp/start dance live in the shared script so the
+        # release gates below run the identical check — see packaging/shellcheck-all.sh.
+        run: bash packaging/shellcheck-all.sh
       - name: Release-script integration (curl stubbed, no network)
         # The release publishers are the code with the least margin for error and the fewest
         # chances to catch a mistake: they run once, during a release, against three live
@@ -249,3 +236,127 @@ jobs:
         run: pytest tests/integration --cov --cov-report=term-missing --cov-fail-under=99
       - name: Coverage gate (config flow)
         run: coverage report --include='custom_components/whiskerless/config_flow.py' --fail-under=100
+
+  # Compile-check the RELEASE path, on every push — the sibling has carried this for months and it
+  # is what catches a packaging break before a tag rather than during one. Nothing else here builds
+  # linux.Dockerfile, runs nfpm, or installs the Homebrew formula, so before this the first
+  # execution of any of them was a published release candidate.
+  #
+  # Unsigned on purpose: build-linux-arch.sh fails closed without GPG_SIGNING_KEY, and this job
+  # holds no credential. It calls the same Dockerfile and the same nfpm.yaml that a release does,
+  # which is where the breakages live; signing is exercised at release time.
+  build:
+    name: Compile-check the release path (bundle, packages, formula)
+    # trusted-ref gate, the same one the other jobs use: do not build and run PR-supplied code on
+    # the self-hosted runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The formula smoke builds an sdist from a pristine export, and hatchling needs the tag
+          # history to stamp a version.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          # BuildKit has its own registry client and does not inherit dockerd's mirror.
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["dockerhub-mirror.nas.bryantserver.com"]
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: setup_python_build_1
+        continue-on-error: true
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.setup_python_build_1.outcome != 'success'
+        with:
+          python-version: "3.14"
+      - name: Freeze the bundle and package it (the release-time dependencies)
+        run: |
+          set -euo pipefail
+          # The same pins a release builds with, from the same file.
+          # shellcheck source=/dev/null
+          . packaging/release-pins.env
+          # amd64 only: this runner is amd64 and nothing here is emulated. The arm64 leg builds
+          # natively on GitHub at release time.
+          rm -rf out
+          docker buildx build --platform linux/amd64 \
+            --build-arg PYTHON_BUILD_IMAGE="$MANYLINUX_AMD64" \
+            --build-arg PYTHON_VERSION="$PYTHON_VERSION" \
+            --build-arg PYTHON_SHA256="$PYTHON_SHA256" \
+            --build-arg PYINSTALLER="$PYINSTALLER" \
+            -f packaging/linux.Dockerfile --target export --output type=local,dest=out .
+          rm -rf dist && mkdir dist
+          cp out/whiskerless dist/whiskerless
+          # nfpm.yaml ships the man page gzipped, and build-linux-arch.sh generates it just before
+          # packaging — so it is not in the tree and nfpm fails on a missing file without this.
+          # -n so the gzip header carries no timestamp: the package stays byte-reproducible.
+          gzip -9 -n -c packaging/whiskerless.1 > packaging/whiskerless.1.gz
+          # A throwaway version: this proves nfpm.yaml still describes a buildable package, not
+          # that any particular release is correct. Unsigned, so no key is needed.
+          #
+          # The container is removed on EVERY exit path. This runner's Docker daemon is the
+          # persistent host one, so letting `set -e` skip the cleanup when nfpm rejects a broken
+          # nfpm.yaml would leave a container behind on each failing run — and the runs that fail
+          # here are exactly the ones somebody re-runs while fixing it.
+          cid=""
+          trap 'test -z "$cid" || docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          package() { # package <deb|rpm>
+            local fmt="$1"
+            cid=$(docker create -e ARCH=amd64 -e VERSION=0.0.0-rc.1 -w /w "$NFPM" \
+              package -p "$fmt" -f packaging/nfpm.yaml -t "/w/ci.$fmt")
+            docker cp . "$cid":/w >/dev/null
+            docker start -a "$cid"
+            docker cp "$cid":"/w/ci.$fmt" . >/dev/null
+            docker rm -f "$cid" >/dev/null
+            cid=""
+          }
+          package deb
+          package rpm
+          ls -l ci.deb ci.rpm
+
+      - name: Install both packages in real distro userspaces and run the binary
+        run: |
+          set -euo pipefail
+          # Building a package only proves nfpm accepted nfpm.yaml. What a layout mistake breaks is
+          # the INSTALL — a binary landing somewhere not on PATH, a missing dependency, a maintainer
+          # script that exits non-zero — and none of that shows up until something installs it. The
+          # same two Dockerfiles the release path smokes with, on the packages just built here.
+          smoke() { # smoke <deb|rpm> <dockerfile>
+            # package-smoke-* so the same .gitignore line covers these and the release build's.
+            local fmt="$1" dockerfile="$2" result="package-smoke-$1-ci"
+            cp "ci.$fmt" "package-smoke.$fmt"
+            rm -rf "$result"
+            docker buildx build --platform linux/amd64 \
+              -f "$dockerfile" --target result --output "type=local,dest=$result" .
+            test -f "$result/package-smoke-passed"
+            rm -f "package-smoke.$fmt"
+          }
+          smoke deb packaging/package-smoke.Dockerfile
+          smoke rpm packaging/package-smoke-rpm.Dockerfile
+      - name: Install the Homebrew formula for real, and run it
+        run: |
+          set -euo pipefail
+          # A real `brew install` of the rendered formula. Nothing cheaper catches a formula that
+          # installs to the wrong place — the install block is Ruby, and it only runs here.
+          python -m pip install --quiet --upgrade pip build
+          # From a pristine export, like update-tap.sh: hatchling sweeps untracked files beside the
+          # source into the sdist, which must not change what the smoke installs.
+          work="$(mktemp -d)"
+          git archive --format=tar HEAD | tar -x -C "$work"
+          python -m build --sdist --outdir "$work/dist" "$work" >/dev/null
+          mkdir -p formula-smoke-dist
+          cp "$work"/dist/whiskerless-*.tar.gz formula-smoke-dist/
+          # The tag SPELLING, derived from pyproject rather than from the sdist filename: the
+          # filename is PEP 440 (0.2.0rc1) and test-homebrew-formula.sh takes the tag grammar
+          # (v0.2.0-rc.1), converting it back itself. Passing the filename form would be refused.
+          ver=$(python -c "import re;print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
+          tag="v$(printf '%s' "$ver" | sed -E 's/rc([0-9]+)$/-rc.\1/')"
+          rm -rf homebrew-smoke-result
+          docker buildx build --platform linux/amd64 --build-arg TEST_TAG="$tag" \
+            -f packaging/homebrew-smoke.Dockerfile --target result \
+            --output type=local,dest=homebrew-smoke-result .
+          test -f homebrew-smoke-result/homebrew-smoke-passed
+          echo "build OK: frozen bundle, .deb + .rpm installed and run, and a real Linuxbrew formula install"
