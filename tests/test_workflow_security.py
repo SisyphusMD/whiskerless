@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -243,3 +244,105 @@ def test_the_prune_sweep_cannot_fail_an_already_published_release() -> None:
     run = next(str(s["run"]) for s in steps if isinstance(s, dict) and "run" in s)
     assert "prune-rcs.sh" in run
     assert "::warning::" in run, f"a failing prune would fail the release: {run}"
+
+
+def test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure_as_success() -> None:
+    """The manual sweep is the one place a human aims a registry-wide delete at all three registries.
+
+    Nothing upstream constrains it. The automatic sweep in publish.yml is gated on a stable tag shape
+    and waits on six publishing jobs; this one starts the moment somebody clicks Run.
+
+    So the shape is allowlisted whole, at every level, rather than probed for known-bad fields.
+    Enumerating what must be ABSENT cannot be finished — `container`, `defaults`, `env`, `if`,
+    `shell`, `continue-on-error`, `permissions` and `strategy` each reach the sweep by a different
+    route — while enumerating what may be PRESENT can. Probing for the first matching step would
+    likewise pass a workflow carrying a second checkout of the dispatch ref beside a compliant one.
+
+    `ref: main` keeps the reviewed deletion guards in force when the dispatch came from a stale or
+    feature branch, and the checkout's inputs are pinned whole because `ref` alone says nothing about
+    WHOSE main: a `repository:` beside it hands four write tokens to another repo's copy of the
+    script. The action itself is pinned to a full commit for the same reason.
+
+    `dry_run` must DEFAULT to true and reach the step untouched. A wrong default, a hardcoded
+    `DRY_RUN: false`, or a `${{ !inputs.dry_run }}` binding that still names the input, all delete
+    real releases on a dispatch that accepted every default. A redundant preview costs ten seconds.
+
+    A failure must reach the job. publish.yml deliberately swallows one, which makes this read like an
+    oversight worth tidying away. It is not: there a nonzero exit would redden a release that had
+    already fully succeeded, while here nothing is being released.
+
+    Be precise about what that buys, because annotation severity and exit status are not the same
+    thing here. The script exits nonzero at only a few points: it cannot enumerate the package
+    registry, it cannot list a version's package files, or a transport error interrupts reading a
+    stable. Every other trouble — including a failed package DELETE that logs `::error::` — is
+    recorded as residue for a later sweep to retry and reaches an unconditional `exit 0`. Green
+    therefore still does not mean "swept clean", and the warnings remain the real report; not
+    swallowing is what makes those few fatal paths reach the maintainer at all.
+
+    One limit this cannot reach at all: `workflow_dispatch` runs the definition belonging to the ref
+    it was dispatched from, and only then does the pinned checkout replace the tree. Everything above
+    therefore binds main's copy of the workflow; an older ref runs its own copy, guards and all.
+    """
+    document = yaml.safe_load((_ROOT / ".forgejo" / "workflows" / "prune-rcs.yml").read_text())
+
+    # `True` is the `on:` key, which PyYAML resolves to a boolean.
+    assert set(document) == {"name", True, "jobs"}, (
+        f"unexpected workflow-level keys: {sorted(str(k) for k in document)}"
+    )
+
+    jobs = document["jobs"]
+    assert len(jobs) == 1, f"the sweep grew a second job this test does not reach: {sorted(jobs)}"
+    job = next(iter(jobs.values()))
+    assert set(job) == {"name", "runs-on", "steps"}, f"unexpected job keys: {sorted(job)}"
+    # The value too: a key-set check passes `runs-on: ${{ inputs.runner }}`, which would hand four
+    # write tokens to whatever runner the dispatcher named.
+    assert job["runs-on"] == "ubuntu-latest", f"the sweep's runner is not pinned: {job['runs-on']!r}"
+
+    steps = job["steps"]
+    assert len(steps) == 2, f"the sweep job is no longer checkout-then-prune: {len(steps)} steps"
+    checkout, sweep = steps
+    assert set(checkout) == {"uses", "with"}, f"unexpected checkout keys: {sorted(checkout)}"
+    assert set(sweep) == {"name", "env", "run"}, f"unexpected sweep keys: {sorted(sweep)}"
+
+    triggers = _triggers(document)
+    assert set(triggers) == {"workflow_dispatch"}, (
+        f"the sweep answers to something other than a manual dispatch: {sorted(triggers)}"
+    )
+
+    assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", str(checkout["uses"])), (
+        f"the checkout is not actions/checkout pinned to a full commit: {checkout['uses']!r}"
+    )
+    assert checkout["with"] == {"ref": "main"}, (
+        f"the checkout takes inputs beyond a main pin: {checkout['with']!r}"
+    )
+
+    inputs = triggers["workflow_dispatch"]["inputs"]
+    assert set(inputs) == {"dry_run"}, f"the dispatch takes inputs beyond dry_run: {sorted(inputs)}"
+
+    dry_run = inputs["dry_run"]
+    assert dry_run["default"] is True, (
+        f"a dispatch that leaves dry_run alone would delete: {dry_run['default']!r}"
+    )
+
+    # Values, not just key names: a CLUSTER_TOKEN bound to the NAS PAT keeps this mapping's shape
+    # while sending a credential to the wrong host, and the read failure that follows is one the
+    # script survives, so the dispatch would finish having pruned nothing.
+    assert {k: str(v).replace(" ", "") for k, v in sweep["env"].items()} == {
+        "CLUSTER_TOKEN": "${{secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT}}",
+        "NAS_TOKEN": "${{secrets.NAS_FORGEJO_REPO_WRITE_PAT}}",
+        "GH_TOKEN": "${{secrets.GH_REPO_WRITE_PAT}}",
+        "PACKAGE_TOKEN": "${{secrets.CLUSTER_FORGEJO_REGISTRY_PUSH_PAT}}",
+        "DRY_RUN": "${{inputs.dry_run}}",
+    }, f"the sweep's environment is not its four tokens plus DRY_RUN: {sweep['env']!r}"
+
+    # The command is pinned rather than screened, because `||`, `; true`, `if ! cmd; then ... fi`, a
+    # pipeline and `set +e` all turn a failed sweep green. Changing it on purpose means changing this
+    # line on purpose.
+    command = " ".join(
+        line.strip()
+        for line in str(sweep["run"]).splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    )
+    assert command == "bash packaging/prune-rcs.sh", (
+        f"the sweep is no longer a bare invocation, so a failure need not reach the job: {command!r}"
+    )
