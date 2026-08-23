@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +45,21 @@ def _step(text: str, name: str) -> str:
     start = text.index(marker)
     end = text.find("\n      - ", start + len(marker))
     return text[start:] if end < 0 else text[start:end]
+
+
+def _is_soft(step: dict[str, Any]) -> bool:
+    """Whether a step's failure is swallowed.
+
+    Anything but an absent or literally-false setting counts: `continue-on-error: ${{ true }}` is a
+    valid spelling that reaches PyYAML as a string, so an identity test against True reads a swallowed
+    step as fail-hard.
+    """
+    setting = step.get("continue-on-error")
+    if setting is None or setting is False:
+        return False
+    # `${{ false }}` is a valid spelling that evaluates to false. Reading every expression as soft
+    # would reject a fail-hard step rather than catch a swallowed one.
+    return str(setting).replace(" ", "") not in {"${{false}}", "false", "False"}
 
 
 def _triggers(document: dict[str, Any]) -> dict[str, Any]:
@@ -356,7 +373,6 @@ def test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure
     )
 
 
-
 def test_every_release_gate_runs_the_release_script_suite() -> None:
     """The release scripts are shell, so the Python gate above says nothing about them.
 
@@ -408,7 +424,6 @@ def test_every_release_gate_runs_the_release_script_suite() -> None:
         assert not relaxed, f"{name}'s release gate turns a shell guard back off: {relaxed}"
 
 
-
 def test_both_release_jobs_promote_the_changelog_through_the_shared_script() -> None:
     """The gate qualifies a release diff and the tag job reproduces it byte for byte.
 
@@ -438,3 +453,159 @@ def test_both_release_jobs_promote_the_changelog_through_the_shared_script() -> 
         assert not any('print "## [Unreleased]"' in c for c in commands), (
             f"the {name} job still carries an inline promotion, which cannot fail closed"
         )
+
+
+def test_no_job_pip_installs_into_whatever_interpreter_it_finds() -> None:
+    """A job that runs `pip install` has to set up its own Python first.
+
+    Runner images mark their system interpreter externally managed (PEP 668), so pip refuses to
+    install into it and the job dies on `error: externally-managed-environment`. Nothing in the
+    workflow says which Python a step gets, so this is invisible until the image changes underneath
+    a job that had worked for months — and on the publish path that lands mid-release, after the
+    version is tagged and PyPI already has the upload.
+    """
+    # BOTH forges. The GitHub half builds and publishes the macOS and arm64 assets, so the same
+    # externally-managed interpreter can stop a release there just as easily.
+    workflows = list(_FORGEJO) + sorted(
+        list((_ROOT / ".github" / "workflows").glob("*.yml"))
+        + list((_ROOT / ".github" / "workflows").glob("*.yaml"))
+    )
+    assert workflows, "no workflows found to check"
+    for path in workflows:
+        document = yaml.safe_load(path.read_text())
+        for name, job in (document.get("jobs") or {}).items():
+            steps = [s for s in (job.get("steps") or []) if isinstance(s, dict)]
+            def installs_with_pip(step: dict[str, Any]) -> bool:
+                """`pip install` in any of its spellings.
+
+                pip3, `python -m pip`, flags between the two words, and backslash continuations all
+                carry the same PEP 668 risk, so matching the bare phrase would skip them.
+                """
+                body = "\n".join(
+                    line.split(" #", 1)[0]
+                    for line in str(step.get("run", "")).splitlines()
+                    if not line.strip().startswith("#")
+                )
+                while "\\\n" in body:
+                    body = body.replace("\\\n", " ")
+                # Bounded to one shell command: `install` after a `;`, `&&`, `||` or a comment is a
+                # different program, and demanding a Python for it would be a false alarm.
+                return bool(re.search(r"\bpip3?\b[^;&|#\n]*\binstall\b", body))
+
+            first_pip = next(
+                (i for i, step in enumerate(steps) if installs_with_pip(step)),
+                None,
+            )
+            if first_pip is None:
+                continue
+            # EARLIER than the pip, and able to fail the job. A setup that runs afterwards, or whose
+            # failure is swallowed, leaves the pip on the system interpreter anyway.
+            #
+            # Two shapes qualify. A plain unconditional setup, or the retry pair used across these
+            # workflows: a `continue-on-error` attempt followed by one gated on THAT attempt's
+            # outcome. The second shape is only fail-closed while the gate really references the
+            # first attempt — an unrelated or never-true condition skips the retry and leaves the
+            # swallowed failure as the whole story.
+            def sets_up_python(step: dict[str, Any]) -> bool:
+                """An actions/setup-python that actually installs a chosen interpreter.
+
+                Without a version it may leave whatever the image already had on PATH, which is the
+                externally-managed one this guard exists to avoid.
+                """
+                # The action itself, not a name containing it: a wrapper called setup-python-cache
+                # can carry a python-version input and install no interpreter at all.
+                if not str(step.get("uses", "")).startswith("actions/setup-python@"):
+                    return False
+                given = step.get("with") or {}
+                return bool(given.get("python-version") or given.get("python-version-file"))
+
+            soft_ids = {
+                str(step.get("id"))
+                for step in steps[:first_pip]
+                if sets_up_python(step) and _is_soft(step) and step.get("id")
+            }
+            protected = False
+            for step in steps[:first_pip]:
+                if not sets_up_python(step):
+                    continue
+                if _is_soft(step):
+                    continue
+                condition = str(step.get("if", ""))
+                if not condition:
+                    protected = True
+                    break
+                # The exact fail-closed spelling the workflows document. `== 'success'` names the
+                # same outcome and skips the retry precisely when it is needed, and `== 'failure'`
+                # skips it whenever a runner leaves the outcome unset.
+                normalized = condition.replace('"', "'").replace(" ", "")
+                if any(normalized == f"steps.{i}.outcome!='success'" for i in soft_ids):
+                    protected = True
+                    break
+            # The pip step must not outlive a failed setup either. Only the conditions that SURVIVE
+            # a failure are rejected: `success()`, or a check that the setup itself succeeded, keeps
+            # the guarantee, and rejecting every condition would fail safe edits.
+            pip_condition = str(steps[first_pip].get("if", "")).replace(" ", "")
+            survives_failure = any(
+                token in pip_condition for token in ("always()", "failure()", "cancelled()")
+            )
+            assert not survives_failure, (
+                f"{path.name}::{name} runs its pip step under {pip_condition!r}, which executes even "
+                f"when the setup-python meant to guarantee the interpreter has failed"
+            )
+            assert protected, (
+                f"{path.name}::{name} pip-installs with no setup-python that can fail the job: a "
+                f"swallowed attempt and a retry gated on something other than its outcome both "
+                f"leave the system interpreter in place"
+            )
+
+
+
+def test_every_compatibility_floor_is_clamped_against_renovate() -> None:
+    """A floor leg exists to prove the OLDEST supported release still works.
+
+    Renovate cannot tell a floor from a current-release alias. Unclamped, it bumps the tag and the leg
+    becomes a second current test: it passes, it proves nothing it was written to prove, and nothing
+    goes red to say so. The clamp is what keeps the leg old; the digest still refreshes, so the image
+    stays patched.
+
+    Keyed on the depName, because that is what a clamp matches. Any annotation whose name says floor
+    or compat has to be answered by a rule that actually restricts it — an `allowedVersions`, a
+    disabled manager, or a matchUpdateTypes narrowing.
+    """
+    # TRACKED files only. An rglob also reads .venv, build outputs and research scratch, so a stray
+    # annotation in ignored local content could fail this for one machine and nobody else. Scanning
+    # every tracked file rather than a suffix list also catches packaging/release-pins.env, which the
+    # custom managers read and a suffix filter would miss.
+    tracked = subprocess.run(
+        ["git", "-C", str(_ROOT), "ls-files", "-z"],
+        capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    annotated: set[str] = set()
+    for name in tracked:
+        if not name:
+            continue
+        path = _ROOT / name
+        try:
+            text = path.read_text(errors="ignore")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for match in re.finditer(r"renovate:.*?depName=([A-Za-z0-9._/-]+)", text):
+            annotated.add(match.group(1))
+
+    config = json.loads((_ROOT / ".renovaterc.json").read_text())
+    clamped = {
+        name
+        for rule in config.get("packageRules", [])
+        for name in (rule.get("matchDepNames") or [])
+        # A real clamp only. `matchUpdateTypes` selects WHEN a rule applies and forbids nothing, so a
+        # rule that merely labels digest updates would otherwise read as protection while major and
+        # minor tag bumps walked straight past it.
+        if rule.get("allowedVersions") or rule.get("enabled") is False
+    }
+
+    floors = {dep for dep in annotated if "floor" in dep or "compat" in dep}
+    assert floors, "no compatibility floors found; this test is watching nothing"
+    unclamped = sorted(floors - clamped)
+    assert not unclamped, (
+        f"these floors would drift to current on the next Renovate run: {unclamped}"
+    )
