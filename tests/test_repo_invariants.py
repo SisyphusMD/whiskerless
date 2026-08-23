@@ -970,8 +970,8 @@ def test_renovate_still_reads_the_pins_after_they_moved() -> None:
         "both custom managers must scan release-pins.env — the docker-digest one for the "
         f"manylinux and nfpm images, the version one for PyInstaller and CPython; {len(reaching)} do"
     )
-    assert config["postUpgradeTasks"]["fileFilters"] == ["packaging/release-pins.env"], (
-        "refresh-pins.sh rewrites release-pins.env, so that is the file Renovate must keep"
+    assert "packaging/release-pins.env" in config["postUpgradeTasks"]["fileFilters"], (
+        "refresh-pins.sh rewrites release-pins.env, so that is a file Renovate must keep"
     )
     refresh = (REPO / "packaging" / "refresh-pins.sh").read_text(encoding="utf-8")
     assert "release-pins.env" in refresh, "refresh-pins.sh is still editing the old location"

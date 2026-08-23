@@ -662,3 +662,75 @@ def test_nothing_installs_from_the_tap_before_trusting_it() -> None:
     assert not offenders, (
         f"these install from sisyphusmd/tap without trusting it first: {offenders}"
     )
+
+
+
+def test_renovate_can_actually_land_a_standard_bump() -> None:
+    """Renovate can raise the PROJECT_STANDARD pin. It cannot fetch the tag that pin now names.
+
+    Unaided, the bump lands a pin claiming one version beside vendored files from another, the drift
+    lock fails it, and the PR sits red until a human re-vendors by hand — at which point Renovate
+    closes its own PR as obsolete. The whole exchange costs CI and delivers nothing.
+
+    Three things have to hold together for the bump to be mergeable, and each is invisible if it
+    breaks: the post-upgrade task has to RUN the re-vendor, the re-vendor script has to EXIST where
+    it is called from, and the task's fileFilters have to KEEP what it wrote. A filter list that
+    omits the vendored paths is the quiet one: the task runs, rewrites the files, and Renovate
+    discards them before committing.
+    """
+    config = json.loads((_ROOT / ".renovaterc.json").read_text())
+    task = config.get("postUpgradeTasks") or {}
+
+    commands = " ".join(task.get("commands") or [])
+    assert "refresh-pins.sh" in commands, (
+        f"no post-upgrade task runs refresh-pins.sh: {commands!r}"
+    )
+
+    refresh = (_ROOT / "packaging" / "refresh-pins.sh").read_text()
+    assert "revendor-standard.sh" in refresh, (
+        "refresh-pins.sh does not re-vendor, so a pin bump arrives without the files it names"
+    )
+    assert (_ROOT / "packaging" / "revendor-standard.sh").exists(), (
+        "refresh-pins.sh calls revendor-standard.sh, which is not vendored here"
+    )
+
+    # Everything the vendor can rewrite has to survive the filter.
+    filters = set(task.get("fileFilters") or [])
+    required = {"STANDARD.lock", "packaging/**", "tests/release/**"}
+    missing = sorted(required - filters)
+    assert not missing, (
+        f"the post-upgrade task rewrites these but Renovate would discard them: {missing}"
+    )
+
+    # Enumerated filters against an open-ended file set. The standard can start shipping a shared
+    # file anywhere; if the filters do not reach it, the re-vendor writes it, Renovate drops it,
+    # and the lock left behind describes content the branch does not have — the bump fails again,
+    # for a reason visible nowhere in this config.
+    lock = json.loads((_ROOT / "STANDARD.lock").read_text())
+    uncovered = sorted(p for p in lock["files"] if not _any_filter_matches(p, filters))
+    assert not uncovered, (
+        f"the standard vendors these, but no fileFilter keeps them: {uncovered}"
+    )
+
+
+def _any_filter_matches(path: str, filters: set[str]) -> bool:
+    """Renovate matches fileFilters as globs, where `**` spans directory separators."""
+    for pattern in filters:
+        expression = ""
+        index = 0
+        while index < len(pattern):
+            if pattern.startswith("**", index):
+                expression += ".*"
+                index += 2
+            elif pattern[index] == "*":
+                expression += "[^/]*"
+                index += 1
+            elif pattern[index] == "?":
+                expression += "[^/]"
+                index += 1
+            else:
+                expression += re.escape(pattern[index])
+                index += 1
+        if re.fullmatch(expression, path):
+            return True
+    return False
