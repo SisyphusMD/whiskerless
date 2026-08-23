@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -555,3 +557,52 @@ def test_no_job_pip_installs_into_whatever_interpreter_it_finds() -> None:
                 f"swallowed attempt and a retry gated on something other than its outcome both "
                 f"leave the system interpreter in place"
             )
+
+
+
+def test_every_compatibility_floor_is_clamped_against_renovate() -> None:
+    """A floor leg exists to prove the OLDEST supported release still works.
+
+    Renovate cannot tell a floor from a current-release alias. Unclamped, it bumps the tag and the leg
+    becomes a second current test: it passes, it proves nothing it was written to prove, and nothing
+    goes red to say so. The clamp is what keeps the leg old; the digest still refreshes, so the image
+    stays patched.
+
+    Keyed on the depName, because that is what a clamp matches. Any annotation whose name says floor
+    or compat has to be answered by a rule that actually restricts it — an `allowedVersions`, a
+    disabled manager, or a matchUpdateTypes narrowing.
+    """
+    # TRACKED files only. An rglob also reads .venv, build outputs and research scratch, so a stray
+    # annotation in ignored local content could fail this for one machine and nobody else. Scanning
+    # every tracked file rather than a suffix list also catches packaging/release-pins.env, which the
+    # custom managers read and a suffix filter would miss.
+    tracked = subprocess.run(
+        ["git", "-C", str(_ROOT), "ls-files", "-z"],
+        capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    annotated: set[str] = set()
+    for name in tracked:
+        if not name:
+            continue
+        path = _ROOT / name
+        try:
+            text = path.read_text(errors="ignore")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for match in re.finditer(r"renovate:.*?depName=([A-Za-z0-9._/-]+)", text):
+            annotated.add(match.group(1))
+
+    config = json.loads((_ROOT / ".renovaterc.json").read_text())
+    clamped = {
+        name
+        for rule in config.get("packageRules", [])
+        for name in (rule.get("matchDepNames") or [])
+        if rule.get("allowedVersions") or rule.get("enabled") is False or rule.get("matchUpdateTypes")
+    }
+
+    floors = {dep for dep in annotated if "floor" in dep or "compat" in dep}
+    assert floors, "no compatibility floors found; this test is watching nothing"
+    unclamped = sorted(floors - clamped)
+    assert not unclamped, (
+        f"these floors would drift to current on the next Renovate run: {unclamped}"
+    )
