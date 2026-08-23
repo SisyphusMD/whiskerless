@@ -609,3 +609,56 @@ def test_every_compatibility_floor_is_clamped_against_renovate() -> None:
     assert not unclamped, (
         f"these floors would drift to current on the next Renovate run: {unclamped}"
     )
+
+
+
+def test_nothing_installs_from_the_tap_before_trusting_it() -> None:
+    """Homebrew refuses to LOAD a formula from an untrusted third-party tap.
+
+    Installing the rc loads the stable formula too, because the rc's `conflicts_with` names it — so
+    this only bites once a stable formula exists in the tap. One project had one and every bottle and
+    install job died on it; the other had none and passed on that absence rather than on correctness.
+
+    Keyed per file, and on the line ORDER: a trust that runs after the install, or in a different
+    file, leaves the install exactly as untrusted as before.
+    """
+    tracked = subprocess.run(
+        ["git", "-C", str(_ROOT), "ls-files", "-z"], capture_output=True, check=True
+    ).stdout.decode().split("\0")
+
+    offenders: list[str] = []
+    checked = 0
+    for name in tracked:
+        # Only where brew is actually INVOKED. Source files carry the upgrade hint as a string the
+        # user is told to run themselves, and a nudge printed to a terminal needs no tap trust.
+        if not name.endswith((".yml", ".yaml", ".sh", ".Dockerfile")):
+            continue
+        try:
+            lines = (_ROOT / name).read_text(errors="ignore").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        # The tap is named literally in some call sites and through $TAP in the shared script, so
+        # matching only the literal leaves the one place BOTH projects share undetected.
+        installs = [
+            i
+            for i, line in enumerate(lines)
+            if "brew install" in line
+            and ("sisyphusmd/tap" in line or "$TAP" in line or "${TAP}" in line)
+            and not line.strip().startswith("#")
+        ]
+        if not installs:
+            continue
+        checked += 1
+        trusts = [
+            i
+            for i, line in enumerate(lines)
+            if "brew trust" in line and not line.strip().startswith("#")
+        ]
+        offenders.extend(
+            f"{name}:{i + 1}" for i in installs if not any(t < i for t in trusts)
+        )
+
+    assert checked, "no tap installs found; this test is watching nothing"
+    assert not offenders, (
+        f"these install from sisyphusmd/tap without trusting it first: {offenders}"
+    )

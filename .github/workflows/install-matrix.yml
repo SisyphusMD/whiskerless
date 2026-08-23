@@ -111,6 +111,10 @@ jobs:
           before=$(brew list --formula | grep -cE '^rust$|^llvm$|^pkgconf$' || true)
           brew update --quiet >/dev/null 2>&1
           brew tap sisyphusmd/tap "$FORGE/SisyphusMD/homebrew-tap.git" >/dev/null 2>&1
+          # Homebrew refuses to LOAD a formula from an untrusted third-party tap, and installing the rc
+          # loads the stable one its `conflicts_with` names. Guarded on the subcommand existing: an older
+          # Homebrew has no `trust` and needs none, while one that exists and fails must stop the job.
+          if brew commands 2>/dev/null | tr ' ' '\n' | grep -qx trust; then brew trust sisyphusmd/tap; fi
           brew install sisyphusmd/tap/whiskerless-rc > /tmp/i.log 2>&1 || { tail -30 /tmp/i.log; exit 1; }
           grep -qi "pouring whiskerless" /tmp/i.log || { echo "::error::built from source instead of pouring"; grep -iE "building" /tmp/i.log | head -5; exit 1; }
           after=$(brew list --formula | grep -cE '^rust$|^llvm$|^pkgconf$' || true)

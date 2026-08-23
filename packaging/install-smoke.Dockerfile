@@ -263,6 +263,7 @@ RUN set -eux; \
     before=$(brew list --formula | grep -cE '^rust$|^llvm$|^pkgconf$' || true); \
     brew update --quiet >/dev/null 2>&1; \
     brew tap sisyphusmd/tap "$FORGE/SisyphusMD/homebrew-tap.git" >/dev/null 2>&1; \
+    if brew commands 2>/dev/null | tr ' ' '\n' | grep -qx trust; then brew trust sisyphusmd/tap; fi; \
     case "$V" in *-rc.*) formula=whiskerless-rc ;; *) formula=whiskerless ;; esac; \
     brew install "sisyphusmd/tap/$formula" > /tmp/i.log 2>&1 || { tail -20 /tmp/i.log; exit 1; }; \
     grep -qi "pouring whiskerless" /tmp/i.log \
