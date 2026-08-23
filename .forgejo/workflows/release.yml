@@ -147,6 +147,10 @@ jobs:
           pytest -q --cov=whiskerless --cov-report=term-missing --cov-config=pyproject.toml --cov-fail-under=99
           coverage report --include='*/safety.py' --fail-under=100
           python -c "import whiskerless, sys; sys.exit(0 if whiskerless.__version__ == '${VERSION}' else 1)"
+          # The release scripts get the same integration suite ci.yml runs. Without it the rc
+          # sweep and the release helpers are only ever proven on a branch, never on the commit
+          # being tagged. The sibling gates on this too.
+          for t in tests/release/*.sh; do bash "$t"; done
 
       - name: Prove the test toolchain changed no release byte
         run: |

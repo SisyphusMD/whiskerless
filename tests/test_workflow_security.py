@@ -354,3 +354,55 @@ def test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure
     assert command == "bash packaging/prune-rcs.sh", (
         f"the sweep is no longer a bare invocation, so a failure need not reach the job: {command!r}"
     )
+
+
+
+def test_every_release_gate_runs_the_release_script_suite() -> None:
+    """The release scripts are shell, so the Python gate above says nothing about them.
+
+    ci.yml runs `tests/release/*.sh` on every push, which proves them on a branch. It does not prove
+    them on the commit being tagged, and the release workflows are exactly where that matters: the rc
+    sweep deletes across three registries, and the release helpers are what publish. A gate that
+    stops at pytest would tag a commit whose shell half was last checked somewhere else.
+    """
+    for name in ("release.yml", "prerelease.yml"):
+        document = yaml.safe_load((_ROOT / ".forgejo" / "workflows" / name).read_text())
+        # The `gate` job specifically, and the command itself rather than a mention of the path. A
+        # substring search over every job would be satisfied by this very comment, by an `echo`, or by
+        # the loop running in the tag job after the tag it was supposed to qualify already exists.
+        steps = [s for s in (document["jobs"]["gate"].get("steps") or []) if isinstance(s, dict)]
+        running = [
+            s
+            for s in steps
+            if any(
+                line.strip() == 'for t in tests/release/*.sh; do bash "$t"; done'
+                for line in str(s.get("run", "")).splitlines()
+            )
+        ]
+        assert len(running) == 1, f"{name}'s gate does not run the release suite exactly once"
+
+        # And the step has to be able to fail the gate. Pinning the command alone would accept one
+        # carrying `if: false` or `continue-on-error`, which reaches the same place as not running it.
+        step = running[0]
+        assert "if" not in step, f"{name}'s release suite can be skipped: {step.get('if')!r}"
+        swallowed = step.get("continue-on-error")
+        assert swallowed is None or swallowed is False, (
+            f"{name}'s release suite cannot fail the gate: {swallowed!r}"
+        )
+
+        # And the shell has to carry the failure out of the loop. Without errexit a script failing on
+        # any iteration but the last is overwritten by the ones after it, and the step exits 0 having
+        # run a suite that did not pass. Errexit is required as the block's first COMMAND rather than
+        # found by substring, which a comment or an `echo` would satisfy just as well.
+        body = [line for line in str(step["run"]).splitlines() if line.strip()]
+        first = next(line.strip() for line in body if not line.strip().startswith("#"))
+        assert first == "set -euo pipefail", (
+            f"{name}'s release gate does not begin with errexit: {first!r}"
+        )
+        relaxed = [
+            line.strip()
+            for line in body
+            if not line.strip().startswith("#")
+            and (line.strip().startswith("set +") or "set +o" in line)
+        ]
+        assert not relaxed, f"{name}'s release gate turns a shell guard back off: {relaxed}"
