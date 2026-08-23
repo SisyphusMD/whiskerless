@@ -406,3 +406,35 @@ def test_every_release_gate_runs_the_release_script_suite() -> None:
             and (line.strip().startswith("set +") or "set +o" in line)
         ]
         assert not relaxed, f"{name}'s release gate turns a shell guard back off: {relaxed}"
+
+
+
+def test_both_release_jobs_promote_the_changelog_through_the_shared_script() -> None:
+    """The gate qualifies a release diff and the tag job reproduces it byte for byte.
+
+    Two copies of the promotion logic satisfy that only while they stay identical, and an inline awk
+    rule has no fail-closed check: if it matches nothing the CHANGELOG is published unpromoted, and
+    the byte-compare still passes because BOTH jobs produced the same wrong bytes. The shared script
+    refuses that, and refuses a merge that left two `[Unreleased]` headings.
+    """
+    document = yaml.safe_load((_ROOT / ".forgejo" / "workflows" / "release.yml").read_text())
+    jobs = document["jobs"]
+
+    for name in ("gate", "tag"):
+        # Uncommented command lines, not a substring of the whole block: a path mentioned in a comment
+        # or echoed rather than run would satisfy a substring search while promoting nothing.
+        commands = [
+            line.strip()
+            for step in (jobs[name].get("steps") or [])
+            if isinstance(step, dict)
+            for line in str(step.get("run", "")).splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        assert any(c.startswith("bash packaging/promote-changelog.sh ") for c in commands), (
+            f"the {name} job does not execute the shared promoter"
+        )
+        # The awk that WRITES the heading, not any mention of it: both jobs legitimately grep for
+        # `## [Unreleased]` as a precondition, and that guard is not a second promotion.
+        assert not any('print "## [Unreleased]"' in c for c in commands), (
+            f"the {name} job still carries an inline promotion, which cannot fail closed"
+        )

@@ -118,6 +118,9 @@ jobs:
           # The release scripts get the same integration suite ci.yml runs. Without it the rc
           # sweep and the release helpers are only ever proven on a branch, never on the commit
           # being tagged. The sibling gates on this too.
+          # `build`, so release-scripts.sh exercises the tap section instead of skipping it.
+          # CONVENTIONS 6c: a gate that only really runs in ci.yml does not constrain a release.
+          python3 -m pip install --upgrade build
           for t in tests/release/*.sh; do bash "$t"; done
 
       - name: Prove the test toolchain changed no prerelease byte

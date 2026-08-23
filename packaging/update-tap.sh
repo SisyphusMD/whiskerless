@@ -77,7 +77,11 @@ sha="$($shacmd "$local_sdist" | awk '{print $1}')"
 # success. curl's --retry does not treat 404 as retryable, so a fresh release
 # raced the CDN and failed a check that had nothing wrong with it.
 downloaded=""
-deadline=$(( $(date +%s) + 300 ))
+# Overridable so a test can assert the give-up path without paying the real CDN grace period. The
+# default is the only value a release ever uses; the prune sweep exposes PRUNE_RETRY_SLEEP for the
+# same reason.
+window="${TAP_DOWNLOAD_WINDOW:-300}"
+deadline=$(( $(date +%s) + window ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
   # No --retry here: the outer loop IS the retry, and nesting one inside the other let a stalling
   # CDN run four 120s attempts per iteration and blow the five minutes this claims to bound.
@@ -87,7 +91,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
   fi
   sleep 10
 done
-[ -n "$downloaded" ] || { echo "could not download the published sdist within 5 min: $url" >&2; exit 1; }
+[ -n "$downloaded" ] || { echo "could not download the published sdist within ${window}s: $url" >&2; exit 1; }
 remote_sha="$($shacmd "$work/remote.tar.gz" | awk '{print $1}')"
 [ "$remote_sha" = "$sha" ] || {
   echo "PyPI sdist does not match the locally built one" >&2

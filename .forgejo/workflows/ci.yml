@@ -112,6 +112,10 @@ jobs:
         # Same word, two meanings, so both now say `release` for this.
         run: |
           set -euo pipefail
+          # `build`, so release-scripts.sh exercises the tap section instead of skipping it. That
+          # file runs offline by contract, so it never installs this itself, and the skip is quiet:
+          # the section prints SKIPPED and the suite still passes.
+          python3 -m pip install --upgrade build
           for t in tests/release/*.sh; do echo "== $t =="; bash "$t"; done
 
       - name: Documentation links

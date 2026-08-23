@@ -65,6 +65,7 @@ jobs:
           # byte, so a second `date -u` across UTC midnight would abort a
           # perfectly good release on a hash mismatch.
           echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "previous=${previous}" >> "$GITHUB_OUTPUT"   # range base for the dependency-bump notes
           echo "Releasing ${version} (bump=${BUMP}, previous=${previous:-none})"
 
       - name: Sanity guards
@@ -77,19 +78,30 @@ jobs:
           ! grep -qE "^## \[${VERSION}\]" CHANGELOG.md || { echo "::error::CHANGELOG already has [${VERSION}]"; exit 1; }
           ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || { echo "::error::Tag ${TAG} exists"; exit 1; }
 
-      - name: Promote [Unreleased] in CHANGELOG
+      - name: Detect dependency bumps since the previous release (latest per dep)
+        id: deps
         env:
-          VERSION: ${{ steps.ver.outputs.version }}
-          DATE: ${{ steps.ver.outputs.date }}
+          PREV: ${{ steps.ver.outputs.previous }}
         run: |
           set -euo pipefail
-          awk -v ver="$VERSION" -v date="$DATE" '
-            /^## \[Unreleased\]/ {
-              print "## [Unreleased]"; print ""; print "## [" ver "] - " date; next
-            }
-            { print }
-          ' CHANGELOG.md > CHANGELOG.md.new
-          mv CHANGELOG.md.new CHANGELOG.md
+          DEPS=$(bash packaging/dependency-bumps.sh "$PREV")
+          if [ -z "$PREV" ]; then
+            echo "first release — no dependency-update notes"
+          else
+            echo "dependency bumps to note:"; echo "${DEPS:-<none>}"
+          fi
+          {
+            echo 'deps<<DEPS_EOF'
+            [ -n "$DEPS" ] && echo "$DEPS"
+            echo 'DEPS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Promote [Unreleased] in CHANGELOG (+ append the dependency bumps)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          DEPS: ${{ steps.deps.outputs.deps }}
+          DATE: ${{ steps.ver.outputs.date }}
+        run: bash packaging/promote-changelog.sh "$VERSION" "$DATE"
 
       - name: Stamp the version
         env:
@@ -150,6 +162,9 @@ jobs:
           # The release scripts get the same integration suite ci.yml runs. Without it the rc
           # sweep and the release helpers are only ever proven on a branch, never on the commit
           # being tagged. The sibling gates on this too.
+          # `build`, so release-scripts.sh exercises the tap section instead of skipping it.
+          # CONVENTIONS 6c: a gate that only really runs in ci.yml does not constrain a release.
+          python3 -m pip install --upgrade build
           for t in tests/release/*.sh; do bash "$t"; done
 
       - name: Prove the test toolchain changed no release byte
@@ -305,13 +320,9 @@ jobs:
           [ "$version" = "$QUALIFIED_VERSION" ] && [ "$tag" = "$QUALIFIED_TAG" ] \
             || { echo "::error::qualified release intent changed between runners"; exit 1; }
           ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null
-          awk -v ver="$version" -v date="$QUALIFIED_DATE" '
-            /^## \[Unreleased\]/ {
-              print "## [Unreleased]"; print ""; print "## [" ver "] - " date; next
-            }
-            { print }
-          ' CHANGELOG.md > CHANGELOG.md.new
-          mv CHANGELOG.md.new CHANGELOG.md
+          DEPS=$(bash packaging/dependency-bumps.sh "$previous")
+          export DEPS
+          bash packaging/promote-changelog.sh "$version" "$QUALIFIED_DATE"
           python3 packaging/stamp-version.py "$version"
           python3 packaging/stamp-version.py "$version" --check
           printf '%s\n' CHANGELOG.md README.md custom_components/whiskerless/manifest.json pyproject.toml \
