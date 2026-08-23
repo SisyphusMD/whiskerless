@@ -6,162 +6,59 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-**The release where the robot stopped being read-only.** Clean cycle and Reset are
-real buttons now, and whiskerless issues the certificates your broker needs
-instead of leaving that to you.
+**The release where the robot stopped being read-only.** Clean cycle and Reset are real
+buttons now, and whiskerless issues the certificates your broker needs.
 
-Thanks to [@CryingPecan](https://github.com/CryingPecan), whose LitterHopper robot
-is behind much of the hopper work. Protocol detail lives in
-`docs/devices/litter-robot-4/`.
+Thanks to [@CryingPecan](https://github.com/CryingPecan), whose LitterHopper robot is behind
+much of the hopper work.
 
 ### Breaking changes
 
-- **Broker usernames and passwords are gone** — `--username`, `--password` and
-  `WHISKERLESS_PASSWORD`. Everything authenticates by certificate now.
-- **One broker per machine.** `--host` and `--ca` moved off the everyday commands
-  onto `setup`. A separate broker is a separate store: point `WHISKERLESS_HOME` at
-  it.
-- **`--port` and `--insecure` are gone.** The robot's port is fixed in its firmware
-  and it always checks the broker's name, so both could only point the CLI somewhere
-  the robot cannot follow. A saved port is ignored, not an error.
-- **`whiskerless adopt` is removed.** Re-provision instead.
-- **The store moved to `~/whiskerless`.** Your old `~/.whiskerless` is moved there
-  on first run, and settings 0.2.0 no longer reads are dropped from your robot
-  profiles at the same time. That run tells you what changed.
-- **Every robot gets a certificate of its own, with no way to opt out.** A robot
-  holding one still works on a broker that allows anonymous clients, so there was
-  nothing to trade — and `whiskerless robots` marks any robot still presenting the
-  certificate it shipped with.
-- **whiskerless has to be able to sign now, unless you say otherwise.** A store
-  holding a CA certificate but not its key is no longer an unstated arrangement —
-  it read like a finished setup while quietly refusing to issue anything. `setup`
-  asks for the key, or offers a new authority; the second answer means
-  re-provisioning every robot. See **Upgrading from 0.1.3** in the README for what
-  that costs at the robot and at the broker.
-- **`setup --auth` records how your store authenticates**, for a signing key that
-  lives somewhere else on purpose. `supplied` takes a certificate per robot from
-  `provision --robot-cert/--robot-key` and never wants the CA key; `anonymous`
-  leaves robots the certificate they shipped with. The mode is stored, so later
-  commands behave the same way with no flags, and a mode your files can no longer
-  carry out is an error naming both rather than a silent downgrade.
-- **Each robot's certificate is kept** at `robots/<serial>/client/`, where this
-  machine's has always been kept at `client/`. A robot re-provisioned stays the
-  same client to your broker, so ACLs and log lines keyed to it still point at it;
-  `provision --reissue` replaces one deliberately. `provision` now says to back up
-  afterwards, because it leaves behind material an earlier backup does not have.
-- **Certificates you supply are checked before anything is written**: they have to
-  chain to your CA, be valid now, not be a CA themselves, and carry the robot's
-  serial as their common name — which is where a broker gets the robot's username.
-  Nothing is filed until it passes, and a robot's is filed only once the robot has
-  accepted it, so a rejected or aborted run leaves the one you were using intact.
-- **`binary_sensor.…_waste_drawer_removed` → `sensor.…_waste_drawer_last_moved`.**
-  The robot never reports which way the drawer moved.
-- **`switch.…_panel_sleep_mode` is now a binary sensor** — the firmware refuses
-  direct writes. Use the weekday schedule entities.
-- **Clean cycle wait time is a number (3–30 minutes), not a select.**
-- **Library:** `Hazard.MOTOR`, `MotorCommandError`, `allow_motor`,
-  `LitterRobot4Client` and `WhiskerlessAuthError` are removed. Power still needs
-  `allow_dangerous`.
+- Broker usernames and passwords are gone. Authentication is by certificate, or anonymous if you pick it.
+- Every robot gets its own certificate, with no way to opt out.
+- whiskerless must be able to sign unless you use `setup --auth supplied` or `--auth anonymous`. See **Upgrading from 0.1.3**.
+- One broker per store. `--host` and `--ca` moved onto `setup`; point `WHISKERLESS_HOME` at a second store.
+- `--port` and `--insecure` are gone. The robot's firmware fixes both.
+- `whiskerless adopt` is removed. Re-provision instead.
+- The store moved to `~/whiskerless`, migrated from `~/.whiskerless` on first run.
+- `binary_sensor.…_waste_drawer_removed` is now `sensor.…_waste_drawer_last_moved`.
+- `switch.…_panel_sleep_mode` is now a binary sensor. Use the weekday schedule entities.
+- Clean cycle wait time is a number (3 to 30 minutes), not a select.
+- Library: `Hazard.MOTOR`, `MotorCommandError`, `allow_motor`, `LitterRobot4Client` and `WhiskerlessAuthError` are removed.
 
 ### Added
 
-- **Clean cycle and Reset buttons.** Empty cycle, Power and WiFi ship disabled and
-  marked `(danger)` — each costs a litter refill or takes the robot off the
-  network. The CLI gains `empty-cycle`, `power` and `wifi-toggle`.
-- **whiskerless runs a certificate authority for you.** `whiskerless setup` makes
-  the CA, your broker's certificate and this machine's identity, then prints the
-  three files your broker needs. Bring your own with `--ca` and `--ca-key`.
-- **Each robot gets its own certificate**, written over BLE and named for its
-  serial — so your broker can stop accepting anonymous clients.
-- **`whiskerless backup` and `whiskerless restore`** — the whole store in one
-  optionally-encrypted file. The CA key is the one thing you cannot regenerate.
-- **The CLI remembers your robots.** `provision` saves them; `robots`, `use` and
-  `forget` manage them. A second robot asks only for its serial and WiFi password.
-- **Provisioning verifies the WiFi join**, so a mistyped password fails loudly
-  instead of leaving you a robot that never appears.
-- **Litter level as a percentage** — self-calibrating, or pinned with one press.
-- **LitterHopper support**: connected, fill gauge, and an out-of-litter alert the
-  firmware never raises. A dispense arrives as three messages ~20 s apart, so the
-  level survives a restart and one dispense cannot prove an empty hopper.
-- **New entities**: last cat visit, visit duration (disabled until your robot
-  proves it reports one), waste drawer last moved, panel brightness for bright and
-  dark rooms, and excess-weight detection.
-- **`whiskerless status`, `calibrate` and `panel-reset`.**
-- **`whiskerless diagnose`** — when the panel says "blinking blue" and nothing else,
-  this asks the robot itself over Bluetooth. It reads and writes nothing. Reaching
-  the robot needs pairing mode, which takes it off WiFi, so it warns, asks first, and
-  costs a re-provision — and the answer is often just "the robot is trying to
-  connect", which is the state the command itself caused. It says so rather than
-  inventing a diagnosis. When the robot does volunteer a verdict — refused, network
-  not found, or joined-without-an-address — that verdict is real and worth the trip.
-- **New install channels**: apt and dnf repositories, Homebrew with prebuilt
-  bottles, `.deb`/`.rpm`, a signed macOS `.pkg`, and standalone Linux binaries —
-  none of which need a system Python. Packages are GPG-signed
-  (`CCE50015D058E9BF`); setup is in the README.
-- **`whiskerless uninstall`** finds every copy of the tool on the machine — brew,
-  the `.pkg`, apt/dnf, uv, pipx, pip and a source checkout — names the command that
-  removes each one, and asks before running any of them. Your robots and the CA are
-  never touched. It exists because brew and the `.pkg` both provide `whiskerless`
-  and nothing had ever noticed you had both.
-- **`whiskerless rename`** gives a robot a name you choose. Commands accept it
-  anywhere a serial works, and the prompts say the name back to you.
-- **Commands that write to a robot name it before they ask.** With more than one
-  robot set up, the confirmation now says which one it is about.
-- **WiFi passwords are read without echoing**, and never from a shell argument.
-- **A once-a-day check tells you when a newer release is out**, with the upgrade
-  command for the way this copy was installed. Turn it off with
-  `WHISKERLESS_NO_UPDATE_CHECK=1`; it never blocks and never fails loudly.
+- Clean cycle and Reset buttons. Empty cycle, Power and WiFi ship disabled and marked `(danger)`.
+- whiskerless runs a certificate authority for you and prints the files your broker needs.
+- Litter level as a percentage, self-calibrating or pinned with one press.
+- LitterHopper support, including an out-of-litter alert the firmware never raises.
+- New install channels: apt, dnf, Homebrew, `.deb`/`.rpm`, a notarized macOS `.pkg`, and Linux binaries.
+- `whiskerless backup` and `restore` put the whole store in one optionally-encrypted file.
+- The CLI remembers your robots, with `robots`, `use`, `forget` and `rename`.
+- `whiskerless diagnose` asks the robot over Bluetooth when the panel only says "blinking blue".
+- `whiskerless uninstall` finds every copy on the machine and asks before removing any.
+- New entities: last cat visit, visit duration, panel brightness, and excess-weight detection.
+- Provisioning verifies the WiFi join, so a mistyped password fails loudly.
+- A once-a-day update check that names the right upgrade command for how you installed.
 
 ### Fixed
 
-- **Cat detection no longer mistakes weight on the scale for a cat**, handling the
-  robot is not a visit, and long visits are no longer dropped.
-- **`robotStatus` 10 is the clean cycle.** Unmapped, its readings were published as
-  real litter levels. Readings are also suppressed while the globe is not level.
-- **The globe motor fault sensor watches the activity stream**, where the fault
-  actually appears — the state document sat at 0 through a real fifty-minute fault.
-- **Panel sleep and wake times can be set**, and the weekday schedule arms every
-  day rather than only Sunday.
-- **`whiskerless setup` survives a long hostname**, and reissues the broker's
-  certificate when you move the broker — if it holds your CA's key. A certificate
-  it did not issue is reported, never overwritten.
-- **Provisioning works where the network list is not a multiple of four.** The
-  robot's WiFi scan is fetched in pages, and the last page asked for more than
-  remained — which this firmware answers by dropping the Bluetooth link, halfway
-  through provisioning. It looked like flaky Bluetooth.
-- **Provisioning tells you to hold Connect until the light blinks yellow**, and
-  stops scanning the moment it finds your robot — it only advertises while you hold
-  the button, and the scan was spending that window. The instruction used to say to
-  hold "until it beeps"; the robot has no beep, so the one cue it offered was for
-  something that never happens.
-- **The waste drawer says when its number has not been measured.** A Reset zeroes
-  the gauge and the robot flags the result as unconfirmed until the next cycle's
-  lasers take a real reading — `whiskerless status` was printing that placeholder as
-  a measurement. In Home Assistant the sensor keeps publishing the value, so
-  nothing keyed on it breaks, and carries a `level_provisional` attribute instead.
-- **Provisioning warns that holding Connect wipes the robot's saved WiFi.** The robot
-  forgets its network the moment it enters pairing mode, does not come back on its
-  own, and cannot be taken out of that mode by any button — only a completed
-  provision restores it. This is the robot's behaviour, and it strands cloud users
-  too; whiskerless just never said so.
-- **The network list explains itself**, with a legend for the password marker, the
-  signal bars and the channel, and a clearer way to enter a hidden SSID than a bare
-  `-`. The confirmation screen's `identity` row no longer sits a column out.
-- **The robot's IP address is reported when the firmware gives a usable one.** It
-  answers "connected" before DHCP replies, so the address was read a moment too
-  early; provisioning now waits for it. Some robots report an address that is not
-  theirs, so only a plausible LAN lease is shown — and when none arrives the step
-  simply says the WiFi is connected, which is what it verified either way.
-- **Errors are sentences, not stack traces.** `--debug` gives the traceback and
-  the request log — with the WiFi password and the robot's key left out of it.
-- **A short press of Connect toggles WiFi off**, which the docs called harmless —
-  the robot vanishes from your broker and looks dead. Hold it for pairing mode.
-- **The declared Home Assistant minimum is correct** (2025.3.0).
+- Cat detection no longer counts handling the robot as a visit, and long visits are not dropped.
+- Litter readings taken during a clean cycle are no longer published as real levels.
+- The globe motor fault sensor now catches faults it used to sleep through.
+- Provisioning survives a network list that is not a multiple of four.
+- Provisioning warns that holding Connect wipes the robot's saved WiFi.
+- The robot's IP address is reported when the firmware gives a usable one, instead of a moment too early.
+- The waste drawer says when its number has not been measured yet.
+- Panel sleep and wake times can be set, and the schedule arms every day rather than only Sunday.
+- `whiskerless setup` survives a long hostname and reports a broker certificate it did not issue.
+- Errors are sentences, not stack traces. `--debug` adds a request log with secrets left out.
+- The declared Home Assistant minimum is correct (2025.3.0).
 
 ### Changed
 
-- **The Refresh button is on by default**, on existing installs too.
-- **Manual calibration buttons ship disabled** — the robot calibrates itself.
+- The Refresh button is on by default, on existing installs too.
+- Manual calibration buttons ship disabled, because the robot calibrates itself.
 
 ## [0.1.3] - 2026-07-02
 
