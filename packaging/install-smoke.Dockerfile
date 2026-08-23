@@ -2,16 +2,23 @@
 # Every Linux install channel we publish, installed from the PUBLISHED artifacts
 # and then run, one buildx target per channel.
 #
-# A Dockerfile rather than the obvious `docker run`, for the two reasons
-# publish.yml already hit on this runner: a plain `docker run --platform arm64`
-# dies with `exec format error` because the host has no usable binfmt, and a bind
-# mount of the workspace is invisible to the daemon because the job itself runs
-# in a container. BuildKit carries its own QEMU and streams its context, so both
-# problems go away — and it is the pattern package-smoke.Dockerfile established.
+# A Dockerfile rather than the obvious `docker run`, because on Forgejo the job
+# itself runs in a container and a bind mount of the workspace is invisible to the
+# daemon. BuildKit streams its context instead, so there is nothing to mount — and
+# it is the pattern package-smoke.Dockerfile established.
+#
+# Built for the architecture the runner already is, never emulated: the amd64 legs
+# run on Forgejo and the arm64 legs on GitHub's native arm runner, and
+# install-matrix-arch.sh refuses to run when host and target disagree.
 #
 # Each channel ends by touching /passed and exporting it through a `scratch`
 # stage, so the workflow asserts a FILE rather than trusting an exit code that
 # buildx may have cached.
+
+# Qualification bases are digest-pinned, not tag-tracked: a tag moves under you and the
+# matrix silently starts qualifying against a different distro snapshot than the one it
+# reported green on. Renovate bumps these deliberately. Same discipline, and the same two
+# digests, as dreame-valetudo's package matrix.
 
 ARG V
 ARG PV
@@ -23,11 +30,14 @@ ARG ARCH_DEB
 ARG ARCH_RPM
 ARG ARCH_BIN
 ARG TAG
+ARG GH_DL
+ARG GH_PV
 
 # --- Debian-family base -------------------------------------------------------------
 # openssl is verified present rather than assumed: installed-smoke.sh SKIPS its
 # certificate half without it, which is most of what it proves.
-FROM debian:13-slim AS deb-base
+# renovate: datasource=docker depName=debian-13-current packageName=debian
+FROM debian:13-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS deb-base
 RUN set -eux; \
     apt-get update -qq >/dev/null; \
     apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
@@ -88,7 +98,8 @@ FROM scratch AS pypi-uvx-result
 COPY --from=pypi-uvx /passed /passed
 
 # --- RPM-family base ----------------------------------------------------------------
-FROM rockylinux/rockylinux:9 AS rpm-base
+# renovate: datasource=docker depName=rocky-9-compat packageName=rockylinux/rockylinux
+FROM rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f AS rpm-base
 RUN set -eux; \
     dnf install -y -q openssl >/dev/null; \
     command -v openssl >/dev/null
@@ -108,13 +119,137 @@ FROM rpm-base AS dnf-repo
 ARG V REPOFILE FORGE
 RUN set -eux; \
     curl -fsSL "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/$REPOFILE" \
-      -o /etc/yum.repos.d/whiskerless.repo; \
+      -o /etc/yum.repos.d/sisyphusmd.repo; \
     dnf install -y -q whiskerless >/dev/null; \
-    rpm -qi whiskerless | grep -qi "4bbacd5a6ff38564"; \
+    rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS dnf-repo-result
 COPY --from=dnf-repo /passed /passed
+
+# --- the .deb's LIFECYCLE, not just its install ---------------------------------------
+# Everything else here proves a clean install. Nothing proved the three things that actually bite
+# after one: that the native version sorts where the release process assumes it does, that a
+# reinstall is idempotent, and that removal takes the package's files with it.
+#
+# The ordering assertion uses real dpkg on the real package metadata. `0.2.0~rc.35` must sort ABOVE
+# the previous candidate and BELOW the stable it is a candidate for — that is what makes rc→stable
+# an upgrade rather than a downgrade, and it is a property of nFPM's semver normalisation that no
+# test here exercised.
+FROM deb-base AS deb-lifecycle
+ARG V PV DL ARCH_DEB
+RUN set -eux; \
+    curl -fsSL -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    installed=$(dpkg-query -W -f='${Version}' whiskerless); \
+    [ "$installed" = "$PV" ] || { echo "installed $installed, expected $PV"; exit 1; }; \
+    stable=${PV%%\~*}; \
+    case "$PV" in \
+      *\~rc.*) \
+        prev="${PV%.*}.$(( ${PV##*.} - 1 ))"; \
+        dpkg --compare-versions "$prev" lt "$installed" \
+          || { echo "$installed does not sort above the previous candidate $prev"; exit 1; }; \
+        dpkg --compare-versions "$installed" lt "$stable" \
+          || { echo "$installed does not sort below stable $stable — rc->stable would be a downgrade"; exit 1; }; \
+        ;; \
+    esac; \
+    apt-get install -y -qq --reinstall /tmp/w.deb >/dev/null; \
+    [ "$(dpkg-query -W -f='${Version}' whiskerless)" = "$PV" ]; \
+    bash /smoke.sh whiskerless "$V"; \
+    apt-get remove -y -qq whiskerless >/dev/null; \
+    ! command -v whiskerless >/dev/null || { echo "removal left the binary behind"; exit 1; }; \
+    touch /passed
+FROM scratch AS deb-lifecycle-result
+COPY --from=deb-lifecycle /passed /passed
+
+# --- the .deb as GITHUB serves it — a different origin AND a different filename --------
+# Forgejo is canonical, and every other target here downloads from it. GitHub is still a PROMISED
+# origin — it is where the README sends people for the .pkg, and it is the only place HACS installs
+# from — and GitHub rewrites `~` to `.` in the stored asset name, so the file those users fetch has
+# a name no other test ever constructs. A mirror is not evidence for the origin it mirrors: if the
+# GitHub copy were missing, misnamed or truncated, nothing here would have said so.
+FROM deb-base AS deb-file-github
+ARG V GH_DL GH_PV ARCH_DEB
+RUN set -eux; \
+    curl -fsSL -o /tmp/w.deb "$GH_DL/whiskerless_${GH_PV}_${ARCH_DEB}.deb"; \
+    apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS deb-file-github-result
+COPY --from=deb-file-github /passed /passed
+
+# --- the same .deb, on the OTHER distros the floor promises -------------------------
+# Channel breadth was here; distro depth was not. A package that installs on Debian 13 can still
+# fail on the oldest release the glibc floor claims, and nothing noticed. Digests are the ones
+# dreame-valetudo pins, deliberately: both projects then qualify against identical snapshots.
+# renovate: datasource=docker depName=debian-12-compat packageName=debian
+FROM debian:12-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS deb-file-floor
+ARG V PV DL ARCH_DEB
+COPY packaging/installed-smoke.sh /smoke.sh
+RUN set -eux; \
+    apt-get update -qq >/dev/null; \
+    apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
+    curl -fsSL -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS deb-file-floor-result
+COPY --from=deb-file-floor /passed /passed
+
+# renovate: datasource=docker depName=ubuntu-22.04-compat packageName=ubuntu
+FROM ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc AS deb-file-ubuntu-floor
+ARG V PV DL ARCH_DEB
+COPY packaging/installed-smoke.sh /smoke.sh
+RUN set -eux; \
+    apt-get update -qq >/dev/null; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
+    curl -fsSL -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS deb-file-ubuntu-floor-result
+COPY --from=deb-file-ubuntu-floor /passed /passed
+
+# renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
+FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b AS deb-file-ubuntu
+ARG V PV DL ARCH_DEB
+COPY packaging/installed-smoke.sh /smoke.sh
+RUN set -eux; \
+    apt-get update -qq >/dev/null; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
+    curl -fsSL -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS deb-file-ubuntu-result
+COPY --from=deb-file-ubuntu /passed /passed
+
+# --- the same .rpm, on the oldest and newest RPM distros the floor promises ----------
+# renovate: datasource=docker depName=rocky-8-compat packageName=rockylinux/rockylinux
+FROM rockylinux/rockylinux:8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6 AS rpm-file-floor
+ARG V PV DL ARCH_RPM
+COPY packaging/installed-smoke.sh /smoke.sh
+RUN set -eux; \
+    dnf install -y -q openssl >/dev/null; \
+    curl -fsSL -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    dnf install -y -q /tmp/w.rpm >/dev/null; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS rpm-file-floor-result
+COPY --from=rpm-file-floor /passed /passed
+
+# renovate: datasource=docker depName=fedora-44-current packageName=fedora
+FROM fedora:44@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b898 AS rpm-file-fedora
+ARG V PV DL ARCH_RPM
+COPY packaging/installed-smoke.sh /smoke.sh
+RUN set -eux; \
+    dnf install -y -q openssl >/dev/null; \
+    curl -fsSL -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    dnf install -y -q /tmp/w.rpm >/dev/null; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS rpm-file-fedora-result
+COPY --from=rpm-file-fedora /passed /passed
 
 # --- a poured Homebrew bottle -------------------------------------------------------
 # renovate: datasource=docker depName=homebrew/brew
@@ -192,21 +327,43 @@ COPY --from=pip /passed /passed
 # zypper insists on verifying a repository index even with repo_gpgcheck=0, and the
 # key that would satisfy it is Forgejo's — which the README deliberately does not ask
 # anyone to trust. So this is the documented route: import OUR key, install the file.
-FROM opensuse/leap:15.6 AS zypper
+#
+# Two ends, the same way the deb and rpm channels carry a floor and a current: an .rpm that installs
+# on Leap 16 can still fail on 15.6, and nothing else here would notice. Both stages below are
+# identical apart from the base image. The sibling project runs the same pair, under the same names.
+# renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
+FROM opensuse/leap:16.0@sha256:f239b4819f4dd322d99509f1b5b14f2107bf23857f9ccd3c14333f0928a2bcc6 AS zypper
 ARG V PV DL ARCH_RPM FORGE
 RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
 RUN set -eux; \
-    rpm --import "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless-signing-key.asc"; \
+    rpm --import "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc"; \
     curl -fsSL -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
     # Not --allow-unsigned-rpm: the imported key has to be what makes this work,
     # or the test proves nothing about the signature.
     zypper --non-interactive install /tmp/w.rpm >/dev/null; \
-    rpm -qi whiskerless | grep -qi "4bbacd5a6ff38564"; \
+    rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS zypper-result
 COPY --from=zypper /passed /passed
+
+# renovate: datasource=docker depName=opensuse-leap-15.6-compat packageName=opensuse/leap
+FROM opensuse/leap:15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421 AS zypper-floor
+ARG V PV DL ARCH_RPM FORGE
+RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
+COPY packaging/installed-smoke.sh /smoke.sh
+RUN set -eux; \
+    rpm --import "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc"; \
+    curl -fsSL -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    # Not --allow-unsigned-rpm: the imported key has to be what makes this work,
+    # or the test proves nothing about the signature.
+    zypper --non-interactive install /tmp/w.rpm >/dev/null; \
+    rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS zypper-floor-result
+COPY --from=zypper-floor /passed /passed
 
 # --- provisioning, as far as a machine with no robot and no radio can take it --------
 # The BLE re-provisioner is why this CLI exists, and until now nothing here ran it:

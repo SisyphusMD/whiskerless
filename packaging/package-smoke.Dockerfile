@@ -1,6 +1,7 @@
-# Installs the exact .deb that is about to be published and runs it, for whichever platform buildx
-# is pointed at. The arm64 leg is the reason this is a buildx target rather than a `docker run`:
-# BuildKit's builder carries QEMU and this runner's host binfmt does not.
+# Installs the exact .deb that is about to be published and runs it, on the architecture the runner
+# already is — amd64 on Forgejo, arm64 on GitHub's native arm runner. A buildx target rather than a
+# `docker run` because the Forgejo job is itself containerised, so a bind mount of the workspace
+# never reaches the daemon.
 #
 # This proves install-and-run, not the glibc floor: since the build moved to a manylinux_2_28
 # image, the build image IS the declared floor and no distro can sit between them. The floor is

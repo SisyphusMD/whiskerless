@@ -10,35 +10,57 @@
 #
 # Which formulae get bottled follows the same rule as the tap itself:
 #
-#   rc tag     → whiskerless-rc only
-#   stable tag → whiskerless AND whiskerless-rc
+#   rc tag     → <project>-rc only
+#   stable tag → <project> AND <project>-rc
 #
 # The second half of that is not redundancy. A stable tag re-points the rc
 # formula at its own release, and a bottle's filename embeds the FORMULA name
 # while the keg inside it is rooted at `<formula>/<version>/` — so a
-# `whiskerless` bottle can be neither renamed nor relabelled into a
-# `whiskerless-rc` one. Without its own set, `brew install whiskerless-rc` after
-# a stable release finds no bottle it can use and quietly compiles cryptography,
+# `<project>` bottle can be neither renamed nor relabelled into a
+# `<project>-rc` one. Without its own set, `brew install <project>-rc` after a
+# stable release finds no bottle it can use and quietly builds from source,
 # which is the exact cost bottles were added to remove.
 set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+[ -f "$here/project.env" ] || {
+  echo "$0: packaging/project.env is missing — cannot resolve this project's tap or formulae" >&2
+  exit 2
+}
+# shellcheck source=/dev/null
+. "$here/project.env"
+# shellcheck source=/dev/null
+. "$here/release-common.sh"
+: "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
+OWNER="${PROJECT_REPO_SLUG%%/*}"
+PKG="${PROJECT_REPO_SLUG#*/}"
+# Homebrew tap names are lower-case; the forge owner is not necessarily.
+TAP="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')/tap"
 
 [ "$#" -eq 2 ] || { echo "usage: $0 <tag> <outdir>" >&2; exit 2; }
 tag="$1"; outdir="$2"
 
-case "$tag" in
-  v[0-9]*.[0-9]*.[0-9]*) : ;;
-  *) echo "not a release tag: $tag" >&2; exit 2 ;;
-esac
+# The shared grammar, not a glob: `v[0-9]*.[0-9]*.[0-9]*` also accepts `v0.2.0-rc1` and
+# `v0.2.0junk`, whose derived sdist name can never match a published formula — so instead of
+# failing here they enter the readiness loop below and spend its full timeout before saying so.
+rel_validate_tag "$tag" || exit 2
 
 version="${tag#v}"
 # PEP 440, the same normalization update-tap.sh applies: the tag says 0.2.0-rc.1
 # and the formula's URL says 0.2.0rc1. The bottle filename follows the formula.
 pypi_version="$(printf '%s' "$version" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
-root_url="https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases/download/${tag}"
+# The exact sdist filename `update-tap.sh` writes into the formula, so this readiness check greps
+# for the string that is actually there. TWO normalisations, and missing either one makes every
+# bottle leg wait its full timeout and then fail against a tap that published correctly:
+#   PEP 440 — the version: `0.2.0-rc.1` is served as `0.2.0rc1`
+#   PEP 625 — the name:    `dreame-valetudo` is served as `dreame_valetudo`
+# A project whose name has no hyphen never sees the second one, which is how it stayed hidden.
+sdist_stem="$(printf '%s' "$PKG" | tr '-' '_')-${pypi_version}"
+root_url="https://forgejo.bryantserver.com/${OWNER}/${PKG}/releases/download/${tag}"
 
 case "$tag" in
-  *-*) formulae="whiskerless-rc" ;;
-  *)   formulae="whiskerless whiskerless-rc" ;;
+  *-*) formulae="${PKG}-rc" ;;
+  *)   formulae="${PKG} ${PKG}-rc" ;;
 esac
 
 mkdir -p "$outdir"
@@ -56,15 +78,24 @@ export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1
 brew update --quiet
 # `brew tap-new`/`brew bottle` are developer commands and shell out to git for a
 # commit; a runner has no identity configured and the command dies on it.
-git config --global user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
-git config --global user.name "forgejo-actions[bot]"
+# Exported, not written to a config file. `brew bottle` commits inside the TAP
+# checkout rather than this one, so a repo-local setting never reaches it - but
+# `git config --global` reaches it by clobbering the caller's own identity, which
+# is destructive on any machine that already has one. Environment variables reach
+# every child git in every repository, win over an identity a runner image may
+# already carry, and leave ~/.gitconfig alone. Verified: they satisfy git's ident
+# requirement with nothing configured at all.
+export GIT_AUTHOR_NAME="forgejo-actions[bot]"
+export GIT_AUTHOR_EMAIL="forgejo-actions[bot]@users.noreply.bryantserver.com"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 
 # Tapped from Forgejo, the primary. The GitHub copy is a push mirror and can lag
 # a tap update by a poll interval — long enough to bottle the previous version.
-if ! brew tap | grep -qx "sisyphusmd/tap"; then
-  brew tap sisyphusmd/tap https://forgejo.bryantserver.com/SisyphusMD/homebrew-tap.git
+if ! brew tap | grep -qx "$TAP"; then
+  brew tap "$TAP" "https://forgejo.bryantserver.com/${OWNER}/homebrew-tap.git"
 fi
-tapdir="$(brew --repo sisyphusmd/tap)"
+tapdir="$(brew --repo "$TAP")"
 
 # The formula this bottles has to be the one this release just published.
 # Anything else produces bottles named for a version whose release will never
@@ -78,13 +109,13 @@ for _ in $(seq 1 90); do
   git -C "$tapdir" pull --quiet --ff-only >/dev/null 2>&1 || true
   ready=true
   for formula in $formulae; do
-    grep -Fq "whiskerless-${pypi_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || ready=false
+    grep -Fq "${sdist_stem}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || ready=false
   done
   [ "$ready" = true ] && break
   sleep 20
 done
 for formula in $formulae; do
-  grep -Fq "whiskerless-${pypi_version}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || {
+  grep -Fq "${sdist_stem}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || {
     echo "::error::the tap never published ${formula} at ${pypi_version} — nothing to bottle" >&2
     exit 1
   }
@@ -92,12 +123,12 @@ done
 
 for formula in $formulae; do
   echo "=== bottling $formula $pypi_version ==="
-  # The two formulae install the same `whiskerless` binary and declare
+  # The two formulae install the same binary and declare
   # conflicts_with each other, so they cannot be installed at once — hence one
   # at a time, with a clean uninstall between.
-  brew uninstall --force whiskerless whiskerless-rc >/dev/null 2>&1 || true
-  brew install --build-bottle "sisyphusmd/tap/${formula}"
-  ( cd "$outdir" && brew bottle --json --no-rebuild --root-url="$root_url" "sisyphusmd/tap/${formula}" )
+  brew uninstall --force "$PKG" "${PKG}-rc" >/dev/null 2>&1 || true
+  brew install --build-bottle "$TAP/${formula}"
+  ( cd "$outdir" && brew bottle --json --no-rebuild --root-url="$root_url" "$TAP/${formula}" )
   brew uninstall --force "$formula"
 done
 

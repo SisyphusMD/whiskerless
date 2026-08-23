@@ -23,10 +23,18 @@ name: Retry infrastructure failures
 # keeps this from becoming a way to launder flaky tests into green builds.
 on:
   workflow_run:
+    # EVERY GitHub workflow in this repository, asserted by a repo invariant test. A runner fault
+    # is not selective about which workflow it hits, and the two longest — the bottle build and the
+    # install matrix — were the ones missing from this list.
     workflows:
+      - "Bottles (Homebrew)"
       - "CI (macOS)"
+      - "CI (pull requests)"
       - "Homebrew formula (macOS)"
+      - "Install matrix (macOS + Linux arm64)"
+      - "Release (Linux arm64)"
       - "Release (macOS pkg)"
+      - "Validate (hassfest + HACS)"
     types: [completed]
 
 permissions:
@@ -43,6 +51,12 @@ jobs:
       github.event.workflow_run.run_attempt == 1
     runs-on: ubuntu-latest
     steps:
+      # A `workflow_run` job starts with an EMPTY workspace — it is not a checkout of the run that
+      # failed. Without this the vendored triage script is simply absent, the decision step dies,
+      # and the retry this workflow exists for never happens.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Decide whether the failure was infrastructural
         id: triage
         env:
@@ -56,31 +70,15 @@ jobs:
           # LATEST attempt, so once a retry has happened it reports the retry's
           # green jobs and this triage sees nothing to explain.
           gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs" > jobs.json
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-
-          # Runner phases that happen BEFORE any of our steps. Deliberately not
-          # `Complete job`: that fails after our steps have already uploaded
-          # artifacts, and artifacts are immutable within a run — so re-running
-          # would fail on the duplicate name rather than repair anything. A
-          # `Complete job` failure also means the work itself finished.
-          RUNNER_PHASES = {"Set up job", "Set up runner"}
-
-          jobs = json.load(open("jobs.json"))["jobs"]
-          failed = [j for j in jobs if j["conclusion"] == "failure"]
-          report, infra = [], bool(failed)
-          for job in failed:
-              bad = [s["name"] for s in job.get("steps", []) if s["conclusion"] == "failure"]
-              ours = [name for name in bad if name not in RUNNER_PHASES]
-              report.append(f"{job['name']}: failed steps={bad or ['(none recorded)']}")
-              if ours:
-                  infra = False
-                  report.append(f"    -> our step failed: {ours}; not retrying")
-          print(f"infra={'true' if infra else 'false'}")
-          print("summary<<EOF")
-          print("\n".join(report) or "no failed jobs found")
-          print("EOF")
-          PY
+          # The attempt-specific endpoint, not `/jobs`: that one returns the LATEST attempt, so
+          # once a retry has happened it reports the retry's green jobs and this triage sees
+          # nothing to explain.
+          #
+          # The discriminator itself lives in packaging/triage-infra-failure.py, vendored from
+          # project-standard and shared with the sibling project — none of that reasoning is
+          # specific to this repository, and it is tested there against the cases that must REFUSE
+          # to retry.
+          python3 packaging/triage-infra-failure.py jobs.json >> "$GITHUB_OUTPUT"
       - name: Re-run the failed jobs
         if: steps.triage.outputs.infra == 'true'
         env:

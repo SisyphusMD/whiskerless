@@ -31,6 +31,7 @@ that may not have whiskerless on it yet.
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import json
 import os
@@ -55,6 +56,8 @@ MAGIC = b"WHISKERLESS-BACKUP-1\n"
 #: a few kilobytes; this exists so a hostile or truncated archive cannot expand
 #: into memory unbounded.
 MAX_BYTES = 64 * 1024 * 1024
+#: A store is a handful of files per robot; anything near this is not one.
+MAX_MEMBERS = 512
 
 # Every member is written under this, so `tar xzf` lands one directory rather
 # than scattering `.layout`, `ca/`, `robots/` and friends into whatever
@@ -130,11 +133,26 @@ class Archive:
             return None
 
     def layout_version(self) -> int:
-        """The store layout this backup was written at. 0 means pre-versioning."""
-        try:
-            return int((self.text(".layout") or "").strip())
-        except ValueError:
+        """The store layout this backup was written at. 0 means pre-versioning.
+
+        Two spellings, because the marker changed shape: a bare integer before, and since then a
+        JSON object keyed `layout_version` whose value is a STRING. Reading either wrongly reports
+        0 for every current backup — and 0 is what tells `restore` the archive is not from the
+        future, so a forced restore would move the live store aside and install an unreadable
+        layout in its place before failing.
+        """
+        raw = (self.text(".layout") or "").strip()
+        if not raw:
             return 0
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+        with contextlib.suppress(ValueError, TypeError, AttributeError):
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return int(parsed.get("layout_version", 0))
+        return 0
 
     def ca_cert_pem(self) -> str | None:
         return self.text("ca/ca.crt")
@@ -312,6 +330,7 @@ def _derive(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
 def _unpack(blob: bytes) -> dict[str, bytes]:
     files: dict[str, bytes] = {}
     total = 0
+    count = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(blob), mode="r:*") as tar:
             for member in tar:
@@ -330,9 +349,24 @@ def _unpack(blob: bytes) -> dict[str, bytes]:
                         f"this backup unpacks to more than {MAX_BYTES // (1024 * 1024)} MiB "
                         f"— that is not a whiskerless store"
                     )
+                count += 1
+                if count > MAX_MEMBERS:
+                    raise WhiskerlessError(
+                        f"this backup holds more than {MAX_MEMBERS} files — that is not a "
+                        f"whiskerless store"
+                    )
                 stream = tar.extractfile(member)
                 if stream is not None:
-                    files[_safe_name(member.name)] = stream.read()
+                    name = _safe_name(member.name)
+                    # Two members can canonicalise to one name — `whiskerless/ca.key` and `ca.key`
+                    # both land on `ca.key`. Assigning would silently keep whichever came last,
+                    # making which bytes get restored depend on archive order. Refuse instead.
+                    if name in files:
+                        raise WhiskerlessError(
+                            f"this backup holds two entries for {name!r}; refusing to guess "
+                            f"which one to restore"
+                        )
+                    files[name] = stream.read()
     except tarfile.TarError as exc:
         raise WhiskerlessError(f"this is not a readable whiskerless backup: {exc}") from exc
     if not files:

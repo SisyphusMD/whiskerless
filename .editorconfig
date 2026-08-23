@@ -6,9 +6,9 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 indent_style = space
+# Two is the default because every non-Python text format here (shell, YAML, JSON,
+# TOML, Markdown, Ruby formulae) uses it; Python is the single exception below.
+indent_size = 2
 
 [*.py]
 indent_size = 4
-
-[*.{json,yaml,yml,toml,md}]
-indent_size = 2

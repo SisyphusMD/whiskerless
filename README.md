@@ -202,6 +202,8 @@ them needs a system Python except PyPI's.
 **Homebrew (macOS and Linux):**
 
 ```bash
+brew tap sisyphusmd/tap
+brew trust sisyphusmd/tap    # one-time; Homebrew 6+ won't load a third-party tap until trusted
 brew install sisyphusmd/tap/whiskerless
 ```
 
@@ -218,9 +220,9 @@ arrive with the rest of the system:
 ```bash
 sudo install -d /etc/apt/keyrings
 curl -fsSL https://forgejo.bryantserver.com/api/packages/SisyphusMD/debian/repository.key \
-  | sudo tee /etc/apt/keyrings/whiskerless.asc >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/whiskerless.asc] https://forgejo.bryantserver.com/api/packages/SisyphusMD/debian stable main" \
-  | sudo tee /etc/apt/sources.list.d/whiskerless.list >/dev/null
+  | sudo tee /etc/apt/keyrings/sisyphusmd.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/sisyphusmd.asc] https://forgejo.bryantserver.com/api/packages/SisyphusMD/debian stable main" \
+  | sudo tee /etc/apt/sources.list.d/sisyphusmd.list >/dev/null
 
 sudo apt update && sudo apt install whiskerless
 ```
@@ -228,6 +230,13 @@ sudo apt update && sudo apt install whiskerless
 That first step is the one part that cannot come from the repository: apt will not
 install a package to obtain the key it needs to trust that package. Fetch it over
 HTTPS once and apt verifies everything afterwards on its own.
+
+The key and list files are named for the **namespace**, not this project: the
+repository holds every SisyphusMD package, so adding a sibling project later is
+`apt install <name>` with nothing new to configure. (Unlike dnf, apt verifies the
+repository *index*, which Forgejo signs — hence Forgejo's key here rather than
+the SisyphusMD one. The per-package signature is belt-and-braces on this side;
+see `packaging/README.md`.)
 
 Swap `stable` for `testing` to track release candidates. A release lands in
 **both**, so a `testing` subscriber receives it too and is never stranded on the
@@ -239,35 +248,36 @@ last candidate.
 
 ```bash
 sudo dnf config-manager --add-repo \
-  https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless.repo
+  https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd.repo
 
 sudo dnf install whiskerless
 ```
 
-(`whiskerless-testing.repo` in place of `whiskerless.repo` tracks release
+(`sisyphusmd-testing.repo` in place of `sisyphusmd.repo` tracks release
 candidates. On dnf4, `--add-repo` is the same flag; on dnf5 it is
 `dnf config-manager addrepo --from-repofile=<url>`.)
 
-That file pins **our** signing key, `4BBACD5A6FF38564`, and dnf verifies every
-package against it on every install. Do **not** substitute the `.repo` file
-Forgejo generates at `…/rpm/stable.repo`: it names Forgejo's own key, which
-cannot verify a package we signed, so the install fails with `GPG check FAILED`.
-Adding that key alongside ours "to be safe" is worse still — dnf accepts a package
-signed by *any* listed key, which would let the machine hosting the packages sign
-its own.
+That file pins the **SisyphusMD** signing key, `CCE50015D058E9BF`, and dnf
+verifies every package against it on every install. Do **not** substitute the
+`.repo` file Forgejo generates at `…/rpm/stable.repo`: it names Forgejo's own key,
+which cannot verify a package signed with the SisyphusMD one, so the install fails
+with `GPG check FAILED`. Adding Forgejo's key alongside it "to be safe" is worse
+still — dnf accepts a package signed by *any* listed key, which would let the
+machine hosting the packages sign its own.
 
 **openSUSE:** the same repository —
 
 ```bash
-sudo rpm --import https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/whiskerless-signing-key.asc
+sudo rpm --import https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc
 sudo zypper install ./whiskerless-<version>.x86_64.rpm
 ```
 
 **The repository is apt and dnf only.** zypper insists on verifying the
 repository index even with `repo_gpgcheck=0` (checked — it fails with `Signature
-verification failed for repomd.xml`), and the key that would satisfy it is
-Forgejo's, which we deliberately do not ask you to trust. Downloading the `.rpm`
-and verifying it against our key is the same guarantee without that trade.
+verification failed for repomd.xml`), and the only key that would satisfy it is
+Forgejo's, which this configuration deliberately does not trust. Downloading the
+`.rpm` and verifying it against the SisyphusMD key is the same guarantee without
+that trade.
 
 **A single file instead** — every `.deb` and `.rpm` is also attached to each
 release, if you would rather not point a package manager at another host:
@@ -277,10 +287,17 @@ sudo apt install ./whiskerless_<version>_amd64.deb     # arm64 for a Pi
 sudo dnf install ./whiskerless-<version>.x86_64.rpm    # aarch64 for ARM
 ```
 
-Verify one before installing it with `rpm -K ./whiskerless-<version>.x86_64.rpm`
-(after importing the key above) or against the release's `SHA256SUMS`. Note that
-`dpkg`/`apt` do not check package signatures for a local file at all — that is
-what the repository above is for.
+Verifying is optional — every install path above checks itself. If you want to
+anyway, `rpm -K ./whiskerless-<version>.x86_64.rpm` (after importing the key
+above), or download the release's checksums for your architecture:
+
+```bash
+sha256sum -c --ignore-missing SHA256SUMS-$(uname -m)
+```
+
+Note that `dpkg`/`apt` do not check package signatures for a local file at all —
+that is what the repository above is for, and it is why the checksums matter more
+for a downloaded `.deb` than for anything else here.
 
 **Raw Linux binary** — `whiskerless-<version>-linux-x86_64` / `…-arm64` from the
 same releases page:
@@ -332,9 +349,9 @@ be spent waiting on a broker restart.
 > going to complete the provision.**
 >
 > The moment it enters pairing mode the robot forgets its network — that part is
-> Whisker's own documented behaviour. On the unit we tested (ESP 1.1.75) it did
+> Whisker's own documented behaviour. On the one unit tested (ESP 1.1.75) it did
 > **not** come back on its own: the mode showed no sign of timing out, no button
-> we tried left it, and the robot stayed off the network entirely — not merely
+> tried left it, and the robot stayed off the network entirely — not merely
 > unreachable, but not answering ARP on its own VLAN — until a provision
 > completed. Treat the "no way out but a provision" part as one robot's
 > behaviour rather than a firmware-wide guarantee, and plan accordingly.
@@ -342,9 +359,9 @@ be spent waiting on a broker restart.
 > This is the robot's behaviour, not something whiskerless does. Whisker
 > documents it for their own app too: holding Connect too long means the robot
 > "has entered onboarding mode and forgotten its saved WiFi network", and their
-> recovery is the app's *Update Network* flow. `whiskerless provision` is ours.
-> The practical difference is distance to the cure — theirs is a phone tap,
-> ours needs this laptop within Bluetooth range of the robot.
+> recovery is the app's *Update Network* flow. The equivalent here is
+> `whiskerless provision`. The practical difference is distance to the cure —
+> theirs is a phone tap, this one needs a laptop within Bluetooth range.
 
 Put the robot in pairing mode — **hold** its **Connect** button for about three
 seconds, until the light **blinks yellow** — then, near it:
@@ -560,7 +577,8 @@ Release candidates go out before each stable release for testing on real
 hardware:
 
 - **Homebrew**: `brew install sisyphusmd/tap/whiskerless-rc` tracks the newest
-  candidate (it conflicts with the stable formula — one or the other). When the
+  candidate (it conflicts with the stable formula — one or the other). The
+  one-time `brew trust sisyphusmd/tap` above already covers both formulae. When the
   stable release lands, the rc formula is re-pointed at it, so staying on
   `whiskerless-rc` converges to stable by itself; to switch channels explicitly,
   `brew uninstall whiskerless-rc && brew install sisyphusmd/tap/whiskerless`.
@@ -572,17 +590,34 @@ hardware:
 ## Uninstalling
 
 The robot needs nothing installed anywhere to keep running — these only remove
-the tools:
+the tools.
 
-- **Home Assistant**: Settings → Devices & Services → Whiskerless → ⋮ →
-  **Delete** (per robot), then uninstall Whiskerless in HACS and restart. The
-  full walkthrough is in
+```bash
+whiskerless uninstall
+```
+
+It finds every install on the machine, shows you each one with the command that
+removes it, and removes them after you confirm. That matters more than it
+sounds: Homebrew and the macOS `.pkg` can both be installed at once, and `PATH`
+order alone decides which one runs — so `whiskerless --version` can disagree
+with what you think you have.
+
+Two things it will not do for you:
+
+- **Home Assistant**: reported, never removed. HACS owns the integration's
+  lifecycle and deleting the folder behind its back leaves a config entry
+  pointing at nothing. Settings → Devices & Services → Whiskerless → ⋮ →
+  **Delete** (per robot), then uninstall Whiskerless in HACS and restart. Full
+  walkthrough in
   [docs/setup/home-assistant.md](docs/setup/home-assistant.md#removing-the-integration).
-- **Homebrew**: `brew uninstall whiskerless` (or `whiskerless-rc`).
-- **macOS .pkg**: `sudo rm /usr/local/bin/whiskerless` — the installer places
-  that one file.
-- **.deb / .rpm**: `sudo apt remove whiskerless` / `sudo dnf remove whiskerless`.
-- **PyPI**: `pipx uninstall whiskerless` / `pip uninstall whiskerless`.
+- **A raw binary you downloaded**: delete the file — nothing else was placed, so
+  there is nothing to detect.
+
+If you would rather do it by hand: `brew uninstall whiskerless` (or
+`whiskerless-rc`); `sudo rm /usr/local/bin/whiskerless` and
+`sudo pkgutil --forget com.sisyphusmd.whiskerless` for the `.pkg`;
+`sudo apt remove whiskerless` or `sudo dnf remove whiskerless`;
+`pipx uninstall whiskerless` or `uv tool uninstall whiskerless`.
 
 Your certificate authority and saved robots stay in `~/whiskerless`; delete that
 folder to remove them. Run `whiskerless backup` first if you ever want to add a
@@ -668,3 +703,7 @@ BLE provisioning, and safety guard. See [CONTRIBUTING.md](CONTRIBUTING.md).
 [MIT](https://github.com/SisyphusMD/whiskerless/blob/main/LICENSE). Not affiliated with or endorsed by Whisker. "Litter-Robot" is a
 trademark of its respective owner; this project is independent and interoperates
 with hardware you own.
+
+---
+
+<sub>Built with AI assistance. Directed decision by decision, not prompted and shipped. Backed by 99% coverage floors, transcript-equivalence tests, install channels exercised each release, hardware bench runs.</sub>

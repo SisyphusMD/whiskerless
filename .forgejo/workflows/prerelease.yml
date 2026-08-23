@@ -38,6 +38,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Shellcheck every shipped and integration script
+        run: bash packaging/shellcheck-all.sh
+
       - name: Compute the next -rc version
         id: ver
         env:
@@ -112,6 +115,13 @@ jobs:
           pytest -q --cov=whiskerless --cov-report=term-missing --cov-config=pyproject.toml --cov-fail-under=99
           coverage report --include='*/safety.py' --fail-under=100
           python -c "import whiskerless, sys; sys.exit(0 if whiskerless.__version__ == '${VERSION}' else 1)"
+          # The release scripts get the same integration suite ci.yml runs. Without it the rc
+          # sweep and the release helpers are only ever proven on a branch, never on the commit
+          # being tagged. The sibling gates on this too.
+          # `build`, so release-scripts.sh exercises the tap section instead of skipping it.
+          # CONVENTIONS 6c: a gate that only really runs in ci.yml does not constrain a release.
+          python3 -m pip install --upgrade build
+          for t in tests/release/*.sh; do bash "$t"; done
 
       - name: Prove the test toolchain changed no prerelease byte
         run: |
@@ -218,7 +228,14 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,test-ha]"
+          # NOT `[dev,test-ha]`. The HA harness pins pytest, pytest-asyncio and pytest-cov to
+          # exact versions of its own, and `dev` pins the same three exactly — so asking for both
+          # extras is unsatisfiable and pip fails before a single check runs. The harness owns the
+          # test toolchain in this environment; the only thing `dev` still has to contribute is
+          # the type-checker, read from pyproject so it cannot drift from the library job's.
+          MYPY=$(grep -oE '"mypy==[0-9][0-9a-zA-Z.+-]*"' pyproject.toml | tr -d '"' | head -1)
+          test -n "$MYPY"
+          python -m pip install -e ".[test-ha]" "$MYPY"
       - name: Mypy (integration, strict)
         run: >-
           mypy --strict --python-version 3.13 --namespace-packages
@@ -260,7 +277,14 @@ jobs:
           # This job still holds no WRITE credential, which is the property that
           # matters: it cannot push anything.
           MIRROR_CI_TOKEN: ${{ secrets.GH_REPO_READ_PAT }}
-        run: bash packaging/check-mirror-ci.sh "${{ github.sha }}"
+        run: |
+          set -euo pipefail
+          # BOTH macOS workflows, not just the formula one. `CI (macOS)` is the only place the
+          # library's own tests run on a Mac, and gating on the formula alone let a release be cut
+          # from a commit whose macOS test suite was red. Named by file: a display name is prose,
+          # and a reworded one would match no runs and read as "not delivered yet".
+          bash packaging/check-mirror-ci.sh "${{ github.sha }}" .github/workflows/formula-macos.yml
+          bash packaging/check-mirror-ci.sh "${{ github.sha }}" .github/workflows/ci-macos.yml
 
   tag:
     name: Authorize and push prerelease tag
@@ -324,5 +348,39 @@ jobs:
         run: |
           set -euo pipefail
           # Only the tag is pushed. The rc commit is reachable from it and from nothing else.
-          git push "https://x-access-token:${TOKEN}@forgejo.bryantserver.com/SisyphusMD/whiskerless.git" \
-            "refs/tags/${TAG}"
+          #
+          # Kept inline rather than calling packaging/push-tag.sh: unlike release.yml's tag job
+          # (hard-refuses non-main dispatches), this workflow is dispatchable from any branch, so
+          # checkout would hand this job that branch's own copy of a script — and this step is the
+          # one place the repo-write PAT reaches shell. It stays text this repo's own workflow
+          # defines at the ref actually running, not something read back off the checkout and handed
+          # a credential.
+          #
+          # An annotated tag object carries the rc message and dates; a lightweight ref would let a
+          # later force-push retarget the version silently.
+          [ "$(git cat-file -t "refs/tags/$TAG")" = tag ]
+          [ "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)" ]
+          test -z "$(git status --porcelain)"
+          # Header rather than a credential in the remote URL: git echoes the remote back in its
+          # progress and error output, and a PAT embedded there lands in the job log.
+          #
+          # And an EXPLICIT destination rather than `origin`. This workflow is dispatchable from any
+          # branch, and the steps above ran that branch's next-version.sh and stamp-version.py — so
+          # `origin` is a value branch-supplied code had the opportunity to repoint, and pushing to
+          # it would hand a repo-write PAT to whatever host it now names. These two variables come
+          # from the runner, not from the checkout.
+          AUTH_B64=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
+          git -c "http.extraheader=Authorization: Basic ${AUTH_B64}" \
+            push "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$TAG"
+
+      - name: Force the push-mirrors to propagate the tag now (GitHub + NAS)
+        env:
+          TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+        run: |
+          set -euo pipefail
+          # Best-effort: sync-on-commit propagates tag pushes immediately in practice, and this
+          # endpoint needs more than the PAT's write:repository scope (403 otherwise). Warn-only so
+          # a scope refusal never fails a release whose tag already fanned out.
+          curl -fsS -X POST -H "Authorization: token ${TOKEN}" \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/push_mirrors-sync" \
+            || echo "::warning::push_mirrors-sync refused (PAT scope); relying on sync_on_commit"

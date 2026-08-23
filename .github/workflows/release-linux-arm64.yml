@@ -1,0 +1,131 @@
+name: Release (Linux arm64)
+
+# arm64 Linux artifacts, built NATIVELY. Architecture decides the forge in this project: amd64 on
+# the self-hosted Forgejo runner, arm64 and macOS here, and nothing anywhere is emulated.
+#
+# What emulation cost, for the record: buildkit runs an emulated guest binary through an injected
+# emulator, so a onefile app's parent process is /dev/.buildkit_qemu_emulator rather than the app.
+# PyInstaller 6.22.1 added a parent-executable check, and every emulated arm64 self-test and
+# package smoke started failing — it cost this project's rc.18 Linux assets and the sibling's
+# rc.13. The pin that works around it can be lifted once a candidate proves this path.
+#
+# APPENDS to the release Forgejo already created, exactly as release-macos.yml does. It does not
+# create one: Forgejo publishes amd64 immediately, and these arrive after. A failure here leaves a
+# release missing its arm64 assets — which reconcile repairs on the next release and prune-rcs
+# refuses to prune around — rather than blocking the release outright.
+
+on:
+  push:
+    tags: ["v*.*.*", "v*.*.*-*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build arm64 artifacts for, e.g. v0.2.0-rc.36"
+        required: true
+        type: string
+
+# github-release.sh creates the release when it is missing and uploads assets to it, so
+# `contents: read` would 403 on both — the same write the .pkg and bottle publishers need.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build + publish arm64 ${{ inputs.tag || github.ref_name }}
+    # Forgejo reads .github/workflows too, and has no arm64 runner — it would queue forever.
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-24.04-arm
+    # The signing key is reachable only from this job. Each forge holds the signing material for
+    # what it builds — the Apple identity for the .pkg lives here on the same principle.
+    environment:
+      name: linux-signing
+    env:
+      # The tag reaches every `run:` below as an ENVIRONMENT VALUE, never as `${{ }}` inside the
+      # script. Actions substitutes an expression into the script TEXT before any shell parses it,
+      # so a tag is not data there — it is source. Git allows quotes, semicolons and backticks in a
+      # ref name, and `v1.2.3";id;"` matches this workflow's own `v*.*.*` trigger, so the tag that
+      # runs here can be chosen by whoever can push one. That script would execute with the package
+      # signing key in scope. As `$TAG` it is a string, and the quoting is the shell's problem.
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      # `refs/tags/` is not decoration. This job runs with the signing key in scope, and the
+      # dispatch input is a free-text ref — a branch name would check out that branch's copy of
+      # build-linux-arch.sh and run it with the key in the environment. Resolving only under
+      # refs/tags/ means a dispatch can rebuild an existing tag and nothing else: no such ref
+      # exists for a branch, so the checkout fails instead of executing it. release-macos.yml,
+      # which holds the Apple identity, avoids the question by having no dispatch at all.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+
+      # The same tag grammar every other release step enforces, before anything reads the key.
+      # A tag can be named freely even though it cannot be a branch, and this job should build
+      # only things that are actually releases.
+      - name: Validate the tag before the signing key comes into scope
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          . packaging/release-common.sh
+          rel_validate_tag "$TAG"
+
+      # build-linux-arch.sh exports the binary with `--output type=local`, which the default
+      # docker driver does not support — only the docker-container one this installs. No registry
+      # mirror here: that mirror is on our network, not this one.
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build the arm64 binary, package it, and prove the package carries it
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          # The same pins the amd64 half uses, from the same file, sourced by the script itself.
+          bash packaging/build-linux-arch.sh arm64 "$TAG"
+
+      - name: Append the arm64 assets to the GitHub + public-Forgejo releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          chmod +x packaging/github-release.sh packaging/forgejo-release.sh packaging/changelog-section.sh
+          bash packaging/changelog-section.sh "${TAG#v}" > notes.md
+          # BEFORE anything that can create the release. This workflow is triggered by the
+          # mirrored tag independently of Forgejo's publish.yml, and github-release.sh creates
+          # the release when it is missing — so publishing here first would let HACS advertise
+          # a version whose pinned library is not yet installable. Same wait release-macos.yml
+          # makes, for the same reason.
+          bash packaging/wait-for-pypi.sh "${TAG#v}"
+          # This half's checksums, hashed on the machine that built the bytes. Named for `uname -m`,
+          # which prints aarch64 here — the arm64 spelling in the artifact names is Debian's, not
+          # the kernel's, and the point of the name is that `sha256sum -c --ignore-missing
+          # SHA256SUMS-$(uname -m)` works unedited on the machine doing the verifying.
+          mapfile -t ASSETS < <(ls whiskerless-*-linux-arm64 ./*_arm64.deb ./*.aarch64.rpm)
+          # `ls` failing inside a process substitution cannot fail the step, so a missing artifact
+          # would publish a short asset list and a checksum file to match — a release that looks
+          # healthy and is not. Three is the whole per-arch set: binary, .deb, .rpm.
+          [ "${#ASSETS[@]}" -eq 3 ] || {
+            echo "::error::expected 3 arm64 artifacts, found ${#ASSETS[@]}: ${ASSETS[*]-}" >&2
+            exit 1
+          }
+          sums="SHA256SUMS-aarch64"
+          sha256sum "${ASSETS[@]}" | sed 's| \./| |' > "$sums"
+          # Same dual spelling as the amd64 half: GitHub's asset API rewrites `~` to `.` in the
+          # uploaded filename while Forgejo serves the canonical one, so a `~` artifact is listed
+          # under both names with the same hash and --ignore-missing skips the one you did not get.
+          awk '$2 ~ /~/ { name = $2; gsub(/~/, ".", name); print $1 "  " name }' "$sums" >> "$sums.alt"
+          [ -s "$sums.alt" ] && cat "$sums.alt" >> "$sums"
+          rm -f "$sums.alt"
+          echo "checksums:"; cat "$sums"
+          ASSETS+=("$sums")
+          # Both forges get the same bytes. Attempted independently so one failing does not hide
+          # the other's result, the shape publish.yml uses for the same reason.
+          failed=""
+          packaging/github-release.sh "${{ secrets.GITHUB_TOKEN }}" \
+            "$TAG" notes.md "${ASSETS[@]}" || failed="$failed github.com"
+          packaging/forgejo-release.sh forgejo.bryantserver.com \
+            "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$TAG" notes.md "${ASSETS[@]}" \
+            || failed="$failed forgejo.bryantserver.com"
+          if [ -n "$failed" ]; then
+            echo "::error::arm64 asset publishing failed for:$failed"
+            exit 1
+          fi

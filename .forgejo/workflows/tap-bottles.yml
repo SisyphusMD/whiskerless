@@ -36,6 +36,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # FULL history, because update-tap.sh archives `refs/tags/$TAG` to rebuild the sdist it
+          # compares against PyPI. A shallow checkout of main carries no tag, so the helper falls
+          # back to HEAD — and this workflow is the documented repair path for an OLDER release,
+          # where HEAD is the wrong tree and the byte comparison fails for a reason that has
+          # nothing to do with the release being repaired. The sibling pins it for the same reason.
+          fetch-depth: 0
+          persist-credentials: false
       # Retried in-step: a transient versions-manifest fetch failure took all five CI
       # jobs down together on 2026-08-17, and Forgejo exposes no rerun endpoint, so
       # recovery has to happen inside the job. The guard is `!= 'success'`, not

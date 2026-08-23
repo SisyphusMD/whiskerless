@@ -11,6 +11,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -157,12 +158,18 @@ EXAMPLE_SERIALS = frozenset(
     {
         "LR3C000001", "LR3C123456", "LR4C000000", "LR4C000001",
         "LR4C111111", "LR4C123456", "LR4C222222", "LR4C654321", "LR4C999999",
+        # A model letter this project has never seen, used to prove the scrubber redacts the whole
+        # `LR3/LR4<letter>` shape provisioning accepts and not just the LR4C it happens to know.
+        "LR4D123456",
     }
 )
 #: Every network name the repository is allowed to use as an example.
 EXAMPLE_NETWORKS = frozenset(
     {
         "", "MyIoT", "HomeNet", "Guest", "IoT", "home", "hidden",
+        # Punctuation on purpose: an SSID may contain any octet, and this one proves the scrubber
+        # does not stop at a comma and publish the rest of somebody's network name.
+        "My,Home",
         "Near", "Far", "Cafe", "Seen", "x",
         r"Guest\x1b[31m\nEvil",  # the control-character escaping fixture
     }
@@ -305,48 +312,6 @@ def test_both_formulae_install_the_same_way() -> None:
     assert bodies[0] == bodies[1], "install bodies drifted between the two formulae"
 
 
-# --- workflow YAML that a forge will actually accept ------------------------------
-WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.yml")) + sorted(
-    (REPO / ".forgejo" / "workflows").glob("*.yml")
-)
-
-
-class _NoDuplicates(yaml.SafeLoader):
-    """A loader that refuses duplicate mapping keys.
-
-    `yaml.safe_load` accepts them silently and keeps the last — which is how a
-    workflow with two `name:` keys passed a local "is this valid YAML" check and
-    would have been rejected by GitHub, leaving the release gate polling a run
-    that never existed.
-    """
-
-
-def _no_duplicate_keys(loader: yaml.SafeLoader, node: yaml.MappingNode, deep: bool = False) -> Any:
-    seen = set()
-    for key_node, _ in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        if key in seen:
-            raise AssertionError(f"duplicate key {key!r} at line {key_node.start_mark.line + 1}")
-        seen.add(key)
-    return yaml.SafeLoader.construct_mapping(loader, node, deep)
-
-
-_NoDuplicates.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
-    _no_duplicate_keys,
-)
-
-
-def test_there_are_workflows_to_check() -> None:
-    assert WORKFLOWS
-
-
-@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: f"{p.parent.parent.name}/{p.name}")
-def test_every_workflow_parses_without_duplicate_keys(path: Path) -> None:
-    loaded = yaml.load(path.read_text(encoding="utf-8"), Loader=_NoDuplicates)
-    assert isinstance(loaded, dict) and loaded.get("jobs"), f"{path.name} declares no jobs"
-
-
 # --- the man page cannot silently fall behind the CLI -----------------------------
 def test_the_man_page_documents_every_subcommand() -> None:
     """A man page is only worth shipping if it is true. Adding a subcommand and
@@ -468,11 +433,13 @@ def test_both_install_matrices_record_which_tag_they_tested() -> None:
     unfindable, and the gate blocks a release that is fine."""
     gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
 
-    macos = yaml.safe_load(INSTALL_MATRIX.read_text(encoding="utf-8"))
-    run_name = macos.get("run-name", "")
-    assert run_name.startswith("Install matrix (macOS)"), run_name
+    github = yaml.safe_load(INSTALL_MATRIX.read_text(encoding="utf-8"))
+    run_name = github.get("run-name", "")
+    assert run_name.startswith("Install matrix (macOS + Linux arm64)"), run_name
     assert "inputs.tag" in run_name and "github.ref_name" in run_name, run_name
-    assert "Install matrix (macOS) $TAG" in gate, "the gate stopped matching the macOS run-name"
+    assert "Install matrix (macOS + Linux arm64) $TAG" in gate, (
+        "the gate stopped matching the GitHub run-name"
+    )
 
     linux = yaml.safe_load(INSTALL_MATRIX_LINUX.read_text(encoding="utf-8"))
     assert "run-name" not in linux, "Forgejo ignores run-name; it would be a decoy here"
@@ -484,33 +451,46 @@ def test_both_install_matrices_record_which_tag_they_tested() -> None:
 
 
 def test_a_stable_cut_requires_both_halves_of_the_install_matrix() -> None:
-    """Linux runs on Forgejo and macOS on GitHub, so a gate that asked only one
-    forge would qualify a candidate on half a matrix — the same fail-open as not
-    asking at all."""
+    """Linux amd64 runs on Forgejo, macOS and Linux arm64 on GitHub, so a gate that
+    asked only one forge would qualify a candidate on half a matrix — the same
+    fail-open as not asking at all."""
     gate = (REPO / "packaging" / "check-rc-install-matrix.sh").read_text(encoding="utf-8")
-    assert "api.github.com" in gate, "the gate stopped asking GitHub about the macOS half"
-    assert "forgejo.bryantserver.com" in gate, "the gate stopped asking Forgejo about the Linux half"
+    assert "api.github.com" in gate, "the gate stopped asking GitHub about the macOS + arm64 half"
+    assert "forgejo.bryantserver.com" in gate, "the gate stopped asking Forgejo about the amd64 half"
     # Scoped server-side on both forges. Unscoped, each asks for a page of every
     # run there has ever been and stops containing the one it wants.
-    assert "actions/workflows/install-matrix.yml/runs" in gate, "the macOS query lost its scope"
-    assert "workflow_id=install-matrix.yml" in gate, "the Linux query lost its scope"
+    assert "actions/workflows/install-matrix.yml/runs" in gate, "the GitHub query lost its scope"
+    assert "workflow_id=install-matrix.yml" in gate, "the Forgejo query lost its scope"
+
+
+def test_both_architectures_install_test_the_same_channels() -> None:
+    """One script, two callers, because the amd64 and arm64 halves of the matrix now
+    live in different files on different forges. Inlining either channel list is how
+    an arm64-only packaging break survives a green matrix."""
+    forgejo = (REPO / ".forgejo" / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
+    github = INSTALL_MATRIX.read_text(encoding="utf-8")
+    assert "install-matrix-arch.sh amd64" in forgejo, "the amd64 half stopped using the shared list"
+    assert "install-matrix-arch.sh arm64" in github, "the arm64 half stopped using the shared list"
+    script = (REPO / "packaging" / "install-matrix-arch.sh").read_text(encoding="utf-8")
+    # It refuses to run for an architecture the host is not, so a leg that lands on
+    # the wrong runner fails loudly instead of quietly reporting on an emulator.
+    assert "that would be emulation" in script, "the shared script stopped refusing emulation"
 
 
 def test_every_install_channel_is_actually_run() -> None:
-    """The Dockerfile is the definition and the workflow is the caller. A channel
+    """The Dockerfile is the definition and the shared script is the caller. A channel
     added to one and not the other fails silently in the direction that matters:
     buildx errors on a target that does not exist, but a target nobody builds is
     never tested while still looking like coverage."""
     dockerfile = (REPO / "packaging" / "install-smoke.Dockerfile").read_text(encoding="utf-8")
     defined = set(re.findall(r"^FROM scratch AS ([a-z0-9-]+)-result$", dockerfile, re.M))
     assert defined, "the Dockerfile defines no channels"
-    listed = re.search(
-        r"for channel in ([a-z0-9 -]+); do", INSTALL_MATRIX_LINUX.read_text(encoding="utf-8")
-    )
-    assert listed, "the Linux matrix no longer iterates a channel list"
-    assert set(listed.group(1).split()) == defined, (
-        f"workflow runs {sorted(set(listed.group(1).split()))}, "
-        f"Dockerfile defines {sorted(defined)}"
+    script = (REPO / "packaging" / "install-matrix-arch.sh").read_text(encoding="utf-8")
+    listed = re.search(r"^CHANNELS=\(\n(.*?)^\)$", script, re.M | re.S)
+    assert listed, "install-matrix-arch.sh no longer declares a channel list"
+    channels = set(listed.group(1).split())
+    assert channels == defined, (
+        f"the matrix runs {sorted(channels)}, Dockerfile defines {sorted(defined)}"
     )
 
 
@@ -615,7 +595,7 @@ def test_nothing_renders_a_formula_behind_the_renderers_back() -> None:
 # that host — Forgejo keeps its registry keys in the database, in plaintext.
 REPO_FILES = sorted((REPO / "packaging").glob("*.repo"))
 FORGEJO_REGISTRY_KEY = "/api/packages/SisyphusMD/rpm/repository.key"
-OUR_KEY = "packaging/whiskerless-signing-key.asc"
+OUR_KEY = "packaging/sisyphusmd-signing-key.asc"
 
 
 def test_there_are_repo_files_to_check() -> None:
@@ -624,9 +604,9 @@ def test_there_are_repo_files_to_check() -> None:
 
 OUR_KEY_URL = (
     "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
-    "/raw/branch/main/packaging/whiskerless-signing-key.asc"
+    "/raw/branch/main/packaging/sisyphusmd-signing-key.asc"
 )
-SIGNING_KEY_ID = "4BBACD5A6FF38564"
+SIGNING_KEY_ID = "CCE50015D058E9BF"
 
 
 def _gpgkey_urls(text: str) -> list[str]:
@@ -671,7 +651,7 @@ def test_the_dnf_config_trusts_our_key_alone(path: Path) -> None:
 
 def test_the_pinned_key_is_the_one_this_repository_ships() -> None:
     """The URL could be right while the file behind it is some other key."""
-    key = REPO / "packaging" / "whiskerless-signing-key.asc"
+    key = REPO / "packaging" / "sisyphusmd-signing-key.asc"
     assert key.exists(), "the signing key the .repo files pin is not in the repository"
     if not shutil.which("gpg"):
         pytest.skip("no gpg available to read the key's fingerprint")
@@ -767,17 +747,20 @@ GITHUB_ONLY: dict[tuple[str, str], str] = {
     ("retry-infra-failures.yml", "*"):
         "it re-runs GitHub workflow runs through the GitHub API — nothing to do elsewhere",
     ("bottles.yml", "*"):
-        "arm64_linux has no native arm64 runner here and a bottle is a FROM-SOURCE build "
-        "(~18 min natively), so emulating it is not a trade worth making; the other three "
-        "are built beside it because bottle-block.py refuses a set whose manifests disagree "
-        "on cellar, and one matrix on one forge is how that stays true",
+        "three of the four tags need macOS or native arm64 anyway; x86_64_linux is built "
+        "beside them because bottle-block.py refuses a set whose manifests disagree on "
+        "cellar, and one matrix in one run is how that stays true — splitting this one leg "
+        "across forges would mean collecting manifests across them too",
     ("release-macos.yml", "publish"):
         "it appends the artifacts the macOS jobs produced IN THE SAME RUN; artifacts are "
         "run-scoped, so on another forge there would be nothing to append",
     ("install-matrix.yml", "wait"):
-        "sequences the macOS legs that must run on this forge",
+        "sequences the macOS and native-arm64 legs that must run on this forge",
     ("install-matrix.yml", "summary"):
-        "reports the macOS legs that must run on this forge",
+        "reports the macOS and native-arm64 legs that must run on this forge",
+    ("release-linux-arm64.yml", "build"):
+        "ubuntu-24.04-arm is native arm64, which nothing here has; the alternative is "
+        "the emulation this project removed",
 }
 
 
@@ -818,8 +801,11 @@ def test_there_are_github_jobs_to_check() -> None:
 def test_github_only_runs_what_only_github_can_run() -> None:
     unjustified = []
     for workflow, job_id, labels in _github_jobs():
-        if labels and all(label.startswith("macos") for label in labels):
-            continue  # Forgejo has no macOS runner; nothing else to say.
+        # Architecture decides the forge: macOS and arm64 have no native runner here,
+        # and the alternative to GitHub for either is emulation, which this project
+        # does not do anywhere. Everything else belongs on Forgejo.
+        if labels and all(label.startswith("macos") or label.endswith("-arm") for label in labels):
+            continue
         if (workflow, "*") in GITHUB_ONLY or (workflow, job_id) in GITHUB_ONLY:
             continue
         unjustified.append(f"{workflow}:{job_id} runs on {sorted(labels)}")
@@ -865,3 +851,380 @@ def test_the_manifest_keys_are_ordered_the_way_hassfest_wants() -> None:
     assert keys[:2] == ["domain", "name"], keys[:2]
     assert keys[2:] == sorted(keys[2:]), keys[2:]
 
+
+
+# --- Renovate policy, shared with dreame-valetudo ------------------------------------
+#
+# Both projects automerge patch, minor and digest on green, and both allow a dependency to be held
+# back ONLY when green cannot see the risk. The identical test lives in both repos.
+def test_every_renovate_hold_says_what_CI_cannot_reach() -> None:
+    """A hold must carry its reason, and the only admissible reason is that green says nothing.
+
+    A hold with no stated reason is a chore: it stops a bump for a risk nobody can name, and the
+    person who added it is not the person who has to clear the PR six months later. But a blanket
+    ban is too strong, because some dependencies are genuinely outside what CI can exercise —
+    `bleak` here, `pyusb` in the sibling. No runner has a Bluetooth radio, and the transport is
+    faked at the bleak boundary, so a green run is silent about the code that re-points a robot.
+    Automerging on a signal that cannot see the risk is worse than holding.
+
+    So: hold if you must, but say what CI cannot reach, in `prBodyNotes`, where the reviewer sees it.
+    """
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    undocumented = [
+        rule.get("matchDepNames") or rule.get("matchManagers") or rule.get("description", "?")[:60]
+        for rule in config["packageRules"]
+        if rule.get("automerge") is False and not rule.get("prBodyNotes")
+    ]
+    assert undocumented == [], f"held with no stated reason: {undocumented}"
+
+
+def test_the_macos_and_linux_releases_freeze_with_the_same_toolchain() -> None:
+    """One release, one PyInstaller, one CPython — across two forges and three architectures.
+
+    The Linux pins live in packaging/release-pins.env; the macOS job installs its own, because it
+    builds on a Mac and never sources that file. Nothing structural keeps the two equal, so they
+    drifted: macOS asked for an unpinned `pyinstaller` and a fuzzy `3.14` while Linux pinned exact
+    versions. That means the .pkg and the .deb of the SAME release could be frozen by different
+    versions of the one dependency that has already cost this project a release, silently.
+
+    Renovate holds both under one depName, so they bump in a single PR — this is what makes sure
+    they were equal to begin with. The sibling project pins the same coupling.
+    """
+    pins = (REPO / "packaging" / "release-pins.env").read_text(encoding="utf-8")
+    macos = (REPO / ".github" / "workflows" / "release-macos.yml").read_text(encoding="utf-8")
+
+    linux_pyi = re.search(r'PYINSTALLER="([^"]+)"', pins)
+    macos_pyi = re.search(r"pyinstaller==([0-9][\w.]*)", macos)
+    assert linux_pyi and macos_pyi, "a PyInstaller pin is missing or unrecognisable"
+    assert linux_pyi.group(1) == macos_pyi.group(1), (
+        f"PyInstaller differs: linux {linux_pyi.group(1)}, macOS {macos_pyi.group(1)}"
+    )
+
+    linux_py = re.search(r'PYTHON_VERSION="([^"]+)"', pins)
+    macos_py = re.search(r'python-version: "([^"]+)"', macos)
+    assert linux_py and macos_py, "a CPython pin is missing or unrecognisable"
+    assert linux_py.group(1) == macos_py.group(1), (
+        f"CPython differs: linux {linux_py.group(1)}, macOS {macos_py.group(1)}"
+    )
+    # Exact, not a series: "3.14" resolves to whatever the runner image happens to ship that week.
+    assert macos_py.group(1).count(".") == 2, f"macOS CPython is not exact: {macos_py.group(1)}"
+
+
+def test_no_publish_job_outruns_the_ref_guard() -> None:
+    """publish.yml is dispatchable so a partly-failed release can be finished. The guard job refuses
+    a dispatch whose ref is not a release tag, because "main" would otherwise BE the version:
+    packages named for it, and releases called `main` created on all three registries.
+
+    But several jobs carry `always()` or `!cancelled()` so that one registry failing does not skip
+    the others — and those override a FAILED dependency, not merely an unsuccessful release. A guard
+    that refused the ref therefore stopped nothing: every external-write job downstream still ran.
+    Naming the guard in `needs` is not enough either; the condition has to test its result.
+    """
+    workflow = yaml.safe_load(
+        (REPO / ".forgejo" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    )
+    assert "guard" in workflow["jobs"], "the ref guard is gone"
+    unguarded = []
+    for name, job in workflow["jobs"].items():
+        condition = str(job.get("if") or "")
+        if "always()" not in condition and "cancelled()" not in condition:
+            continue  # the implicit needs-success gate already covers it
+        needs = job.get("needs") or []
+        needs = [needs] if isinstance(needs, str) else list(needs)
+        if "guard" not in needs or "needs.guard.result" not in condition:
+            unguarded.append(name)
+    assert unguarded == [], (
+        "these run even when the guard refused the ref, and write to registries while they do: "
+        f"{unguarded}"
+    )
+
+
+def test_renovate_still_reads_the_pins_after_they_moved() -> None:
+    """The build pins live in `packaging/release-pins.env` because two forges build one
+    release and one file is what keeps their pins equal. Renovate's custom managers are
+    path-scoped, and they were written when those pins were inline in a workflow. A
+    pattern that no longer matches does not fail — it finds nothing, opens no PR, and
+    every pin quietly stops being updated while the config still looks correct.
+
+    Same for `refresh-pins.sh`: it recomputes PYTHON_SHA256, and Renovate runs it as a
+    postUpgradeTask on a branch nobody reads. Pointed at the wrong file it would rewrite
+    a checksum that is not there, and a Python bump would automerge green and break every
+    later release inside linux.Dockerfile.
+    """
+    pins = REPO / "packaging" / "release-pins.env"
+    assert pins.exists(), "the shared build pins are gone"
+    annotated = {
+        line.split("=", 1)[0]
+        for line in pins.read_text(encoding="utf-8").splitlines()
+        if "=" in line and line[:1].isupper()
+    }
+    assert {"PYINSTALLER", "PYTHON_VERSION", "PYTHON_SHA256"} <= annotated, annotated
+
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    managers = config.get("customManagers", [])
+    reaching = [
+        m for m in managers
+        if any("release-pins" in pattern for pattern in m.get("managerFilePatterns", []))
+    ]
+    assert len(reaching) == 2, (
+        "both custom managers must scan release-pins.env — the docker-digest one for the "
+        f"manylinux and nfpm images, the version one for PyInstaller and CPython; {len(reaching)} do"
+    )
+    assert config["postUpgradeTasks"]["fileFilters"] == ["packaging/release-pins.env"], (
+        "refresh-pins.sh rewrites release-pins.env, so that is the file Renovate must keep"
+    )
+    refresh = (REPO / "packaging" / "refresh-pins.sh").read_text(encoding="utf-8")
+    assert "release-pins.env" in refresh, "refresh-pins.sh is still editing the old location"
+
+
+def test_renovate_automerges_patch_minor_and_digest_on_green() -> None:
+    """The same set as the sibling. CI here is the stronger of the two — two suites at a 99% floor,
+    two strict mypy invocations, a 25-channel install matrix, hassfest — so if green is trustworthy
+    anywhere it is trustworthy here. Runtime deps are floors with no rangeStrategy, so a satisfied
+    `>=` bound never moves and what actually lands is the dev toolchain and pinned action SHAs."""
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    blanket = [r for r in config["packageRules"] if r.get("automerge") is True]
+    assert len(blanket) == 1, "more than one blanket automerge rule"
+    assert sorted(blanket[0]["matchUpdateTypes"]) == ["digest", "minor", "patch"]
+
+
+# --- the public surface, and the one consumer that proves it ------------------------
+def test_the_integration_imports_nothing_the_library_does_not_promise() -> None:
+    """The bundled integration is this library's reference consumer, so what it reaches for IS the
+    API whether or not anything says so.
+
+    It was reaching past the declared surface — `devices.litter_robot_4.calibration` and `.derive`
+    were imported by the integration and absent from the device package's `__all__`. That is the
+    quiet failure mode of a compatibility promise: the promise stays small and true while the real
+    consumed surface grows around it, so a "safe" rename breaks a consumer the promise said was not
+    there. Anything the integration needs is public; if that feels like too much to promise, the
+    answer is for the integration to need less, not for the promise to look smaller than reality.
+    """
+    import ast
+
+    # The integration is written for Home Assistant's interpreter (3.13+) and uses PEP 695 syntax —
+    # `type X = ...`, `def f[T]`. This suite also runs on the LIBRARY's 3.11.0 floor, where parsing
+    # that is a SyntaxError in ast itself, not a finding about the code. The floor exists for the
+    # library; the integration has its own 3.13 job and its own mypy invocation.
+    if sys.version_info < (3, 12):
+        pytest.skip("the integration uses PEP 695 syntax, which this interpreter cannot parse")
+
+    core = _module_names(REPO / "src" / "whiskerless" / "__init__.py")
+    device = _module_names(REPO / "src" / "whiskerless" / "devices" / "litter_robot_4" / "__init__.py")
+
+    unpromised: list[str] = []
+    for path in sorted((REPO / "custom_components" / "whiskerless").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not (node.module or "").startswith("whiskerless"):
+                continue
+            parts = node.module.split(".")
+            # `from whiskerless.devices.litter_robot_4.<sub> import X` is reaching into a submodule:
+            # the submodule itself has to be public, and X has to be in ITS __all__.
+            if len(parts) == 4:
+                sub = REPO / "src" / "whiskerless" / "devices" / "litter_robot_4" / f"{parts[3]}.py"
+                if parts[3] not in device:
+                    unpromised.append(f"{path.name}: submodule {parts[3]}")
+                    continue
+                names = _module_names(sub)
+                if not names:
+                    # A module with no `__all__` promises nothing, so skipping it here let every
+                    # import from it pass — the check reported parity while enforcing nothing.
+                    unpromised.append(f"{path.name}: {parts[3]} declares no __all__")
+                    continue
+                unpromised += [
+                    f"{path.name}: {parts[3]}.{a.name}"
+                    for a in node.names
+                    if a.name not in names
+                ]
+            elif node.module == "whiskerless":
+                unpromised += [f"{path.name}: {a.name}" for a in node.names if a.name not in core]
+            elif node.module == "whiskerless.devices.litter_robot_4":
+                unpromised += [f"{path.name}: {a.name}" for a in node.names if a.name not in device]
+            else:
+                # Everything else under `whiskerless.` is INTERNAL, per CONTRIBUTING.md. Falling
+                # through silently meant `from whiskerless.safety import assert_sendable` passed
+                # this check entirely, so moving `safety` could have broken the published-library
+                # consumer with nothing in CI noticing.
+                unpromised.append(f"{path.name}: {node.module} is an internal module")
+
+    assert unpromised == [], "the integration imports names the library does not promise:\n  " + "\n  ".join(unpromised)
+
+
+def _module_names(path: Path) -> set[str]:
+    """The names a module declares in `__all__`, or an empty set if it declares none."""
+    import ast
+
+    if not path.exists():
+        return set()
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+        ):
+            return {e.value for e in node.value.elts if isinstance(e, ast.Constant)}  # type: ignore[attr-defined]
+    return set()
+
+
+def test_the_infra_retry_watches_every_github_workflow() -> None:
+    """A runner fault is not selective about which workflow it lands on, so a partial watch list is
+    just an undetected flake somewhere else. This started at three of seven — missing the bottle
+    build and the install matrix, which are the longest-running and most exposed of the lot."""
+    retry = REPO / ".github" / "workflows" / "retry-infra-failures.yml"
+    watched = set(yaml.safe_load(retry.read_text(encoding="utf-8"))[True]["workflow_run"]["workflows"])
+    present = {}
+    for path in sorted((REPO / ".github" / "workflows").glob("*.y*ml")):
+        found = re.search(r"^name:\s*(.+)$", path.read_text(encoding="utf-8"), re.M)
+        if found:
+            present[found.group(1).strip()] = path.name
+    # Itself excluded: a retry workflow retrying its own runner failure would recurse.
+    unwatched = {n: f for n, f in present.items() if n not in watched and f != retry.name}
+    assert unwatched == {}, f"GitHub workflows with no infra-retry cover: {unwatched}"
+    assert watched <= set(present), f"watches workflows that do not exist: {watched - set(present)}"
+
+
+def test_the_retired_signing_key_is_referenced_nowhere() -> None:
+    """The key migration replaced the uppercase spelling everywhere and missed the lowercase one
+    in two rpm signature assertions, which would have failed the install matrix for every
+    correctly-signed package. Matched case-insensitively so a spelling cannot hide again."""
+    # Assembled rather than written out, or this test is itself an offender.
+    retired = "4bbacd5a" + "6ff38564"
+    listed = subprocess.run(
+        ["git", "-C", str(REPO), "ls-files", "-co", "--exclude-standard"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    offenders = []
+    for name in listed:
+        path = REPO / name
+        if not path.is_file() or path.suffix in {".asc", ".png", ".gz"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        # The CHANGELOG legitimately records the migration itself.
+        if retired in text.lower() and name not in {"CHANGELOG.md", "docs/backlog.md"}:
+            offenders.append(name)
+    assert offenders == [], f"retired signing key still referenced: {offenders}"
+
+
+def test_the_retired_key_path_still_serves_the_current_key() -> None:
+    """`packaging/whiskerless-signing-key.asc` is kept as a byte-identical copy of the namespace
+    key, and must not be deleted.
+
+    Two 0.2.0 release candidates shipped a `whiskerless.repo` whose `gpgkey=` names that URL. A
+    machine configured from one of them never rereads the file in this repository — it has its own
+    copy under /etc/yum.repos.d — so deleting the key it points at leaves dnf unable to import the
+    key the new packages are signed with, and that machine cannot upgrade at all.
+    """
+    legacy = REPO / "packaging" / "whiskerless-signing-key.asc"
+    current = REPO / "packaging" / "sisyphusmd-signing-key.asc"
+    assert legacy.exists(), "a machine configured from a 0.2.0 rc fetches this exact path"
+    assert legacy.read_bytes() == current.read_bytes()
+
+
+def test_the_pinned_standard_version_matches_what_is_actually_vendored() -> None:
+    """Renovate bumps the pin. It does not re-vendor the files.
+
+    The pin in `packaging/release-pins.env` records which standard this repo SHOULD carry;
+    `STANDARD.lock` records which one it actually does. Nothing else compares them, and a bumped pin
+    whose files were never re-synced leaves this repo green while running a different standard than
+    it claims — the drift the lock exists to prevent, arriving through the one door the lock does not
+    watch, since every vendored file still matches the older lock perfectly.
+
+    The pin omits the leading `v` the tag carries, because the shared Renovate matchString requires a
+    digit first and a `v`-prefixed value matches nothing at all, silently.
+    """
+    pins = (REPO / "packaging" / "release-pins.env").read_text(encoding="utf-8")
+    found = re.search(r'^PROJECT_STANDARD="([^"]+)"', pins, re.M)
+    assert found, "packaging/release-pins.env does not pin PROJECT_STANDARD"
+    pinned = found.group(1)
+    assert not pinned.startswith("v"), f"the pin carries a leading v, which Renovate will not match: {pinned}"
+
+    lock = json.loads((REPO / "STANDARD.lock").read_text(encoding="utf-8"))
+    assert lock["source_tag"] == f"v{pinned}", (
+        f"pinned v{pinned}, but the vendored files come from {lock['source_tag']} — "
+        "re-vendor from the pinned tag and land both together"
+    )
+
+
+def test_every_hold_survives_rule_ordering() -> None:
+    """Renovate applies every matching packageRule in order, and the LAST one to set a field wins.
+
+    So a hold placed ABOVE the broad patch/minor/digest automerge rule is silently undone by it: the
+    config still reads as a hold, review still looks required, and the dependency automerges anyway.
+    Position is not the property, so this resolves the rules the way Renovate does and asserts the
+    value that actually results — for every held dependency, not just the newest one.
+    """
+    rules = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))["packageRules"]
+
+    def resolved(dep: str, update_type: str) -> object:
+        value: object = None
+        for rule in rules:
+            names = rule.get("matchDepNames") or rule.get("matchPackageNames")
+            if names is not None and dep not in names:
+                continue
+            types = rule.get("matchUpdateTypes")
+            if types is not None and update_type not in types:
+                continue
+            if "automerge" in rule:
+                value = rule["automerge"]
+        return value
+
+    held = sorted({
+        dep
+        for rule in rules
+        if rule.get("automerge") is False
+        for dep in (rule.get("matchDepNames") or rule.get("matchPackageNames") or [])
+    })
+    assert held, "no held dependencies found; this invariant would assert nothing"
+    for dep in held:
+        for update_type in ("patch", "minor", "digest"):
+            assert resolved(dep, update_type) is False, (
+                f"{dep} is written as a hold but resolves to automerge on {update_type}: "
+                "its rule sits above the broad automerge rule, which overrides it"
+            )
+
+
+def test_renovate_never_edits_a_vendored_file() -> None:
+    """A vendored file is owned by the standard, and editing it in place breaks STANDARD.lock.
+
+    Renovate does not know that. Pointed at a locked path that carries a `# renovate:` annotation it
+    opens a perfectly reasonable pin bump — and that PR then fails this repo's own drift check,
+    because the file no longer matches the lock it was vendored under. The bump has to originate in
+    the standard and arrive here as a re-vendor, so no manager may scan a locked path at all.
+    """
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    vendored = set(json.loads((REPO / "STANDARD.lock").read_text(encoding="utf-8"))["files"])
+    assert vendored, "no vendored files recorded; this invariant would assert nothing"
+
+    scanned = [
+        (index, path)
+        for index, manager in enumerate(config.get("customManagers", []))
+        for pattern in manager.get("managerFilePatterns", [])
+        for path in sorted(vendored)
+        if re.search(pattern.strip("/"), path)
+    ]
+    assert not scanned, (
+        f"customManagers scan vendored files, whose bumps would fail the drift check: {scanned}"
+    )
+
+
+def test_the_inline_shellcheck_pin_matches_the_vendored_script() -> None:
+    """Two copies of one pin, and they have to move together.
+
+    `packaging/shellcheck-all.sh` is vendored, and the fork-PR workflow deliberately does NOT call
+    it: that job runs on untrusted refs, where `actions/checkout` puts a FORK's copy of the script in
+    the workspace, so the command has to be text this repo defines. The cost of that safety is a
+    second copy of the image pin, which silently rots unless something compares them — a fork PR then
+    qualifies against a different shellcheck than every other gate.
+    """
+    workflow = (REPO / ".github" / "workflows" / "ci-pr.yml").read_text(encoding="utf-8")
+    script = (REPO / "packaging" / "shellcheck-all.sh").read_text(encoding="utf-8")
+
+    found = re.search(r'SHELLCHECK="([^"]+)"', script)
+    assert found, "packaging/shellcheck-all.sh no longer pins SHELLCHECK"
+    assert f'SHELLCHECK="{found.group(1)}"' in workflow, (
+        "the fork-PR workflow pins a different shellcheck image than the vendored script; "
+        "the pin is owned by the standard, so re-vendor and update both copies together"
+    )

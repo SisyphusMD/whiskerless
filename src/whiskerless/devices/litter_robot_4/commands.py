@@ -3,7 +3,7 @@
 Each builder returns a :class:`Command` carrying the encoded wire string, its
 safety :class:`~whiskerless.safety.Hazard`, and — for settings writes — the
 register/value to read back afterward (the firmware commits some writes with
-variable latency, so callers verify and retry; see ``protocol.write_setting``).
+variable latency, so callers verify and retry).
 
 Clean cycle, panel reset and the empty cycle are exposed as synthesised panel
 button presses on register ``0x01``. A write there reproduces the exact code the
@@ -19,6 +19,38 @@ from dataclasses import dataclass
 from ...safety import Hazard, classify_code
 from . import const
 from .codec import encode_read, encode_write
+
+"""Every command this module promises. A caller outside the library — the Home Assistant
+integration above all — may import these and nothing else; a name absent here is free to be
+renamed or removed in a patch release."""
+__all__ = [
+    "Command",
+    "clean_cycle",
+    "empty_cycle",
+    "is_edge_triggered",
+    "panel_reset",
+    "power_toggle",
+    "read_register",
+    "report_schedule",
+    "report_tof",
+    "report_version",
+    "report_wifi_event",
+    "request_state",
+    "set_clean_cycle_wait_minutes",
+    "set_keypad_lockout",
+    "set_night_light_brightness",
+    "set_night_light_mode",
+    "set_panel_brightness",
+    "set_panel_sleep_mode",
+    "set_panel_sleep_time",
+    "set_panel_sleep_times",
+    "set_panel_wake_time",
+    "set_panel_wake_times",
+    "set_weekday_sleep_enabled",
+    "set_weekday_sleep_time",
+    "set_weekday_wake_time",
+    "wifi_toggle",
+]
 
 
 @dataclass(frozen=True, slots=True)

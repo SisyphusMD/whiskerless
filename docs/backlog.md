@@ -20,6 +20,14 @@ marker, and #64 read as open for four days after it shipped.
 - ~~**#79**~~ — closed: decoded, the CLI qualifies the drawer line, and the HA sensor
   keeps its value while carrying a `level_provisional` attribute.
 - **#68** — the hopper gauge under-reports.
+- **#83** / **#84** — pre-release text cleanups: remove `diagnose`, and delete the
+  false "only advertises while you hold" instruction wherever it is repeated.
+- **#85** — multi-robot CLI: no picker when several are saved, and ten of the twelve
+  robot commands never say which robot they acted on.
+- **#86** — naming a robot: stored and printed already, but never offered, no `rename`,
+  and `--serial` will not take the name. Do it with #85.
+- **#87** — README (and the CLI banner it copies) speaks as "we/our"; make it
+  impersonal without strengthening the n=1 pairing-mode claim.
 - **#82** — hidden-SSID joining is asserted in a comment and has never been tested on
   hardware.
 - **#81** — "Replace Filter" is the only Whisker-app control with no equivalent here,
@@ -70,14 +78,18 @@ signature would sit unverified unless a user manually imported a key. macOS is
 not the counterexample it appears to be: notarization is not a practice we
 followed, it is Gatekeeper refusing to run the thing otherwise.
 
-So `publish.yml` now ships a **`SHA256SUMS`** covering every Linux artifact,
-which closes the real gap ("did this arrive intact") with no key to hold, rotate
-or revoke. Its limit is stated in the workflow: served from the same host as the
-artifacts, it proves integrity and not authenticity.
+So each release now ships **`SHA256SUMS-x86_64`** and **`SHA256SUMS-aarch64`**
+covering the Linux artifacts, which closes the real gap ("did this arrive
+intact") with no key to hold, rotate or revoke. One file per architecture because
+each is written by the forge that built those bytes and published assets are
+immutable; they are named for `uname -m` so `sha256sum -c --ignore-missing
+SHA256SUMS-$(uname -m)` needs no editing. Their limit is stated in the workflow:
+served from the same host as the artifacts, they prove integrity and not
+authenticity.
 
 **Then the condition it named came true.** The repositories in #77 are exactly
 the "something verifies it automatically" case, so the packages are now signed
-with `4BBACD5A6FF38564` as well. On dnf that signature is what `gpgcheck` checks
+with `CCE50015D058E9BF` as well. On dnf that signature is what `gpgcheck` checks
 on every install; on apt it stays belt-and-braces, since apt authenticates the
 repository index Forgejo signs rather than the `_gpgorigin` member nfpm embeds.
 
@@ -103,6 +115,9 @@ on the public Forgejo release, which has nothing to do with GitHub. `prune-rcs`
 gained `needs: [releases, nas-pkg]` so it cannot prune while this release is
 itself incomplete. The GitHub tag wait went from 10 minutes to 30, since rc.27
 timed out at ten on a tag that arrived shortly after.
+
+(`nas-pkg` is now `nas-bridge`: once arm64 moved to a native GitHub runner it had
+more than the `.pkg` to carry.)
 
 ### #74 — Forgejo has no infra-retry, and no rerun API to fall back on — **CLOSED 2026-08-19: recovery shipped, and the rest rested on a misdiagnosis**
 
@@ -900,7 +915,7 @@ identity write had never gone over BLE to a real LR4 — which is exactly why it
 carried two defects.
 
 **`0.2.0-rc.25` is a burned number — never reuse it.** Its first cut carried a
-real robot serial in `tests/test_profiles.py`, which reached the PyPI sdist
+real robot serial in `tests/test_robot_profiles.py`, which reached the PyPI sdist
 before it was caught. PyPI has no delete API and never permits re-uploading a
 version, so `whiskerless==0.2.0rc25` is permanently the contaminated artifact.
 
@@ -1339,6 +1354,262 @@ Cheap alternative if a hidden test network is inconvenient: the stock esp-idf
 `prov-config` SetConfig carries only SSID and passphrase, with no "hidden" flag, so
 whether the robot probes actively for a non-broadcast SSID is a firmware question a
 capture of the app onboarding a hidden network would also answer.
+
+---
+
+## Added 2026-08-20
+
+### #83 — Remove `whiskerless diagnose`: its useful verdicts are probably unreachable
+
+**Decided 2026-08-20: take it out before 0.2.0 stable.** It shipped in
+`v0.2.0-rc.35` and should not survive into the release.
+
+The command reads the robot's WiFi status over BLE so that "blinking blue" becomes an
+answer. Two problems, and the second is fatal:
+
+1. **Its useful outputs duplicate `provision`.** `_verify_wifi` already raises on
+   `AUTH_ERROR` ("almost always a mistyped WiFi password") and `NETWORK_NOT_FOUND`
+   by name, at the moment those verdicts mean something — right after credentials
+   are supplied and the robot attempts a join.
+2. **Those verdicts are probably unreachable from `diagnose` at all.** Reaching the
+   robot needs pairing mode, and pairing mode wipes the saved credentials and holds
+   the station down (#80). A robot in that state has nothing to fail *against*, so
+   there may be no `fail_reason` to report. **This was never tested** — the command
+   was built and documented without checking that its advertised outputs can occur.
+
+So it is a command that strands a robot (#80) to report, most likely, that the robot
+is in the state the command itself caused.
+
+**If anyone wants to save it instead**, the gate it should have passed first:
+provision deliberately with a wrong passphrase, then run `diagnose` and see whether
+`AUTH_ERROR` still appears. If it does, the command has a real use and only its
+framing needs work. If it does not, remove it.
+
+**What removal touches:** the `diagnose` subcommand and `_cmd_diagnose` in `cli.py`,
+its parser registration, the man-page entry (a repo invariant test requires one per
+subcommand), the README section, the CHANGELOG bullet, and the tests in
+`test_provision.py`, `test_ble_provision.py` and `test_cli_robot_profiles.py`. The library
+functions `diagnose_wifi` / `wifi_diagnosis` in `ble/provision.py` can stay as bench
+tooling or go with it — they are not used elsewhere.
+
+**Do not silently delete the coverage.** The repo holds a 99% floor with zero
+uncovered statements; removing the command removes its tests too, which is fine, but
+`wifi_diagnosis` staying without a caller would not be.
+
+### #84 — The hold instruction states something false, and says it at length
+
+**Reported by the owner 2026-08-20.** The provision prompt tells the operator:
+
+> Hold Connect on the robot now until its light BLINKS YELLOW (about three
+> seconds) — that is pairing mode — and keep holding until the numbered steps
+> below start. It only advertises while you hold, and the link is opened after
+> the scan finds it.
+
+**Everything after "that is pairing mode" is wrong.** The hold is a *transition*:
+about three seconds puts the robot into pairing mode, and it stays there with the
+button released. Nobody has to stand at the robot holding a button through a scan,
+a network list, a prompt and a certificate write. #80 is the same fact from the
+other side — pairing mode does not end on its own, nothing timed it out over half
+an hour, and no button left it.
+
+The shipped text contradicts itself inside one screen: the very next paragraph is
+the banner explaining that the robot **stays** in pairing mode until a provision
+completes, which cannot be true of a mode that ends when a finger lifts.
+
+**The fix is a deletion, not a rewrite.** The whole instruction is: hold Connect
+about three seconds, until the light blinks yellow. Say that and stop — the
+operator does not need the advertising model, and it was wrong anyway.
+
+**Where it is said:**
+
+- `cli.py` — the `provision` hint (the block above), and the `diagnose` hint's
+  "keep holding until the numbered lines below start". The "no LR4 found" error
+  path is already correct and is the wording to match.
+- `README.md` — the transcript reproduces the provision hint verbatim.
+- `CHANGELOG.md` — the 0.2.0 bullet repeats the false rationale ("it only
+  advertises while you hold the button, and the scan was spending that window").
+  Fix the claim; do not delete the entry, the beep correction in it stands.
+- `ble/transport.py` — the comment "the robot only advertises while somebody is
+  holding its button". The `scan()` docstring's "only advertises while it is in
+  **pairing mode**" is correct and stays.
+- `tests/test_ble_transport.py` — two docstrings assert the false version.
+
+**One thing to leave alone while fixing the prose.** `scan()` returning on the
+first answer instead of running its window out is good behaviour and should not
+change; only the reason attached to it is suspect. Its docstring cites a bench
+session that found a robot and then failed to connect "because it had stopped
+advertising" — with pairing mode persistent, that needs some other explanation, or
+was misread at the time. Do not restate that anecdote as fact and do not invent a
+replacement cause; drop the causal clause and keep the behaviour.
+
+### #85 — With two robots saved, most commands neither ask which nor say which — **DONE 2026-08-20**
+
+**Done together, as the entry asked.** `_pick_saved_robot()` offers a numbered list with the
+default marked and the serial shown beside each name; it returns None rather than raising when
+stdin is not a TTY, so scripts and CI keep exactly today's behaviour — the ambiguity error, non-zero,
+no hang. It lives in the CLI layer: `resolve()` still raises, because it is a library call with
+non-CLI callers.
+
+**(b) went further than the entry described.** Announcing before a WRITE was not enough for the four
+commands that ask first — `power`, `wifi-toggle`, `empty-cycle`, `clean-cycle` all confirmed BEFORE
+resolving, so the person typing `yes` was never told which robot they were confirming for. That is
+not informed consent, and `power` is the one where guessing wrong is unrecoverable. All four now
+resolve first and name the robot inside the prompt itself: "Press Power on Upstairs?". This is the
+`monitor` reasoning the entry pointed at, finally extended to its siblings.
+
+**Reported by the owner 2026-08-20**, running `monitor`, `state` and `status` back
+to back on a machine with two robots saved.
+
+**Two halves, and the second is the one with teeth.**
+
+**a) There is no picker, only an error or a silent default.**
+`RobotProfileStore.resolve()` has three outcomes: an explicit `--serial`, the
+default set by `use` (or written automatically at the end of `provision`), or the
+single saved robot. With more than one saved and no default it raises
+"several robots are set up (…) — pick one with `--serial`". Nothing ever offers a
+choice, so the operator is sent away to run another command and start over.
+
+The pattern to copy is already in this file: `_pick_robot()` prints a numbered
+list of advertising robots and reads a selection. The store deserves the same,
+listing serial, name and which one is currently the default.
+
+**b) Only 2 of the 12 robot commands say which robot they acted on.**
+`add_conn()` attaches `--serial` to: `status`, `calibrate`, `panel-reset`,
+`monitor`, `state`, `read`, `set`, `send`, `cycle`, `empty`, `wifi`, `power`.
+Only `monitor` ("monitoring LR4C… for 60s") and `status` (the serial as a header)
+name their target. The other ten are silent — including every command that
+**writes**: `set`, `send`, `cycle`, `empty`, `power`, `panel-reset`, `calibrate`.
+
+So with two robots saved and a default set, `whiskerless power` toggles a robot
+without ever printing which one, and a robot switched off has left the network —
+nothing over MQTT brings it back. The reported case was `state`, which is
+harmless; the same silence on `power` or `empty` is not. `monitor` already carries
+a comment explaining the serial is resolved *before* the banner so it cannot print
+"monitoring None" — that reasoning was never extended to its siblings.
+
+**Design notes for whoever takes it:**
+
+- **Prompt only on a TTY.** Scripts and CI must keep today's behaviour — the
+  ambiguity error, non-zero, no hang. The repo already has this precedent (#63:
+  provision skips its optional prompt when stdin is not a TTY).
+- **A silent default is still worth naming.** Even when `resolve()` picks without
+  ambiguity, the write commands should print the robot they are about to act on.
+  Cheap, and it makes the "wrong robot" mistake visible at the moment it matters.
+- **Do not prompt inside `resolve()`.** It is a library call used by non-CLI
+  callers; the picker belongs in the CLI layer, with `resolve()` still raising.
+
+### #86 — Naming a robot exists in the data model and nowhere in the UX — **DONE 2026-08-20**
+
+**Asked by the owner 2026-08-20**, pointing at `dreame-valetudo` as the sister
+implementation to copy from.
+
+**Done with #85.** All three gaps closed: provisioning now offers a name (TTY only, enter to
+skip), `whiskerless rename [robot] [name]` exists so relabelling no longer means re-provisioning —
+which needs pairing mode, which wipes the robot's saved WiFi — and `--serial` accepts a display name
+as well as a serial. The serial is tried FIRST, so a robot mischievously named after another
+robot's serial cannot shadow the real one.
+
+Kept a label, as the entry required: identity stays the serial for topics, the client-id, the
+certificate CN and the profile directory. `rename` writes only `name`.
+
+**Half of this is already built.** `RobotProfile.name` is stored, `display_name`
+returns "the chosen name, else the serial", and `provision --name Upstairs` writes
+it. `monitor`, `status`, `calibrate`, `robots` and `use` all print `display_name`
+already. What is missing is every way to actually *get* a name in there:
+
+1. **It is never offered.** `--name` is a flag and nothing more; provision never
+   asks. The machinery is there — `_ask()` already prompts with defaults and TTY
+   handling for the broker IP, the SSID and the backup path. `dreame-valetudo`
+   collects the name during onboarding (`phases/recon.py` writes `ctx.pending_name`).
+2. **There is no `rename`.** `_save_profile()` has exactly one caller: provision.
+   So the only supported way to change a robot's label is to re-provision it —
+   which means pairing mode, which wipes the robot's saved WiFi (#80, #84). That
+   is an absurd price for a cosmetic relabel, and nobody will pay it.
+3. **`--serial` takes only a serial.** Name a robot "Upstairs" and you still have
+   to type `LR4C…` to select it. `dreame-valetudo`'s `_resolve_robot()` accepts
+   the folder slug *or* the display name and dies with a list-pointing message on
+   a miss.
+
+**Why this is worth more here than in the sister repo: the serial is the sensitive
+field.** The name is not a privacy risk — it is the privacy *fix*. A serial must
+never reach a commit, a log, an issue, or a pasted terminal; `rc.25` is a
+permanently contaminated PyPI artifact from exactly that, and the history rewrite
+that followed could not reach four copies. Every header the CLI prints today
+prints the serial by default, so every pasted session leaks one. With a name set,
+`display_name` prints "Upstairs" instead and pasted output is safe by default —
+including the per-command "acting on X" line #85 wants to add to the ten silent
+write commands. Note the polarity is opposite to `dreame-valetudo`, where the
+display name is the private field kept out of the anonymous bench slot.
+
+**Do this with #85, not after it.** The picker that #85 asks for is the same code
+path — it should list display names, and `dreame-valetudo`'s `_pick_robot()`
+(numbered list of `display_name()` + a summary line, `die` with usage when stdin
+is not a terminal) is a direct template for both.
+
+**Keep the name a label.** Identity stays the serial: topics, the client-id, the
+certificate CN and the profile directory must not key on it. `dreame-valetudo`
+documents its rename as cosmetic for the same reason — identity lives in `config`
+there, in the serial here — which is what makes renaming safe to offer at all.
+
+### #87 — Drop the first-person voice from the README: it should read as technical, not personal — **DONE 2026-08-20**
+
+**Done in both repos.** Whiskerless went from 13 hits to 3; dreame-valetudo from 4 to 0 (all four
+were in the dnf/signing section, written the same day). The convention is now recorded in
+`project-standard/CONVENTIONS.md` so the next document does not reintroduce it.
+
+The three remaining hits here are deliberate and should stay: they are quoted CLI **output** —
+the menu labels `I already have one — I will give you the files` and `my network is not listed`,
+plus one passage quoting the first of those. That is the program speaking, not the document.
+
+The load-bearing cases were rewritten rather than deleted. "our signing key" became "the SisyphusMD
+signing key": the paragraph exists to distinguish that key from Forgejo's, so a passive or a bare
+noun would have lost the distinction. The pairing-mode note kept its single-trial epistemics —
+"on the unit we tested" became "on the one unit tested", which still says one unit.
+
+**Asked by the owner 2026-08-20.** The README speaks as "we"/"our" in places where a
+reference document should just name the thing. Second person stays — telling the
+reader what *you* do is ordinary technical writing. This is about first person only.
+
+**Where it is, measured — 11 in `README.md`, in two clusters that need opposite
+treatment:**
+
+**a) The packaging/signing section (6 hits) — a clean rewrite, and it fixes an
+ambiguity.** "our signing key", "a package we signed", "adding that key alongside
+ours", "which we deliberately do not ask you to trust". There is a precise noun
+available in every case: the project's signing key, `CCE50015D058E9BF`, the
+whiskerless repository definition. "Ours" versus "Forgejo's" is doing real
+disambiguating work in that passage and a name does it better.
+
+**b) The pairing-mode warning (4 hits) — rewrite carefully or make it worse.**
+"On the unit **we tested**", "no button **we tried** left it", "`whiskerless
+provision` is **ours**". Here the first person is carrying *evidence provenance*:
+n=1, one robot, ESP 1.1.75. Flattening it to "no button leaves it" upgrades a
+single-trial observation into an impersonal law, which is the exact failure this
+project keeps having (see the PROVEN-means-live-tested rule and `safety.py`'s
+docstring on the single-trial reboot). Impersonal phrasing that keeps the hedge:
+"on the one unit tested (ESP 1.1.75)", "no button press found so far leaves it".
+**Do not let the de-personalising edit strengthen a claim.**
+
+**c) Line ~395, `Choose "I already have one"` — leave it alone.** That is a quoted
+menu choice, i.e. the *user's* voice, and it must stay byte-identical to the string
+`setup` actually prints.
+
+**Also in scope, because the same sentence ships in the binary:** `cli.py`'s
+pairing-mode banner prints "On the unit we tested it did not come back on its own"
+and "no button we tried left it" — the README passage is a copy of it. Fix both or
+they diverge. The man page is already clean.
+
+**Boundary to decide before starting.** `docs/` holds ~30 more hits: the
+device-protocol pages under `docs/devices/litter-robot-4/` should get the same
+treatment as reference material, but `docs/backlog.md` (this file) and
+`docs/reverse-engineering.md` are a working log and a narrative — first person
+there marks who observed what, and stripping it costs provenance for no gain.
+Recommendation: README, `cli.py` strings, and the protocol reference pages;
+explicitly not the backlog or the RE story.
+
+**Sibling repo.** `dreame-valetudo`'s README has the same problem at 4 hits.
+Recorded here only — the convergence work across the two repos is being run from
+that side.
 
 ---
 

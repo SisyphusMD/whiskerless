@@ -350,3 +350,64 @@ def test_a_backup_written_to_disk_reads_back(store: Path, tmp_path: Path) -> Non
     path = tmp_path / "out.tar.gz"
     path.write_bytes(backup.create(store))
     assert backup.read(backup.load(path)).robots() == ("LR4C123456",)
+
+
+def _tar_of(members: list[tuple[str, bytes]]) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        for name, data in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+def test_two_members_canonicalising_to_one_name_are_refused() -> None:
+    """`whiskerless/ca.key` and `ca.key` both land on `ca.key`.
+
+    Assigning would keep whichever came last, so which key gets restored would depend on archive
+    order. Refuse rather than pick.
+    """
+    blob = _tar_of([("whiskerless/ca.key", b"REAL"), ("ca.key", b"OTHER")])
+    with pytest.raises(WhiskerlessError, match="two entries"):
+        backup._unpack(blob)
+
+
+def test_an_archive_with_absurdly_many_members_is_refused() -> None:
+    """Total size was capped; member count was not."""
+    with pytest.raises(WhiskerlessError, match="more than"):
+        backup._unpack(_tar_of([(f"whiskerless/f{i}", b"x") for i in range(backup.MAX_MEMBERS + 1)]))
+
+
+def test_an_ordinary_archive_still_unpacks() -> None:
+    assert sorted(backup._unpack(_tar_of([("whiskerless/a", b"1"), ("whiskerless/b", b"2")]))) == [
+        "a",
+        "b",
+    ]
+
+
+def test_the_layout_version_is_read_from_a_json_marker() -> None:
+    """The marker became a JSON object; a parser that only int()s the file reported 0 for every
+    new backup. Not a harmless misreport — 0 is what tells `restore` the archive is not from the
+    future, so a forced restore would move the live store aside and install an unreadable layout
+    before failing."""
+    class _Fake:
+        def text(self, name: str) -> str:
+            # The REAL schema: keyed `layout_version`, and the value is a string. A fix
+            # written against an invented key passed its own invented test.
+            return '{"layout_version": "3"}' if name == ".layout" else ""
+    assert backup.Archive.layout_version(_Fake()) == 3  # type: ignore[arg-type]
+
+
+def test_a_pre_versioning_marker_still_reads_as_its_integer() -> None:
+    class _Old:
+        def text(self, name: str) -> str:
+            return "2" if name == ".layout" else ""
+    assert backup.Archive.layout_version(_Old()) == 2  # type: ignore[arg-type]
+
+
+def test_an_unreadable_marker_is_zero_not_a_crash() -> None:
+    class _Junk:
+        def text(self, name: str) -> str:
+            return "not json either" if name == ".layout" else ""
+    assert backup.Archive.layout_version(_Junk()) == 0  # type: ignore[arg-type]

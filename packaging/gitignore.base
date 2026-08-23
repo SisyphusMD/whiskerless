@@ -1,0 +1,44 @@
+# The floor every SisyphusMD project's .gitignore must contain, checked by
+# packaging/check-gitignore-base.py. Project-specific artifacts go in the project's own
+# .gitignore below its base block — this file is only the shared minimum.
+#
+# Ignore files are NOT a security control. Secrets are kept out by allowlisted build contexts and
+# by not writing them into the tree in the first place. These patterns are the last net, not the
+# first, and they exist because the cost of one slip is unbounded.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments
+.venv*/
+venv/
+
+# Tool caches and coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+
+# Key and certificate material. *.p12 and *.p8 matter for any project that signs or notarises a
+# macOS artifact: an Apple signing certificate and an App Store Connect key are exactly the two
+# files a release engineer ends up with locally, and neither belongs in a repository.
+*.pem
+*.key
+*.p12
+*.p8
+
+# Locally built distributables
+*.deb
+*.rpm
+*.pkg
+*.tar
+*.tar.gz

@@ -1,16 +1,16 @@
-name: Install matrix (Linux)
+name: Install matrix (Linux amd64)
 
-# Installs every LINUX channel we publish, from the PUBLISHED artifacts, and then
-# runs the tool. The macOS half is `.github/workflows/install-matrix.yml`, because
-# Forgejo has no macOS runner; everything here is ours. The rule and its reasoning
-# are in docs/design/ci-split.md, and an invariant test enforces it.
+# Installs every Linux channel we publish ON amd64, from the PUBLISHED artifacts,
+# and then runs the tool. The arm64 and macOS halves are
+# `.github/workflows/install-matrix.yml`, because architecture decides the forge
+# here: this runner is amd64, GitHub has the native arm64 and macOS ones, and
+# nothing is emulated anywhere. The rule and its reasoning are in
+# docs/design/ci-split.md, and an invariant test enforces it.
 #
-# Every channel is a buildx target rather than a `docker run`, for the two reasons
-# publish.yml already hit on this runner: `docker run --platform arm64` dies with
-# `exec format error` because the host has no usable binfmt, and a bind mount of
-# the workspace is invisible to the daemon because the job itself runs in a
-# container. BuildKit carries its own QEMU and streams its context, so both go
-# away. What each channel does lives in packaging/install-smoke.Dockerfile.
+# Every channel is a buildx target rather than a `docker run`, because the job
+# itself runs in a container and a bind mount of the workspace is invisible to the
+# daemon. BuildKit streams its context instead, so there is nothing to mount. What
+# each channel does lives in packaging/install-smoke.Dockerfile.
 #
 # It runs AFTER a release by necessity, so it cannot gate the release it tests.
 # What it gates is the next STABLE cut: release.yml's `candidate-gate` requires
@@ -59,27 +59,16 @@ jobs:
           bash packaging/wait-for-release.sh "$TAG"
 
   linux:
-    name: Linux installs (${{ matrix.arch }})
+    name: Linux installs (x86_64)
     needs: wait
+    # NO QEMU setup, and no arm64 leg: this runner is amd64, the script refuses to
+    # build for anything else, and the arm64 half runs natively on GitHub.
     runs-on: ubuntu-latest
-    strategy:
-      # One architecture failing must not hide the other's result.
-      fail-fast: false
-      matrix:
-        include:
-          - {arch: x86_64, platform: linux/amd64, deb: amd64, rpm: x86_64}
-          - {arch: arm64,  platform: linux/arm64, deb: arm64, rpm: aarch64}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-        with:
-          # The action's own default is tonistiigi/binfmt:latest — the one moving tag left
-          # in this chain, so it is pinned here like every other image.
-          # renovate: datasource=docker depName=tonistiigi/binfmt
-          image: tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           # BuildKit has its own registry client and does not inherit dockerd's mirror.
           buildkitd-config-inline: |
@@ -88,53 +77,13 @@ jobs:
       - name: Install every Linux channel and smoke each one
         env:
           VERSION: ${{ needs.wait.outputs.version }}
-          PLATFORM: ${{ matrix.platform }}
-          ARCH_DEB: ${{ matrix.deb }}
-          ARCH_RPM: ${{ matrix.rpm }}
-          ARCH_BIN: ${{ matrix.arch }}
-        run: |
-          set -uo pipefail
-          # deb/rpm carry the tilde spelling; everything else uses the tag's.
-          PKGVER="${VERSION/-rc./~rc.}"
-          # publish-registry.sh puts a candidate in `testing` and a release in
-          # BOTH, so a stable tag has to be installed from `stable` — testing it
-          # through `testing` would leave the distribution real users are on
-          # unexercised by a matrix that claims to cover every channel.
-          case "$TAG" in
-            *-rc.*) DIST=testing; REPOFILE=whiskerless-testing.repo ;;
-            *)      DIST=stable;  REPOFILE=whiskerless.repo ;;
-          esac
-          echo "installing from the '$DIST' distribution, for $PLATFORM"
-
-          failed=""
-          for channel in deb-file apt-repo rpm-file dnf-repo zypper raw-binary pypi-uvx pipx pip bottle-pour broker provision auth-modes hacs; do
-            echo "──────── $channel"
-            rm -rf "out/$channel"
-            ok=""
-            if docker buildx build --platform "$PLATFORM" \
-                 -f packaging/install-smoke.Dockerfile \
-                 --target "${channel}-result" \
-                 --output "type=local,dest=out/$channel" \
-                 --build-arg V="$VERSION" --build-arg PV="$PKGVER" \
-                 --build-arg DL="$FORGE/SisyphusMD/whiskerless/releases/download/$TAG" \
-                 --build-arg DIST="$DIST" --build-arg REPOFILE="$REPOFILE" \
-                 --build-arg FORGE="$FORGE" \
-                 --build-arg ARCH_DEB="$ARCH_DEB" --build-arg ARCH_RPM="$ARCH_RPM" \
-                 --build-arg ARCH_BIN="$ARCH_BIN" --build-arg TAG="$TAG" .; then
-              # The exported FILE, not merely the exit status: the marker is the
-              # only thing that cannot be produced by a build that did nothing.
-              [ -f "out/$channel/passed" ] && ok=1
-            fi
-            if [ -n "$ok" ]; then echo "  → $channel OK"; else failed="$failed $channel"; fi
-          done
-
-          echo
-          if [ -n "$failed" ]; then echo "::error::Linux channels failed:$failed"; exit 1; fi
-          echo "every Linux channel installed and passed the smoke on $ARCH_BIN"
+        # The channel list lives in the script, not here, so the amd64 and arm64 halves of this
+        # matrix cannot drift apart across two forges.
+        run: bash packaging/install-matrix-arch.sh amd64
 
   summary:
-    name: Every Linux channel installed and ran
+    name: Every Linux amd64 channel installed and ran
     needs: linux
     runs-on: ubuntu-latest
     steps:
-      - run: echo "every Linux channel installed and ran on both architectures"
+      - run: echo "every Linux channel installed and ran on x86_64"

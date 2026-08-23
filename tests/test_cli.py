@@ -10,20 +10,29 @@ straight to a register.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
 
-from whiskerless.cli import _build_setting, _parse_bool, _parse_time, _pick_robot, main
+from whiskerless.cli import (
+    _build_setting,
+    _parse_bool,
+    _parse_int,
+    _parse_time,
+    _pick_robot,
+    _wifi_password,
+    main,
+)
 from whiskerless.devices.litter_robot_4.models import LitterRobot4State
 from whiskerless.devices.litter_robot_4.protocol import (
     ActivityMessage,
     ActivityReading,
     StateMessage,
 )
-from whiskerless.exceptions import WhiskerlessConnectionError
+from whiskerless.exceptions import WhiskerlessConnectionError, WhiskerlessError
 from whiskerless.safety import Hazard, assert_sendable, classify_code
 
 BASE = ["--serial", "LR4C000001"]
@@ -32,9 +41,9 @@ BASE = ["--serial", "LR4C000001"]
 @pytest.fixture(autouse=True)
 def _a_broker_to_talk_to() -> None:
     """The store carries the broker now, so every command needs one on file."""
-    from whiskerless.profiles import Broker, ProfileStore
+    from whiskerless.robot_profiles import Broker, RobotProfileStore
 
-    ProfileStore.from_env().save_broker(Broker(host="192.0.2.10"))
+    RobotProfileStore.from_env().save_broker(Broker(host="192.0.2.10"))
 
 
 class FakeLink:
@@ -216,8 +225,8 @@ def test_the_truthy_spellings_are_all_accepted(value: str) -> None:
     assert _parse_bool(value) is True
 
 
-@pytest.mark.parametrize("value", ["0", "off", "false", "no", ""])
-def test_everything_else_is_false(value: str) -> None:
+@pytest.mark.parametrize("value", ["0", "off", "false", "no"])
+def test_the_falsy_spellings_are_all_accepted(value: str) -> None:
     assert _parse_bool(value) is False
 
 
@@ -424,9 +433,9 @@ def _prov_args(tmp_path: Any) -> list[str]:
     kept waiting for that.
     """
     from whiskerless import pki
-    from whiskerless.profiles import ProfileStore
+    from whiskerless.robot_profiles import RobotProfileStore
 
-    store = ProfileStore.from_env()
+    store = RobotProfileStore.from_env()
     # A real authority, key included: since 0.2.0 every provision issues the robot
     # a certificate, so a store that cannot sign is not a store provision runs on.
     if not store.has_ca():
@@ -530,3 +539,90 @@ def test_state_gives_up_when_the_stream_ends_without_a_document(
     with patch("whiskerless.cli.LitterRobot4Link", _armed()):
         assert _run("state", *BASE, "--timeout", "5") == 1
     capsys.readouterr()
+
+
+# --- input parsing: an unrecognised value must never mean "off" -------------------
+@pytest.mark.parametrize("raw", ["yes", "on", "1", "true", "enabled", "ENABLE", "Y"])
+def test_a_yes_spelling_parses_as_true(raw: str) -> None:
+    assert _parse_bool(raw) is True
+
+
+@pytest.mark.parametrize("raw", ["no", "off", "0", "false", "disabled", "N"])
+def test_a_no_spelling_parses_as_false(raw: str) -> None:
+    assert _parse_bool(raw) is False
+
+
+@pytest.mark.parametrize("raw", ["flase", "maybe", "", "enabledd", "sure"])
+def test_an_unrecognised_boolean_is_refused_not_silently_false(raw: str) -> None:
+    """`set <thing> enabled` used to turn the thing OFF and report success."""
+    with pytest.raises(WhiskerlessError):
+        _parse_bool(raw)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"), [("12", 12), ("0x0a", 10), ("0b101", 5)]
+)
+def test_numbers_parse(raw: str, expected: int) -> None:
+    assert _parse_int(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"), [("7:30", 450), ("90", 90), ("0:00", 0)]
+)
+def test_times_parse(raw: str, expected: int) -> None:
+    assert _parse_time(raw) == expected
+
+
+@pytest.mark.parametrize("bad", ["abc", "", "12x"])
+def test_a_bad_number_reaches_the_error_funnel(bad: str) -> None:
+    """Not a bare ValueError: main() does not catch that, so it reached the user as a traceback."""
+    with pytest.raises(WhiskerlessError):
+        _parse_int(bad)
+
+
+@pytest.mark.parametrize("bad", ["ab:cd", "soon", "7:", ":30"])
+def test_a_bad_time_reaches_the_error_funnel(bad: str) -> None:
+    with pytest.raises(WhiskerlessError):
+        _parse_time(bad)
+
+
+# --- WiFi password: private routes, and the flag says what it costs ------------------
+def test_a_password_file_is_read_and_its_trailing_newline_dropped(tmp_path: Path) -> None:
+    """Only the newline: a trailing space can be a genuine password character."""
+    path = tmp_path / "wifi"
+    path.write_text("hunter2 \n")
+    args = SimpleNamespace(wifi_pass=None, wifi_pass_file=path)
+
+    assert _wifi_password(args) == "hunter2 "
+
+
+def test_the_environment_is_used_when_no_file_is_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WHISKERLESS_WIFI_PASSWORD", "from-env")
+
+    assert _wifi_password(SimpleNamespace(wifi_pass=None, wifi_pass_file=None)) == "from-env"
+
+
+def test_the_file_wins_over_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("WHISKERLESS_WIFI_PASSWORD", "from-env")
+    path = tmp_path / "wifi"
+    path.write_text("from-file\n")
+
+    assert _wifi_password(SimpleNamespace(wifi_pass=None, wifi_pass_file=path)) == "from-file"
+
+
+def test_the_argv_flag_still_works_but_warns_that_ps_can_see_it(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("WHISKERLESS_WIFI_PASSWORD", raising=False)
+
+    assert _wifi_password(SimpleNamespace(wifi_pass="typed", wifi_pass_file=None)) == "typed"
+    assert "ps" in capsys.readouterr().err
+
+
+def test_an_unreadable_password_file_is_a_clean_error_not_a_traceback(tmp_path: Path) -> None:
+    args = SimpleNamespace(wifi_pass=None, wifi_pass_file=tmp_path / "missing")
+
+    with pytest.raises(WhiskerlessError, match="WiFi password file"):
+        _wifi_password(args)

@@ -27,7 +27,7 @@ from homeassistant.helpers import restore_state
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from whiskerless import WhiskerlessError
+from whiskerless import WhiskerlessError, assert_sendable
 from whiskerless.devices.litter_robot_4 import (
     LitterRobot4State,
     commands,
@@ -54,7 +54,6 @@ from whiskerless.devices.litter_robot_4.protocol import (
     build_command_payload,
     parse_message,
 )
-from whiskerless.safety import assert_sendable
 
 from .const import (
     CONF_CAT_VISIT_SEEN,

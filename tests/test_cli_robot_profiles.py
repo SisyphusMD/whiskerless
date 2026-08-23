@@ -10,16 +10,20 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+from dataclasses import replace
+from functools import cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import aiomqtt
 import pytest
 
-from whiskerless.cli import _check_host, _check_ssid, _read_pem, main
-from whiskerless.exceptions import ProfileError, ProvisioningError, WhiskerlessError
-from whiskerless.profiles import AuthMode, Broker, ProfileStore, RobotProfile, Serial
+from whiskerless.cli import _check_host, _check_ssid, _pick_saved_robot, _profile, _read_pem, main
+from whiskerless.cli import _store as cli_store
+from whiskerless.exceptions import ProvisioningError, RobotProfileError, WhiskerlessError
+from whiskerless.robot_profiles import AuthMode, Broker, RobotProfile, RobotProfileStore, Serial
 
 CA = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
 
@@ -39,12 +43,12 @@ def _own_loop(_cli_loop: Any) -> Any:
 
 
 @pytest.fixture
-def store() -> ProfileStore:
+def store() -> RobotProfileStore:
     """The store the CLI will see (conftest points WHISKERLESS_HOME at a tmp dir)."""
-    return ProfileStore.from_env()
+    return RobotProfileStore.from_env()
 
 
-def seed(store: ProfileStore, serial: str = "LR4C123456", **kwargs: object) -> RobotProfile:
+def seed(store: RobotProfileStore, serial: str = "LR4C123456", **kwargs: object) -> RobotProfile:
     """A saved robot, plus the one broker and CA every robot in a store shares."""
     if not store.has_broker():
         store.save_broker(Broker(host="192.0.2.10"))
@@ -71,18 +75,12 @@ def _run_async(coro: Any) -> Any:
         loop.close()
 
 
-_SHARED_CA: Path | None = None
-
-
+@cache
 def _shared_ca_file() -> str:
     """A CA file on disk for helpers that have no tmp_path of their own."""
-    global _SHARED_CA
-    if _SHARED_CA is None:
-        import tempfile
-
-        _SHARED_CA = Path(tempfile.mkdtemp()) / "ca.pem"
-        _SHARED_CA.write_text(CA)
-    return str(_SHARED_CA)
+    path = Path(tempfile.mkdtemp()) / "ca.pem"
+    path.write_text(CA)
+    return str(path)
 
 
 def run(*argv: str, answer: str | None = None) -> int:
@@ -100,7 +98,7 @@ def test_a_bare_command_orients_instead_of_erroring(capsys: pytest.CaptureFixtur
 
 
 def test_a_bare_command_names_the_robots_it_knows(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(store, name="Upstairs")
     assert run() == 0
@@ -121,7 +119,7 @@ def test_robots_says_so_when_there_are_none(capsys: pytest.CaptureFixture[str]) 
 
 
 def test_robots_lists_what_is_saved(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(store, "LR4C123456", name="Upstairs")
     seed(store, "LR4C654321", name="Downstairs")
@@ -131,7 +129,7 @@ def test_robots_lists_what_is_saved(
 
 
 def test_robots_marks_an_unconfirmed_serial(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(store)
     assert run("robots") == 0
@@ -139,14 +137,14 @@ def test_robots_marks_an_unconfirmed_serial(
 
 
 def test_robots_does_not_nag_about_a_confirmed_serial(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     store.save(RobotProfile(serial=Serial("LR4C123456", verified=True)))
     assert run("robots") == 0
     assert "unconfirmed" not in capsys.readouterr().out
 
 
-def test_use_marks_the_default(store: ProfileStore, capsys: pytest.CaptureFixture[str]) -> None:
+def test_use_marks_the_default(store: RobotProfileStore, capsys: pytest.CaptureFixture[str]) -> None:
     seed(store, "LR4C123456", name="Upstairs")
     seed(store, "LR4C654321")
     assert run("use", "LR4C123456") == 0
@@ -160,25 +158,25 @@ def test_use_rejects_a_robot_that_is_not_saved(capsys: pytest.CaptureFixture[str
     assert "no saved profile" in capsys.readouterr().err
 
 
-def test_forget_declined_at_the_prompt_keeps_the_profile(store: ProfileStore) -> None:
+def test_forget_declined_at_the_prompt_keeps_the_profile(store: RobotProfileStore) -> None:
     seed(store)
     assert run("forget", "LR4C123456", answer="no") == 1
-    assert store.list_profiles() != ()
+    assert store.list_robot_profiles() != ()
 
 
-def test_forget_confirmed_removes_it(store: ProfileStore) -> None:
+def test_forget_confirmed_removes_it(store: RobotProfileStore) -> None:
     seed(store)
     assert run("forget", "LR4C123456", answer="yes") == 0
-    assert store.list_profiles() == ()
+    assert store.list_robot_profiles() == ()
 
 
-def test_forget_yes_skips_the_prompt(store: ProfileStore) -> None:
+def test_forget_yes_skips_the_prompt(store: RobotProfileStore) -> None:
     seed(store)
     assert run("forget", "LR4C123456", "--yes") == 0
-    assert store.list_profiles() == ()
+    assert store.list_robot_profiles() == ()
 
 
-def test_forget_says_the_robot_keeps_running(store: ProfileStore) -> None:
+def test_forget_says_the_robot_keeps_running(store: RobotProfileStore) -> None:
     """The word "forget" could easily read as "un-provision"."""
     seed(store)
     with patch("builtins.input", return_value="no") as ask:
@@ -187,7 +185,7 @@ def test_forget_says_the_robot_keeps_running(store: ProfileStore) -> None:
 
 
 def test_robots_shows_a_damaged_profile(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A corrupt entry the listing hides is one the user can never fix."""
     seed(store, "LR4C654321", name="Downstairs")
@@ -199,7 +197,7 @@ def test_robots_shows_a_damaged_profile(
     assert "LR4C123456" in out and "unreadable" in out
 
 
-def test_forget_still_removes_a_damaged_profile(store: ProfileStore) -> None:
+def test_forget_still_removes_a_damaged_profile(store: RobotProfileStore) -> None:
     """A profile too corrupt to load is exactly the one forget must handle."""
     seed(store)
     (store.robots_dir / "LR4C123456" / "profile.json").write_text("{bad", encoding="utf-8")
@@ -214,7 +212,7 @@ def test_forget_of_an_unknown_robot_is_still_an_error(
     assert "no saved profile" in capsys.readouterr().err
 
 
-def test_use_refuses_a_damaged_profile_and_sets_no_default(store: ProfileStore) -> None:
+def test_use_refuses_a_damaged_profile_and_sets_no_default(store: RobotProfileStore) -> None:
     """Pointing every future bare command at an unloadable profile helps nobody."""
     seed(store, "LR4C654321")
     seed(store, "LR4C123456")
@@ -224,7 +222,7 @@ def test_use_refuses_a_damaged_profile_and_sets_no_default(store: ProfileStore) 
 
 
 # --- resolving which robot to act on ------------------------------------------
-def test_a_saved_robot_needs_no_flags_at_all(store: ProfileStore) -> None:
+def test_a_saved_robot_needs_no_flags_at_all(store: RobotProfileStore) -> None:
     seed(store)
     captured: dict[str, Any] = {}
     assert _run_state(captured) == 0
@@ -234,7 +232,7 @@ def test_a_saved_robot_needs_no_flags_at_all(store: ProfileStore) -> None:
     assert captured["settings"].ca_cert_data == store.ca_path.read_text(encoding="utf-8")
 
 
-def test_the_default_decides_when_several_are_saved(store: ProfileStore) -> None:
+def test_the_default_decides_when_several_are_saved(store: RobotProfileStore) -> None:
     seed(store, "LR4C123456")
     seed(store, "LR4C654321")
     store.set_default("LR4C654321")
@@ -243,7 +241,7 @@ def test_the_default_decides_when_several_are_saved(store: ProfileStore) -> None
     assert captured["serial"] == "LR4C654321"
 
 
-def test_an_explicit_serial_wins_over_the_default(store: ProfileStore) -> None:
+def test_an_explicit_serial_wins_over_the_default(store: RobotProfileStore) -> None:
     seed(store, "LR4C123456")
     seed(store, "LR4C654321")
     store.set_default("LR4C654321")
@@ -253,7 +251,7 @@ def test_an_explicit_serial_wins_over_the_default(store: ProfileStore) -> None:
 
 
 def test_ambiguity_names_the_candidates(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(store, "LR4C123456")
     seed(store, "LR4C654321")
@@ -270,7 +268,7 @@ def test_nothing_saved_and_no_flags_points_at_provisioning(
 
 
 # --- flags override, but only where given -------------------------------------
-def test_the_client_id_is_never_the_robots_serial(store: ProfileStore) -> None:
+def test_the_client_id_is_never_the_robots_serial(store: RobotProfileStore) -> None:
     """Claiming the robot's id kicks the robot off its own broker connection."""
     seed(store)
     captured: dict[str, Any] = {}
@@ -279,7 +277,7 @@ def test_the_client_id_is_never_the_robots_serial(store: ProfileStore) -> None:
 
 
 def test_monitor_renders_a_state_document_it_is_pushed(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`monitor` sees both message kinds; only activity had ever been exercised."""
     seed(store)
@@ -289,7 +287,7 @@ def test_monitor_renders_a_state_document_it_is_pushed(
 
 
 def test_monitor_names_the_robot_it_resolved(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """With the serial coming from the store, the banner read "monitoring None"."""
     seed(store, name="Upstairs")
@@ -348,7 +346,7 @@ class _DroppingLink:
 
 
 def test_a_broker_drop_mid_session_is_one_line_not_a_traceback(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The link wraps CONNECT failures; a drop after that surfaced raw."""
     seed(store)
@@ -358,7 +356,7 @@ def test_a_broker_drop_mid_session_is_one_line_not_a_traceback(
 
 
 def test_a_broker_drop_still_traces_back_under_debug(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
+    store: RobotProfileStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed(store)
     monkeypatch.setenv("WHISKERLESS_DEBUG", "1")
@@ -373,27 +371,27 @@ def test_an_unreadable_file_is_reported_not_raised_raw(tmp_path: Path) -> None:
         _read_pem(str(directory))
 
 
-def test_debug_re_raises_so_a_bug_report_has_a_traceback(store: ProfileStore) -> None:
+def test_debug_re_raises_so_a_bug_report_has_a_traceback(store: RobotProfileStore) -> None:
     with pytest.raises(WhiskerlessError):
-        main(["state", "--debug"])  # nothing set up: a ProfileError
+        main(["state", "--debug"])  # nothing set up: a RobotProfileError
 
 
 def test_the_debug_environment_variable_does_the_same(
-    store: ProfileStore, monkeypatch: pytest.MonkeyPatch
+    store: RobotProfileStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("WHISKERLESS_DEBUG", "1")
     with pytest.raises(WhiskerlessError):
         main(["state"])
 
 
-def test_an_os_error_becomes_a_message(store: ProfileStore, capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_os_error_becomes_a_message(store: RobotProfileStore, capsys: pytest.CaptureFixture[str]) -> None:
     seed(store)
     with patch("whiskerless.cli._link", side_effect=OSError(13, "Permission denied")):
         assert run("state") == 1
     assert "Permission denied" in capsys.readouterr().err
 
 
-def test_an_os_error_still_traces_back_under_debug(store: ProfileStore) -> None:
+def test_an_os_error_still_traces_back_under_debug(store: RobotProfileStore) -> None:
     seed(store)
     with (
         patch("whiskerless.cli._link", side_effect=OSError(13, "Permission denied")),
@@ -403,7 +401,7 @@ def test_an_os_error_still_traces_back_under_debug(store: ProfileStore) -> None:
 
 
 def test_an_interrupt_is_reported_as_an_abort(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(store)
     with patch("whiskerless.cli._link", side_effect=KeyboardInterrupt):
@@ -521,7 +519,7 @@ def _run_state(captured: dict[str, Any], *extra: str, _argv: list[str] | None = 
 
 
 def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """provision collects the serial, broker, CA and WiFi — not the name, the
     broker credentials or the port. Writing defaults over those on a
@@ -545,7 +543,7 @@ def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
 
 
 def test_provisioning_saves_a_profile_that_later_commands_find(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _prepared(store)
     ca = tmp_path / "ca.pem"
@@ -566,7 +564,7 @@ def test_provisioning_saves_a_profile_that_later_commands_find(
     assert "saved as Upstairs" in capsys.readouterr().out
 
 
-def test_a_failed_provisioning_saves_nothing(store: ProfileStore, tmp_path: Path) -> None:
+def test_a_failed_provisioning_saves_nothing(store: RobotProfileStore, tmp_path: Path) -> None:
     """A profile claiming a robot is reachable where it is not is worse than none."""
     ca = tmp_path / "ca.pem"
     ca.write_text(CA)
@@ -580,12 +578,12 @@ def test_a_failed_provisioning_saves_nothing(store: ProfileStore, tmp_path: Path
         patch("whiskerless.ble.provision_robot", _fake_provision(success=False)),
     ):
         assert main(argv) == 1
-    with pytest.raises(ProfileError):
+    with pytest.raises(RobotProfileError):
         store.load("LR4C123456")
 
 
 def test_a_dry_run_saves_nothing_and_says_so(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _prepared(store)
     ca = tmp_path / "ca.pem"
@@ -601,12 +599,12 @@ def test_a_dry_run_saves_nothing_and_says_so(
     ):
         assert main(argv) == 0
     assert "DRY RUN" in capsys.readouterr().out
-    with pytest.raises(ProfileError):
+    with pytest.raises(RobotProfileError):
         store.load("LR4C123456")
 
 
 def test_the_first_robot_provisioned_becomes_the_default(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     _prepared(store)
     ca = tmp_path / "ca.pem"
@@ -625,7 +623,7 @@ def test_the_first_robot_provisioned_becomes_the_default(
 
 
 def test_provisioning_a_second_robot_leaves_the_default_alone(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     seed(store, "LR4C654321")
     store.set_default("LR4C654321")
@@ -645,7 +643,7 @@ def test_provisioning_a_second_robot_leaves_the_default_alone(
 
 
 def test_a_store_that_cannot_be_written_does_not_fail_the_provisioning(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The robot is already changed; a convenience file must not undo that verdict."""
     _prepared(store)
@@ -659,7 +657,7 @@ def test_a_store_that_cannot_be_written_does_not_fail_the_provisioning(
         patch("whiskerless.ble.scan", _fake_scan),
         patch("whiskerless.ble.read_device_mac", _fake_mac),
         patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
-        patch.object(ProfileStore, "save", side_effect=OSError(13, "Permission denied")),
+        patch.object(RobotProfileStore, "save", side_effect=OSError(13, "Permission denied")),
     ):
         assert main(argv) == 0
     assert "could not save the profile" in capsys.readouterr().err
@@ -684,7 +682,7 @@ def _provision_answering(answers: list[str], *extra: str) -> tuple[int, list[str
         return main(["provision", "--yes", *extra]), prompts
 
 
-def test_the_wifi_passphrase_is_never_stored(store: ProfileStore) -> None:
+def test_the_wifi_passphrase_is_never_stored(store: RobotProfileStore) -> None:
     """A home WiFi secret is a bigger thing to leave on disk than a broker login."""
     seed(store, "LR4C654321", wifi_ssid="MyIoT")
     assert _provision_answering(["LR4C123456", "", "", ""])[0] == 0
@@ -693,7 +691,7 @@ def test_the_wifi_passphrase_is_never_stored(store: ProfileStore) -> None:
 
 
 def test_an_ssid_is_still_asked_for_when_the_prior_robot_has_none(
-    store: ProfileStore,
+    store: RobotProfileStore,
 ) -> None:
     seed(store, "LR4C654321")  # saved before wifi_ssid was recorded
     code, prompts = _provision_answering(["LR4C123456", "", "", "MyIoT"])
@@ -742,7 +740,7 @@ def _fake_provision(*, success: bool) -> Any:
 
 def _provision_argv(ca: Path, *extra: str) -> list[str]:
     """A provision on a machine that `setup` has already prepared."""
-    store = ProfileStore.from_env()
+    store = RobotProfileStore.from_env()
     if not store.has_broker():
         store.save_broker(Broker(host="192.0.2.10"))
     if not store.has_ca_cert():
@@ -753,7 +751,7 @@ def _provision_argv(ca: Path, *extra: str) -> list[str]:
     ]
 
 
-def _prepared(store: ProfileStore | None = None, *, with_key: bool = True) -> None:
+def _prepared(store: RobotProfileStore | None = None, *, with_key: bool = True) -> None:
     """What `whiskerless setup` leaves behind, without running it.
 
     Always with a key: since 0.2.0 setup cannot finish without one, so a store
@@ -761,7 +759,7 @@ def _prepared(store: ProfileStore | None = None, *, with_key: bool = True) -> No
     """
     from whiskerless import pki
 
-    store = store or ProfileStore.from_env()
+    store = store or RobotProfileStore.from_env()
     if not store.has_broker():
         store.save_broker(Broker(host="192.0.2.10"))
     if not store.has_ca():
@@ -858,7 +856,7 @@ def test_the_list_is_shown_strongest_first(capsys: pytest.CaptureFixture[str]) -
     assert out.index("Near") < out.index("Far")
 
 
-def test_a_named_network_still_gets_its_passphrase_asked_for(store: ProfileStore) -> None:
+def test_a_named_network_still_gets_its_passphrase_asked_for(store: RobotProfileStore) -> None:
     """--wifi-ssid skips the chooser, so the passphrase prompt has to happen up
     front or the robot is provisioned with an empty one."""
     seed(store, "LR4C654321", wifi_ssid="MyIoT")
@@ -918,7 +916,7 @@ def test_an_open_network_is_never_asked_for_a_password() -> None:
 
 
 # --- what the robot gets for an identity --------------------------------------
-def _provision_output(store: ProfileStore, *extra: str) -> str:
+def _provision_output(store: RobotProfileStore, *extra: str) -> str:
     _prepared(store)
     with (
         patch("whiskerless.ble.scan", _fake_scan),
@@ -931,7 +929,7 @@ def _provision_output(store: ProfileStore, *extra: str) -> str:
 
 
 def test_a_ca_we_can_sign_with_means_the_robot_gets_our_identity(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -943,7 +941,7 @@ def test_a_ca_we_can_sign_with_means_the_robot_gets_our_identity(
 
 
 def test_every_robot_gets_an_identity_with_no_way_to_opt_out(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`--no-client-cert` is gone.
 
@@ -976,7 +974,7 @@ def _ca_files(tmp_path: Path, *, with_key: bool = True) -> tuple[str, str | None
     return str(cert), str(key)
 
 
-def _first_run(store: ProfileStore, answers: list[str], *extra: str) -> None:
+def _first_run(store: RobotProfileStore, answers: list[str], *extra: str) -> None:
     """Interactive `setup`, then a provision — the order a first-time user takes."""
     it = iter(answers)
     with (
@@ -986,7 +984,7 @@ def _first_run(store: ProfileStore, answers: list[str], *extra: str) -> None:
         patch("whiskerless.cli.getpass.getpass", return_value="pw"),
     ):
         main(["setup", "--host", "192.0.2.10", *extra])
-    if not ProfileStore.from_env().has_ca_cert():
+    if not RobotProfileStore.from_env().has_ca_cert():
         return  # setup declined or failed; nothing to provision onto
     with (
         patch("whiskerless.ble.scan", _fake_scan),
@@ -998,7 +996,7 @@ def _first_run(store: ProfileStore, answers: list[str], *extra: str) -> None:
 
 
 def test_a_fresh_machine_is_offered_a_certificate_authority(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Enter generates everything: a first-time user should not have to learn
     openssl before their litter box works."""
@@ -1012,7 +1010,7 @@ def test_a_fresh_machine_is_offered_a_certificate_authority(
 
 
 def test_the_certificate_authority_is_generated_once(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Regenerating would strand every robot provisioned to trust the old one."""
     _first_run(store, [""])
@@ -1024,7 +1022,7 @@ def test_the_certificate_authority_is_generated_once(
 
 
 def test_a_supplied_ca_and_key_are_copied_into_the_store(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """Copied, not remembered by path: a path breaks when the USB stick comes out."""
     cert, key = _ca_files(tmp_path)
@@ -1034,7 +1032,7 @@ def test_a_supplied_ca_and_key_are_copied_into_the_store(
 
 
 def test_importing_a_ca_requires_its_key(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """A certificate with no key stopped being a resting state in 0.2.0.
 
@@ -1065,7 +1063,7 @@ def test_importing_a_ca_requires_its_key(
 
 
 def test_a_bare_ca_flag_says_the_key_is_needed_too(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """--ca alone used to establish a trust-only store. It now names the flag
     that finishes the job, rather than half-configuring the machine."""
@@ -1076,7 +1074,7 @@ def test_a_bare_ca_flag_says_the_key_is_needed_too(
 
 
 def test_a_server_certificate_is_missing_a_ca_and_says_so(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The "I gave you my server cert" mistake, caught at the prompt rather than
     as an unexplained TLS failure weeks later."""
@@ -1092,7 +1090,7 @@ def test_a_server_certificate_is_missing_a_ca_and_says_so(
 
 
 def test_a_path_that_is_not_there_is_caught_at_the_prompt(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cert, key = _ca_files(tmp_path)
     _first_run(store, ["2", str(tmp_path / "nope.crt"), cert, key])
@@ -1100,7 +1098,7 @@ def test_a_path_that_is_not_there_is_caught_at_the_prompt(
 
 
 def test_an_unattended_run_with_no_ca_at_all_explains_the_flags(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A cron job gets a sentence about --ca, not an EOF on a prompt."""
     with (
@@ -1113,7 +1111,7 @@ def test_an_unattended_run_with_no_ca_at_all_explains_the_flags(
     assert "--ca" in err and "run this in a terminal" in err
 
 
-def test_the_issued_certificate_serial_is_recorded(store: ProfileStore) -> None:
+def test_the_issued_certificate_serial_is_recorded(store: RobotProfileStore) -> None:
     """The only trace kept of a robot's certificate, and it is not secret."""
     _first_run(store, [""])
     assert store.load("LR4C123456").cert_serial
@@ -1124,7 +1122,7 @@ def _setup_run(*extra: str) -> int:
     return main(["setup", "--host", "192.0.2.10", *extra])
 
 
-def _flag_run(store: ProfileStore, *setup_flags: str, provision: tuple[str, ...] = ()) -> int:
+def _flag_run(store: RobotProfileStore, *setup_flags: str, provision: tuple[str, ...] = ()) -> int:
     """`setup` with these flags, then a provision onto the machine it prepared.
 
     Two commands on purpose: between generating certificates and a robot being
@@ -1144,7 +1142,7 @@ def _flag_run(store: ProfileStore, *setup_flags: str, provision: tuple[str, ...]
 
 
 def test_a_ca_supplied_by_flag_is_copied_and_can_issue(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     cert, key = _ca_files(tmp_path)
     assert _flag_run(store, "--ca", cert, "--ca-key", key) == 0
@@ -1153,7 +1151,7 @@ def test_a_ca_supplied_by_flag_is_copied_and_can_issue(
 
 
 def test_a_lone_ca_is_refused_even_when_the_store_already_has_one(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Ignoring the file and reporting success is how somebody believes they
     switched authorities while every robot still trusts the old one."""
@@ -1167,7 +1165,7 @@ def test_a_lone_ca_is_refused_even_when_the_store_already_has_one(
 
 
 def test_a_ca_key_without_its_certificate_says_why_both_are_needed(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _cert, key = _ca_files(tmp_path)
     assert _flag_run(store, "--ca-key", key) == 1
@@ -1175,7 +1173,7 @@ def test_a_ca_key_without_its_certificate_says_why_both_are_needed(
 
 
 def test_a_client_certificate_can_be_supplied_by_flag(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """For somebody who mints this machine's identity themselves — from the same
     CA, but somewhere else — rather than letting the store issue it."""
@@ -1194,7 +1192,7 @@ def test_a_client_certificate_can_be_supplied_by_flag(
 
 
 def test_half_a_client_identity_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cert, _key = _ca_files(tmp_path, with_key=False)
     assert _flag_run(store, "--ca", cert, "--client-cert", cert) == 1
@@ -1202,7 +1200,7 @@ def test_half_a_client_identity_is_refused(
 
 
 def test_an_expired_ca_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     import datetime as dt
 
@@ -1231,7 +1229,7 @@ def test_an_expired_ca_is_refused(
 
 
 def test_a_ca_without_key_usage_warns_about_the_failure_it_will_cause(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """It works for the robot and then breaks our own CLI on Python 3.13 — the
     worst possible split, and worth naming before it happens."""
@@ -1266,7 +1264,7 @@ def test_a_ca_without_key_usage_warns_about_the_failure_it_will_cause(
 
 
 def test_input_ending_at_the_authority_question_names_the_flags(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A pipe that reaches the question gets a sentence, not a traceback."""
     with (
@@ -1281,7 +1279,7 @@ def test_input_ending_at_the_authority_question_names_the_flags(
 
 
 def test_a_certificate_with_no_constraints_at_all_is_not_a_ca(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Older self-signed certificates often carry no basicConstraints extension;
     absent is not the same as CA:TRUE."""
@@ -1314,7 +1312,7 @@ def test_a_certificate_with_no_constraints_at_all_is_not_a_ca(
 
 
 def test_a_different_ca_is_refused_rather_than_swapped_in(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Replacing it leaves every provisioned robot trusting a certificate the
     broker no longer presents, and each rescue is a walk to the robot."""
@@ -1330,7 +1328,7 @@ def test_a_different_ca_is_refused_rather_than_swapped_in(
 
 
 def test_the_same_ca_supplied_again_is_not_treated_as_a_swap(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """Re-running with the same files is idempotent, not an error."""
     cert, key = _ca_files(tmp_path)
@@ -1339,7 +1337,7 @@ def test_the_same_ca_supplied_again_is_not_treated_as_a_swap(
 
 
 def test_an_imported_ca_also_gives_this_machine_an_identity(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """Otherwise the robot gets a certificate and the CLI does not, and a broker
     running `require_certificate true` refuses every command afterwards."""
@@ -1350,7 +1348,7 @@ def test_an_imported_ca_also_gives_this_machine_an_identity(
 
 @pytest.mark.parametrize("flag", [["--port", "1884"], ["--insecure"]])
 def test_setup_refuses_to_point_the_cli_where_the_robot_cannot_follow(
-    store: ProfileStore, flag: list[str]
+    store: RobotProfileStore, flag: list[str]
 ) -> None:
     """Both are gone, and being gone is the feature.
 
@@ -1365,7 +1363,7 @@ def test_setup_refuses_to_point_the_cli_where_the_robot_cannot_follow(
 
 
 def test_declining_a_dry_run_is_still_a_decline(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A script reading the exit code must not be told a run it declined
     succeeded, dry or not."""
@@ -1387,7 +1385,7 @@ def test_declining_a_dry_run_is_still_a_decline(
 
 
 def test_rerunning_setup_keeps_the_saved_host_without_being_asked(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """A scripted run cannot answer a question, so a re-run with nothing new must
     fall back to what is saved rather than prompting for a host it already has."""
@@ -1399,7 +1397,7 @@ def test_rerunning_setup_keeps_the_saved_host_without_being_asked(
 
 
 def test_setup_asks_for_the_broker_when_there_is_nothing_saved(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """The first-ever run has no host to fall back on, so it asks."""
     cert, key = _ca_files(tmp_path)
@@ -1412,7 +1410,7 @@ def test_setup_asks_for_the_broker_when_there_is_nothing_saved(
 
 
 def test_setup_that_generates_points_at_the_files_it_made(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with (
         patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
@@ -1425,7 +1423,7 @@ def test_setup_that_generates_points_at_the_files_it_made(
 
 
 def test_moving_the_broker_reissues_its_certificate(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The certificate is bound to the address, so `broker.json` moving on while
     it stayed put handed the robot a SAN naming somewhere it does not connect —
@@ -1447,7 +1445,7 @@ def test_moving_the_broker_reissues_its_certificate(
     assert "reissued the broker certificate" in capsys.readouterr().out
 
 
-def test_the_same_broker_keeps_the_certificate_it_already_has(store: ProfileStore) -> None:
+def test_the_same_broker_keeps_the_certificate_it_already_has(store: RobotProfileStore) -> None:
     """Re-running setup must not churn a certificate somebody has already
     installed on their broker."""
     with (
@@ -1461,7 +1459,7 @@ def test_the_same_broker_keeps_the_certificate_it_already_has(store: ProfileStor
 
 
 def test_a_moved_broker_gets_a_reissued_certificate(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A certificate naming the old address fails every handshake while looking
     right on disk. The store can always sign now, so it is simply replaced —
@@ -1478,7 +1476,7 @@ def test_a_moved_broker_gets_a_reissued_certificate(
 
 
 def test_a_broker_certificate_that_cannot_be_read_is_reported_not_replaced(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Unparseable means unprovable, and the rule is that only a certificate
     chaining to OUR CA is ever overwritten. Deleting a private key on the
@@ -1498,7 +1496,7 @@ def test_a_broker_certificate_that_cannot_be_read_is_reported_not_replaced(
 
 
 def test_setup_that_imports_a_ca_does_not_point_at_files_it_did_not_make(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Importing a CA WITH its key produces the broker's certificate too, so the
     files it points at are ones it actually made (backlog #72)."""
@@ -1510,7 +1508,7 @@ def test_setup_that_imports_a_ca_does_not_point_at_files_it_did_not_make(
 
 
 def test_bringing_your_own_ca_and_key_also_gets_a_broker_certificate(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Backlog #72. Handing over the signing key gives whiskerless everything it
     needs to issue the broker's certificate; it used to file the pair, mint this
@@ -1529,7 +1527,7 @@ def test_bringing_your_own_ca_and_key_also_gets_a_broker_certificate(
 
 
 def test_a_server_certificate_you_placed_yourself_is_never_overwritten(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """Only the ABSENT case is filled in. Somebody with their own issuance
     process may have put the real one there already — and as long as it names
@@ -1549,7 +1547,7 @@ def test_a_server_certificate_you_placed_yourself_is_never_overwritten(
 
 
 def test_a_broker_certificate_from_a_foreign_ca_is_never_overwritten(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The worst shape of wrong — right host, right filename, fails every
     handshake because the robots hold a different CA. It is REPORTED, not
@@ -1569,7 +1567,7 @@ def test_a_broker_certificate_from_a_foreign_ca_is_never_overwritten(
 
 
 def test_a_wrong_ca_broker_certificate_is_called_out_when_it_cannot_be_reissued(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -1582,7 +1580,7 @@ def test_a_wrong_ca_broker_certificate_is_called_out_when_it_cannot_be_reissued(
 
 
 def test_an_unreadable_broker_certificate_file_does_not_crash_setup(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """The chain check reads the file a second time; a read that fails there must
     not take down a command that was only deciding whether to reissue."""
@@ -1607,7 +1605,7 @@ def test_an_unreadable_broker_certificate_file_does_not_crash_setup(
 
 
 def test_a_broker_certificate_that_vanishes_mid_check_is_not_treated_as_usable(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """`is_file()` then `read_text()` is a check-then-use; if the read fails the
     answer must be "not usable", never "fine"."""
@@ -1640,10 +1638,8 @@ def test_a_migrated_store_is_told_what_changed_once(
     """
     import json
 
-    from whiskerless import profiles as profiles_module
-    from whiskerless.profiles import LEGACY_SUBDIR
+    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
-    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C123456"
     robot.mkdir(parents=True)
     (robot / "profile.json").write_text(json.dumps({"serial": "LR4C123456", "host": "192.0.2.10"}))
@@ -1673,9 +1669,6 @@ def test_a_store_placed_by_hand_is_told_what_changed_without_claiming_a_move(
     """
     import json
 
-    from whiskerless import profiles as profiles_module
-
-    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
     home = tmp_path / "elsewhere"
     robot = home / "robots" / "LR4C123456"
     robot.mkdir(parents=True)
@@ -1693,7 +1686,7 @@ def test_a_store_placed_by_hand_is_told_what_changed_without_claiming_a_move(
 
 
 def test_a_store_with_a_certificate_but_no_key_is_refused_without_a_terminal(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """What an upgraded 0.1.3 store looks like: the CA certificate hoists across
     from the robot profiles, and the key was never in there to hoist.
@@ -1711,7 +1704,7 @@ def test_a_store_with_a_certificate_but_no_key_is_refused_without_a_terminal(
 
 
 def test_the_missing_key_can_be_supplied_and_nothing_is_re_provisioned(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The cheap answer: the robots already trust this authority, so filing its
     key leaves every one of them working."""
@@ -1735,7 +1728,7 @@ def test_the_missing_key_can_be_supplied_and_nothing_is_re_provisioned(
 
 
 def test_a_key_for_a_different_authority_is_refused(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """A key that signs for something else would leave every robot out there
     trusting an authority this store cannot sign for."""
@@ -1757,7 +1750,7 @@ def test_a_key_for_a_different_authority_is_refused(
 
 
 def test_replacing_the_authority_needs_the_cost_typed_out(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Generating a new authority strands every robot until it is re-provisioned,
     so it is not something a stray keypress does."""
@@ -1800,11 +1793,8 @@ def test_a_second_broker_is_reported_rather_than_dropped(
     report."""
     import json as json_module
 
-    from whiskerless import profiles as profiles_module
-    from whiskerless.profiles import LEGACY_SUBDIR
+    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
-    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
-    monkeypatch.setattr(profiles_module, "MIGRATED_DISCARDED_BROKERS", ())
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     for serial, host in (("LR4C111111", "192.0.2.10"), ("LR4C222222", "198.51.100.20")):
         (legacy / serial).mkdir(parents=True)
@@ -1827,11 +1817,8 @@ def test_one_broker_across_robots_says_nothing_extra(
     """The ordinary case must not grow a warning about a choice nobody faced."""
     import json as json_module
 
-    from whiskerless import profiles as profiles_module
-    from whiskerless.profiles import LEGACY_SUBDIR
+    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
-    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
-    monkeypatch.setattr(profiles_module, "MIGRATED_DISCARDED_BROKERS", ())
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     for serial in ("LR4C111111", "LR4C222222"):
         (legacy / serial).mkdir(parents=True)
@@ -1845,16 +1832,12 @@ def test_one_broker_across_robots_says_nothing_extra(
     assert "More than one broker" not in capsys.readouterr().err
 
 
-def test_a_robot_profile_too_damaged_to_read_does_not_stop_the_hoist(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_robot_profile_too_damaged_to_read_does_not_stop_the_hoist(tmp_path: Path) -> None:
     """This runs from from_env(), so anything raising takes every command down."""
     import json as json_module
 
-    from whiskerless import profiles as profiles_module
-    from whiskerless.profiles import LEGACY_SUBDIR
+    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
-    monkeypatch.setattr(profiles_module, "MIGRATED_FROM_LEGACY", False)
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     (legacy / "LR4C111111").mkdir(parents=True)
     (legacy / "LR4C111111" / "profile.json").write_text(
@@ -1863,12 +1846,12 @@ def test_a_robot_profile_too_damaged_to_read_does_not_stop_the_hoist(
     (legacy / "LR4C222222").mkdir(parents=True)
     (legacy / "LR4C222222" / "profile.json").write_text("{not json at all")
 
-    store = ProfileStore.from_env({"HOME": str(tmp_path)})
+    store = RobotProfileStore.from_env({"HOME": str(tmp_path)})
     assert store.load_broker().host == "192.0.2.10", "the readable robot still hoists"
 
 
 def test_the_key_question_with_nobody_to_ask_names_the_flags(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A terminal that closes mid-question must not become a traceback. It is the
     same answer the non-interactive path gives, because the situation is the
@@ -1890,7 +1873,7 @@ def test_the_key_question_with_nobody_to_ask_names_the_flags(
 
 
 def test_replacing_the_authority_works_without_a_broker_on_file(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Migration keeps a CA even when it can hoist no broker address, so this
     store is reachable — and replacing the authority is irreversible, so it must
@@ -1913,7 +1896,7 @@ def test_replacing_the_authority_works_without_a_broker_on_file(
 
 
 def test_replacing_the_authority_replaces_this_machines_identity_too(
-    store: ProfileStore
+    store: RobotProfileStore
 ) -> None:
     """The stored client certificate was signed by the authority being retired.
 
@@ -1941,7 +1924,7 @@ def test_replacing_the_authority_replaces_this_machines_identity_too(
 
 
 def test_robots_marks_the_ones_with_no_certificate_of_ours(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A robot we never issued a certificate to is refused by the listener this
     project recommends, and works on the one it replaces — so the two states have
@@ -1959,7 +1942,7 @@ def test_robots_marks_the_ones_with_no_certificate_of_ours(
 
 
 def test_robots_says_nothing_when_every_robot_has_a_certificate(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The ordinary case must not grow a warning about a problem nobody has."""
     seed(store, "LR4C111111", cert_serial="abc123")
@@ -1969,7 +1952,7 @@ def test_robots_says_nothing_when_every_robot_has_a_certificate(
 
 
 def test_replacing_the_authority_does_not_overwrite_a_foreign_broker_certificate(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Overwriting a certificate this store did not issue destroys its private key
     too, which is why `_refresh_server_cert` never does it. Rotating the authority
@@ -1995,7 +1978,7 @@ def test_replacing_the_authority_does_not_overwrite_a_foreign_broker_certificate
 
 
 def test_replacing_the_authority_marks_every_robot_for_re_provisioning(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Each robot's recorded certificate was signed by the retired authority.
 
@@ -2018,7 +2001,7 @@ def test_replacing_the_authority_marks_every_robot_for_re_provisioning(
         assert main(["setup", "--host", "192.0.2.10"]) == 0
     capsys.readouterr()
 
-    assert all(p.cert_serial is None for p in store.list_profiles())
+    assert all(p.cert_serial is None for p in store.list_robot_profiles())
     assert main(["robots"]) == 0
     out = capsys.readouterr().out
     # NOT "factory identity": these robots hold certificates this store issued,
@@ -2028,7 +2011,7 @@ def test_replacing_the_authority_marks_every_robot_for_re_provisioning(
 
 
 def test_replacing_the_authority_leaves_an_unreadable_broker_certificate_alone(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Whether the old certificate is ours has to be read off disk, and that read
     can fail. Unprovable is treated as somebody else's, because overwriting takes
@@ -2206,14 +2189,14 @@ def _their_robot_cert(tmp_path: Path, ca_cert: str, ca_key: str, serial: str) ->
     return str(cert), str(key)
 
 
-def test_the_default_mode_is_recorded_so_it_can_be_relied_on(store: ProfileStore) -> None:
+def test_the_default_mode_is_recorded_so_it_can_be_relied_on(store: RobotProfileStore) -> None:
     cert, key = _ca_files(Path(tempfile.mkdtemp()))
     assert _setup_run("--ca", cert, "--ca-key", key) == 0
     assert store.load_broker().auth is AuthMode.MUTUAL
 
 
 def test_supplied_mode_takes_a_ca_certificate_with_no_key(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """The cert-manager arrangement: the signing key never reaches this machine.
     Stricter than the default, not weaker — so it must not need one."""
@@ -2242,7 +2225,7 @@ def test_supplied_mode_takes_a_ca_certificate_with_no_key(
 
 
 def test_supplied_mode_refuses_a_key_that_contradicts_it(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Filing it would leave a store that says identities come from elsewhere
     while holding everything needed to issue them here."""
@@ -2252,7 +2235,7 @@ def test_supplied_mode_refuses_a_key_that_contradicts_it(
 
 
 def test_supplied_mode_needs_this_machines_own_certificate(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Nothing here can mint it, and a store without one is refused by a listener
     asking for one — after reporting that setup succeeded."""
@@ -2262,7 +2245,7 @@ def test_supplied_mode_needs_this_machines_own_certificate(
 
 
 def test_supplied_mode_with_no_certificate_for_this_robot_says_so(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -2279,7 +2262,7 @@ def test_supplied_mode_with_no_certificate_for_this_robot_says_so(
 
 
 def test_a_robot_certificate_from_the_wrong_authority_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Written to the robot it produces a robot the broker refuses, and the
     failure surfaces as a TLS handshake that names nothing."""
@@ -2304,7 +2287,7 @@ def test_a_robot_certificate_from_the_wrong_authority_is_refused(
 
 
 def test_anonymous_mode_leaves_the_robot_the_certificate_it_shipped_with(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """What 0.1.3 did, and the one mode that has to be asked for."""
     cert, _ = _ca_files(tmp_path)
@@ -2317,7 +2300,7 @@ def test_anonymous_mode_leaves_the_robot_the_certificate_it_shipped_with(
 
 
 def test_anonymous_mode_does_not_mark_every_robot_as_needing_attention(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A robot without one of our certificates is the ARRANGEMENT here. Flagging
     the whole fleet trains somebody to ignore the one marker that means
@@ -2332,7 +2315,7 @@ def test_anonymous_mode_does_not_mark_every_robot_as_needing_attention(
     assert "re-provisioning is the fix" not in listed
 
 
-def test_the_mode_is_kept_across_a_later_setup_run(store: ProfileStore, tmp_path: Path) -> None:
+def test_the_mode_is_kept_across_a_later_setup_run(store: RobotProfileStore, tmp_path: Path) -> None:
     """`setup --host <new address>` is routine. A default that overrode the file
     would move a cert-manager store back onto certificates we sign — the second
     time, not the first, which is the kind of change nobody goes looking for."""
@@ -2344,7 +2327,7 @@ def test_the_mode_is_kept_across_a_later_setup_run(store: ProfileStore, tmp_path
 
 
 def test_changing_the_mode_says_so(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cert, key = _ca_files(tmp_path)
     assert _setup_run("--ca", cert, "--ca-key", key) == 0
@@ -2353,7 +2336,7 @@ def test_changing_the_mode_says_so(
     assert "mutual" in capsys.readouterr().out
 
 
-def test_a_robot_keeps_one_identity_across_re_provisions(store: ProfileStore) -> None:
+def test_a_robot_keeps_one_identity_across_re_provisions(store: RobotProfileStore) -> None:
     """A new WiFi password is enough to re-provision, and the broker's ACLs and
     logs are keyed to the certificate."""
     seed(store)
@@ -2364,7 +2347,7 @@ def test_a_robot_keeps_one_identity_across_re_provisions(store: ProfileStore) ->
 
 
 def test_reissue_replaces_the_stored_identity(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(store)
     assert _provision_run() == 0
@@ -2376,7 +2359,7 @@ def test_reissue_replaces_the_stored_identity(
 
 
 def test_provisioning_says_to_back_up_again(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Every provision adds material a backup taken before it does not have — and
     in `supplied` mode a private key nothing here can produce again."""
@@ -2388,7 +2371,7 @@ def test_provisioning_says_to_back_up_again(
 
 
 def test_a_supplied_certificate_cannot_be_forced_into_an_anonymous_store(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2399,7 +2382,7 @@ def test_a_supplied_certificate_cannot_be_forced_into_an_anonymous_store(
 
 
 def test_half_a_supplied_pair_says_both_are_needed(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(store)
     assert _provision_run("--robot-cert", str(tmp_path / "nothing.crt")) == 1
@@ -2407,14 +2390,14 @@ def test_half_a_supplied_pair_says_both_are_needed(
 
 
 def test_a_non_signing_mode_with_no_ca_and_no_terminal_says_which_flag(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert _setup_run("--auth", "anonymous") == 1
     assert "pass --ca <file>" in capsys.readouterr().err
 
 
 def test_a_non_signing_mode_asks_for_the_ca_when_there_is_somebody_to_ask(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -2438,7 +2421,7 @@ def test_a_non_signing_mode_asks_for_the_ca_when_there_is_somebody_to_ask(
 
 
 def test_a_non_signing_mode_with_nobody_to_ask_at_the_prompt(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A terminal that ends mid-question, which argparse cannot pre-empt."""
     def _eof(_prompt: str = "") -> str:
@@ -2454,7 +2437,7 @@ def test_a_non_signing_mode_with_nobody_to_ask_at_the_prompt(
 
 
 def test_a_foreign_broker_certificate_naming_the_wrong_host_is_reported(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Nothing here can replace it — no key — so saying what is wrong with it is
     the whole of what this can do."""
@@ -2472,7 +2455,7 @@ def test_a_foreign_broker_certificate_naming_the_wrong_host_is_reported(
 
 
 def test_the_upgrade_prompt_names_the_way_out_that_costs_no_robot(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Somebody whose key is in cert-manager should not have to pick "generate a
     new authority" — and re-provision the fleet — to escape a prompt written for
@@ -2492,7 +2475,7 @@ def test_the_upgrade_prompt_names_the_way_out_that_costs_no_robot(
 
 
 def test_the_scripted_upgrade_error_names_it_too(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -2503,7 +2486,7 @@ def test_the_scripted_upgrade_error_names_it_too(
 
 
 def test_the_ca_cannot_be_handed_over_as_a_robots_certificate(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A CA certificate IS signed by the stored authority when it is the stored
     authority, so a signature check alone accepts it — and provisioning writes the
@@ -2525,7 +2508,7 @@ def test_the_ca_cannot_be_handed_over_as_a_robots_certificate(
 
 
 def test_an_expired_supplied_certificate_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -2548,7 +2531,7 @@ def test_an_expired_supplied_certificate_is_refused(
 
 
 def test_a_malformed_ca_file_is_a_one_line_error_not_a_traceback(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     junk = tmp_path / "junk.crt"
     junk.write_text("-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----\n")
@@ -2556,7 +2539,7 @@ def test_a_malformed_ca_file_is_a_one_line_error_not_a_traceback(
     assert "not a readable PEM certificate" in capsys.readouterr().err
 
 
-def test_forgetting_a_robot_takes_its_private_key_with_it(store: ProfileStore) -> None:
+def test_forgetting_a_robot_takes_its_private_key_with_it(store: RobotProfileStore) -> None:
     """Left behind it is a key belonging to a robot nobody here remembers — and
     the directory stays non-empty, so the robot returns as damaged."""
     seed(store)
@@ -2568,9 +2551,9 @@ def test_forgetting_a_robot_takes_its_private_key_with_it(store: ProfileStore) -
 
 
 def test_rotating_the_authority_reaches_an_identity_no_profile_names(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An aborted provision leaves one behind that `list_profiles()` skips, and
+    """An aborted provision leaves one behind that `list_robot_profiles()` skips, and
     `robot_identity()` would hand it back later as a cache hit."""
     seed(store)
     store.robot_identity("LR4C999999")
@@ -2588,7 +2571,7 @@ def test_rotating_the_authority_reaches_an_identity_no_profile_names(
     assert not store.has_robot_identity("LR4C999999"), "a retired identity survived"
 
 
-def _supplied_store(store: ProfileStore, tmp_path: Path) -> tuple[str, str]:
+def _supplied_store(store: RobotProfileStore, tmp_path: Path) -> tuple[str, str]:
     """A `supplied` store, ready to be handed a robot certificate."""
     from whiskerless import pki
 
@@ -2604,7 +2587,7 @@ def _supplied_store(store: ProfileStore, tmp_path: Path) -> tuple[str, str]:
 
 
 def test_a_certificate_with_no_extensions_at_all_is_accepted(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """Minimal certificates from a hand-rolled CA are common and work. Refusing
     one for lacking extensions would strand somebody whose setup is fine."""
@@ -2620,7 +2603,7 @@ def test_a_certificate_with_no_extensions_at_all_is_accepted(
 
 
 def test_a_certificate_marked_for_the_wrong_purpose_is_reported(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A leaf that chains and names the robot, but says it is for a server. Warned
     rather than refused: brokers that check extended key usage reject it, and
@@ -2642,7 +2625,7 @@ def test_a_certificate_marked_for_the_wrong_purpose_is_reported(
 
 
 def test_another_robots_certificate_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """It chains, it is a leaf, it is in date — and the broker takes the robot's
     username from its common name, so this robot would connect as another one."""
@@ -2653,7 +2636,7 @@ def test_another_robots_certificate_is_refused(
 
 
 def test_a_broker_certificate_from_another_authority_is_reported(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Setup's next line says to restart the broker with it, so every way it can
     be wrong has to be said here."""
@@ -2672,7 +2655,7 @@ def test_a_broker_certificate_from_another_authority_is_reported(
 
 
 def test_an_expired_broker_certificate_is_reported(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -2686,19 +2669,19 @@ def test_an_expired_broker_certificate_is_reported(
 
 
 def test_a_supplied_store_that_lost_its_identity_says_so_instead_of_going_anonymous(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """Connecting anonymously would SUCCEED on a listener that still allows it,
     while the store went on saying `supplied` — the exact silence the stored mode
     exists to end."""
     _supplied_store(store, tmp_path)
     store.forget_client()
-    with pytest.raises(ProfileError, match="Nothing here can issue another"):
+    with pytest.raises(RobotProfileError, match="Nothing here can issue another"):
         store.settings()
 
 
 def test_an_aborted_provision_leaves_the_stored_identity_alone(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """In `supplied` mode the certificate being replaced cannot be recreated, so
     an abort between the flag and the BLE write must not have consumed it."""
@@ -2722,7 +2705,7 @@ def test_an_aborted_provision_leaves_the_stored_identity_alone(
 
 
 def test_forgetting_says_the_private_key_goes_too(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Approving "only removes the saved broker details" and losing a key that
     cannot be reissued is a surprise, not a confirmation."""
@@ -2747,7 +2730,7 @@ def test_forgetting_says_the_private_key_goes_too(
 
 
 def test_a_broker_certificate_naming_another_host_in_its_san_is_reported(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Modern issuers leave the CN empty, so treating a missing one as fine
     passes a certificate for some other broker."""
@@ -2762,7 +2745,7 @@ def test_a_broker_certificate_naming_another_host_in_its_san_is_reported(
 
 
 def test_the_ca_cannot_be_filed_as_this_machines_identity(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """It would leave the signing key on a machine whose mode says it never
     arrives."""
@@ -2775,7 +2758,7 @@ def test_the_ca_cannot_be_filed_as_this_machines_identity(
 
 
 def test_a_client_certificate_from_another_authority_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -2795,7 +2778,7 @@ def test_a_client_certificate_from_another_authority_is_refused(
 
 
 def test_switching_to_supplied_while_the_signing_key_is_here_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A mode recorded as a fact has to be one: `supplied` states the signing key
     is not on this machine."""
@@ -2810,7 +2793,7 @@ def test_switching_to_supplied_while_the_signing_key_is_here_is_refused(
 
 
 def test_switching_to_anonymous_keeps_the_key_without_complaint(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """`anonymous` says nothing about where the signing key lives, only that
     robots keep the certificate they shipped with."""
@@ -2823,7 +2806,7 @@ def test_switching_to_anonymous_keeps_the_key_without_complaint(
 
 
 def test_reissue_in_supplied_mode_says_it_has_nothing_to_issue_with(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Answering "rotate this compromised certificate" with "provisioned
     successfully" and the same certificate is the worst of the options."""
@@ -2835,7 +2818,7 @@ def test_reissue_in_supplied_mode_says_it_has_nothing_to_issue_with(
 
 
 def test_a_certificate_that_is_not_valid_yet_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The broker refuses it until the hour it starts, and says nothing useful."""
     from whiskerless import pki
@@ -2850,7 +2833,7 @@ def test_a_certificate_that_is_not_valid_yet_is_refused(
 
 
 def test_a_certificate_with_no_common_name_is_flagged_not_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """It works on a broker that does not key off the name, so refusing would
     strand somebody whose setup is fine — but they should know what they lose."""
@@ -2888,7 +2871,7 @@ def test_a_dns_name_is_compared_the_way_tls_compares_it(
 
 
 def test_a_rejected_replacement_leaves_this_machines_identity_working(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The store may hold the only copy of the one being replaced."""
     from whiskerless import pki
@@ -2907,7 +2890,7 @@ def test_a_rejected_replacement_leaves_this_machines_identity_working(
 
 
 def test_a_broker_certificate_placed_with_a_wildcard_name_is_not_overwritten(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """Signed by this store's CA, and valid for the broker by TLS's rules.
     Overwriting it destroys the private key beside it."""
@@ -2954,7 +2937,7 @@ def test_a_broker_certificate_placed_with_a_wildcard_name_is_not_overwritten(
 
 
 def test_a_ca_dated_into_the_future_is_refused(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Stored, it makes every chain fail until that date — including at every
     robot that was given it."""
@@ -2986,7 +2969,7 @@ def test_a_ca_dated_into_the_future_is_refused(
 
 
 def test_a_broker_certificate_dated_into_the_future_is_reported(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -2998,7 +2981,7 @@ def test_a_broker_certificate_dated_into_the_future_is_reported(
 
 
 def test_a_cached_supplied_certificate_that_has_expired_stops_the_provision(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A WiFi password change is a re-provision, and what was in date when it was
     filed may not be now."""
@@ -3012,7 +2995,7 @@ def test_a_cached_supplied_certificate_that_has_expired_stops_the_provision(
 
 
 def test_a_cached_issued_certificate_that_has_expired_is_replaced(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """This store signs, so an expired cached certificate is one mint away —
     writing it would produce a robot the broker refuses."""
@@ -3030,7 +3013,7 @@ def test_a_cached_issued_certificate_that_has_expired_is_replaced(
 
 
 def test_an_expired_machine_certificate_says_why_instead_of_failing_at_tls(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """Nothing here can mint a replacement, so this is the only place the reason
     can be given."""
@@ -3038,12 +3021,12 @@ def test_an_expired_machine_certificate_says_why_instead_of_failing_at_tls(
 
     cert, key = _supplied_store(store, tmp_path)
     store.save_client(_expired_client(pki.read_pair(Path(cert), Path(key)), "whiskerless-test"))
-    with pytest.raises(ProfileError, match="not valid at the moment"):
+    with pytest.raises(RobotProfileError, match="not valid at the moment"):
         store.settings()
 
 
 def test_a_broker_certificate_of_ours_that_expired_is_reissued(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """This store can sign, so advertising an out-of-date certificate for
     installation would send somebody to restart their broker for nothing."""
@@ -3060,7 +3043,7 @@ def test_a_broker_certificate_of_ours_that_expired_is_reissued(
 
 
 def test_a_broker_certificate_with_no_key_beside_it_is_not_advertised(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Mosquitto cannot serve a certificate without its key, and setup's next line
     tells somebody to install both."""
@@ -3075,7 +3058,7 @@ def test_a_broker_certificate_with_no_key_beside_it_is_not_advertised(
 
 
 def test_a_broker_certificate_with_the_wrong_key_is_not_advertised(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from whiskerless import pki
 
@@ -3089,7 +3072,7 @@ def test_a_broker_certificate_with_the_wrong_key_is_not_advertised(
 
 
 def test_an_expired_authority_stops_a_provision_before_the_robot_is_touched(
-    store: ProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """An authority managed elsewhere can expire between two robots, and writing
     it produces one that cannot verify the broker — another walk to the machine."""
@@ -3123,7 +3106,7 @@ def test_an_expired_authority_stops_a_provision_before_the_robot_is_touched(
 
 
 def test_a_certificate_whose_only_san_is_irrelevant_falls_back_to_its_name(
-    store: ProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path
 ) -> None:
     """A URI SAN does not participate in hostname verification, so OpenSSL reads
     the common name and accepts it. Treating any SAN at all as authoritative would
@@ -3191,7 +3174,7 @@ async def _fake_diagnose(*_: object, **kw: object) -> list[Any]:
 
 
 def test_diagnose_reports_the_robots_own_verdict(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The command exists so "blinking blue" becomes an answer. AUTH_ERROR is one
     of the two verdicts that survives the pairing-mode confound, so it must reach
@@ -3207,7 +3190,7 @@ def test_diagnose_reports_the_robots_own_verdict(
 
 
 def test_diagnose_warns_that_it_takes_the_robot_off_wifi(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reading status needs pairing mode, and pairing mode wipes the robot's saved
     network. A diagnostic that strands the patient has to say so BEFORE it runs,
@@ -3224,7 +3207,7 @@ def test_diagnose_warns_that_it_takes_the_robot_off_wifi(
 
 
 def test_diagnose_says_so_when_no_robot_is_advertising(
-    store: ProfileStore, capsys: pytest.CaptureFixture[str]
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
     async def _nothing(**_: object) -> list[Any]:
         return []
@@ -3232,3 +3215,271 @@ def test_diagnose_says_so_when_no_robot_is_advertising(
     with patch("whiskerless.ble.scan", _nothing):
         assert main(["diagnose", "--yes"]) == 1
     assert "BLINKS YELLOW" in capsys.readouterr().err
+
+
+# --- picking, naming and saying which robot (backlog #85, #86) ------------------------
+def _two(store: RobotProfileStore) -> None:
+    seed(store, serial="LR4C111111", name="Upstairs")
+    seed(store, serial="LR4C222222", name="Downstairs")
+
+
+def test_several_robots_and_no_default_still_errors_when_nobody_can_be_asked(
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The non-interactive contract, unchanged: scripts and CI get the ambiguity error and a
+    non-zero exit, never a hang waiting on stdin nobody is attached to."""
+    _two(store)
+    with patch("sys.stdin.isatty", return_value=False):
+        assert run("state") != 0
+    assert "several robots are set up" in capsys.readouterr().err
+
+
+def test_a_tty_is_offered_the_list_instead_of_being_sent_away(
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _two(store)
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="2"):
+        _pick_saved_robot(store)
+    out = capsys.readouterr().out
+    assert "Upstairs" in out and "Downstairs" in out
+    # The serial is shown beside the name so the list can be told apart when two robots share one.
+    assert "LR4C111111" in out
+
+
+def test_the_picker_marks_the_default(
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _two(store)
+    store.set_default("LR4C222222")
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="1"):
+        _pick_saved_robot(store)
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if "Downstairs" in ln]
+    assert lines and "(default)" in lines[0]
+
+
+def test_the_picker_returns_the_chosen_robot(store: RobotProfileStore) -> None:
+    _two(store)
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="2"):
+        chosen = _pick_saved_robot(store)
+    assert chosen is not None
+    assert chosen.display_name == "Downstairs"
+
+
+@pytest.mark.parametrize("answer", ["", "0", "3", "banana"])
+def test_a_bad_choice_declines_rather_than_guessing(
+    store: RobotProfileStore, answer: str
+) -> None:
+    """Guessing here would act on a robot the person did not pick — and half these commands write."""
+    _two(store)
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value=answer):
+        assert _pick_saved_robot(store) is None
+
+
+def test_one_saved_robot_is_never_a_question(store: RobotProfileStore) -> None:
+    seed(store, serial="LR4C111111")
+    with patch("sys.stdin.isatty", return_value=True):
+        assert _pick_saved_robot(store) is None
+
+
+def test_a_robot_can_be_selected_by_its_name(store: RobotProfileStore) -> None:
+    """Being made to type LR4C… for a robot you called "Upstairs" is what stops people naming
+    them at all."""
+    _two(store)
+    assert store.resolve("Upstairs").serial.value == "LR4C111111"
+
+
+def test_a_serial_wins_over_a_name_that_looks_like_one(store: RobotProfileStore) -> None:
+    """The serial is the identity and a name is only a label, so a mischievous name must never
+    shadow a real robot."""
+    seed(store, serial="LR4C111111", name="Upstairs")
+    seed(store, serial="LR4C222222", name="LR4C111111")
+    assert store.resolve("LR4C111111").display_name == "Upstairs"
+
+
+def test_rename_changes_the_label_and_nothing_else(
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(store, serial="LR4C111111", name="Upstairs")
+    assert run("rename", "Upstairs", "Attic") == 0
+    after = store.load("LR4C111111")
+    assert after.display_name == "Attic"
+    # Identity is untouched: topics, the client-id and the certificate CN all key on the serial.
+    assert after.serial.value == "LR4C111111"
+    assert "Upstairs is now Attic" in capsys.readouterr().out
+
+
+def test_rename_refuses_an_empty_name(store: RobotProfileStore) -> None:
+    seed(store, serial="LR4C111111", name="Upstairs")
+    assert run("rename", "Upstairs", answer="") == 1
+    assert store.load("LR4C111111").display_name == "Upstairs"
+
+
+def test_a_write_command_names_the_robot_it_is_about_to_act_on(
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The half of #85 with teeth. With two robots saved, `whiskerless power` used to toggle one
+    without ever printing which — and a robot switched off has left the network, so nothing over
+    MQTT brings it back. Named even when the choice was unambiguous: the point is to make the
+    wrong-robot mistake visible at the moment it matters, not only when the CLI was unsure."""
+    seed(store, serial="LR4C111111", name="Upstairs")
+    run("power", "--serial", "LR4C111111")
+    assert "acting on Upstairs" in capsys.readouterr().out
+
+
+def test_a_read_command_stays_quiet(
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only the commands that CHANGE something announce. `read` on a one-robot machine printing a
+    banner every time is noise, and noise is what stops people reading the banner that matters."""
+    seed(store, serial="LR4C111111", name="Upstairs")
+    run("read", "0x01", "--serial", "LR4C111111")
+    assert "acting on" not in capsys.readouterr().out
+
+
+def test_the_picker_choice_is_what_the_command_acts_on(
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """End to end: ambiguous, a person present, and the robot they picked is the one announced."""
+    _two(store)
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="2"):
+        run("power")
+    assert "acting on Downstairs" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("command", "extra"),
+    [("power", ()), ("wifi-toggle", ()), ("empty-cycle", ()), ("clean-cycle", ())],
+)
+def test_a_confirmation_names_the_robot_it_is_asking_about(
+    store: RobotProfileStore, capsys: pytest.CaptureFixture[str],
+    command: str, extra: tuple[str, ...],
+) -> None:
+    """A confirmation that does not say WHICH robot is not informed consent. `monitor` already
+    resolved before printing its banner so it could not say "monitoring None"; that reasoning had
+    never reached the four commands where getting it wrong is the expensive direction."""
+    seed(store, serial="LR4C111111", name="Upstairs")
+    run(command, "--serial", "LR4C111111", *extra, answer="no")
+    assert "Upstairs" in capsys.readouterr().out
+
+
+def test_a_store_from_a_newer_version_is_refused_rather_than_cached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_open()` is what refuses a store a newer release wrote. Caching before it ran meant the
+    refusal was swallowed by the update-check block, and every later command reused an unopened
+    store — free to rewrite profile data this version has already said it cannot read."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".layout").write_text('{"layout_version": "9999", "min_tool_version": "99.0.0"}\n')
+    args = SimpleNamespace(store=None)
+    with pytest.raises(RobotProfileError):
+        cli_store(args)
+    assert args.store is None, "an unopened store was cached and would be reused"
+
+
+def test_an_explicit_serial_with_no_saved_profile_still_names_the_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The fully explicit path returned before the announcement — and a write to a robot with no
+    saved profile is the one case where nobody can check the target against a name."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    args = SimpleNamespace(serial="LR4C0000000001", command="set", store=None)
+    chosen = _profile(args)
+    assert chosen.serial.value == "LR4C0000000001"
+    assert "acting on" in capsys.readouterr().out
+
+
+def test_forget_accepts_the_display_name_it_now_resolves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`resolve()` accepts a display name, but `forget` reparsed the argument as a serial: it
+    looked for `robots/UPSTAIRS`, failed, and left the robot saved. A name with a space in it did
+    not survive `Serial()` at all."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    store = RobotProfileStore.from_env()
+    store.save(RobotProfile(serial=Serial("LR4C123456"), name="Up Stairs"))
+    assert main(["forget", "Up Stairs", "--yes"]) == 0
+    assert list(RobotProfileStore.from_env().list_robot_profiles()) == []
+
+
+def test_an_ambiguous_name_is_refused_rather_than_treated_as_a_serial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A name meaning two robots is not an unknown serial. Treating it as one built a topic out of
+    the name — a robot that does not exist — while the command reported success."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    store = RobotProfileStore.from_env()
+    store.save(RobotProfile(serial=Serial("LR4C111111"), name="Bathroom"))
+    store.save(RobotProfile(serial=Serial("LR4C222222"), name="Bathroom"))
+    assert main(["state", "--serial", "Bathroom"]) == 1
+    assert "more than one robot" in capsys.readouterr().err
+
+
+def test_a_migration_that_fails_while_stamping_still_reports_what_it_discarded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`_open()` retires the legacy broker fields and then stamps `.layout`. Failing between the
+    two left the facts about what was discarded only on that object — and on the retry the legacy
+    fields are gone, so the one-time warning could never be reconstructed."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+
+    def _boom(self, legacy):
+        # The store is frozen, and `migration` is a mutable record on it — which is how the real
+        # `_open()` records what it retired before it stamps the layout.
+        object.__setattr__(self, "migration", replace(self.migration, from_legacy=True,
+                                                      moved_to=tmp_path))
+        raise OSError("disk full")
+
+    monkeypatch.setattr(RobotProfileStore, "_open", _boom)
+    assert main(["robots"]) == 1
+    assert str(tmp_path) in capsys.readouterr().err
+
+
+def test_calibration_saves_against_the_robot_the_picker_chose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With several robots and no default the picker asks which one. Re-resolving the empty
+    argument afterwards asked again, or gave up and threw away a calibration it had just taken."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    store = RobotProfileStore.from_env()
+    store.save(RobotProfile(serial=Serial("LR4C111111"), name="Upstairs"))
+    store.save(RobotProfile(serial=Serial("LR4C222222"), name="Downstairs"))
+    args = SimpleNamespace(serial=None, command="calibrate", store=None)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    with patch("builtins.input", return_value="1"):
+        chosen = _profile(args)
+    assert store.resolve(chosen.serial.value).serial == chosen.serial
+
+
+def test_a_concurrent_calibration_endpoint_is_not_erased(tmp_path: Path) -> None:
+    """Writing both endpoints from a profile read earlier meant an empty calibration carried its
+    stale `None` full value back over a full calibration that had completed in between — erasing a
+    finished endpoint while reporting success."""
+    store = RobotProfileStore(tmp_path)
+    store.save(RobotProfile(serial=Serial("LR4C123456")))
+    store.update("LR4C123456", lambda c: replace(c, litter_full_mm=40))
+    store.update("LR4C123456", lambda c: replace(c, litter_empty_mm=120))
+    final = RobotProfileStore(tmp_path).load("LR4C123456")
+    assert (final.litter_full_mm, final.litter_empty_mm) == (40, 120)
+
+
+def test_a_mistyped_saved_name_is_refused_rather_than_invented(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`Serial()` accepts almost any word — it is a containment rule for a directory name — so a
+    typo for a saved name became a valid one-off and the CLI published to a topic no robot
+    subscribes to, while an edge-triggered command reported success."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    store = RobotProfileStore.from_env()
+    store.save(RobotProfile(serial=Serial("LR4C123456"), name="Upstairs"))
+    assert main(["state", "--serial", "Upstair"]) == 1
+    assert "UPSTAIR" not in capsys.readouterr().out
+
+
+def test_an_unsaved_but_real_serial_still_works_as_a_one_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one-off path is how this behaved before there was a store, and it must survive."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    args = SimpleNamespace(serial="LR4C000000", command="state", store=None)
+    assert _profile(args).serial.value == "LR4C000000"

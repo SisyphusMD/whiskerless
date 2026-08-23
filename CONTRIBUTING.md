@@ -28,7 +28,11 @@ its own Python, so give it a second environment rather than fighting the first:
 
 ```bash
 uv venv --python 3.13 .venv-ha          # uv fetches 3.13 if you haven't got one
-VIRTUAL_ENV=.venv-ha uv pip install -e '.[dev,test-ha]'
+# `test-ha` alone, plus the type-checker. The Home Assistant harness pins pytest,
+# pytest-asyncio and pytest-cov to exact versions of its own, and `dev` pins the same
+# three exactly — asking for both extras cannot resolve. Same split CI uses.
+VIRTUAL_ENV=.venv-ha uv pip install -e '.[test-ha]' \
+  "$(grep -oE '"mypy==[0-9][0-9a-zA-Z.+-]*"' pyproject.toml | tr -d '"' | head -1)"
 
 .venv-ha/bin/python -m pytest tests/integration --cov --cov-report=term-missing
 .venv-ha/bin/python -m mypy --strict --python-version 3.13 --namespace-packages \
@@ -166,3 +170,93 @@ capture of the same action.
 Open a **Protocol finding** issue with what you captured (action, payload,
 firmware version). That single capture closes a gap for everyone. See
 [`docs/devices/litter-robot-4/compatibility.md`](docs/devices/litter-robot-4/compatibility.md).
+
+## Licence, and why this one
+
+**MIT.** Contributions are accepted under it.
+
+The reasoning, written down so it is not re-argued:
+
+- **Permissive, because this is a library imported into Home Assistant.** The integration declares
+  `whiskerless==<version>` and Home Assistant installs it from PyPI, so the library runs *inside*
+  HA's own process. HA Core is Apache-2.0 and is network-served by definition — its whole product is
+  a web UI. A copyleft licence here would reach the combined work: anyone shipping an HA appliance
+  image, or running HA for other people, would owe source for it. MIT removes that question.
+- **It also keeps the door open.** Home Assistant Core does not accept copyleft dependencies. The
+  official `litterrobot` integration depends on `pylitterbot`, which is **MIT** — the exact model
+  this project is built on. Anything stronger closes that path permanently, on day one.
+- **The sibling is copyleft, deliberately.**
+  [dreame-valetudo](https://github.com/SisyphusMD/dreame-valetudo) is GPL-3.0-or-later because it is
+  a standalone tool that nothing imports, so none of the above applies and copyleft costs its users
+  nothing. Same question asked twice, two different correct answers — see its `CONTRIBUTING.md`.
+
+**Consequence to keep in mind:** code can flow from this repo into the sibling, never the other way.
+Anything genuinely reusable should be written here, or in the shared `project-standard`, rather than
+there.
+
+## Where issues and pull requests go
+
+**GitHub.** Open them at [SisyphusMD/whiskerless](https://github.com/SisyphusMD/whiskerless) — it is also the mirror HACS installs from, so it is where users already are.
+
+Forgejo (`forgejo.bryantserver.com/SisyphusMD/whiskerless`) is the source of truth and runs the full CI
+suite on every push to `main`, but it is not where contributions arrive — outside contributors have
+no account there, and its runner holds this project's release credentials. Every job in
+`.forgejo/workflows/ci.yml` therefore carries a fork-trust gate and deliberately **skips** a pull
+request from a fork rather than running untrusted code beside those secrets.
+
+So a fork PR is tested on **GitHub-hosted runners**, which hold none of our secrets, by
+`.github/workflows/ci-pr.yml`. You get lint, strict type-checking of both the library and the integration, both test suites at their 99% floors, the `safety.py` and `config_flow.py` 100% gates, the declared dependency floors, shellcheck, and documentation links.
+
+**What that does not cover**, so you are not surprised by a later failure:
+
+- **The install matrix.** 25 install channels across five distributions run on
+  Forgejo and at release time, not per-PR — a packaging change can pass here and fail
+  there.
+- **macOS and bottles.** Both need runners this workflow does not use.
+- **Hardware.** Nothing in CI touches a robot. The BLE transport is faked at the `bleak`
+  boundary and no runner has a radio, so provisioning changes need a bench run.
+- **Safety classification is not a style question.** Any new command must be classified in
+  `safety.py` with a test. Do not add an override flag for `NEVER_SEND_OPCODES`.
+
+The sibling project works the same way, for the same reasons — see its `CONTRIBUTING.md`.
+
+## What this project promises not to break
+
+Two surfaces, and they are promised differently because they have different consumers.
+
+### The Python API — a compatibility promise
+
+Home Assistant installs this library from PyPI and the integration imports it, so a rename here
+breaks software already running on other people's machines. What is promised:
+
+- **`whiskerless`** — everything in its `__all__`.
+- **`whiskerless.devices.<device>`** — everything in its `__all__`, including the submodules it
+  re-exports (`calibration`, `commands`, `const`, `derive`, `models`, `protocol`) and the names in
+  each of those modules' own `__all__`.
+
+Everything else is internal and may be renamed, moved or deleted without notice.
+
+**A repo invariant test enforces that the promise is at least as large as what the bundled
+integration actually imports.** That is the failure mode worth guarding: the declared surface stays
+small and true while the real consumed surface grows around it, so a rename that looked safe breaks
+a consumer the promise said was not there. If a promise feels too large, the fix is for the
+integration to need less — not for the promise to look smaller than reality.
+
+To change a promised name: add the new one, keep the old as an alias, note the deprecation in
+`CHANGELOG.md`, and remove it no sooner than the next MINOR release.
+
+### The CLI — a compatibility promise
+
+People script against this. Promised: **subcommand names, their flags, and the exit codes**
+(`0` success, `1` error, `2` refused by the safety guard, `130` interrupted). Human-readable output
+text is NOT promised — parse the exit code, not the prose.
+
+Adding a subcommand or an optional flag is additive and needs no window. Renaming or removing one
+needs an alias and a deprecation note, on the same terms as the API.
+
+### Home Assistant entity IDs
+
+Also a promise, and an easily forgotten one: renaming an entity silently breaks every automation,
+dashboard card and history graph a user built on it. Treat `unique_id` and the entity's `key` as
+frozen; the display name is free to change.
+

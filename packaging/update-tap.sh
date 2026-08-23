@@ -13,25 +13,35 @@
 # sha256 PyPI serves for 0.1.3, byte for byte. If that ever stops being true this script fails loudly
 # rather than publishing a formula whose checksum came from the thing it is meant to guard.
 #
-# A prerelease tag (hyphenated, e.g. v0.2.0-rc.1) writes ONLY the separate `whiskerless-rc` formula,
+# A prerelease tag (hyphenated, e.g. v0.2.0-rc.1) writes ONLY the separate `<name>-rc` formula,
 # so the stable formula never points at a candidate. A stable tag writes BOTH: the stable formula,
-# and the rc formula re-pointed at the same stable release, so `brew install whiskerless-rc` keeps
+# and the rc formula re-pointed at the same stable release, so `brew install <name>-rc` keeps
 # resolving once that version's candidates are pruned.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 
 [ "$#" -ge 2 ] && [ "$#" -le 3 ] || { echo "usage: $0 <tag> <tap-clone-dir> [bottle-manifest-dir]" >&2; exit 2; }
+# shellcheck source=/dev/null
+. "$here/project.env"
+: "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
+PKG="${PROJECT_REPO_SLUG#*/}"
+# shellcheck source=/dev/null
+. "$here/release-common.sh"
+
 tag="$1"; tapdir="$2"; manifests="${3:-}"
 [ -z "$manifests" ] || [ -d "$manifests" ] || { echo "not a directory: $manifests" >&2; exit 2; }
-case "$tag" in
-  v[0-9]*.[0-9]*.[0-9]*) : ;;
-  *) echo "not a release tag: $tag" >&2; exit 2 ;;
-esac
+# The SAME grammar every other release step enforces, from release-common.sh.
+rel_validate_tag "$tag"
 version="${tag#v}"
 # PEP 440: the tag says 0.2.0-rc.1, PyPI normalizes the file to 0.2.0rc1.
 pypi_version="$(printf '%s' "$version" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
-url="https://files.pythonhosted.org/packages/source/w/whiskerless/whiskerless-${pypi_version}.tar.gz"
+# PEP 625: the sdist FILENAME normalises `-` to `_`, while the directory segment keeps the project
+# name as published. `dreame-valetudo-0.2.1.tar.gz` 404s; `dreame_valetudo-0.2.1.tar.gz` is served.
+# Verified against both consumers' real URLs. A project whose name has no hyphen never sees the
+# difference, which is how this stayed hidden until one did.
+sdist_name="$(printf '%s' "$PKG" | tr '-' '_')-${pypi_version}.tar.gz"
+url="https://files.pythonhosted.org/packages/source/${PKG:0:1}/${PKG}/${sdist_name}"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -51,7 +61,7 @@ git -C "$root" archive --format=tar "$src_ref" | tar -x -C "$work/src"
 # hatchling is reproducible here, so this is the same artifact publish.yml uploaded — and if it is
 # not, the comparison below says so.
 python3 -m build --sdist --outdir "$work/local" "$work/src" >/dev/null
-local_sdist="$work/local/whiskerless-${pypi_version}.tar.gz"
+local_sdist="$work/local/$sdist_name"
 [ -f "$local_sdist" ] || { echo "local build did not produce $local_sdist" >&2; ls "$work/local" >&2; exit 1; }
 
 if command -v sha256sum >/dev/null 2>&1; then shacmd="sha256sum"; else shacmd="shasum -a 256"; fi
@@ -67,7 +77,11 @@ sha="$($shacmd "$local_sdist" | awk '{print $1}')"
 # success. curl's --retry does not treat 404 as retryable, so a fresh release
 # raced the CDN and failed a check that had nothing wrong with it.
 downloaded=""
-deadline=$(( $(date +%s) + 300 ))
+# Overridable so a test can assert the give-up path without paying the real CDN grace period. The
+# default is the only value a release ever uses; the prune sweep exposes PRUNE_RETRY_SLEEP for the
+# same reason.
+window="${TAP_DOWNLOAD_WINDOW:-300}"
+deadline=$(( $(date +%s) + window ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
   # No --retry here: the outer loop IS the retry, and nesting one inside the other let a stalling
   # CDN run four 120s attempts per iteration and blow the five minutes this claims to bound.
@@ -77,7 +91,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
   fi
   sleep 10
 done
-[ -n "$downloaded" ] || { echo "could not download the published sdist within 5 min: $url" >&2; exit 1; }
+[ -n "$downloaded" ] || { echo "could not download the published sdist within ${window}s: $url" >&2; exit 1; }
 remote_sha="$($shacmd "$work/remote.tar.gz" | awk '{print $1}')"
 [ "$remote_sha" = "$sha" ] || {
   echo "PyPI sdist does not match the locally built one" >&2
@@ -98,7 +112,7 @@ newer_than_tap() {
   local formula="$1" out="$tapdir/Formula/$1.rb" existing allow_equal=false
   [ -z "$manifests" ] || allow_equal=true
   [ -f "$out" ] || return 0                       # nothing published yet
-  existing="$(sed -n 's|.*/whiskerless-\(.*\)\.tar\.gz".*|\1|p' "$out" | head -1)"
+  existing="$(sed -n "s|.*/$(printf '%s' "$PKG" | tr '-' '_')-\(.*\)\.tar\.gz\".*|\1|p" "$out" | head -1)"
   [ -n "$existing" ] || return 0                  # unparseable; treat as first write
   # Ordering is PEP 440, not `sort -V`: sort -V ranks 0.2.0rc1 AFTER 0.2.0, which
   # would refuse the stable fall-through that re-points the rc channel at its own
@@ -128,8 +142,8 @@ sys.exit(0 if (incoming >= existing if allow_equal else incoming > existing) els
 # Bottles are served from this release's assets, so the URL carries the TAG
 # spelling (v0.2.0-rc.28), not PyPI's normalized one. A stable tag re-points the
 # rc formula at its own release, which is why that release has to carry a full
-# set of `whiskerless-rc-` bottles as well as `whiskerless-`.
-root_url="https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases/download/${tag}"
+# set of `<name>-rc-` bottles as well as `<name>-`.
+root_url="https://forgejo.bryantserver.com/${PROJECT_REPO_SLUG}/releases/download/${tag}"
 
 render_formula() {
   local formula="$1" out block
@@ -169,7 +183,7 @@ render_formula() {
 }
 
 case "$tag" in
-  *-*) render_formula whiskerless-rc ;;          # prerelease: only the rc channel moves
-  *)   render_formula whiskerless
-       render_formula whiskerless-rc ;;          # fall-through: rc re-points at the stable release
+  *-*) render_formula "$PKG-rc" ;;               # prerelease: only the rc channel moves
+  *)   render_formula "$PKG"
+       render_formula "$PKG-rc" ;;               # fall-through: rc re-points at the stable release
 esac

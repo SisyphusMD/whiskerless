@@ -3,6 +3,11 @@
 # never passed its install matrix.
 #   check-rc-install-matrix.sh <version>       e.g. 0.2.0
 #
+# Shared between both projects: they run the same two-forge install matrix, under the same two
+# workflow names, and a gate that exists in one and not the other is how a release ships untested
+# in exactly the repo nobody was looking at. The only per-project value is the repo slug, which
+# comes from packaging/project.env.
+#
 # The install matrix runs AFTER a release — it installs published artifacts — so
 # it can never gate the release it tests. What it can gate is the promotion: a
 # candidate whose apt, dnf, Homebrew, .pkg, raw-binary or PyPI install is broken
@@ -16,7 +21,11 @@
 set -euo pipefail
 
 VERSION="${1:?usage: $0 <version>}"
-REPO="SisyphusMD/whiskerless"
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+. "$here/project.env"
+: "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
+REPO="$PROJECT_REPO_SLUG"
 API="https://api.github.com/repos/$REPO"
 FORGE="https://forgejo.bryantserver.com"
 
@@ -73,13 +82,13 @@ fi
 
 echo "the candidate being promoted is $TAG"
 
-# The matrix has TWO halves on two forges — Linux on ours, macOS on GitHub,
-# because Forgejo has no macOS runner (docs/design/ci-split.md). Requiring only
-# one would qualify a candidate on half a matrix, which is the same fail-open as
-# not checking at all, just harder to notice.
+# The matrix has TWO halves on two forges, split by what the hardware can do:
+# Linux amd64 on ours, macOS and Linux arm64 on GitHub's native runners
+# (docs/design/ci-split.md). Requiring only one would qualify a candidate on half a
+# matrix, which is the same fail-open as not checking at all, just harder to notice.
 failures=""
 
-# --- the macOS half, on GitHub ------------------------------------------------------
+# --- the macOS + Linux arm64 half, on GitHub ----------------------------------------
 # Scoped to this workflow, not the last hundred runs of all of them: a tag fires
 # ci, publish, bottles, the pkg build and hassfest as well, so a repo-wide page
 # stops containing the run being asked about after very little activity.
@@ -89,17 +98,17 @@ failures=""
 # on purpose, so that a fix to these scripts is what re-runs rather than the
 # copies frozen at the tag — and it names its subject only in the run-name.
 gh_runs="$(get "$API/actions/workflows/install-matrix.yml/runs?per_page=100")" || {
-  echo "::error::could not read the macOS install-matrix runs — refusing to guess" >&2; exit 1; }
-macos="$(printf '%s' "$gh_runs" | jq -r --arg t "$TAG" --arg rn "Install matrix (macOS) $TAG" '
+  echo "::error::could not read the GitHub install-matrix runs — refusing to guess" >&2; exit 1; }
+github="$(printf '%s' "$gh_runs" | jq -r --arg t "$TAG" --arg rn "Install matrix (macOS + Linux arm64) $TAG" '
   [.workflow_runs[] | select(.head_branch == $t or .display_title == $rn)]
   | sort_by(.run_started_at) | last
   | if . == null then "missing" else "\(.status)/\(.conclusion // "-")" end')"
-case "$macos" in
-  "completed/success") echo "  macOS  $TAG passed" ;;
-  *)                   failures="$failures macOS=$macos" ;;
+case "$github" in
+  "completed/success") echo "  macOS + Linux arm64  $TAG passed" ;;
+  *)                   failures="$failures macOS+arm64=$github" ;;
 esac
 
-# --- the Linux half, on Forgejo -----------------------------------------------------
+# --- the Linux amd64 half, on Forgejo -----------------------------------------------
 # Read unauthenticated: this instance serves run status publicly, so the gate keeps
 # holding no credential. Scoped to this workflow server-side — the repo-wide listing
 # is every run there has ever been, and Forgejo ignores `limit` today, which is the
@@ -137,8 +146,8 @@ for run in $(printf '%s' "$fj_runs" | jq -r '.workflow_runs | sort_by(.started /
   break
 done
 case "$linux" in
-  success) echo "  Linux  $TAG passed" ;;
-  *)       failures="$failures Linux=$linux" ;;
+  success) echo "  Linux amd64          $TAG passed" ;;
+  *)       failures="$failures Linux-amd64=$linux" ;;
 esac
 
 # --- verdict ------------------------------------------------------------------------

@@ -68,6 +68,23 @@ from .models import LitterRobot4State
 # surface cannot wander far from there. Wide enough for an overfilled globe and
 # a bare one; far from a cat's back (253 mm captured) or the rotating globe
 # mid-cycle (540-575 mm captured).
+__all__ = [
+    "HOPPER_CORROBORATION",
+    "HOPPER_EMPTY_CONFIRMATIONS",
+    "HOPPER_FILL_TYPICAL_RANGE",
+    "HOPPER_MIN_SPAN",
+    "HOPPER_PLAUSIBLE",
+    "LITTER_CORROBORATION_MM",
+    "LITTER_MAX_SPAN_MM",
+    "LITTER_MIN_SPAN_MM",
+    "LITTER_PLAUSIBLE_MM",
+    "Learned",
+    "hopper_is_empty",
+    "hopper_percent",
+    "hopper_percent_provisional",
+    "litter_is_sampleable",
+]
+
 LITTER_PLAUSIBLE_MM = (400, 530)
 
 # Brim-full to bare cannot span more than the globe's litter depth, which is a

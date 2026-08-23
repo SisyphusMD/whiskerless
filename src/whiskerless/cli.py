@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import errno
 import getpass
 import logging
 import os
@@ -26,7 +28,7 @@ from typing import TYPE_CHECKING, cast
 
 import aiomqtt
 
-from . import __version__, backup, pki, profiles
+from . import __version__, backup, diagnostics, installs, pki, update_check
 from .ble.messages import WifiNetwork as DiscoveredNetwork
 from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
@@ -42,16 +44,22 @@ from .devices.litter_robot_4.commands import Command
 from .devices.litter_robot_4.link import LitterRobot4Link
 from .devices.litter_robot_4.models import LitterRobot4State, litter_level_percent_from_mm
 from .devices.litter_robot_4.protocol import ActivityMessage, StateMessage
-from .exceptions import ProfileError, SafetyError, WhiskerlessError
+from .exceptions import (
+    AmbiguousRobotError,
+    RobotProfileError,
+    SafetyError,
+    WhiskerlessError,
+)
 from .mqtt import DEFAULT_TLS_PORT
 from .pki import KeyPair
-from .profiles import (
+from .robot_profiles import (
     LAYOUT_VERSION,
     AuthMode,
     Broker,
-    ProfileStore,
     RobotProfile,
+    RobotProfileStore,
     Serial,
+    looks_like_a_robot_serial,
 )
 
 if TYPE_CHECKING:  # cryptography is imported lazily; this is for annotations only
@@ -68,6 +76,30 @@ _REGISTER_NAMES = {int(r): r.name.lower() for r in const.Register}
 
 
 # --- connection helpers ------------------------------------------------------
+def _store(args: argparse.Namespace) -> RobotProfileStore:
+    store = cast(RobotProfileStore | None, args.store)
+    if store is None:
+        store, legacy = RobotProfileStore._unopened_from_env()
+        # Opened BEFORE it is cached. `_open()` is what refuses a store written by a newer version,
+        # and the update-check block suppresses every exception — so caching first meant a refusal
+        # was swallowed there and every later command reused an unopened store, free to rewrite
+        # profile data this version has already said it cannot read.
+        # Recorded before opening, so a migration that half-completed still gets reported. `_open()`
+        # retires the legacy broker fields and then stamps `.layout`; if it fails between the two
+        # (a full disk), the facts about what was discarded exist only on this object — and on the
+        # retry the legacy fields are already gone, so that one-time warning could never be
+        # reconstructed. `args.store` stays unset, so nothing DISPATCHES through an unopened store.
+        # The FIRST attempt is the one that matters, and it is never overwritten. A suppressed
+        # failure (the update-check block swallows everything) leaves `args.store` unset, so
+        # dispatch calls this again — and by then the first pass may already have retired the
+        # legacy broker fields, so a second object would report nothing to discard.
+        if getattr(args, "attempted_store", None) is None:
+            args.attempted_store = store
+        store._open(legacy)
+        args.store = store
+    return store
+
+
 def _read_pem(raw: str) -> str:
     """Read a CA file, expanding ``~`` and failing with something a person can act on.
 
@@ -92,21 +124,81 @@ def _read_pem(raw: str) -> str:
     return text
 
 
+#: Commands that CHANGE something on the robot. Each one names its target before acting, even when
+#: the choice was unambiguous — the mistake being guarded against is a person with two robots saved
+#: running `whiskerless power` and only afterwards wondering which one they just switched off. A
+#: robot switched off has left the network, and nothing over MQTT brings it back.
+_WRITE_COMMANDS = frozenset({
+    "calibrate", "clean-cycle", "empty-cycle", "panel-reset", "power", "send", "set", "wifi-toggle",
+})
+
+
+def _pick_saved_robot(store: RobotProfileStore) -> RobotProfile | None:
+    """Offer a numbered list of SAVED robots. None when there is nobody to ask.
+
+    Distinct from `_pick_robot`, which picks from robots discovered over BLE during provisioning:
+    that one chooses hardware in the room, this one chooses a record on this machine.
+
+    Returning None rather than raising keeps the non-interactive behaviour exactly as it was: a
+    script or a CI job gets the ambiguity error and a non-zero exit, never a hang waiting on stdin
+    nobody is attached to.
+    """
+    if not sys.stdin.isatty():
+        return None
+    known = store.list_robot_profiles()
+    if len(known) < 2:
+        return None
+    default = store.get_default()
+    print("which robot?")
+    for index, profile in enumerate(known, 1):
+        marker = "  (default)" if profile.serial.value == default else ""
+        label = f" — {profile.serial.value}" if profile.display_name != profile.serial.value else ""
+        print(f"  {index}) {profile.display_name}{label}{marker}")
+    answer = _prompt(f"[1-{len(known)}]: ").strip()
+    if not answer.isdigit() or not 1 <= int(answer) <= len(known):
+        print(f"not a choice: {answer or '<nothing>'}", file=sys.stderr)
+        return None
+    return known[int(answer) - 1]
+
+
 def _profile(args: argparse.Namespace) -> RobotProfile:
     """Which robot to act on. Everything else about the connection is the store's.
 
     There is one broker per store now, so there is nothing to lay flags over: a
     robot is a serial, a name, and what somebody measured at the machine.
     """
-    store = ProfileStore.from_env()
+    store = _store(args)
     try:
-        return store.resolve(args.serial)
-    except ProfileError:
+        chosen = store.resolve(args.serial)
+    except AmbiguousRobotError:
+        # NOT the one-off fallback. A name that means two robots is not an unknown serial, and
+        # treating it as one built a topic out of the name — a robot that does not exist — while
+        # an edge-triggered command reported success for reaching nothing.
+        raise
+    except RobotProfileError:
         # A fully explicit invocation still has to work: it is how this behaved
         # before there was a store, and it is what one-off connections rely on.
-        if args.serial:
-            return RobotProfile(serial=Serial(args.serial))
-        raise
+        # Only for something SHAPED like a serial. `Serial()` accepts almost any word — it is a
+        # containment rule for a directory name — so a mistyped saved name ("Upstair" for
+        # "Upstairs") became a valid one-off, and the CLI published to a topic no robot
+        # subscribes to while an edge-triggered command reported success.
+        if args.serial and looks_like_a_robot_serial(args.serial):
+            # Fall THROUGH to the announcement rather than returning: a write to a robot with no
+            # saved profile is exactly the case where nobody can check the target against a name,
+            # so it is the last one that should skip saying which robot it is about.
+            chosen = RobotProfile(serial=Serial(args.serial))
+            if getattr(args, "command", None) in _WRITE_COMMANDS:
+                print(f"acting on {chosen.display_name}")
+            return chosen
+        # Several saved and no default. Offering the list is strictly better than sending someone
+        # away to run `use` and start over — but only when someone is there to answer.
+        picked = _pick_saved_robot(store)
+        if picked is None:
+            raise
+        chosen = picked
+    if getattr(args, "command", None) in _WRITE_COMMANDS:
+        print(f"acting on {chosen.display_name}")
+    return chosen
 
 
 def _link(
@@ -119,7 +211,7 @@ def _link(
     # flag pointing at a different broker would still present this store's CA and
     # client certificate — so it could only fail, confusingly. A genuinely
     # different broker is a different store: point WHISKERLESS_HOME at it.
-    store = ProfileStore.from_env()
+    store = _store(args)
     if profile is None:
         profile = _profile(args)
     return LitterRobot4Link(
@@ -197,25 +289,29 @@ async def _cmd_set(args: argparse.Namespace) -> int:
 
 
 async def _cmd_clean_cycle(args: argparse.Namespace) -> int:
-    if not args.yes and not _confirm("Run a clean cycle? The globe will turn. Type 'yes': "):
+    profile = _profile(args)
+    if not args.yes and not _confirm(
+        f"Run a clean cycle on {profile.display_name}? The globe will turn. Type 'yes': "
+    ):
         print("aborted", file=sys.stderr)
         return 1
-    async with _link(args) as link:
+    async with _link(args, profile=profile) as link:
         await link.publish(commands.clean_cycle())
     print("clean cycle requested")
     return 0
 
 
 async def _cmd_empty_cycle(args: argparse.Namespace) -> int:
+    profile = _profile(args)
     if not args.yes:
         _console.banner("EMPTY CYCLE — the globe dumps ALL of its litter")
     if not args.yes and not _confirm(
-        "Run an empty cycle? EVERY gram of litter goes into the waste drawer, "
-        "and the globe parks until you press Cycle or Reset. Type 'yes': "
+        f"Run an empty cycle on {profile.display_name}? EVERY gram of litter goes into the "
+        "waste drawer, and the globe parks until you press Cycle or Reset. Type 'yes': "
     ):
         print("aborted", file=sys.stderr)
         return 1
-    async with _link(args) as link:
+    async with _link(args, profile=profile) as link:
         await link.publish(commands.empty_cycle())
     print("empty cycle requested")
     return 0
@@ -225,15 +321,20 @@ async def _cmd_power(args: argparse.Namespace) -> int:
     # Unlike every other action here, this one can end with the robot off the
     # network — so the prompt is not skippable by --yes and the guard still has
     # to be opted past explicitly.
+    #
+    # Resolved BEFORE the banner, for the reason `monitor` already does it: a confirmation that
+    # does not say which robot is being switched off is not informed consent, and with two robots
+    # saved this is the command where guessing wrong is unrecoverable.
+    profile = _profile(args)
     _console.banner("POWER TOGGLES — switched off, the robot leaves the network")
     if not _confirm(
-        "Press Power? This TOGGLES the robot. If it turns OFF it leaves the "
-        "network, and only someone standing at the machine can turn it back on. "
+        f"Press Power on {profile.display_name}? This TOGGLES the robot. If it turns OFF it "
+        "leaves the network, and only someone standing at the machine can turn it back on. "
         "Type 'yes': "
     ):
         print("aborted", file=sys.stderr)
         return 1
-    async with _link(args) as link:
+    async with _link(args, profile=profile) as link:
         await link.publish(commands.power_toggle(), allow_dangerous=True)
     print("power press sent (the robot may now be off)")
     return 0
@@ -243,15 +344,16 @@ async def _cmd_wifi_toggle(args: argparse.Namespace) -> int:
     # Same shape as `power`, and for the same reason: this can end with the robot
     # off the network. --yes does not skip the prompt, and the guard still has to
     # be opted past explicitly.
+    profile = _profile(args)
     _console.banner("CONNECT TOGGLES WIFI — switched off, the robot leaves the network")
     if not _confirm(
-        "Press Connect? This TOGGLES the robot's WiFi. If it turns OFF the robot "
-        "vanishes from your broker and from Home Assistant, and only someone "
+        f"Press Connect on {profile.display_name}? This TOGGLES the robot's WiFi. If it turns "
+        "OFF the robot vanishes from your broker and from Home Assistant, and only someone "
         "standing at the machine can press Connect again. Type 'yes': "
     ):
         print("aborted", file=sys.stderr)
         return 1
-    async with _link(args) as link:
+    async with _link(args, profile=profile) as link:
         await link.publish(commands.wifi_toggle(), allow_dangerous=True)
     # Deliberately not "sent and confirmed": if the WiFi went off, the robot was
     # gone before it could acknowledge anything, and saying otherwise would claim
@@ -471,10 +573,13 @@ async def _cmd_calibrate(args: argparse.Namespace) -> int:
     # Saved against what is ON DISK, not against the profile we connected with:
     # `--host` for a one-off connection must not rewrite the stored broker, and
     # the merged profile carries this run's password in memory.
-    store = ProfileStore.from_env()
+    store = _store(args)
     try:
-        stored = store.resolve(args.serial)
-    except ProfileError:
+        # By the SERIAL already chosen, not by `args.serial` again. With several robots and no
+        # default, the picker asked which one — and re-resolving the empty argument here asked a
+        # second time, or gave up and threw the calibration away for a robot it had just measured.
+        stored = store.resolve(profile.serial.value)
+    except RobotProfileError:
         print(
             "this robot is not saved on this machine, so there is nowhere to keep "
             "a calibration — run `whiskerless provision` first",
@@ -501,7 +606,32 @@ async def _cmd_calibrate(args: argparse.Namespace) -> int:
     if problem is not None:
         print(f"that pair cannot be right: {problem}. Nothing saved.", file=sys.stderr)
         return 1
-    store.save(updated)
+    # Recomputed from `current` INSIDE the lock, not copied from the `updated` object above.
+    # Writing both endpoints from a profile read earlier meant an empty calibration carried its
+    # stale `None` full value back over a full calibration that had completed in between —
+    # erasing a finished endpoint while reporting success. Only the endpoint this run measured
+    # is written, and the pair is judged against whatever the other one is NOW.
+    reading = robot.litter_level_mm
+
+    def _apply(current: RobotProfile) -> RobotProfile:
+        restart = _calibration_problem(current.litter_full_mm, current.litter_empty_mm) is not None
+        other_full = None if restart else current.litter_full_mm
+        other_empty = None if restart else current.litter_empty_mm
+        candidate = replace(
+            current,
+            litter_empty_mm=reading if empty else other_empty,
+            litter_full_mm=other_full if empty else reading,
+        )
+        conflict = _calibration_problem(candidate.litter_full_mm, candidate.litter_empty_mm)
+        if conflict is not None:
+            raise WhiskerlessError(f"that pair cannot be right: {conflict}. Nothing saved.")
+        return candidate
+
+    try:
+        store.update(profile.serial.value, _apply)
+    except WhiskerlessError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     point = "empty" if empty else "full"
     print(f"{point} reference for {profile.display_name}: {robot.litter_level_mm} mm")
     if starting_over:
@@ -541,7 +671,7 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
     window, so doing this in the middle of a provisioning session would spend the
     window on paperwork and then fail in a way that looks like a broken robot.
     """
-    store = ProfileStore.from_env()
+    store = _store(args)
     saved = store.load_broker() if store.has_broker() else None
     if args.host:
         host = _check_host(args.host)
@@ -665,13 +795,14 @@ async def _cmd_diagnose(args: argparse.Namespace) -> int:
 async def _cmd_provision(args: argparse.Namespace) -> int:
     from . import ble
 
+    store = _store(args)
     # Kept for the non-interactive path below, which defaults the SSID from it.
     # There is deliberately no "press enter to accept the existing setup" hint any
     # more: nothing this command still asks HAS a default. The broker and the CA
     # moved to `setup`, the network comes from the robot's own scan, and the
     # serial is per-robot — so the only prompt enter would have answered is the
     # password, where it sets an empty one.
-    prior = _prior_robot()
+    prior = _prior_robot(store)
 
     # Each answer is checked as it is given. Validating later means a typo in the
     # third question throws away all five — including a password typed blind.
@@ -687,7 +818,6 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # The broker is asked ONCE, on the first robot, and remembered for the store.
     # Every robot here talks to the same broker behind the same CA — a genuinely
     # separate broker is a separate store, reached with WHISKERLESS_HOME.
-    store = ProfileStore.from_env()
     # The store's own mode decides what "set up" means here. In `mutual` it means
     # a signing key, because every provision issues a certificate — the shape an
     # upgraded 0.1.3 store arrives in, and without this the run dies on a missing
@@ -730,7 +860,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         if ask_now
         else ""
     )
-    wifi_pass = args.wifi_pass or ""
+    wifi_pass = _wifi_password(args)
     if ssid and not wifi_pass and sys.stdin.isatty():
         wifi_pass = _ask_secret(f"WiFi password for {ssid!r}: ")
 
@@ -951,7 +1081,7 @@ async def _choose_network(
 
 
 def _ensure_trust_anchor(
-    args: argparse.Namespace, store: ProfileStore, mode: AuthMode, bringing_client: bool = False
+    args: argparse.Namespace, store: RobotProfileStore, mode: AuthMode, bringing_client: bool = False
 ) -> None:
     """The CA certificate, for the two modes that do not sign with it.
 
@@ -1022,7 +1152,7 @@ def _ensure_trust_anchor(
         )
 
 
-def _stored_mode(store: ProfileStore) -> AuthMode:
+def _stored_mode(store: RobotProfileStore) -> AuthMode:
     """This store's mode, or the default for a store too empty to have one.
 
     A machine with no broker on file has not been set up, and the caller says so
@@ -1033,7 +1163,7 @@ def _stored_mode(store: ProfileStore) -> AuthMode:
 
 
 def _robot_identity(
-    args: argparse.Namespace, store: ProfileStore, serial: str, mode: AuthMode
+    args: argparse.Namespace, store: RobotProfileStore, serial: str, mode: AuthMode
 ) -> KeyPair | None:
     """What this robot will present to the broker, or None if it keeps its own.
 
@@ -1101,7 +1231,7 @@ def _robot_identity(
 
 
 def _check_supplied_identity(
-    store: ProfileStore, pair: KeyPair, *, for_robot: bool = True, names: str | None = None
+    store: RobotProfileStore, pair: KeyPair, *, for_robot: bool = True, names: str | None = None
 ) -> None:
     """Refuse anything that is not a usable client certificate.
 
@@ -1252,7 +1382,7 @@ def _load_certificate(pem: str) -> x509.Certificate:
         raise WhiskerlessError(f"that is not a readable PEM certificate: {exc}") from exc
 
 
-def _remind_to_back_up(store: ProfileStore, serial: str, new_identity: bool) -> None:
+def _remind_to_back_up(store: RobotProfileStore, serial: str, new_identity: bool) -> None:
     """Say it after a provision, not only after setup.
 
     A provision adds material to the store that a backup taken before it does not
@@ -1296,7 +1426,7 @@ def _resolve_auth_mode(args: argparse.Namespace, saved: Broker | None) -> AuthMo
 
 def _ensure_pki(
     args: argparse.Namespace,
-    store: ProfileStore,
+    store: RobotProfileStore,
     host: str,
     mode: AuthMode,
     brought_client: KeyPair | None = None,
@@ -1396,7 +1526,7 @@ def _ensure_pki(
     _report_pki(store, broker)
 
 
-def _report_foreign_server_cert(store: ProfileStore, host: str, mode: AuthMode) -> bool:
+def _report_foreign_server_cert(store: RobotProfileStore, host: str, mode: AuthMode) -> bool:
     """The broker's certificate in the modes where nothing here can issue one.
 
     Same authority, someone else's issuer. Left entirely alone: whiskerless has no
@@ -1451,7 +1581,7 @@ def _report_foreign_server_cert(store: ProfileStore, host: str, mode: AuthMode) 
     return True
 
 
-def _refresh_server_cert(store: ProfileStore, host: str) -> bool:
+def _refresh_server_cert(store: RobotProfileStore, host: str) -> bool:
     """Keep the broker's certificate matching the broker. Returns whether it is usable.
 
     Two ways it can be wrong, and both look perfectly fine on disk while failing
@@ -1509,7 +1639,7 @@ def _refresh_server_cert(store: ProfileStore, host: str) -> bool:
     return True
 
 
-def _resolve_trust_only(store: ProfileStore, host: str) -> None:
+def _resolve_trust_only(store: RobotProfileStore, host: str) -> None:
     """A store holding a CA certificate but not its key has to become one or the other.
 
     That state was supported until 0.2.0: the robot was told who to trust and kept
@@ -1622,7 +1752,7 @@ def _resolve_trust_only(store: ProfileStore, host: str) -> None:
         )
 
 
-def _import_ca(store: ProfileStore) -> None:
+def _import_ca(store: RobotProfileStore) -> None:
     """Take a CA the user already has, and file it where everything else looks.
 
     Copied under our own names rather than remembered by path: a path breaks when
@@ -1649,7 +1779,7 @@ def _import_ca(store: ProfileStore) -> None:
     print(f"  CA copied to {store.root / 'ca'}")
 
 
-def _refuse_a_different_ca(store: ProfileStore, incoming: str) -> None:
+def _refuse_a_different_ca(store: RobotProfileStore, incoming: str) -> None:
     """Never swap the CA out from under robots that already trust it.
 
     Replacing it would leave every provisioned robot trusting a certificate the
@@ -1660,7 +1790,7 @@ def _refuse_a_different_ca(store: ProfileStore, incoming: str) -> None:
         return
     if store.ca_path.read_text(encoding="utf-8").strip() == incoming.strip():
         return
-    robots = ", ".join(p.display_name for p in store.list_profiles())
+    robots = ", ".join(p.display_name for p in store.list_robot_profiles())
     raise WhiskerlessError(
         "this machine already has a different certificate authority"
         + (f", and {robots} already trust it" if robots else "")
@@ -1731,7 +1861,7 @@ def _check_ca_cert(cert_pem: str) -> None:
               "every robot", file=sys.stderr)
 
 
-def _report_files(store: ProfileStore) -> None:
+def _report_files(store: RobotProfileStore) -> None:
     """The three files a broker needs, and which directive each one goes with."""
     print("\n  Your broker needs three files:\n")
     for path, directive in (
@@ -1742,7 +1872,7 @@ def _report_files(store: ProfileStore) -> None:
         print(f"    {path}  {_console.dim('→')}  {directive}")
 
 
-def _report_pki(store: ProfileStore, broker: Path) -> None:
+def _report_pki(store: RobotProfileStore, broker: Path) -> None:
     """Say what was made, where it goes, and what losing it costs."""
     print(f"\n  Certificate authority created in {_console.accent(str(store.root))}")
     # NOT the file list — `setup` prints that itself once everything is issued,
@@ -1755,45 +1885,74 @@ def _report_pki(store: ProfileStore, broker: Path) -> None:
     )
 
 
-def _prior_robot() -> RobotProfile | None:
+def _prior_robot(store: RobotProfileStore) -> RobotProfile | None:
     """One robot already here, to offer its WiFi network from. Nothing else is
     per-robot any more."""
-    store = ProfileStore.from_env()
-    known = store.list_profiles()
+    known = store.list_robot_profiles()
     if not known:
         return None
     default = store.get_default()
     return next((p for p in known if p.serial.value == default), known[0])
 
 
+
+def _ask_name(serial: str) -> str:
+    """Offer to name a robot at the end of provisioning. Empty when nobody is there to ask.
+
+    Naming is the privacy fix, not decoration. The SERIAL is the sensitive field in this project —
+    it is the MQTT client-id and both topic segments, `rc.25` is a permanently contaminated PyPI
+    artifact because one reached a test file, and every header the CLI prints shows it by default.
+    With a name set, `display_name` prints "Upstairs" instead and a pasted session is safe.
+
+    The name is a LABEL and nothing else: identity stays the serial for topics, the client-id, the
+    certificate CN and the profile directory, which is what makes renaming safe to offer at all.
+    """
+    if not sys.stdin.isatty():
+        return ""
+    print(f"\nname this robot? a name is shown instead of {serial} in output you might paste")
+    return _prompt("  name (enter to skip): ").strip()
+
 def _save_profile(
     config: ProvisioningConfig, args: argparse.Namespace, cert_serial: str | None
 ) -> None:
-    store = ProfileStore.from_env()
+    store = _store(args)
     try:
         prior = store.load(config.serial)
-    except ProfileError:
+    except RobotProfileError:
         prior = None
     if prior is None:
         profile = RobotProfile(
             serial=Serial(config.serial),
-            name=args.name or "",
+            name=args.name or _ask_name(config.serial),
             wifi_ssid=config.wifi_ssid,
             cert_serial=cert_serial,
         )
     else:
-        # Reprovisioning replaces only what provisioning collected. The name and
-        # the litter reference somebody measured at the machine were never asked
-        # for, so writing defaults over them would silently erase them.
-        profile = replace(
-            prior,
-            serial=Serial(config.serial),
-            name=args.name or prior.name,
-            wifi_ssid=config.wifi_ssid,
-            cert_serial=cert_serial or prior.cert_serial,
-        )
+        # Reprovisioning replaces only what provisioning collected. The name and the litter
+        # reference somebody measured at the machine were never asked for, so writing defaults
+        # over them would silently erase them.
+        #
+        # Re-read under the lock rather than reusing `prior`: provisioning takes minutes at the
+        # robot, and a `rename` committed during that window would be overwritten wholesale by a
+        # profile read before it. `prior` is still what decides whether to prompt for a name,
+        # which happens long before this write.
+        def _merge(current: RobotProfile) -> RobotProfile:
+            return replace(
+                current,
+                serial=Serial(config.serial),
+                # Reprovisioning does not re-ask: the robot already has a name here, and
+                # prompting again would invite someone to blank it by pressing enter.
+                name=args.name or current.name,
+                wifi_ssid=config.wifi_ssid,
+                cert_serial=cert_serial or current.cert_serial,
+            )
+
+        profile = replace(prior, name=args.name or prior.name)
     try:
-        store.save(profile)
+        if prior is None:
+            store.save(profile)
+        else:
+            profile = store.update(config.serial, _merge)
         if store.get_default() is None:
             store.set_default(profile.serial.value)
     except OSError as exc:
@@ -1807,9 +1966,82 @@ def _save_profile(
 
 
 # --- saved robots -------------------------------------------------------------
+
+async def _cmd_uninstall(args: argparse.Namespace) -> int:
+    """Remove this tool, whichever way it was installed.
+
+    One command instead of a table the user has to match themselves — most people do not remember
+    whether they used brew, pipx or the .pkg a year later, and more than one of them can be
+    installed at once with PATH deciding which runs. Never touches the store: the CA private key
+    in there is what every robot's certificate chains to, and it cannot be regenerated without
+    re-provisioning every robot.
+    """
+    found = installs.find_installs(os.environ)
+    if not found:
+        print("no installs of whiskerless found to remove")
+        return 0
+
+    print("found these installs:")
+    for i in found:
+        print(f"   {i.kind}  ({i.marker})")
+        detail = " ".join(i.removal) if i.removal else i.note
+        if i.removal and i.note:
+            detail = f"{detail}, {i.note}"
+        print(f"      {detail}")
+    # The PATH of the store, without OPENING it. `_store()` validates the layout and refuses one
+    # a newer version wrote — which would abort the very command whose job is to clean up an
+    # older duplicate install, and this line only ever needed the directory name.
+    print(f"\nyour robots and the CA in {RobotProfileStore.root_from_env()} are NOT touched.")
+
+    removable = [i for i in found if i.removal]
+    if not removable:
+        print("nothing here can be removed automatically")
+        return 0
+    if any(i.removal[0] == "sudo" for i in removable):
+        print("some of these need root — sudo will ask for your password")
+    plural = "install" if len(removable) == 1 else f"{len(removable)} installs"
+    if _prompt(f"remove {plural} now? [y/N]: ").strip().lower() not in {"y", "yes"}:
+        # Declining is a decision, not a failure: exit 0, per the CLI contract in CONTRIBUTING.md.
+        print("aborted — nothing was removed")
+        return 0
+
+    failed: list[installs.Install] = []
+    for i in removable:
+        print(f"removing the {i.kind} install…")
+        # Sequentially, and inheriting this terminal: one of these is `sudo`, which has to be able
+        # to prompt for a password. Running them concurrently would interleave two password
+        # prompts on one tty.
+        try:
+            process = await asyncio.create_subprocess_exec(*i.removal)
+        except OSError:
+            # The remover itself is missing — a stale pipx or uv environment whose manager has
+            # since been uninstalled. That is one entry's problem: letting it escape aborted the
+            # whole command and left every VALID install after it in place, which is the opposite
+            # of what someone running `uninstall` asked for.
+            failed.append(i)
+            continue
+        if await process.wait() != 0:
+            failed.append(i)
+    for i in failed:
+        print(f"couldn't remove the {i.kind} install — run it yourself: {' '.join(i.removal)}",
+              file=sys.stderr)
+    # Every note, not only the ones on installs nothing could remove. The macOS .pkg is removable
+    # AND carries a second manual step — `pkgutil --forget` — and dropping its note here ended the
+    # command with "removed." while the receipt survived to block a later reinstall.
+    # Printed whether or not something failed. Returning early here meant a failed Homebrew
+    # removal alongside a successfully deleted .pkg binary never mentioned `pkgutil --forget` —
+    # and the surviving receipt is what blocks a later reinstall from repairing anything.
+    for install in found:
+        if install.note:
+            print(f"still to do by hand: {install.note}")
+    if failed:
+        return 1
+    print("removed.")
+    return 0
+
 async def _cmd_robots(args: argparse.Namespace) -> int:
-    store = ProfileStore.from_env()
-    known = store.list_profiles()
+    store = _store(args)
+    known = store.list_robot_profiles()
     broken = store.damaged()
     if not known and not broken:
         print("no robots are set up on this machine — run `whiskerless provision`")
@@ -1855,8 +2087,25 @@ async def _cmd_robots(args: argparse.Namespace) -> int:
     return 0
 
 
+
+async def _cmd_rename(args: argparse.Namespace) -> int:
+    """Relabel a saved robot. Cosmetic by construction: identity is the serial."""
+    store = _store(args)
+    profile = store.resolve(args.robot)
+    was = profile.display_name
+    new = args.name.strip() if args.name else _prompt(f"new name for {was}: ").strip()
+    if not new:
+        print("no name given — nothing changed", file=sys.stderr)
+        return 1
+    # Under the lock, re-reading the profile first: `save()` alone serialises only the write, so a
+    # concurrent calibration could read the old profile and save it back over the new name.
+    store.update(profile.serial.value, lambda current: replace(current, name=new))
+    print(f"{was} is now {new}")
+    return 0
+
+
 async def _cmd_use(args: argparse.Namespace) -> int:
-    store = ProfileStore.from_env()
+    store = _store(args)
     # Resolved before it becomes the default: pointing every future bare
     # command at a profile that cannot load helps nobody.
     profile = store.resolve(args.robot)
@@ -1866,21 +2115,27 @@ async def _cmd_use(args: argparse.Namespace) -> int:
 
 
 async def _cmd_forget(args: argparse.Namespace) -> int:
-    store = ProfileStore.from_env()
+    store = _store(args)
     doomed: RobotProfile | None = None
     try:
         doomed = store.resolve(args.robot)
         name = doomed.display_name
-    except ProfileError:
-        # A profile too corrupt to load is precisely the one `forget` must
-        # still be able to remove.
-        name = Serial(args.robot).value
+        # The RESOLVED serial, not the argument. `resolve()` now accepts a display name, and
+        # reparsing that name as a serial looked for `robots/UPSTAIRS`, failed, and left the robot
+        # saved — while a name with a space in it did not survive `Serial()` at all.
+        target = doomed.serial
+    except RobotProfileError:
+        # A profile too corrupt to load is precisely the one `forget` must still be able to
+        # remove — and only its serial can name it, since the display name lives in the profile
+        # that will not load.
+        target = Serial(args.robot)
+        name = target.value
         if not (store.robots_dir / name).is_dir():
             raise
     # Named explicitly, because in `supplied` mode this store holds the only copy
     # and nothing here can issue another. Approving "only removes the saved broker
     # details" and losing a private key is not a confirmation, it is a surprise.
-    holds_identity = store.has_robot_identity(Serial(args.robot))
+    holds_identity = store.has_robot_identity(target)
     also = (
         " Its certificate and private key go with it, and this machine may hold the\n"
         "  only copy."
@@ -1895,7 +2150,7 @@ async def _cmd_forget(args: argparse.Namespace) -> int:
     ):
         print("aborted", file=sys.stderr)
         return 1
-    store.forget(args.robot)
+    store.forget(target.value)
     print(f"forgot {name}")
     return 0
 
@@ -1911,7 +2166,7 @@ async def _cmd_backup(args: argparse.Namespace) -> int:
     the bill for losing it arrives years later as a walk to every robot in the
     house with a laptop.
     """
-    store = ProfileStore.from_env()
+    store = _store(args)
     if not _holds_a_setup(store):
         raise WhiskerlessError(
             f"nothing to back up in {store.root} — run `whiskerless setup` first"
@@ -1964,7 +2219,7 @@ async def _cmd_backup(args: argparse.Namespace) -> int:
 
 async def _cmd_restore(args: argparse.Namespace) -> int:
     """Put a backup back, refusing to quietly replace a working setup."""
-    store = ProfileStore.from_env()
+    store = _store(args)
     source = Path(args.path).expanduser() if args.path else _choose_backup()
     raw = backup.load(source)
     archive = backup.read(raw, password=_restore_password(backup.is_encrypted(raw)))
@@ -1993,7 +2248,13 @@ async def _cmd_restore(args: argparse.Namespace) -> int:
     print(f"\n  restored {_console.accent(str(store.root))} from {source}\n")
     # Re-read through the store so an older layout is migrated now, and so the
     # summary describes what later commands will actually see.
-    restored = ProfileStore.from_env()
+    restored = RobotProfileStore.from_env()
+    args.store = restored if restored.migration.from_legacy else store
+    # The reporter reads `attempted_store`, so a restore that migrated a pre-layout backup has to
+    # land there too — otherwise the restore succeeded while its one-time warning about retired
+    # credentials and changed certificate handling was never printed.
+    if restored.migration.from_legacy:
+        args.attempted_store = restored
     _describe(archive)
     _warn_if_the_ca_cannot_sign(archive)
     if moved is not None:
@@ -2007,7 +2268,7 @@ async def _cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
-def _holds_a_setup(store: ProfileStore) -> bool:
+def _holds_a_setup(store: RobotProfileStore) -> bool:
     """Whether this store contains anything somebody would miss.
 
     Asked of the CONTENTS, never of the directory: running any command at all
@@ -2022,7 +2283,7 @@ def _holds_a_setup(store: ProfileStore) -> bool:
         store.has_ca_cert()
         or store.ca_key_path.is_file()
         or store.has_broker()
-        or store.list_profiles()
+        or store.list_robot_profiles()
     )
 
 
@@ -2094,7 +2355,7 @@ def _describe(archive: backup.Archive) -> None:
         print(f"    robots                  {', '.join(robots)}")
 
 
-def _occupied(store: ProfileStore, archive: backup.Archive, aside: Path) -> str:
+def _occupied(store: RobotProfileStore, archive: backup.Archive, aside: Path) -> str:
     """Why restoring over an existing store is refused, in the terms that matter.
 
     Which CA is on each side is the whole question: the same one makes this a
@@ -2108,7 +2369,7 @@ def _occupied(store: ProfileStore, archive: backup.Archive, aside: Path) -> str:
     elif current == incoming:
         verdict = "Its certificate authority is the same one, so no robot would be stranded."
     else:
-        known = ", ".join(profile.serial.value for profile in store.list_profiles())
+        known = ", ".join(profile.serial.value for profile in store.list_robot_profiles())
         verdict = (
             "Its certificate authority is a DIFFERENT one"
             + (f", and the robots set up here ({known}) trust it" if known else "")
@@ -2235,6 +2496,46 @@ def _made_at(path: Path) -> tuple[str, str, int, str]:
     return (found[1], found[2], int(found[3] or 1), path.name)
 
 
+_WIFI_PASSWORD_ENV = "WHISKERLESS_WIFI_PASSWORD"
+
+
+def _wifi_password(args: argparse.Namespace) -> str:
+    """The WiFi password, from whichever source was used.
+
+    `--wifi-pass` is kept because it is documented and scripted against, but a command line is
+    world-readable through `ps` on a shared machine for as long as the command runs — so the two
+    private routes come first, and using the flag says so once rather than silently.
+    dreame-valetudo accepts no secret on its command line at all; this is the same guarantee
+    reached without breaking an existing flag.
+    """
+    supplied = getattr(args, "wifi_pass_file", None)
+    if supplied is not None:
+        try:
+            # rstrip("\n") only: a trailing newline is how every editor ends a file, but spaces
+            # can be genuine password characters and must survive.
+            return Path(supplied).read_text(encoding="utf-8").rstrip("\n")
+        except UnicodeDecodeError as exc:
+            # Not an OSError, so it escaped every handler and produced a traceback — from a flag
+            # whose whole purpose is keeping a secret off the command line, at the moment someone
+            # points it at the wrong file.
+            raise WhiskerlessError(
+                f"the WiFi password file is not UTF-8 text: {supplied}"
+            ) from exc
+        except OSError as exc:
+            raise WhiskerlessError(f"could not read the WiFi password file: {exc}") from exc
+    from_env = os.environ.get(_WIFI_PASSWORD_ENV)
+    if from_env:
+        return from_env
+    if args.wifi_pass:
+        print(
+            f"  ! --wifi-pass is visible to other users through `ps` while this runs. "
+            f"Use --wifi-pass-file or ${_WIFI_PASSWORD_ENV} instead.",
+            file=sys.stderr,
+        )
+        return str(args.wifi_pass)
+    return ""
+
+
 def _backup_password(args: argparse.Namespace) -> str | None:
     """The password to encrypt with, or None for a plain archive.
 
@@ -2274,6 +2575,15 @@ def _restore_password(encrypted: bool) -> str | None:
     return _ask_secret("password for this backup: ")
 
 
+#: Directory-fsync failures that mean "this filesystem cannot do that", not "the write is in
+#: doubt". Network and FUSE-backed destinations reject the call outright, and a drop-box directory
+#: refuses to be opened for reading at all. The archive is committed before any of this runs, so
+#: treating these as fatal turned "cannot promise durability here" into "backups here always fail".
+_FSYNC_UNSUPPORTED = frozenset(
+    {errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EPERM, errno.EACCES, errno.EISDIR}
+)
+
+
 def _write_bytes_private(path: Path, data: bytes) -> None:
     """Replace ``path`` atomically, owner-readable only, durable on return.
 
@@ -2291,6 +2601,34 @@ def _write_bytes_private(path: Path, data: bytes) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp_path, path)  # noqa: PTH105 - os-level rename for durability
+        if os.name == "posix":
+            # The rename itself needs the parent directory flushed, or a power loss can leave the
+            # old archive (or nothing) in place while this call has already reported success — in
+            # the one command whose entire job is not losing things. profiles.py's writer has done
+            # this since it was written; this one had not. Windows cannot fsync a directory, and
+            # the file's own contents are flushed above either way.
+            # Opening the directory can fail on its own: a drop-box destination may allow write
+            # and execute but not read, and O_RDONLY there raises EACCES. The archive is already
+            # committed by this point either way, so this whole block is best-effort durability
+            # and never a reason to report failure for bytes that landed.
+            try:
+                directory = os.open(path.parent, os.O_RDONLY)
+            except OSError as exc:
+                if exc.errno not in _FSYNC_UNSUPPORTED:
+                    raise
+                return
+            try:
+                os.fsync(directory)
+            except OSError as exc:
+                # Some network and FUSE-backed filesystems reject a directory fsync outright.
+                # `os.replace()` has already committed a complete, valid archive by this point, so
+                # raising here would make the caller delete it — turning "this destination cannot
+                # promise durability" into "backups to this destination always fail", in the one
+                # command whose job is not losing things. Anything else is still an error.
+                if exc.errno not in _FSYNC_UNSUPPORTED:
+                    raise
+            finally:
+                os.close(directory)
     finally:
         temp_path.unlink(missing_ok=True)
 
@@ -2305,17 +2643,62 @@ def _unused_name(root: Path, label: str) -> Path:
     return candidate
 
 
+def _prompt(text: str) -> str:
+    """`input()`, with end-of-file meaning "no answer given".
+
+    A closed stdin — a pipe, a CI step, Ctrl-D at the prompt — raised EOFError, and `main()`
+    answers an uncaught exception with a traceback: on `uninstall` that was a stack trace out of a
+    half-asked question about removing things.
+
+    For prompts asked ONCE, where an empty answer is already the safe default — that is what a
+    user pressing Ctrl-D means. A prompt that RE-ASKS must keep raw `input()` and handle the end
+    of input itself, or it asks forever for an answer that can no longer arrive.
+    """
+    try:
+        return input(text)
+    except EOFError:
+        print(file=sys.stderr)
+        return ""
+
+
 def _human_size(count: int) -> str:
     return f"{count / 1024:.1f} KB" if count >= 1024 else f"{count} bytes"
 
 
-def _print_orientation() -> None:
+class _ScrubbingFilter(logging.Filter):
+    """Redact identifying values from every record before it is formatted."""
+
+    def __init__(self, home: Path) -> None:
+        super().__init__()
+        self._home = home
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Render FIRST, then scrub the result, then drop the args. Scrubbing only the str arguments
+        # left every non-str one untouched — and the BLE paths log exception objects, whose __str__
+        # carries the MAC and the serial. Those went out verbatim under `--debug`, after the tool
+        # had said they were redacted.
+        try:
+            rendered = record.getMessage()
+        except (TypeError, ValueError):
+            # A broken format string is a bug to see, not a reason to lose the record — but the
+            # unformatted parts still have to be scrubbed.
+            rendered = " ".join(str(p) for p in (record.msg, *(record.args or ())))
+        record.msg = diagnostics.scrub(rendered, self._home)
+        record.args = None
+        return True
+
+
+def _print_orientation(store: RobotProfileStore) -> None:
     """What a bare `whiskerless` says — which depends on whether anything is set up."""
-    known = ProfileStore.from_env().list_profiles()
+    known = store.list_robot_profiles()
     print("\n  whiskerless — local MQTT control for the Litter-Robot 4. No cloud.\n")
     if not known:
+        # `setup`, not `provision`: provision refuses on a pristine store ("this machine is not
+        # set up yet"), so naming it here answered a new user's first question with a command that
+        # rejects them.
         print("  Nothing is set up on this machine yet.\n\n"
-              "    whiskerless provision      point a robot at your broker (over BLE, once)\n")
+              "    whiskerless setup          create your CA and point this machine at a broker\n"
+              "    whiskerless provision      then point a robot at it (over BLE, once)\n")
     else:
         names = ", ".join(profile.display_name for profile in known)
         print(f"  Set up here: {names}\n\n"
@@ -2391,19 +2774,41 @@ def _build_setting(name: str, raw: str) -> tuple[Command, ...]:
 
 
 def _parse_int(value: str) -> int:
-    return int(value, 0)
+    try:
+        return int(value, 0)
+    except ValueError:
+        raise WhiskerlessError(f"{value!r} is not a number") from None
+
+
+_TRUE = ("1", "on", "true", "yes", "y", "enable", "enabled")
+_FALSE = ("0", "off", "false", "no", "n", "disable", "disabled")
 
 
 def _parse_bool(value: str) -> bool:
-    return value.strip().lower() in ("1", "on", "true", "yes")
+    """Parse a boolean setting value, refusing anything unrecognised.
+
+    Anything not in the two lists used to fall through to False, so `set panel-lock enabled`
+    silently turned the setting OFF and then reported success.
+    """
+    text = value.strip().lower()
+    if text in _TRUE:
+        return True
+    if text in _FALSE:
+        return False
+    raise WhiskerlessError(
+        f"{value!r} is not a yes/no value — use one of: {', '.join(_TRUE)} / {', '.join(_FALSE)}"
+    )
 
 
 def _parse_time(value: str) -> int:
     """'HH:MM' (or a bare minute count) → minutes since midnight."""
-    if ":" in value:
-        hours, _, minutes = value.partition(":")
-        return int(hours) * 60 + int(minutes)
-    return int(value)
+    try:
+        if ":" in value:
+            hours, _, minutes = value.partition(":")
+            return int(hours) * 60 + int(minutes)
+        return int(value)
+    except ValueError:
+        raise WhiskerlessError(f"{value!r} is not a time — use HH:MM, or minutes past midnight") from None
 
 
 def _ask(
@@ -2433,6 +2838,8 @@ def _ask(
         prompt = f"{prompt.rstrip(': ')} [{default_label or default}]: "
     while True:
         try:
+            # Raw `input()` on purpose: this re-asks until the answer validates, and `_prompt`'s
+            # "EOF means no answer" would make that loop forever on input that has already ended.
             answer = input(prompt).strip()
         except EOFError:
             raise WhiskerlessError("no answer given (input ended)") from None
@@ -2482,7 +2889,11 @@ def _pick_robot(robots: Sequence[DiscoveredRobot], address: str | None) -> Disco
     for index, robot in enumerate(robots):
         print(f"  [{index}] {robot.address}  RSSI {robot.rssi} dBm  name={robot.name}")
     while True:
-        choice = input(f"select [0-{len(robots) - 1}]: ").strip()
+        try:
+            choice = input(f"select [0-{len(robots) - 1}]: ").strip()
+        except EOFError:
+            # Nobody is there to pick. Guessing a robot to provision is worse than stopping.
+            raise WhiskerlessError("no answer given (input ended)") from None
         if choice.isdigit() and 0 <= int(choice) < len(robots):
             return robots[int(choice)]
 
@@ -2611,7 +3022,11 @@ def build_parser() -> argparse.ArgumentParser:
         "(prompted if omitted)",
     )
     p_prov.add_argument("--wifi-ssid", help="WiFi SSID; omit it to choose from the networks the ROBOT can see")
-    p_prov.add_argument("--wifi-pass", default=None, help="WiFi password (prompted securely if omitted)")
+    p_prov.add_argument("--wifi-pass", default=None,
+                        help="WiFi password (prompted securely if omitted; visible in `ps` — "
+                             f"prefer --wifi-pass-file or ${_WIFI_PASSWORD_ENV})")
+    p_prov.add_argument("--wifi-pass-file", default=None, type=Path,
+                        help="read the WiFi password from a file instead of the command line")
     p_prov.add_argument("--address", help="BLE MAC to target directly (skip the picker)")
     p_prov.add_argument("--scan-timeout", type=float, default=15.0)
     p_prov.add_argument("--dry-run", action="store_true", help="scan/connect and print steps, write nothing")
@@ -2639,8 +3054,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_setup.set_defaults(func=_cmd_setup)
 
+    p_uninstall = add_parser("uninstall", "remove whiskerless, however it was installed")
+    p_uninstall.set_defaults(func=_cmd_uninstall)
+
     p_robots = add_parser("robots", "list the robots set up on this machine")
     p_robots.set_defaults(func=_cmd_robots)
+
+    p_rename = add_parser("rename", "relabel a saved robot (cosmetic; identity stays the serial)")
+    p_rename.add_argument("robot", nargs="?", help="serial or current name (default: the only one saved)")
+    p_rename.add_argument("name", nargs="?", help="the new name; prompts when omitted")
+    p_rename.set_defaults(func=_cmd_rename)
 
     p_use = add_parser("use", "choose which robot commands act on by default")
     p_use.add_argument("robot", help="serial of a robot from `whiskerless robots`")
@@ -2670,7 +3093,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _report_migration() -> None:
+def _report_migration(store: RobotProfileStore) -> None:
     """Say it once, on the run that moved a pre-0.2.0 store.
 
     That run is the only moment anything knows for certain somebody is upgrading
@@ -2680,20 +3103,12 @@ def _report_migration() -> None:
     never learn is available, because a trust-anchor-without-a-key looks exactly
     like a deliberate choice to everything downstream.
     """
-    if not profiles.MIGRATED_FROM_LEGACY:
+    migration = store.migration
+    if not migration.from_legacy:
         return
-    # Cleared as it is said, so this is once per MIGRATION rather than once per
-    # process. A CLI run is a process either way; anything embedding this would
-    # otherwise repeat the notice for every command after the first.
-    discarded = profiles.MIGRATED_DISCARDED_BROKERS
-    moved_to = profiles.MIGRATED_TO
-    kept_broker = profiles.MIGRATED_BROKER
-    # All four, not just the flag: an embedder migrating two stores in one process
-    # would otherwise repeat the first store's discarded brokers against the second.
-    profiles.MIGRATED_FROM_LEGACY = False
-    profiles.MIGRATED_DISCARDED_BROKERS = ()
-    profiles.MIGRATED_TO = None
-    profiles.MIGRATED_BROKER = None
+    discarded = migration.discarded_brokers
+    moved_to = migration.moved_to
+    kept_broker = migration.broker
     # The path is captured when the rename happens, not looked up again here:
     # `from_env()` would re-run a migration that has just failed, and the second
     # exception escapes main() in place of the one-line error it already printed.
@@ -2740,10 +3155,7 @@ def _report_migration() -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    try:
-        return _main(argv)
-    finally:
-        _report_migration()
+    return _main(argv)
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
@@ -2767,16 +3179,54 @@ def _main(argv: Sequence[str] | None = None) -> int:
     # report. Their chatter never found a bug here either; ours did.
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("whiskerless").setLevel(level)
+    args.store = None
+    # Set by `_store()` before it opens, so a half-completed migration is still reported.
+    args.attempted_store = None
     if level <= logging.DEBUG:
+        # Scrubbed rather than warned about. This is the output a person pastes into a bug report,
+        # so telling the reader to audit it puts the work exactly where it will not happen. Applied
+        # as a filter on our own namespace so every record goes through it, including ones added
+        # later by code that never heard of this.
+        # On the HANDLERS, not on the `whiskerless` logger. Python does not inherit filters down the
+        # logger hierarchy — only handlers and levels propagate — so a filter here left every record
+        # from `whiskerless.ble.provision` and friends untouched. Those are precisely the records
+        # that carry the SSID, the MAC and the serial, so the promise printed below was false for
+        # almost everything it covered. Handlers see every record that reaches them, whichever
+        # logger emitted it.
+        #
+        # The PATH only, without opening anything. All the scrubber does with it is replace it with
+        # `~`. Opening here ran the one-time layout migration before the real store could, so its
+        # report — which credentials were discarded, where the store moved to — was never printed
+        # to the person who needed it; and under `uninstall --debug` it broke that command's
+        # promise to leave the store alone, in the duplicate-install case it exists to repair.
+        scrubber = _ScrubbingFilter(RobotProfileStore.root_from_env())
+        for handler in logging.getLogger().handlers:
+            handler.addFilter(scrubber)
+        # Says LOG, and says what is not covered. The filter sits on the logging handlers, so a
+        # traceback — which `--debug` re-raises and the interpreter prints itself — never passes
+        # through it, and a broker address or serial in an exception message goes out verbatim.
+        # Promising blanket redaction here would have been the more dangerous half-truth.
         print(
-            "  the log below carries network names and this robot's identifiers "
-            "(no passwords or keys) — read it before sharing\n",
+            "  the LOG below has robot serials, network names and addresses redacted.\n"
+            "  A traceback is NOT redacted — it is printed by Python, not by this tool.\n"
+            "  Skim both before sharing.\n",
             file=sys.stderr,
         )
-    if args.command is None:
-        _print_orientation()
-        return 0
     try:
+        # Cached daily, swallowed on any failure, and only when someone is watching: piping this
+        # into a script should not add a line the script never asked for.
+        #
+        # Not for `uninstall`. That command promises the store is never touched, and this would
+        # have opened it — running the legacy migration and writing a cache marker into a store
+        # the user is in the middle of walking away from.
+        if sys.stderr.isatty() and args.command != "uninstall":
+            with contextlib.suppress(Exception):
+                nudge = update_check.check(_store(args).root)
+                if nudge:
+                    print(nudge, file=sys.stderr)
+        if args.command is None:
+            _print_orientation(_store(args))
+            return 0
         return cast(int, asyncio.run(args.func(args)))
     except KeyboardInterrupt:
         print("\naborted", file=sys.stderr)
@@ -2804,6 +3254,12 @@ def _main(argv: Sequence[str] | None = None) -> int:
             raise
         print(f"whiskerless: {exc.strerror or exc}", file=sys.stderr)
         return 1
+    finally:
+        # The attempted store, not the opened one: an open that failed partway still has a
+        # migration report, and that is exactly the run where the user needs it.
+        attempted = getattr(args, "attempted_store", None)
+        if attempted is not None:
+            _report_migration(attempted)
 
 
 if __name__ == "__main__":  # pragma: no cover - console entry point

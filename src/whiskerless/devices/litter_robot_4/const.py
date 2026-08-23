@@ -12,6 +12,45 @@ from __future__ import annotations
 
 from enum import IntEnum
 
+"""Every constant this module promises. Same contract as `commands.__all__`: the integration
+pins an exact library version, but a name it imports that is not listed here was never a
+promise and can move under it."""
+__all__ = [
+    "ACTIVE_CYCLE_STATUSES",
+    "BRIGHTNESS_PRESETS",
+    "CAT_WEIGHT_DIVISOR",
+    "CLEANING_STATUSES",
+    "CLEAN_CYCLE_WAIT_MAX_MINUTES",
+    "CLEAN_CYCLE_WAIT_MIN_MINUTES",
+    "HOPPER_DISPENSE_FILL_PHASE",
+    "HOPPER_FILL_EMPTY_MAX",
+    "HOPPER_LINK_DISCONNECTED",
+    "KNOWN_STATUSES",
+    "LITTER_UNRELIABLE_STATUSES",
+    "NIGHT_LIGHT_MODE",
+    "PANEL_BUTTON_CONNECT",
+    "PANEL_BUTTON_CYCLE",
+    "PANEL_BUTTON_EMPTY",
+    "PANEL_BUTTON_POWER",
+    "PANEL_BUTTON_RESET",
+    "REPORT_MACROS",
+    "ROBOT_CYCLE_STATE",
+    "ROBOT_CYCLE_STATUS",
+    "ROBOT_STATUS",
+    "ROBOT_STATUS_STRINGS",
+    "STATUS_ANNUNCIATIONS",
+    "TOPIC_PREFIX",
+    "WEEKDAYS",
+    "WEEKDAY_SCHEDULE_REGS",
+    "WEEKDAY_SLEEP_ALL_DAYS",
+    "Opcode",
+    "Register",
+    "activity_topic",
+    "command_topic",
+    "state_topic",
+    "subscribe_topic",
+]
+
 # --- MQTT topics -------------------------------------------------------------
 # The robot keeps the stock Whisker topic format after re-provisioning; only the
 # broker it points at changes. SERIAL is the device serial / MQTT client-id.

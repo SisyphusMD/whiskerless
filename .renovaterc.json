@@ -47,12 +47,63 @@
       ]
     },
     {
-      "description": "Automerge patches and digests (keeps the pinned action SHAs fresh); minor/major reviewed manually.",
+      "description": "Automerge patch, minor and digest updates. Every dependency that ships or builds this project is exercised by a CI job — two suites at a 99% floor, two strict mypy invocations, a 25-channel install matrix and hassfest — and Renovate only automerges on green, so a breaking bump fails the PR before it can merge. Runtime deps are declared as floors and no rangeStrategy is set, so a satisfied `>=` bound never moves: what lands here is the dev toolchain and the pinned action SHAs. Major updates, and the holds below, are reviewed by hand.",
       "matchUpdateTypes": [
         "patch",
+        "minor",
         "digest"
       ],
       "automerge": true
+    },
+    {
+      "description": "The shellcheck image pin is owned by the shared standard: it lives in the VENDORED packaging/shellcheck-all.sh, and this repo also carries an inline copy in the fork-PR workflow, which must stay byte-equal to it (a test asserts that). Renovate cannot move both halves consistently - bumping the vendored file fails the drift check, bumping only the workflow breaks the equality - so the bump happens in project-standard and arrives here as a re-vendor that updates both copies in one commit.",
+      "matchDepNames": [
+        "koalaman/shellcheck"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "The shared standard lives on the self-hosted Forgejo, so the gitea-tags datasource has to be told which host to ask; there is no public registry to infer it from. Held for review rather than automerged: a bumped pin only says a new standard EXISTS, and the vendored files are re-synced by a separate act, so a human has to land both together.",
+      "matchDepNames": [
+        "SisyphusMD/project-standard"
+      ],
+      "registryUrls": [
+        "https://forgejo.bryantserver.com"
+      ],
+      "automerge": false,
+      "prBodyNotes": [
+        "CI cannot reach this: the pin records which standard version this repo SHOULD carry, but nothing in this repo re-vendors the files. Run `tools/vendor.py` in project-standard for BOTH consumers and land them together, or the invariant test will refuse the mismatch."
+      ]
+    },
+    {
+      "description": "RELEASE-ONLY build pins: nothing in PR CI builds with them. publish.yml runs on a tag, and the install matrix tests artifacts that are already published — so a minor bump to the packager, the freezer, the manylinux image or the bundled interpreter merges on a green PR that never executed the changed build path, and fails at the next release instead. By then the PyPI upload has already happened, because that job does not wait for the packaging legs. Reviewed by hand, and proven by cutting a release candidate.",
+      "matchDepNames": [
+        "goreleaser/nfpm",
+        "pyinstaller",
+        "python",
+        "python/cpython",
+        "quay.io/pypa/manylinux_2_28_aarch64",
+        "quay.io/pypa/manylinux_2_28_x86_64",
+        "debian-13-current"
+      ],
+      "automerge": false,
+      "prBodyNotes": [
+        "**CI cannot reach this.** Nothing in a pull request builds with this pin: `publish.yml` runs only on a tag, and the install matrix exercises artifacts that are already published. A green PR here says the code still lints and tests — it says nothing about whether the release still builds.",
+        "Clear it by cutting a release candidate with the bump in place, then merge."
+      ],
+      "addLabels": [
+        "release-path"
+      ]
+    },
+    {
+      "description": "bleak is the BLE transport provisioning speaks to the robot over. CI proves only that the code around it behaves: tests/test_ble_transport.py fakes the bleak boundary outright, and no runner has a Bluetooth radio, so scanning, pairing, GATT writes and the esp-idf protocomm exchange are never executed against the real library. Green CI therefore says nothing about the path that re-points a robot onto a new broker, so a bump is read by a human. Same reason dreame-valetudo holds pyusb — see its .renovaterc.json.",
+      "automerge": false,
+      "matchDepNames": [
+        "bleak"
+      ],
+      "prBodyNotes": [
+        "CI cannot reach the BLE path: no runner has a radio and the transport is faked at the bleak boundary. Bench-provisioning a real robot is what exercises this."
+      ]
     },
     {
       "description": "The integration's pinned lib requirement is bumped by the release workflow, not Renovate.",
@@ -60,6 +111,79 @@
         "custom_components/whiskerless/manifest.json"
       ],
       "enabled": false
+    },
+    {
+      "description": "release-macos.yml's `python-version` is not a test runner: PyInstaller freezes that exact interpreter into the shipped .pkg, so it has to move with PYTHON_VERSION in packaging/release-pins.env and the checksum a human reviews alongside it. The annotation hands the line to the cpython tag dep; disabling the built-in manager here leaves that dep as its only owner rather than an automerging second one that could ship a different Python than the Linux bundles carry.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "python"
+      ],
+      "matchFileNames": [
+        ".github/workflows/release-macos.yml"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "This dep reads CPython's git tag, which has two consequences. The tag carries a leading `v` that no consumer accepts \u2014 setup-python resolves `python-version: v3.14.8` to nothing and the source build fetches `Python-v3.14.8.tar.xz`, which does not exist \u2014 so it is stripped here. And a tag exists before actions/python-versions publishes the manifest setup-python installs from, so a bump raised inside that window installs nothing; hold it until the manifest is certain to list it. Both are why the sibling project carries this identical rule.",
+      "matchDepNames": [
+        "python/cpython"
+      ],
+      "extractVersion": "^v(?<version>.+)$",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "setup-python resolves a version through actions/python-versions' versions-manifest.json, which that repo merges over an hour AFTER publishing the GitHub release Renovate reads. A bump raised inside that gap installs nothing: every python job on both forges dies at setup with 'version not found', which reads as a broken PR rather than an upstream artifact that has not landed yet. Hold each bump until the manifest is certain to list it.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "python"
+      ],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "debian-12-compat"
+      ],
+      "allowedVersions": "/^12-slim$/"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "ubuntu-22.04-compat"
+      ],
+      "allowedVersions": "/^22\\.04$/"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "rocky-8-compat"
+      ],
+      "allowedVersions": "/^8$/"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "rocky-9-compat"
+      ],
+      "allowedVersions": "/^9$/"
+    },
+    {
+      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
+      "matchDepNames": [
+        "opensuse-leap-15.6-compat"
+      ],
+      "allowedVersions": "/^15\\.6$/"
+    },
+    {
+      "description": "openSUSE's tag namespace still carries the legacy 42.x line, which sorts ABOVE 16.0 \u2014 so without this Renovate reads 42.3 as an upgrade from Leap 16 and proposes replacing the current qualification image with a release from the previous naming era. Verified against Docker Hub: `42` and `42.3` are both live tags. Digests still refresh.",
+      "matchDepNames": [
+        "opensuse-leap-16-current"
+      ],
+      "allowedVersions": "/^16\\.0$/"
     },
     {
       "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. The HA integration CI job must run whatever Python Home Assistant itself runs (3.13) — testing it on a newer one stops testing what users actually run, and installing HA there fails outright. No datasource maps a package to its supported Python, so Renovate cannot derive this; matched on the value because both jobs live in ci.yml. Raise this when HA moves.",
@@ -92,16 +216,6 @@
       "allowedVersions": "/^(macos-)?15(-intel)?$/"
     },
     {
-      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because newer is BROKEN here, and nothing goes red until a release is already half-published. PyInstaller 6.22.0 added a onefile bootloader check that the parent process is the same executable, and 6.22.1 enforces it where 6.22.0 did not. The arm64 Linux binary is cross-built and self-tested under buildkit's QEMU emulator, whose emulator binary IS that different parent — so the in-image `--help`, and both arm64 package smokes, die with \"Security validation failure: parent process has different executable!\". This bump automerged as a patch and took out the v0.2.0-rc.18 Linux artifacts after PyPI and the tap had already published. Upstream documents no opt-out, and its two follow-up commits only skip the check when the procfs entry is UNREADABLE — an emulated one is readable and simply points elsewhere, so they do not reach this. Note that not every emulator trips it (the same binary runs fine under Rosetta on Apple silicon), so a local probe proves nothing and only a tagged build settles it: `packaging/check-pyinstaller-pin.sh` watches upstream for a release worth spending an rc on.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchDepNames": [
-        "pyinstaller"
-      ],
-      "allowedVersions": "<=6.22.0"
-    },
-    {
       "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. Rocky 9 (glibc 2.34) is the .rpm smoke-test container in packaging/package-smoke-rpm.Dockerfile. It sits BELOW the build image (2.39) on purpose: PyInstaller links against the build machine's glibc, so a bundle can silently require 2.39, install cleanly anywhere and then refuse to start. Testing on Rocky 10 (also 2.39) means the binary always runs and the smoke test can never fail. Digests must keep flowing so the container stays patched, hence a range rather than disabling it.",
       "matchDatasources": [
         "docker"
@@ -118,7 +232,8 @@
       "description": "Docker images pinned tag@digest inside a workflow `docker` shell block, or in the packaging Dockerfiles. The github-actions manager does not look inside `run:` scripts and the dockerfile manager is not enabled, so without this every base image freezes at whatever digest it was pinned to.",
       "managerFilePatterns": [
         "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/",
-        "/^packaging/.+\\.Dockerfile$/"
+        "/^packaging/.+\\.Dockerfile$/",
+        "/^packaging/release-pins\\.env$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+)(?: packageName=(?<packageName>\\S+))?\\s+[^\\n]*?:(?<currentValue>[\\w][\\w.-]*)@(?<currentDigest>sha256:[0-9a-f]+)"
@@ -126,12 +241,13 @@
     },
     {
       "customType": "regex",
-      "description": "Version pins annotated with a `# renovate:` comment in a workflow shell block — the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them.",
+      "description": "Version pins annotated with a `# renovate:` comment — a shell assignment in packaging/release-pins.env, a `python-version:` key or a `pip install pkg==` line in the macOS release workflow. The tail is deliberately loose: the ANNOTATION is the anchor, and a pattern that only understood UPPERCASE=\"value\" silently skipped the macOS half of the same two dependencies, so Renovate could bump Linux and leave macOS a version behind — the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them. They live in packaging/release-pins.env because two forges build this release (amd64 on Forgejo, arm64 on GitHub) and one file is what keeps them equal; a pattern listing only the workflows would silently stop bumping all of them.",
       "managerFilePatterns": [
-        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/"
+        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/",
+        "/^packaging/release-pins\\.env$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>pypi|python-version) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[A-Z_]+=\"(?<currentValue>[^\"]+)\""
+        "# renovate: datasource=(?<datasource>pypi|python-version|github-tags|gitea-tags) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[^\\n]*?[:=]=?\\s*\"?(?<currentValue>\\d[\\w.-]*)"
       ]
     }
   ],
@@ -140,7 +256,7 @@
       "bash packaging/refresh-pins.sh"
     ],
     "fileFilters": [
-      ".forgejo/workflows/publish.yml"
+      "packaging/release-pins.env"
     ],
     "executionMode": "branch"
   }

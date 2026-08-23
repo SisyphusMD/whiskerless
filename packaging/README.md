@@ -77,17 +77,24 @@ and bridges.
    version string, runs the test gate, commits, tags, and pushes. Git push-mirror
    fans the commit + tag out to GitHub and the NAS Forgejo.
 2. **Forgejo `publish.yml`** (tag-triggered): publishes the library to **PyPI**,
-   builds **every Linux artifact** — raw binaries, `.deb` and `.rpm` for amd64 and
-   arm64 — and **creates the release on all three** (Forgejo, NAS, GitHub) with the
-   CHANGELOG section as the notes. Both architectures build locally: buildx's
-   docker-container driver carries QEMU, so the arm64 leg emulates inside the
-   builder rather than needing an arm64 runner.
-3. **GitHub `release-macos.yml`** (mirrored tag, GitHub's free macOS runners — the
+   builds the **amd64 Linux artifacts** — raw binary, `.deb`, `.rpm` — and
+   **creates the release on all three** (Forgejo, NAS, GitHub) with the CHANGELOG
+   section as the notes. amd64 only, natively: architecture decides the forge here
+   and nothing is emulated (`docs/design/ci-split.md`).
+3. **GitHub `release-linux-arm64.yml`** (mirrored tag, `ubuntu-24.04-arm`): the
+   same build, for arm64, on real arm64 silicon. It **appends** its artifacts to
+   the releases step 2 created rather than making its own, so a failure here costs
+   a release its arm64 half instead of blocking the whole thing. Both steps run
+   `packaging/build-linux-arch.sh`, which refuses to run for an architecture its
+   host is not.
+4. **GitHub `release-macos.yml`** (mirrored tag, GitHub's free macOS runners — the
    one job that genuinely needs a Mac): builds the **signed + notarized `.pkg`** and
    appends it to the **GitHub** and **public-Forgejo** releases (all it can reach).
-4. **Forgejo `publish.yml` `nas-pkg` job**: waits for the `.pkg` on the public
-   Forgejo release, then **copies it to the internal NAS** release.
-5. **GitHub `bottles.yml`** (mirrored tag): builds the four **Homebrew bottles**
+5. **Forgejo `publish.yml` `nas-bridge` job**: the NAS is internal, so no GitHub
+   runner can reach it. This waits for everything GitHub built — the two `.pkg`
+   and the four arm64 files — on the public Forgejo release, then **copies them to
+   the internal NAS** release. Bottles are deliberately not among them.
+6. **GitHub `bottles.yml`** (mirrored tag): builds the four **Homebrew bottles**
    and appends them, with their manifests, to the GitHub + public-Forgejo
    releases.
 6. **Forgejo `publish.yml` `homebrew-bottles` job**: waits for those manifests,
@@ -104,26 +111,36 @@ write the same release in any order.
 |---|---|---|
 | `whiskerless` on PyPI | `publish.yml` | any Python 3.11+ |
 | `whiskerless-linux-x86_64` | `publish.yml` | Linux, no Python needed |
-| `whiskerless-linux-arm64` | `publish.yml` | Linux arm64 (Pi, arm servers) |
-| `whiskerless_<v>_{amd64,arm64}.deb` | `publish.yml` | Debian / Ubuntu |
-| `whiskerless-<v>.{x86_64,aarch64}.rpm` | `publish.yml` | Fedora / RHEL |
+| `whiskerless-linux-arm64` | `release-linux-arm64.yml` | Linux arm64 (Pi, arm servers) |
+| `whiskerless_<v>_amd64.deb` | `publish.yml` | Debian / Ubuntu |
+| `whiskerless_<v>_arm64.deb` | `release-linux-arm64.yml` | Debian / Ubuntu on arm |
+| `whiskerless-<v>.x86_64.rpm` | `publish.yml` | Fedora / RHEL |
+| `whiskerless-<v>.aarch64.rpm` | `release-linux-arm64.yml` | Fedora / RHEL on arm |
 | `whiskerless-macos-{arm64,x86_64}.pkg` | `release-macos.yml` | macOS, signed + notarized |
 | `whiskerless{,-rc}-<v>.<platform>.bottle.tar.gz` | `bottles.yml` | Homebrew, poured not compiled |
-| `SHA256SUMS` | `publish.yml` | checksums for every Linux artifact |
+| `SHA256SUMS-x86_64` | `publish.yml` | checksums for the amd64 Linux artifacts |
+| `SHA256SUMS-aarch64` | `release-linux-arm64.yml` | checksums for the arm64 Linux artifacts |
+
+Architecture decides the forge, and nothing is emulated: amd64 builds on the
+self-hosted Forgejo runner, arm64 and macOS on GitHub's native runners. That
+split is why there are two checksum files — each is written by the machine that
+built those bytes, and published assets are immutable, so the amd64 file cannot
+be reopened when the arm64 job lands.
 
 The `.deb`/`.rpm` are **also pushed into the apt/dnf repositories** (below), which
-is how most people should install them. `SHA256SUMS` covers the artifacts that
-exist when it is written — not the `.pkg` or the bottles, both of which are built
-later on GitHub. Those two carry their own stronger guarantees anyway
-(notarization; a sha256 inside the formula).
+is how most people should install them. Neither checksum file covers the `.pkg` or
+the bottles; both carry a stronger guarantee of their own anyway (notarization; a
+sha256 inside the formula).
 
-Verify a download with **`sha256sum -c --ignore-missing SHA256SUMS`**. The
-`--ignore-missing` is required, not optional: an artifact whose version contains
-`~` is listed twice — once under the canonical name Forgejo serves, once under
-the `.`-rewritten name GitHub's asset API produces — so whichever forge you
-downloaded from, the other spelling is a line with no local file. Checksums prove
-the bytes arrived intact; they are served from the same host as the artifacts, so
-they say nothing about authenticity. That is what the GPG signature on the
+Verify a download with **`sha256sum -c --ignore-missing SHA256SUMS-$(uname -m)`**.
+The file is named for `uname -m` — `x86_64`, `aarch64` — rather than the artifacts'
+own `amd64`/`arm64` spelling, so that command needs no editing on the machine doing
+the verifying. The `--ignore-missing` is required, not optional: an artifact whose
+version contains `~` is listed twice — once under the canonical name Forgejo serves,
+once under the `.`-rewritten name GitHub's asset API produces — so whichever forge
+you downloaded from, the other spelling is a line with no local file. Checksums
+prove the bytes arrived intact; they are served from the same host as the artifacts,
+so they say nothing about authenticity. That is what the GPG signature on the
 packages is for.
 
 The `.deb`/`.rpm` declare **no** dependency on a system Python: PyInstaller
@@ -246,7 +263,7 @@ asymmetry is theirs, not a choice made here:
   to make the registry sign the index with a key of ours, and substituting one
   would mean hand-writing a private key into a plaintext database column.
 - **dnf authenticates the package**, and that signature is **ours**
-  (`4BBACD5A6FF38564`). Forgejo stores and serves the uploaded bytes unmodified,
+  (`CCE50015D058E9BF`). Forgejo stores and serves the uploaded bytes unmodified,
   so it survives intact.
 
 Forgejo generates a **separate key per registry type**: `debian/repository.key`
@@ -259,8 +276,16 @@ control with one living in plaintext on the machine that serves the packages, an
 it would make the registry copy of a release differ from the identical-looking
 file on the release page.
 
-**The dnf config ships in this repository** (`whiskerless.repo`,
-`whiskerless-testing.repo`) rather than pointing users at the one Forgejo
+**`whiskerless-signing-key.asc` is kept, and must not be deleted.** It is a
+byte-identical copy of `sisyphusmd-signing-key.asc`. Two 0.2.0 release candidates
+shipped a `whiskerless.repo` naming that URL in `gpgkey=`, and a machine
+configured from one of them reads its own copy under `/etc/yum.repos.d` — never
+this repository's. Removing the key it points at would leave dnf unable to import
+the key the packages are now signed with, so that machine could not upgrade at
+all. A repo invariant pins the two files identical.
+
+**The dnf config ships in this repository** (`sisyphusmd.repo`,
+`sisyphusmd-testing.repo`) rather than pointing users at the one Forgejo
 generates, and it lists **only our key**. Both halves matter, and both were
 checked against the live registry:
 
@@ -338,10 +363,10 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release + receive the bridged `.pkg`). |
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write (Forgejo creates the GitHub release with it). Same PAT used as the GitHub push-mirror password. |
 | `GH_REPO_READ_PAT` | **Optional.** GitHub PAT with **no scopes** — read-only public data, used solely by `mirror-gate` to escape the 60-request/hour unauthenticated limit. Absent, the gate still works and just polls slowly. |
-| `PYPI_API_TOKEN` | PyPI API token (`pypi-…`). OIDC trusted publishing isn't available on Forgejo, so this is a token. Scope it to the project once it exists. |
+| `PYPI_API_TOKEN` | PyPI API token (`pypi-…`), named `whiskerless-forgejo-ci` and **scoped to this project**, not the account — a token that can publish to every project the account owns has no business on a self-hosted runner. PyPI accepts OIDC only from GitHub Actions, GitLab.com, Google Cloud and ActiveState, so a token is the only option that keeps publishing on Forgejo; see the rejection rationale in project-standard's VARIANCE.md. |
 | `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. Held at the **org** level, not on this repo. |
 | `CLUSTER_FORGEJO_REGISTRY_PUSH_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. Held at the **org** level and shared with the sister repos' container pushes — one scope covers every package type. Needed because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with a 403 rather than anything obvious. |
-| `GPG_SIGNING_KEY` | The armoured private half of the package signing key (`4BBACD5A6FF38564`). Written to a tmp file **outside** the workspace and `docker cp`'d in separately, so it is never part of a build context. |
+| `GPG_SIGNING_KEY` | The armoured private half of the package signing key (`CCE50015D058E9BF`). Written to a tmp file **outside** the workspace and `docker cp`'d in separately, so it is never part of a build context. |
 
 ### On GitHub (`github.com/SisyphusMD/whiskerless` → Settings → Secrets and variables → Actions)
 
@@ -356,8 +381,17 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `MACOS_NOTARY_KEY_P8` | base64 of your App Store Connect API key (`.p8`) |
 | `MACOS_NOTARY_KEY_ID` | the API key's Key ID |
 | `MACOS_NOTARY_ISSUER` | the API key's Issuer ID (a UUID) |
+| `GPG_SIGNING_KEY` | The same armoured private key Forgejo holds (`CCE50015D058E9BF`). Needed here because the arm64 `.deb`/`.rpm` are built on GitHub's native arm runner, and a package signed on one architecture and not the other is worse than neither. Scoped to the **`linux-signing` environment** rather than the repository, so only `release-linux-arm64.yml` can read it. |
 
-(`GITHUB_TOKEN` for the GitHub release is provided automatically.)
+(`GITHUB_TOKEN` for the GitHub release is provided automatically; the workflows
+that create or append to a release declare `permissions: contents: write`, without
+which it can read but not publish.)
+
+**The `linux-signing` environment** (Settings → Environments → New environment)
+exists only to hold that key. Each forge holds the signing material for what it
+builds — the Apple identity lives here on the same principle — and an environment
+is what keeps a repository-wide secret from being readable by every workflow that
+runs on this side.
 
 ### Getting the macOS bits (one-time, Apple Developer Program)
 

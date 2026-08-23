@@ -21,10 +21,6 @@ Layout under ``~/whiskerless`` (override with ``WHISKERLESS_HOME``)::
     robots/<serial>/client/        what that robot presents to the broker
     default                        serial used when none is given
 
-**One secret lives here on purpose: the CA private key.** It is archival — it
-must survive machine loss, and every tool on earth keeps CA keys as files
-because you have to carry and archive them. Everything else is either public or
-not stored at all.
 Files are 0600 and directories 0700 throughout.
 
 **Two kinds of secret live here, and for different reasons.** The CA private key
@@ -38,17 +34,28 @@ WiFi passphrase is the one thing still asked for at the robot and forgotten.
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import os
 import re
 import tempfile
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
+from typing import Concatenate, ParamSpec, TypeVar, cast
+
+try:  # POSIX only; Windows has no fcntl and the accommodation is documented on _exclusive().
+    import fcntl
+
+    _HAVE_FLOCK = True
+except ImportError:  # pragma: no cover - exercised only on Windows
+    _HAVE_FLOCK = False
 
 from . import pki
-from .exceptions import ProfileError
+from .exceptions import AmbiguousRobotError, RobotProfileError, WhiskerlessError
 from .mqtt import DEFAULT_TLS_PORT, MqttSettings
 from .pki import KeyPair
 
@@ -60,32 +67,37 @@ DEFAULT_SUBDIR = "whiskerless"
 #: Where a pre-1 layout lived. Migrated forward on first sight, never read in place.
 LEGACY_SUBDIR = ".whiskerless"
 
-#: Set for the life of the process by the run that hoists a pre-0.2.0 store,
-#: whether or not the store also moved. The CLI reports it once, because that run
-#: is the only moment anything knows for certain that somebody is upgrading rather
-#: than starting fresh — and 0.2.0 changes things about their setup that they did
-#: not ask for and cannot see.
-MIGRATED_FROM_LEGACY = False
-
-#: Broker addresses found on other robots while hoisting, and not kept. Before
-#: layout 1 each robot carried its own, so two of them could in principle name
-#: two brokers; one store now holds one. Almost certainly nobody's setup, but
-#: picking silently would leave a robot pointed somewhere that is not theirs.
-MIGRATED_DISCARDED_BROKERS: tuple[str, ...] = ()
-
-#: Where the store was moved to, and which broker was kept — captured as it
-#: happens so the CLI can report it without reopening the store. Reopening would
-#: re-run a migration that may have just failed, and that second failure would
-#: replace the error already reported.
-MIGRATED_TO: Path | None = None
-MIGRATED_BROKER: str | None = None
-
 #: On-disk STRUCTURE version, deliberately separate from the release version: a
 #: stable build and a release candidate share a layout freely, and most releases
 #: do not touch it. Bumped only by a real structural change, and every bump ships
 #: with the migration that reaches it.
 LAYOUT_VERSION = 1
 _LAYOUT_FILE = ".layout"
+#: Written beside the marker, never instead of it: `.layout` stays a bare integer so
+#: every build that has shipped can still read it.
+_LAYOUT_DETAIL_FILE = ".layout.json"
+#: Serialises store mutations between processes. This store has two writers BY DESIGN — the CLI and
+#: the Home Assistant coordinator, against the same `~/whiskerless` — and every mutation here is a
+#: read-modify-write. Atomic replacement already stops a torn file; it does not stop the CLI's save
+#: from landing on top of a profile the integration wrote a millisecond earlier. Ported from
+#: dreame-valetudo, which locks its workspace for the same reason.
+_LOCK_FILE = ".lock"
+#: Long enough to outlast another writer's mutation, short enough that a stale lock cannot wedge a
+#: command indefinitely. Waiting is right where refusing would be wrong: both writers are legitimate.
+_LOCK_TIMEOUT_SECONDS = 5.0
+#: Which whiskerless first wrote each layout. Recorded so a build that meets a layout from the
+#: FUTURE can name the version to upgrade to — it cannot know that from its own constants, which is
+#: the whole reason the number travels with the store. Ported from dreame-valetudo.
+_LAYOUT_SINCE: dict[int, str] = {1: "0.2.0"}
+
+
+def _tool_version() -> str:
+    """This build's version. Imported inside the function to keep the package root out of this
+    module's import graph."""
+    from . import __version__
+
+    return __version__
+
 
 _PROFILE_FILE = "profile.json"
 _CA_FILE = "ca.pem"
@@ -119,6 +131,16 @@ _MAX_DISTANCE_MM = 10_000
 # characters) is rejected rather than sanitised. Silently rewriting a serial
 # would file a robot under a name the user never typed.
 _SERIAL_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{2,63}\Z")
+#: What a Litter-Robot serial actually looks like, as printed on the robot. Deliberately NOT what
+#: `Serial` accepts: that is a containment rule for a directory name and lets almost any word
+#: through, so a mistyped display name ("Upstair" for "Upstairs") parsed as a perfectly valid
+#: serial and the CLI published to a topic no robot subscribes to, reporting success.
+_LOOKS_LIKE_A_ROBOT_SERIAL = re.compile(r"\ALR[34][A-Z][A-Za-z0-9]{4,}\Z", re.IGNORECASE)
+
+
+def looks_like_a_robot_serial(value: str) -> bool:
+    """Whether `value` has the shape of a serial printed on a robot."""
+    return bool(_LOOKS_LIKE_A_ROBOT_SERIAL.match(value.strip()))
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +159,7 @@ class Serial:
     def __post_init__(self) -> None:
         object.__setattr__(self, "value", self.value.strip().upper())
         if not _SERIAL_RE.match(self.value):
-            raise ProfileError(
+            raise RobotProfileError(
                 f"{self.value!r} is not a usable serial — expected letters, digits, "
                 "'-' or '_' (3-64 characters), e.g. LR4C123456"
             )
@@ -267,7 +289,7 @@ def _expand(path: str, environ: Mapping[str, str]) -> Path:
     """Expand a leading ``~`` against ``environ`` rather than the process.
 
     ``Path.expanduser`` always consults ``os.environ``, so it would quietly
-    ignore a HOME handed to :meth:`ProfileStore.from_env` — the one thing an
+    ignore a HOME handed to :meth:`RobotProfileStore.from_env` — the one thing an
     injected environment exists to control. ``~user`` is rare enough to hand
     back to the stdlib, which needs the password database for it anyway.
     """
@@ -276,6 +298,25 @@ def _expand(path: str, environ: Mapping[str, str]) -> Path:
     if path.startswith("~/"):
         return _home(environ) / path[2:]
     return Path(path).expanduser()
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _locked(method: Callable[Concatenate[RobotProfileStore, _P], _R]) -> Callable[Concatenate[RobotProfileStore, _P], _R]:
+    """Hold the store lock for one mutation.
+
+    On the methods that read-modify-write, not on every write: an atomic replacement is already
+    safe on its own, and taking the lock around a plain read would only invent contention.
+    """
+
+    @functools.wraps(method)
+    def guarded(self: RobotProfileStore, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with self._exclusive():
+            return method(self, *args, **kwargs)
+
+    return cast("Callable[Concatenate[RobotProfileStore, _P], _R]", guarded)
 
 
 def _write_private(path: Path, text: str) -> None:
@@ -293,9 +334,10 @@ def _write_private(path: Path, text: str) -> None:
     temp_path = Path(temporary)
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            # Windows has no fchmod (and no POSIX mode bits to set) — a Windows
-            # home directory is already private to its user, and the store holds
-            # no secrets, so skipping is the whole accommodation it needs.
+            # Windows has no fchmod (and no POSIX mode bits to set). The store DOES hold
+            # secrets — the CA private key and the client keys, per this module's docstring —
+            # so this is a real accommodation resting on the Windows home directory already
+            # being private to its user, not on there being nothing to protect.
             if hasattr(os, "fchmod"):
                 os.fchmod(stream.fileno(), 0o600)
             stream.write(text)
@@ -316,29 +358,83 @@ def _write_private(path: Path, text: str) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class ProfileStore:
+class MigrationResult:
+    """Facts learned while bringing one store forward to the current layout."""
+
+    from_legacy: bool = False
+    moved_to: Path | None = None
+    broker: str | None = None
+    discarded_brokers: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RobotProfileStore:
     """The on-disk set of robots this machine has provisioned."""
 
     root: Path
+    migration: MigrationResult = field(default_factory=MigrationResult, compare=False)
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> ProfileStore:
+    def from_env(cls, env: Mapping[str, str] | None = None) -> RobotProfileStore:
+        store, legacy = cls._unopened_from_env(env)
+        store._open(legacy)
+        return store
+
+    @classmethod
+    def root_from_env(cls, env: Mapping[str, str] | None = None) -> Path:
+        """Where the store lives, WITHOUT opening or validating it.
+
+        For the callers that only need to name the directory — `uninstall` says what it will not
+        touch. Opening there would refuse a store a newer version wrote, aborting the one command
+        whose job is to clean up the older install that is asking.
+        """
+        return cls._unopened_from_env(env)[0].root
+
+    @classmethod
+    def _unopened_from_env(
+        cls, env: Mapping[str, str] | None = None
+    ) -> tuple[RobotProfileStore, Path | None]:
         environ: Mapping[str, str] = os.environ if env is None else env
         override = environ.get(HOME_ENV)
         if override:
-            store = cls(_expand(override, environ))
-        else:
-            store = cls(_home(environ) / DEFAULT_SUBDIR)
-            store._migrate_legacy_home(_home(environ) / LEGACY_SUBDIR)
-        store.check_layout()
-        if store.root.is_dir() and store.layout_version() < LAYOUT_VERSION:
-            object.__setattr__(store, "_migrating", True)
+            return cls(_expand(override, environ)), None
+        home = _home(environ)
+        return cls(home / DEFAULT_SUBDIR), home / LEGACY_SUBDIR
+
+    def _open(self, legacy: Path | None) -> None:
+        if legacy is not None:
+            self._migrate_legacy_home(legacy)
+        self.check_layout()
+        if self.root.is_dir() and self.layout_version() < LAYOUT_VERSION:
+            object.__setattr__(self, "_migrating", True)
             try:
-                store._migrate_to_layout_1()
+                self._migrate_to_layout_1()
             finally:
-                object.__setattr__(store, "_migrating", False)
-            store._ensure_root()  # stamps only now that every step has landed
-        return store
+                object.__setattr__(self, "_migrating", False)
+            self._ensure_root()  # stamps only now that every step has landed
+        self._normalise_layout_marker()
+
+    def _normalise_layout_marker(self) -> None:
+        """Rewrite a JSON `.layout` back to the bare integer every build can parse.
+
+        A build shipped briefly that wrote the whole record into `.layout` itself. This one reads
+        that fine, which is the problem: without rewriting it, an older duplicate install goes on
+        parsing the layout as 0, re-running the migration and rewriting every profile on every
+        single command, and nothing here would ever have changed the file it chokes on.
+        """
+        marker = self.root / _LAYOUT_FILE
+        try:
+            text = marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            return
+        if not text.startswith("{"):
+            return
+        record = self._layout_marker()
+        if record.get("layout_version") != str(LAYOUT_VERSION):
+            return  # not ours to rewrite; check_layout() has already had its say
+        with contextlib.suppress(OSError):
+            _write_private(self.root / _LAYOUT_DETAIL_FILE, json.dumps(record, indent=2, sort_keys=True) + "\n")
+            _write_private(marker, f"{LAYOUT_VERSION}\n")
 
     def _migrate_legacy_home(self, legacy: Path) -> None:
         """Move a pre-1 layout out of its hidden directory, once.
@@ -352,14 +448,16 @@ class ProfileStore:
             return
         try:
             legacy.rename(self.root)
-            global MIGRATED_FROM_LEGACY, MIGRATED_TO
-            MIGRATED_FROM_LEGACY = True
-            MIGRATED_TO = self.root
+            object.__setattr__(
+                self,
+                "migration",
+                replace(self.migration, from_legacy=True, moved_to=self.root),
+            )
         except OSError as exc:
             # Carrying on would start a second, empty store while the real one
             # stays hidden — every robot would look forgotten, and a second CA
             # would be generated beside the one they already trust.
-            raise ProfileError(
+            raise RobotProfileError(
                 f"could not move {legacy} to {self.root}: {exc.strerror}. Move it "
                 f"by hand, or set WHISKERLESS_HOME to point at it"
             ) from exc
@@ -409,12 +507,16 @@ class ProfileStore:
                 host = next(iter(hosts), None)
             if isinstance(host, str) and host:
                 self.save_broker(Broker(host=host))
-                global MIGRATED_BROKER
-                MIGRATED_BROKER = host
                 others = {found for found in hosts if found != host}
-                if others:
-                    global MIGRATED_DISCARDED_BROKERS
-                    MIGRATED_DISCARDED_BROKERS = tuple(sorted(others))
+                object.__setattr__(
+                    self,
+                    "migration",
+                    replace(
+                        self.migration,
+                        broker=host,
+                        discarded_brokers=tuple(sorted(others)),
+                    ),
+                )
 
         if not self.has_ca_cert():
             # A stray ca.crt at the root predates the ca/ directory; a per-robot
@@ -453,7 +555,7 @@ class ProfileStore:
                     # from_env() stamp the layout, so the next run skips the
                     # migration forever, `setup` offers a replacement authority,
                     # and every robot trusting the preserved one is stranded.
-                    raise ProfileError(
+                    raise RobotProfileError(
                         f"none of {len(candidates)} certificate authority file(s) under "
                         f"{self.root} could be read, so the trust anchor your robots were "
                         "given has not been filed. Fix their permissions and run again — "
@@ -478,8 +580,11 @@ class ProfileStore:
         # method, so keying the notice on the move meant the one class of user who
         # placed their store deliberately heard nothing about credentials
         # disappearing.
-        global MIGRATED_FROM_LEGACY
-        MIGRATED_FROM_LEGACY = True
+        object.__setattr__(
+            self,
+            "migration",
+            replace(self.migration, from_legacy=True),
+        )
 
     def _retire_pre_layout_leftovers(self, entries: list[Path]) -> None:
         """Take the hoisted values back out of the files they came from.
@@ -524,14 +629,73 @@ class ProfileStore:
                 continue
             try:
                 self.save(self.load(entry.name))
-            except (ProfileError, OSError):
+            except (RobotProfileError, OSError):
                 continue
+
+    def _layout_marker(self) -> dict[str, str]:
+        """The marker as a mapping, whichever form it is in on disk.
+
+        The 0.2.0 release candidates wrote a bare integer here. Reading both means a store written
+        by one of them still reports its real layout instead of falling back to "pre-versioning"
+        and re-running the layout-1 migration against a layout-1 store.
+        """
+        try:
+            text = (self.root / _LAYOUT_FILE).read_text(encoding="utf-8").strip()
+        except OSError:
+            return {}
+        detail: dict[str, str] = {}
+        with contextlib.suppress(OSError, ValueError):
+            beside = json.loads(
+                (self.root / _LAYOUT_DETAIL_FILE).read_text(encoding="utf-8")
+            )
+            if isinstance(beside, dict):
+                detail = {str(k): str(v) for k, v in beside.items()}
+        try:
+            loaded = json.loads(text)
+        except ValueError:
+            return {**detail, "layout_version": text}
+        if isinstance(loaded, dict):
+            # A store stamped by the build that briefly wrote JSON into `.layout` itself.
+            return {**detail, **{str(k): str(v) for k, v in loaded.items()}}
+        return {**detail, "layout_version": str(loaded)}
+
+
+    @contextmanager
+    def _exclusive(self) -> Iterator[None]:
+        """Hold an exclusive store lock for the duration of a mutation.
+
+        Opened without truncating, so a refused acquisition never damages the file it is guarding.
+        On Windows `fcntl` does not exist; the lock degrades to a no-op there rather than pretending,
+        which is the same accommodation the mode bits get and is recorded for the same reason — the
+        Home Assistant integration does not run on Windows, so the two-writer case cannot arise yet.
+        """
+        if not _HAVE_FLOCK:  # pragma: no cover - Windows accommodation
+            yield
+            return
+        self._ensure_root()
+        handle = os.fdopen(os.open(self.root / _LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600), "r+")
+        try:
+            deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+            while True:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise RobotProfileError(
+                            f"another whiskerless is writing to {self.root} and did not finish "
+                            f"within {_LOCK_TIMEOUT_SECONDS:g}s — try again"
+                        ) from None
+                    time.sleep(0.05)
+            yield
+        finally:
+            handle.close()
 
     def layout_version(self) -> int:
         """The structure version on disk. Absent marker means pre-versioning."""
         try:
-            return int((self.root / _LAYOUT_FILE).read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
+            return int(self._layout_marker().get("layout_version", ""))
+        except ValueError:
             return 0
 
     def check_layout(self) -> None:
@@ -545,10 +709,14 @@ class ProfileStore:
             return
         found = self.layout_version()
         if found > LAYOUT_VERSION:
-            raise ProfileError(
+            # Name the version that can read it when the store says so. "Upgrade whiskerless" sends
+            # someone to the releases page to guess; "upgrade to >= 0.3.0" does not.
+            need = self._layout_marker().get("min_tool_version")
+            upgrade = f"upgrade to whiskerless >= {need}" if need else "upgrade whiskerless"
+            raise RobotProfileError(
                 f"{self.root} was written by a newer whiskerless "
-                f"(layout {found}; this build understands {LAYOUT_VERSION}) — upgrade "
-                f"whiskerless, or point WHISKERLESS_HOME somewhere else"
+                f"(layout {found}; this build understands {LAYOUT_VERSION}) — {upgrade}"
+                f", or point WHISKERLESS_HOME somewhere else"
             )
 
     @property
@@ -614,16 +782,16 @@ class ProfileStore:
         try:
             raw = json.loads(self.broker_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            raise ProfileError(
+            raise RobotProfileError(
                 "no broker is set up on this machine — run `whiskerless provision`"
             ) from None
         except (OSError, ValueError) as exc:
-            raise ProfileError(f"could not read {self.broker_path}: {exc}") from exc
+            raise RobotProfileError(f"could not read {self.broker_path}: {exc}") from exc
         if not isinstance(raw, dict):
-            raise ProfileError(f"{self.broker_path} is not a JSON object")
+            raise RobotProfileError(f"{self.broker_path} is not a JSON object")
         host = raw.get("host")
         if not isinstance(host, str) or not host:
-            raise ProfileError(f"{self.broker_path} has no broker host")
+            raise RobotProfileError(f"{self.broker_path} has no broker host")
         # A store written before these were dropped still carries `port` and
         # `verify_hostname`. They are ignored rather than rejected: the file is
         # rewritten without them on the next save, and refusing to open a store
@@ -636,7 +804,7 @@ class ProfileStore:
             # typo or a store from a newer build, and quietly reading it as
             # `mutual` would hand a robot an identity in a setup that asked for
             # none — the silent downgrade this field exists to prevent.
-            raise ProfileError(
+            raise RobotProfileError(
                 f"{self.broker_path} names an authentication mode this build does "
                 f"not know ({raw_auth!r}). Known modes: "
                 f"{', '.join(m.value for m in AuthMode)}"
@@ -680,7 +848,7 @@ class ProfileStore:
                 # Presenting it gets a TLS failure naming nothing, and nothing here
                 # can mint a replacement — so this is the only place the reason can
                 # be said. MUTUAL is left alone: `setup` reissues its own.
-                raise ProfileError(
+                raise RobotProfileError(
                     f"this machine's certificate in {self.root / _CLIENT_DIR} is not "
                     "valid at the moment — the broker will refuse it. Issue another "
                     "from your CA and file it with `whiskerless setup --client-cert "
@@ -692,7 +860,7 @@ class ProfileStore:
             # saying `supplied` while nothing about it was, which is the exact
             # silence writing the mode down was meant to end. Nothing here can
             # mint a replacement either, so it has to be said.
-            raise ProfileError(
+            raise RobotProfileError(
                 f"{self.broker_path} says auth is 'supplied', but this machine's "
                 f"certificate is not in {self.root / _CLIENT_DIR}. Nothing here can "
                 "issue another — supply it again with `whiskerless setup "
@@ -733,7 +901,7 @@ class ProfileStore:
         while the broker is about to refuse them.
         """
         # Every identity directory, not every readable profile: an aborted
-        # provision or a half-removed robot leaves one behind that `list_profiles()`
+        # provision or a half-removed robot leaves one behind that `list_robot_profiles()`
         # skips, and `robot_identity()` would later hand that stale certificate
         # back as a cache hit — signed by the authority just retired, and refused
         # by the broker the moment it is used.
@@ -742,7 +910,7 @@ class ProfileStore:
                 if entry.is_dir():
                     for name in (_CLIENT_CERT, _CLIENT_KEY):
                         (entry / _CLIENT_DIR / name).unlink(missing_ok=True)
-        for profile in self.list_profiles():
+        for profile in self.list_robot_profiles():
             if profile.cert_serial is not None:
                 self.save(replace(profile, cert_serial=None))
 
@@ -851,14 +1019,14 @@ class ProfileStore:
         """
         mode = (broker or self.load_broker()).auth
         if mode is AuthMode.MUTUAL and not self.has_ca():
-            raise ProfileError(
+            raise RobotProfileError(
                 f"{self.broker_path} says auth is 'mutual', which means whiskerless "
                 f"signs every identity — but {self.ca_key_path} is not there. Put the "
                 "key back, or run `whiskerless setup --auth supplied` if identities "
                 "are issued elsewhere now"
             )
         if mode is not AuthMode.MUTUAL and not self.has_ca_cert():
-            raise ProfileError(
+            raise RobotProfileError(
                 f"{self.broker_path} says auth is {mode.value!r}, which still needs the "
                 f"CA certificate the robots were told to trust — {self.ca_path} is not "
                 "there. Supply it with `whiskerless setup --ca <file>`"
@@ -879,7 +1047,27 @@ class ProfileStore:
             # hoisted would make the next run skip the unfinished work forever,
             # and `setup` would then generate a replacement CA that every
             # existing robot refuses.
+            # A BARE INTEGER, because every build that has ever shipped parses this file with
+            # `int()`. Writing JSON here made an older duplicate install read the layout as 0,
+            # re-run the layout-1 migration over a layout-1 store, rewrite every profile and
+            # repeat its migration warning on every single command — for as long as both
+            # versions were installed, since the marker it could not read never changed.
             _write_private(marker, f"{LAYOUT_VERSION}\n")
+            # The richer facts live BESIDE it, in a file older builds never look at. Only this
+            # build needs them, and only to name the version that can read a newer store.
+            _write_private(
+                self.root / _LAYOUT_DETAIL_FILE,
+                json.dumps(
+                    {
+                        "layout_version": str(LAYOUT_VERSION),
+                        "tool_version": _tool_version(),
+                        "min_tool_version": _LAYOUT_SINCE[LAYOUT_VERSION],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+            )
 
     def _ensure_dir(self, name: str) -> Path:
         self._ensure_root()
@@ -888,7 +1076,32 @@ class ProfileStore:
         directory.chmod(0o700)
         return directory
 
+    @_locked
     def save(self, profile: RobotProfile) -> None:
+        """Write a profile, replacing whatever was there.
+
+        For a caller that composed the profile itself. A caller that READ one first, changed a
+        field and is writing it back must use `update()` instead — see the note there.
+        """
+        self._save_unlocked(profile)
+
+    @_locked
+    def update(
+        self, serial: str, transform: Callable[[RobotProfile], RobotProfile]
+    ) -> RobotProfile:
+        """Read, change and write one profile with the lock held across all three.
+
+        `save()` alone serialises only the WRITE. Two commands that each read the profile first —
+        `rename` and a calibration write, say — could both read the old object and then save
+        different replacements, and the second silently reverted the first. Nothing warned: both
+        commands reported success, and the lost change was only visible later.
+        """
+        # `load()` takes no lock of its own, so calling it here is safe under ours.
+        updated = transform(self.load(serial))
+        self._save_unlocked(updated)
+        return updated
+
+    def _save_unlocked(self, profile: RobotProfile) -> None:
         directory = self._dir(profile.serial)
         # One path establishes the root, so the layout marker cannot be missed by
         # whichever operation happens to run first on a fresh machine.
@@ -958,14 +1171,14 @@ class ProfileStore:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            raise ProfileError(
+            raise RobotProfileError(
                 f"no saved profile for {parsed.value} — run `whiskerless provision` first, "
                 "or pass --host explicitly"
             ) from None
         except (OSError, ValueError) as exc:
-            raise ProfileError(f"could not read the profile for {parsed.value}: {exc}") from exc
+            raise RobotProfileError(f"could not read the profile for {parsed.value}: {exc}") from exc
         if not isinstance(raw, dict):
-            raise ProfileError(f"the profile for {parsed.value} is not a JSON object")
+            raise RobotProfileError(f"the profile for {parsed.value} is not a JSON object")
 
         return RobotProfile(
             # The directory name is the identity — it is what `load` and `resolve`
@@ -982,7 +1195,7 @@ class ProfileStore:
             cert_serial=raw.get("cert_serial") if isinstance(raw.get("cert_serial"), str) else None,
         )
 
-    def list_profiles(self) -> tuple[RobotProfile, ...]:
+    def list_robot_profiles(self) -> tuple[RobotProfile, ...]:
         """Every readable profile, sorted by serial.
 
         A directory that fails to parse is skipped rather than fatal: one
@@ -996,7 +1209,7 @@ class ProfileStore:
         for entry in self._entries():
             try:
                 found.append(self.load(entry.name))
-            except ProfileError:
+            except RobotProfileError:
                 continue
         return tuple(found)
 
@@ -1006,7 +1219,7 @@ class ProfileStore:
         for entry in self._entries():
             try:
                 self.load(entry.name)
-            except ProfileError as exc:
+            except RobotProfileError as exc:
                 broken.append((entry.name, str(exc)))
         return tuple(broken)
 
@@ -1020,21 +1233,59 @@ class ProfileStore:
         ]
 
     def resolve(self, serial: str | None = None) -> RobotProfile:
-        """The profile to act on: the named one, the default, or the only one."""
+        """The profile to act on: the named one, the default, or the only one.
+
+        `serial` accepts a display NAME as well as a serial, because a robot the user has called
+        "Upstairs" should be selectable by that — being made to type `LR4C…` for a robot you named
+        is exactly the friction that stops people naming them. The serial is tried first: it is the
+        identity, and a name is only a label, so a name that happens to look like a serial must
+        never shadow the real one.
+
+        Deliberately does NOT prompt. This is a library call with non-CLI callers, so ambiguity
+        raises here and the CLI layer decides whether a person is present to ask.
+        """
         if serial:
-            return self.load(serial)
+            try:
+                return self.load(serial)
+            except RobotProfileError:
+                # An existing serial DIRECTORY means the answer is that robot, damaged or not.
+                # Without this, a profile that failed to load fell through to the name search —
+                # and a healthy robot whose display name happened to equal the requested serial
+                # answered for it, sending a command aimed at one physical robot to another.
+                # The flag is computed inside the suppression and acted on OUTSIDE it: a bare
+                # `raise` in there re-raises a RobotProfileError, which is a WhiskerlessError, so
+                # `suppress` swallowed the very error this branch exists to propagate.
+                existing = False
+                with contextlib.suppress(ValueError, WhiskerlessError):
+                    existing = self._dir(Serial(serial)).is_dir()
+                if existing:
+                    raise
+                # EVERY match, not the first. Nothing stops two robots being called "Bathroom" —
+                # neither provisioning nor `rename` checks — and returning the first serial-sorted
+                # one meant `forget Bathroom` removed a robot while printing the name of the robot
+                # the user meant. A name that identifies two things identifies neither.
+                matched = [p for p in self.list_robot_profiles() if p.display_name == serial]
+                if len(matched) == 1:
+                    return matched[0]
+                if matched:
+                    serials = ", ".join(p.serial.value for p in matched)
+                    raise AmbiguousRobotError(
+                        f"{serial!r} is the name of more than one robot ({serials}) — "
+                        "use the serial, or rename one of them"
+                    ) from None
+                raise
         default = self.get_default()
         if default:
             return self.load(default)
-        known = self.list_profiles()
+        known = self.list_robot_profiles()
         if len(known) == 1:
             return known[0]
         if not known:
-            raise ProfileError(
+            raise RobotProfileError(
                 "no robots are set up on this machine — run `whiskerless provision` first"
             )
         names = ", ".join(profile.serial.value for profile in known)
-        raise ProfileError(
+        raise RobotProfileError(
             f"several robots are set up ({names}) — pick one with --serial, "
             "or choose a default with `whiskerless use <serial>`"
         )
@@ -1046,18 +1297,20 @@ class ProfileStore:
             return None
         return value or None
 
+    @_locked
     def set_default(self, serial: str) -> None:
         parsed = Serial(serial)
         if not (self._dir(parsed) / _PROFILE_FILE).is_file():
-            raise ProfileError(f"no saved profile for {parsed.value}")
+            raise RobotProfileError(f"no saved profile for {parsed.value}")
         _write_private(self.root / _DEFAULT_FILE, parsed.value + "\n")
 
+    @_locked
     def forget(self, serial: str) -> None:
         """Remove a robot's stored profile. The robot itself is untouched."""
         parsed = Serial(serial)
         directory = self._dir(parsed)
         if not directory.is_dir():
-            raise ProfileError(f"no saved profile for {parsed.value}")
+            raise RobotProfileError(f"no saved profile for {parsed.value}")
         for name in (_PROFILE_FILE, _CA_FILE):
             (directory / name).unlink(missing_ok=True)
         # The identity is this store's, so forgetting the robot forgets it too.

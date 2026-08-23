@@ -10,8 +10,6 @@
 # what the gate qualified — is what proves the gate's intent, not textual duplication of this
 # arithmetic. Both jobs calling the same script here is therefore correct, not a regression of that
 # property.
-#
-# Ported from dreame-valetudo, which has the same release shape.
 set -euo pipefail
 bump="${1:?usage: next-version.sh <patch|minor|major> [--rc]}"
 rc=false

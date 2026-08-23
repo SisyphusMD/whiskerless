@@ -16,6 +16,15 @@ from typing import Any
 
 from . import const
 
+__all__ = [
+    "LITTER_DEFAULT_FULL_MM",
+    "LitterRobot4State",
+    "cat_detect_bit0",
+    "cat_detect_bit1",
+    "every_weekday_is",
+    "litter_level_percent_from_mm",
+    "weekday_sleep_days_match",
+]
 
 @dataclass(frozen=True, slots=True)
 class LitterRobot4State:

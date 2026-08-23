@@ -61,8 +61,8 @@ def _closure(platform: str) -> dict[str, str]:
             check=True,
         )
     found = {}
-    for line in result.stdout.splitlines():
-        line = line.split("#")[0].strip()
+    for raw in result.stdout.splitlines():
+        line = raw.split("#")[0].strip()
         if "==" in line:
             name, _, pinned = line.partition("==")
             found[name.strip()] = pinned.strip()

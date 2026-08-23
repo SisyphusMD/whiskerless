@@ -32,9 +32,14 @@ if [ -n "$block" ]; then
   printf '\n' >> "$work/block"
 fi
 
+# Two spellings for the same thing, because the two projects name their source archive
+# differently and both are accurate: whiskerless publishes a PyPI sdist, dreame-valetudo a
+# byte-reproducible source tarball. Substituting both is what lets ONE renderer serve both
+# templates — and the leftover-marker guard below still catches a template that used neither.
 sed -e "s|REPLACE_PYPI_VERSION|${version}|g" \
     -e "s|REPLACE_VERSION|${version}|g" \
     -e "s|REPLACE_SDIST_SHA256|${sha}|" \
+    -e "s|REPLACE_TARBALL_SHA256|${sha}|" \
     -e "/REPLACE_BOTTLE_BLOCK/r $work/block" \
     -e "/REPLACE_BOTTLE_BLOCK/d" \
     "$template" > "$work/out.rb"

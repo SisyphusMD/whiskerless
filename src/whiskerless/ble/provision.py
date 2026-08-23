@@ -487,7 +487,11 @@ async def provision_robot(
                 raise ProvisioningError("wifi_ssid is required (or set write_wifi=False)")
             await transport.request(m.EP_PROV_CONFIG, m.wifi_set_config(config.wifi_ssid, config.wifi_pass))
             await transport.request(m.EP_PROV_CONFIG, m.wifi_apply_config())
-            step(f"WiFi SetConfig+Apply ssid={config.wifi_ssid}; verifying join (≤{config.wifi_wait:.0f}s)")
+            # QUOTED, so the scrubber knows exactly where the name ends. An SSID may contain a
+            # comma, a semicolon or a quote, and an unquoted value forces the scrubber to guess a
+            # terminator — guess short and the tail of somebody's network name is published.
+            step(f"WiFi SetConfig+Apply ssid={config.wifi_ssid!r}; "
+                 f"verifying join (≤{config.wifi_wait:.0f}s)")
             if not dry_run:
                 await _verify_wifi(transport, config, step)
 

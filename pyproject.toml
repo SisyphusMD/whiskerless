@@ -52,15 +52,27 @@ dependencies = [
 # claiming older releases would mean supporting backend fixes nobody here has run.
 # Lower it only together with the dependency-floors CI job that proves it.
 ble = ["bleak>=0.22.0"]
+# Exact, not floors — matching dreame-valetudo, and on the same versions. CI installed these
+# unpinned, so an upstream release (a ruff that enforces a new lint, a mypy whose `strict` moved)
+# could redden main with no code change here. Renovate bumps them via the `# renovate:` markers,
+# surfaced as a green-gated PR rather than a surprise. These are TOOLS; the runtime dependencies
+# above stay floors, because this ships as a library and a library that pins its own dependencies
+# is unusable downstream.
 dev = [
-    "mypy>=1.11",
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "pytest-cov>=5.0",
+    # renovate: datasource=pypi depName=mypy
+    "mypy==2.3.1",
+    # renovate: datasource=pypi depName=pytest
+    "pytest==9.1.1",
+    # renovate: datasource=pypi depName=pytest-asyncio
+    "pytest-asyncio==1.4.0",
+    # renovate: datasource=pypi depName=pytest-cov
+    "pytest-cov==7.1.0",
     # Only the repo-invariant tests need it: quality_scale.yaml and the shipped
     # example automations are checked for drift, and neither is Python.
-    "pyyaml>=6.0",
-    "ruff>=0.6",
+    # renovate: datasource=pypi depName=pyyaml
+    "pyyaml==6.0.3",
+    # renovate: datasource=pypi depName=ruff
+    "ruff==0.16.3",
 ]
 # Home Assistant integration tests (Python 3.13). Install in a separate env:
 #   pip install -e '.[test-ha]' && pytest tests/integration
@@ -70,10 +82,13 @@ test-ha = [
     "syrupy>=4.0",
 ]
 
+# Source points at Forgejo because that is where the code actually lives and where releases are
+# cut; GitHub is a mirror. Homepage, docs and issues point at GitHub because that is where users
+# are — HACS installs from it, and issues and pull requests are handled there.
 [project.urls]
 Homepage = "https://github.com/SisyphusMD/whiskerless"
 Documentation = "https://github.com/SisyphusMD/whiskerless/tree/main/docs"
-Source = "https://github.com/SisyphusMD/whiskerless"
+Source = "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
 Issues = "https://github.com/SisyphusMD/whiskerless/issues"
 
 [project.scripts]
@@ -95,7 +110,11 @@ src = ["src", "tests", "custom_components"]
 "custom_components/**" = "py313"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PTH", "BLE"]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PTH", "BLE",
+          # PLW catches module-global mutation, which is how robot_profiles.py used to hand
+          # migration results to the CLI. PLC0415 is deliberately NOT enabled: the lazy
+          # imports for optional heavy dependencies are an architectural choice.
+          "PLW"]
 ignore = [
     "E501",                       # long protocol comments/tables are allowed
     "ASYNC109",                   # a `timeout` param that wraps asyncio.timeout is a fine API
