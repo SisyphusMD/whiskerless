@@ -31,12 +31,12 @@
     "packaging/stamp_common.py": "193824c3c314239432d9648c7f1c98c9ceafebbaa9ffba30806ea39d41b6f701",
     "packaging/triage-infra-failure.py": "d89fbad38ac887bd1a88c4fa3414d25ee3d89d435b4ab760779817ce0499bc51",
     "packaging/update-tap.sh": "365e6a46b674add182b3113bb5e949babf1931145ff1f8af19381be08e236971",
-    "packaging/wait-for-pypi.sh": "117d43e6f681b15f941ae99020010797345f4a8c1678c14a91e8a2264b41f3c2",
+    "packaging/wait-for-pypi.sh": "00e3b723203d1522be3050066d5752932962299b748fa37f3ecafe4f1f5aa000",
     "tests/release/mirror-ci.sh": "7ab441ab71e6b02ed137494ac17f5bb31ec8bcbd134ca6d1c6e48e2c54f69796",
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
     "tests/release/release-scripts.sh": "f0bc9126e5055cff48a9ba92528e348574daf4f58e8f2780217254b3da6d16cb"
   },
-  "source_commit": "fabc30edeabfb24077e56b4f8d43d9abb25d116f",
+  "source_commit": "90870ba7d5bb3d607a1f38082e3b3f68015b67aa",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.10"
+  "source_tag": "v0.1.11"
 }
