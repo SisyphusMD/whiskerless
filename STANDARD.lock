@@ -26,6 +26,7 @@
     "packaging/reconcile-releases.sh": "d41f41546138327a028420544cf59951609698f21b92175b38c1b797c2b9ba0e",
     "packaging/release-common.sh": "9abaa8130597b20d41be47c616ef6bd5d1cc6dd3e86bc374d525bdfdf5ba28e8",
     "packaging/render-formula.sh": "688b6838aedf4d87ab66d166a4eee0c7c88e505fa8dac06d74e782ed74638ae9",
+    "packaging/revendor-standard.sh": "32c93eeea1a08fdea43149456d6a1efde8834a721b2e98c9d7a1004fd454036a",
     "packaging/shellcheck-all.sh": "14c87d497082a8982044c61c09207845b010e8a5a6f5eecca657cc4c68677c5d",
     "packaging/sisyphusmd-signing-key.asc": "739991cf1057257f55168c9e898f219d46134e86df804f3136205e5f3a5f2c54",
     "packaging/stamp_common.py": "193824c3c314239432d9648c7f1c98c9ceafebbaa9ffba30806ea39d41b6f701",
@@ -36,7 +37,7 @@
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
     "tests/release/release-scripts.sh": "f0bc9126e5055cff48a9ba92528e348574daf4f58e8f2780217254b3da6d16cb"
   },
-  "source_commit": "2adae0f89186832befd013fbaae9562cfeb4a36e",
+  "source_commit": "e9e4bcce8394a8b9f845af26b221b25cee8bbb89",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.13"
+  "source_tag": "v0.1.15"
 }

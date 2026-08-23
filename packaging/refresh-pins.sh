@@ -10,6 +10,11 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 pins="$here/release-pins.env"
 
+# FIRST, because it can replace every other script in this directory — including this one. Renovate
+# can raise the PROJECT_STANDARD pin but cannot fetch the tag it now names, so without this the pin
+# and the vendored files disagree and the drift lock fails the PR.
+bash "$here/revendor-standard.sh"
+
 sha256_stdin() {
   # macOS has shasum, Linux runners have sha256sum; neither is guaranteed to be the other.
   if command -v sha256sum >/dev/null 2>&1; then

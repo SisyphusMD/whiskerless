@@ -47,7 +47,7 @@
       ]
     },
     {
-      "description": "Automerge patch, minor and digest updates. Every dependency that ships or builds this project is exercised by a CI job — two suites at a 99% floor, two strict mypy invocations, a 25-channel install matrix and hassfest — and Renovate only automerges on green, so a breaking bump fails the PR before it can merge. Runtime deps are declared as floors and no rangeStrategy is set, so a satisfied `>=` bound never moves: what lands here is the dev toolchain and the pinned action SHAs. Major updates, and the holds below, are reviewed by hand.",
+      "description": "Automerge patch, minor and digest updates. Every dependency that ships or builds this project is exercised by a CI job \u2014 two suites at a 99% floor, two strict mypy invocations, a 25-channel install matrix and hassfest \u2014 and Renovate only automerges on green, so a breaking bump fails the PR before it can merge. Runtime deps are declared as floors and no rangeStrategy is set, so a satisfied `>=` bound never moves: what lands here is the dev toolchain and the pinned action SHAs. Major updates, and the holds below, are reviewed by hand.",
       "matchUpdateTypes": [
         "patch",
         "minor",
@@ -63,7 +63,7 @@
       "enabled": false
     },
     {
-      "description": "The shared standard lives on the self-hosted Forgejo, so the gitea-tags datasource has to be told which host to ask; there is no public registry to infer it from. Held for review rather than automerged: a bumped pin only says a new standard EXISTS, and the vendored files are re-synced by a separate act, so a human has to land both together.",
+      "description": "The shared standard lives on the self-hosted Forgejo, so the gitea-tags datasource has to be told which host to ask; there is no public registry to infer it from. Held for review rather than automerged: the post-upgrade task re-vendors the files on the branch, so the PR is complete, but a standard bump can change release machinery and that is worth a human read before it lands.",
       "matchDepNames": [
         "SisyphusMD/project-standard"
       ],
@@ -72,11 +72,11 @@
       ],
       "automerge": false,
       "prBodyNotes": [
-        "CI cannot reach this: the pin records which standard version this repo SHOULD carry, but nothing in this repo re-vendors the files. Run `tools/vendor.py` in project-standard for BOTH consumers and land them together, or the invariant test will refuse the mismatch."
+        "`refresh-pins.sh` re-vendors the standard at this tag on this branch, so the files and the lock should already agree with the pin. If the drift check still fails, the re-vendor did not run - check the task's output rather than re-vendoring by hand, because a manual fix here hides a broken automation."
       ]
     },
     {
-      "description": "RELEASE-ONLY build pins: nothing in PR CI builds with them. publish.yml runs on a tag, and the install matrix tests artifacts that are already published — so a minor bump to the packager, the freezer, the manylinux image or the bundled interpreter merges on a green PR that never executed the changed build path, and fails at the next release instead. By then the PyPI upload has already happened, because that job does not wait for the packaging legs. Reviewed by hand, and proven by cutting a release candidate.",
+      "description": "RELEASE-ONLY build pins: nothing in PR CI builds with them. publish.yml runs on a tag, and the install matrix tests artifacts that are already published \u2014 so a minor bump to the packager, the freezer, the manylinux image or the bundled interpreter merges on a green PR that never executed the changed build path, and fails at the next release instead. By then the PyPI upload has already happened, because that job does not wait for the packaging legs. Reviewed by hand, and proven by cutting a release candidate.",
       "matchDepNames": [
         "goreleaser/nfpm",
         "pyinstaller",
@@ -88,7 +88,7 @@
       ],
       "automerge": false,
       "prBodyNotes": [
-        "**CI cannot reach this.** Nothing in a pull request builds with this pin: `publish.yml` runs only on a tag, and the install matrix exercises artifacts that are already published. A green PR here says the code still lints and tests — it says nothing about whether the release still builds.",
+        "**CI cannot reach this.** Nothing in a pull request builds with this pin: `publish.yml` runs only on a tag, and the install matrix exercises artifacts that are already published. A green PR here says the code still lints and tests \u2014 it says nothing about whether the release still builds.",
         "Clear it by cutting a release candidate with the bump in place, then merge."
       ],
       "addLabels": [
@@ -96,7 +96,7 @@
       ]
     },
     {
-      "description": "bleak is the BLE transport provisioning speaks to the robot over. CI proves only that the code around it behaves: tests/test_ble_transport.py fakes the bleak boundary outright, and no runner has a Bluetooth radio, so scanning, pairing, GATT writes and the esp-idf protocomm exchange are never executed against the real library. Green CI therefore says nothing about the path that re-points a robot onto a new broker, so a bump is read by a human. Same reason dreame-valetudo holds pyusb — see its .renovaterc.json.",
+      "description": "bleak is the BLE transport provisioning speaks to the robot over. CI proves only that the code around it behaves: tests/test_ble_transport.py fakes the bleak boundary outright, and no runner has a Bluetooth radio, so scanning, pairing, GATT writes and the esp-idf protocomm exchange are never executed against the real library. Green CI therefore says nothing about the path that re-points a robot onto a new broker, so a bump is read by a human. Same reason dreame-valetudo holds pyusb \u2014 see its .renovaterc.json.",
       "automerge": false,
       "matchDepNames": [
         "bleak"
@@ -186,7 +186,7 @@
       "allowedVersions": "/^16\\.0$/"
     },
     {
-      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. The HA integration CI job must run whatever Python Home Assistant itself runs (3.13) — testing it on a newer one stops testing what users actually run, and installing HA there fails outright. No datasource maps a package to its supported Python, so Renovate cannot derive this; matched on the value because both jobs live in ci.yml. Raise this when HA moves.",
+      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here \u2014 a bump deletes the test rather than updating it, and nothing goes red. The HA integration CI job must run whatever Python Home Assistant itself runs (3.13) \u2014 testing it on a newer one stops testing what users actually run, and installing HA there fails outright. No datasource maps a package to its supported Python, so Renovate cannot derive this; matched on the value because both jobs live in ci.yml. Raise this when HA moves.",
       "matchManagers": [
         "github-actions"
       ],
@@ -197,7 +197,7 @@
       "enabled": false
     },
     {
-      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. 3.11.0 is the literal floor pyproject advertises (requires-python), and these jobs exist to prove the library still runs there. Renovate must not move even the patch: \"3.11\" resolves to the newest 3.11.x, which is a floor nobody actually has, and bumping deletes the test rather than updating it. Raise only together with requires-python.",
+      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here \u2014 a bump deletes the test rather than updating it, and nothing goes red. 3.11.0 is the literal floor pyproject advertises (requires-python), and these jobs exist to prove the library still runs there. Renovate must not move even the patch: \"3.11\" resolves to the newest 3.11.x, which is a floor nobody actually has, and bumping deletes the test rather than updating it. Raise only together with requires-python.",
       "matchManagers": [
         "github-actions"
       ],
@@ -208,7 +208,7 @@
       "allowedVersions": "/^3\\.11\\.0$/"
     },
     {
-      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. macos-15 is the macOS support floor in ci-macos.yml, paired with macos-26 as current. A runner-image bump must never move the floor: that deletes the oldest-macOS coverage instead of updating it, and nothing goes red. Renovate's github-runners datasource is documented inconsistently on whether it extracts `macos-15` whole or splits it into depName `macos` / version `15`, and no bump has ever been observed here to settle it, so BOTH shapes are clamped. Whichever one is wrong is inert; a missing rule loses the floor.",
+      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here \u2014 a bump deletes the test rather than updating it, and nothing goes red. macos-15 is the macOS support floor in ci-macos.yml, paired with macos-26 as current. A runner-image bump must never move the floor: that deletes the oldest-macOS coverage instead of updating it, and nothing goes red. Renovate's github-runners datasource is documented inconsistently on whether it extracts `macos-15` whole or splits it into depName `macos` / version `15`, and no bump has ever been observed here to settle it, so BOTH shapes are clamped. Whichever one is wrong is inert; a missing rule loses the floor.",
       "matchDatasources": [
         "github-runners"
       ],
@@ -216,7 +216,7 @@
       "allowedVersions": "/^(macos-)?15(-intel)?$/"
     },
     {
-      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here — a bump deletes the test rather than updating it, and nothing goes red. Rocky 9 (glibc 2.34) is the .rpm smoke-test container in packaging/package-smoke-rpm.Dockerfile. It sits BELOW the build image (2.39) on purpose: PyInstaller links against the build machine's glibc, so a bundle can silently require 2.39, install cleanly anywhere and then refuse to start. Testing on Rocky 10 (also 2.39) means the binary always runs and the smoke test can never fail. Digests must keep flowing so the container stays patched, hence a range rather than disabling it.",
+      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here \u2014 a bump deletes the test rather than updating it, and nothing goes red. Rocky 9 (glibc 2.34) is the .rpm smoke-test container in packaging/package-smoke-rpm.Dockerfile. It sits BELOW the build image (2.39) on purpose: PyInstaller links against the build machine's glibc, so a bundle can silently require 2.39, install cleanly anywhere and then refuse to start. Testing on Rocky 10 (also 2.39) means the binary always runs and the smoke test can never fail. Digests must keep flowing so the container stays patched, hence a range rather than disabling it.",
       "matchDatasources": [
         "docker"
       ],
@@ -241,7 +241,7 @@
     },
     {
       "customType": "regex",
-      "description": "Version pins annotated with a `# renovate:` comment — a shell assignment in packaging/release-pins.env, a `python-version:` key or a `pip install pkg==` line in the macOS release workflow. The tail is deliberately loose: the ANNOTATION is the anchor, and a pattern that only understood UPPERCASE=\"value\" silently skipped the macOS half of the same two dependencies, so Renovate could bump Linux and leave macOS a version behind — the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them. They live in packaging/release-pins.env because two forges build this release (amd64 on Forgejo, arm64 on GitHub) and one file is what keeps them equal; a pattern listing only the workflows would silently stop bumping all of them.",
+      "description": "Version pins annotated with a `# renovate:` comment \u2014 a shell assignment in packaging/release-pins.env, a `python-version:` key or a `pip install pkg==` line in the macOS release workflow. The tail is deliberately loose: the ANNOTATION is the anchor, and a pattern that only understood UPPERCASE=\"value\" silently skipped the macOS half of the same two dependencies, so Renovate could bump Linux and leave macOS a version behind \u2014 the PyInstaller version and the CPython the Linux bundle is built from. Neither is a dependency of any manifest, so nothing else would ever bump them. They live in packaging/release-pins.env because two forges build this release (amd64 on Forgejo, arm64 on GitHub) and one file is what keeps them equal; a pattern listing only the workflows would silently stop bumping all of them.",
       "managerFilePatterns": [
         "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/",
         "/^packaging/release-pins\\.env$/"
@@ -256,7 +256,12 @@
       "bash packaging/refresh-pins.sh"
     ],
     "fileFilters": [
-      "packaging/release-pins.env"
+      "packaging/release-pins.env",
+      "STANDARD.lock",
+      ".editorconfig",
+      ".github/PULL_REQUEST_TEMPLATE.md",
+      "packaging/**",
+      "tests/release/**"
     ],
     "executionMode": "branch"
   }
