@@ -13,7 +13,7 @@
     "packaging/check-standard-sync.py": "80a42b514811cf69b9493ebee035a68199f0c117732be9d01457faccc48ef4f4",
     "packaging/dependency-bumps.sh": "f8d0ee53297e7e257d709b3a7e9e5fc402e7dc8a2e4c8ec76235025a97a93472",
     "packaging/entitlements.plist": "7d4b164998eb6084488799c470d3b7b3d7e01fc3071eedadd00dc4374f56a5c1",
-    "packaging/fetch-release-assets.sh": "4ec89018ccf56002f89e462c919e9cb72d29dfff2faea294163f5f074a4273a1",
+    "packaging/fetch-release-assets.sh": "7ea0d08b74e777db0deac090b8f59da4a5dd0a6d3b4a1935202aaf83432d728b",
     "packaging/forgejo-release.sh": "d482595fc0771235679a509942d7307e4da4f82fb2cb3df9c496fa6c5967f728",
     "packaging/github-release.sh": "50d41ca1cb7cff3b87c6f2cd6c800afc9077c290cee16ac25c512c99a912af5a",
     "packaging/gitignore.base": "f87bec1f6d1ec56ea3678d45920689ac26c7c3a737316a22570121dadac9a9ac",
@@ -36,7 +36,7 @@
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
     "tests/release/release-scripts.sh": "f0bc9126e5055cff48a9ba92528e348574daf4f58e8f2780217254b3da6d16cb"
   },
-  "source_commit": "90870ba7d5bb3d607a1f38082e3b3f68015b67aa",
+  "source_commit": "53b7760921b2024e4d2fa36759cba4ae51dec906",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.11"
+  "source_tag": "v0.1.12"
 }

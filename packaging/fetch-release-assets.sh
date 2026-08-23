@@ -23,15 +23,21 @@ expected="${2:?missing expected count}"
 select_expr="${3:?missing jq select expression}"
 api="https://forgejo.bryantserver.com/api/v1/repos/${PROJECT_REPO_SLUG}"
 
-# 30 minutes of WALL CLOCK, not 180 attempts: each request can itself take up to --max-time, so an
-# attempt count would have promised half an hour and delivered up to three and a half. The .pkg is
-# notarized by Apple before it is appended, which is the slowest thing anyone waits on here.
-# Every request is bounded. An API that accepts the connection and then stalls would otherwise
-# park this curl indefinitely, the loop would never reach its next iteration, and the 30 minutes
-# above would be a comment rather than a deadline. No --retry: the loop IS the retry, and nesting
-# one inside the other is what let a stalling CDN blow update-tap.sh's stated bound.
+# WALL CLOCK, not an attempt count: each request can itself take up to --max-time, so a count would
+# promise one duration and deliver several times it. Every request is bounded for the same reason —
+# an API that accepts the connection and then stalls would park this curl indefinitely, the loop
+# would never reach its next iteration, and the window below would be a comment rather than a
+# deadline. No --retry: the loop IS the retry, and nesting one inside the other is what let a
+# stalling CDN blow update-tap.sh's stated bound.
+#
+# The window has to outlast wait-for-pypi.sh plus the build that follows it, NOT just the slowest
+# upload. Half of these assets come from the mirrored-tag workflows, and those spend their own PyPI
+# window before building a single byte, so anything at or under PYPI_WAIT_SECONDS gives up on assets
+# that were always going to arrive late and moves the failure instead of removing it. Apple's
+# notarization of the .pkg sits inside the same window.
 urls=""
-deadline=$(( $(date +%s) + 1800 ))
+window="${RELEASE_ASSET_WAIT_SECONDS:-5400}"
+deadline=$(( $(date +%s) + window ))
 while :; do
   urls="$(curl -sf --connect-timeout 10 --max-time 60 "$api/releases/tags/$tag" \
             | jq -r "$select_expr" || true)"
@@ -66,6 +72,6 @@ found="${#downloaded[@]}"
 # failed to transfer is not one the caller can publish, and saying otherwise is how a short set gets
 # reported as complete.
 if [ "$found" -lt "$expected" ]; then
-  echo "::error::only ${found}/${expected} assets downloaded from $tag's Forgejo release after 30m" >&2
+  echo "::error::only ${found}/${expected} assets downloaded from $tag's Forgejo release after ${window}s" >&2
   exit 1
 fi
