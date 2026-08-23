@@ -12,6 +12,21 @@ import pytest
 from whiskerless import update_check
 
 
+@pytest.fixture(params=["stable", "rc"])
+def channel(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
+    """Pin the release channel, and run every marker test on both.
+
+    The marker filename and the recorded channel are both derived from `__version__`, so a test that
+    spells the stable marker literally passes only while the working tree happens to carry a stable
+    version. The prerelease gate stamps an rc BEFORE running this suite, which is exactly when these
+    guarantees have to hold, and it is the one run where nobody is watching a branch build.
+    """
+    name = str(request.param)
+    monkeypatch.setattr(update_check, "__version__", "0.1.0" if name == "stable" else "0.2.0-rc.1")
+    return name, (update_check._RC_MARKER if name == "rc" else update_check._MARKER)
+
+
+
 @pytest.mark.parametrize(
     ("latest", "running", "expected"),
     [
@@ -32,13 +47,16 @@ def test_the_opt_out_short_circuits_before_any_network(tmp_path: Path) -> None:
 
 
 def test_todays_cache_is_used_without_touching_the_network(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channel: tuple[str, str]
 ) -> None:
+    channel_name, marker = channel
     monkeypatch.setattr(
         update_check, "_fetch_latest", lambda: pytest.fail("network touched despite a fresh cache")
     )
-    (tmp_path / update_check._MARKER).write_text(
-        json.dumps({"day": date.today().isoformat(), "latest": "v99.0.0"})
+    (tmp_path / marker).write_text(
+        json.dumps(
+            {"day": date.today().isoformat(), "latest": "v99.0.0", "channel": channel_name}
+        )
     )
 
     message = update_check.check(tmp_path, env={})
@@ -48,11 +66,14 @@ def test_todays_cache_is_used_without_touching_the_network(
 
 
 def test_a_stale_cache_survives_an_unreachable_github(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channel: tuple[str, str]
 ) -> None:
     """An unreachable GitHub must not make an out-of-date install look current."""
+    channel_name, marker = channel
     monkeypatch.setattr(update_check, "_fetch_latest", lambda: None)
-    (tmp_path / update_check._MARKER).write_text(json.dumps({"day": "1999-01-01", "latest": "v99.0.0"}))
+    (tmp_path / marker).write_text(
+        json.dumps({"day": "1999-01-01", "latest": "v99.0.0", "channel": channel_name})
+    )
 
     assert "99.0.0" in (update_check.check(tmp_path, env={}) or "")
 
@@ -66,28 +87,30 @@ def test_a_failed_lookup_with_no_cache_says_nothing(
 
 
 def test_a_corrupt_marker_is_ignored_rather_than_raising(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channel: tuple[str, str]
 ) -> None:
+    _, marker = channel
     monkeypatch.setattr(update_check, "_fetch_latest", lambda: None)
-    (tmp_path / update_check._MARKER).write_text("{not json")
+    (tmp_path / marker).write_text("{not json")
 
     assert update_check.check(tmp_path, env={}) is None
 
 
 def test_the_result_is_cached_after_a_successful_lookup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channel: tuple[str, str]
 ) -> None:
+    channel_name, marker = channel
     monkeypatch.setattr(update_check, "_fetch_latest", lambda: "v99.0.0")
 
     update_check.check(tmp_path, env={})
 
-    stored = json.loads((tmp_path / update_check._MARKER).read_text())
+    stored = json.loads((tmp_path / marker).read_text())
     assert stored == {
         "day": date.today().isoformat(),
         "latest": "v99.0.0",
         # The channel is recorded: a stable and a candidate install can share one home,
         # and an entry that did not say which endpoint produced it was reused by both.
-        "channel": "stable",
+        "channel": channel_name,
     }
 
 
