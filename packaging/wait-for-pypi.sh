@@ -21,10 +21,16 @@ pypi_version="$(printf '%s' "$version" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
 # The per-version endpoint, which is 404 until that exact version is served — the project-level one
 # answers 200 from the first release ever made and would pass instantly for a version that does not
 # exist.
-# Ten minutes of WALL CLOCK, and bounded per request. An attempt count would have been a promise
-# the loop could not keep: each stalled request can burn --max-time on its own, so 60 attempts of
-# "30s + 10s" is forty minutes wearing a ten-minute label. No --retry: the loop is the retry.
-deadline=$(( $(date +%s) + 600 ))
+# WALL CLOCK, and bounded per request. An attempt count would have been a promise the loop could not
+# keep: each stalled request can burn --max-time on its own, so 60 attempts of "30s + 10s" is forty
+# minutes wearing a ten-minute label. No --retry: the loop is the retry.
+#
+# The window has to cover the QUEUE, not the upload. These workflows are triggered by the mirrored
+# tag, which arrives within seconds, while the Forgejo pipeline that actually uploads to PyPI can sit
+# behind unrelated jobs for far longer than the upload itself takes — so this is sized against how
+# long a busy forge can defer a job, not against how long twine runs.
+window="${PYPI_WAIT_SECONDS:-2700}"
+deadline=$(( $(date +%s) + window ))
 while :; do
   if curl -sSfI -o /dev/null --connect-timeout 10 --max-time 30 \
       "https://pypi.org/pypi/${PKG}/${pypi_version}/json"; then
@@ -34,5 +40,5 @@ while :; do
   [ "$(date +%s)" -lt "$deadline" ] || break
   sleep 10
 done
-echo "::error::${PKG} ${pypi_version} never appeared on PyPI within 10 minutes" >&2
+echo "::error::${PKG} ${pypi_version} never appeared on PyPI within ${window}s" >&2
 exit 1
