@@ -10,7 +10,8 @@
 # post-stable prune and an on-demand backlog sweep, and an rc whose stable has not shipped is kept —
 # that is the point.
 #
-# Env: CLUSTER_TOKEN, NAS_TOKEN, GH_TOKEN, PACKAGE_TOKEN, DRY_RUN. Stdlib shell + curl + jq only.
+# Env: CLUSTER_TOKEN, NAS_TOKEN, GH_TOKEN, PACKAGE_TOKEN, DRY_RUN, STRICT. Stdlib shell + curl + jq
+# only.
 #
 # Deletion is the one irreversible release operation, so it is gated hard:
 #
@@ -23,8 +24,9 @@
 #     SERVED: same distributions, same architectures, read off the published index because that is
 #     the only thing a user's package manager ever sees.
 #   * Removal is VERIFIED per registry by re-reading live state, never by trusting a 204 or 404.
-#   * Warn-only. A prune problem must never fail the release or make a valid stable disappear: every
-#     problem is reported and the sweep still exits 0.
+#   * Warn-only BY DEFAULT. A prune problem must never fail the release or make a valid stable
+#     disappear, so every problem is reported and the sweep still exits 0. STRICT=true flips only the
+#     reporting — a sweep that stopped early then exits 1 — for callers with no release to protect.
 #   * Fail-closed throughout. Every "is it safe to delete" question answers "no" when it cannot be
 #     answered at all, so an unreachable host is never mistaken for evidence.
 #
@@ -76,6 +78,37 @@ case "${DRY_RUN:-true}" in
   false) dry_run=false ;;
   *)     dry_run=true ;;
 esac
+
+# Fail SAFE here, the opposite default from DRY_RUN and for the opposite reason: this decides only how
+# an unfinished sweep is REPORTED, never what it deletes. The automatic caller runs after a stable is
+# already published on all three registries, where a non-zero exit reddens a release that succeeded
+# and sends somebody hunting a publishing failure that did not happen. A manual dispatch has no
+# release to protect and its operator needs the exit status to mean something, so it opts in.
+case "${STRICT:-false}" in
+  true) strict=true ;;
+  *)    strict=false ;;
+esac
+
+# One classification for every way the sweep can conclude it must not continue. Whether a stop reddens
+# the job is the caller's choice; that it stops rather than proceeds on a partial picture is not.
+#
+# The message names what already happened, because two of the stop sites sit INSIDE the deletion loop
+# and are reached only after earlier stems are gone. Reporting "nothing pruned" there would describe
+# an interrupted sweep as a no-op and hide the boundary a retry has to start from.
+stop() {  # stop <what-went-wrong>
+  # Residue counts as progress even though it is not a completed prune: reaching it means DELETEs were
+  # already issued, so an operator told "nothing pruned" would look in the wrong place.
+  local done_ok="${pruned:-0}" partial="${fail:-0}" progress="nothing pruned this run"
+  if [ "$done_ok" -gt 0 ] || [ "$partial" -gt 0 ]; then
+    progress="$done_ok rc tag(s) fully pruned and $partial left carrying residue before this point"
+  fi
+  if [ "$strict" = true ]; then
+    echo "::error::prune: $1; $progress" >&2
+    exit 1
+  fi
+  echo "::warning::prune: $1; $progress" >&2
+  exit 0
+}
 
 REPO="$PROJECT_REPO_SLUG"
 CLUSTER_HOST="forgejo.bryantserver.com"
@@ -534,8 +567,7 @@ declare -A stem_seen=()    # stem_seen["<stem>"] = 1
 # sweep deletes nothing this run rather than enumerate a partial picture and orphan a copy.
 for registry in "${REGISTRIES[@]}"; do
   if ! listing="$(list_registry_tags "$registry")"; then
-    echo "::warning::prune: could not read the release or tag listing on $registry; nothing pruned this run" >&2
-    exit 0
+    stop "could not read the release or tag listing on $registry"
   fi
   while IFS='|' read -r tname tid; do
     [ -n "$tname" ] || continue
@@ -549,7 +581,7 @@ done
 # Enumerated ONCE, before any deletion: an unreadable registry must stop the sweep rather than read
 # as "this candidate published no packages", which would license deleting a release whose .deb is
 # still being served.
-all_packages > "$work/packages" || { echo "::error::could not enumerate the package registry"; exit 1; }
+all_packages > "$work/packages" || stop "could not enumerate the package registry"
 
 # ALSO from the package registry, not only the listings. Releases are removed before packages, so a
 # package DELETE that fails after its release is gone leaves an rc that no listing mentions and that a
@@ -570,10 +602,14 @@ fi
 
 fail=0
 pruned=0
+# Candidates kept with no answer at all, as opposed to a definite answer of "not yet replaced".
+# Counted apart from `fail` because nothing was deleted, and apart from an ordinary keep because a
+# sweep that could not see is not a sweep that found nothing. Decided once per tag, at the keep site.
+undetermined=0
 while IFS= read -r stem; do
   [ -n "$stem" ] || continue
   stable_present_everywhere "$stem" || case $? in
-    2) exit 1 ;;
+    2) stop "a transport error interrupted checking whether $stem is published everywhere" ;;
     *) echo "prune: $stem is not fully published on all three registries; its rc releases are kept"
        continue ;;
   esac
@@ -605,10 +641,10 @@ while IFS= read -r stem; do
       # `for` word list, so a failed lookup would produce an empty list, skip every check below, and
       # license the delete this guard exists to prevent.
       if ! parches=$(arches_of "$ptype" "$pversion"); then
-        echo "::error::could not list $ptype files for $PKG_NAME $pversion"; exit 1
+        stop "could not list $ptype files for $PKG_NAME $pversion"
       fi
       if ! sarches=$(arches_of "$ptype" "$sversion"); then
-        echo "::error::could not list $ptype files for $PKG_NAME $sversion"; exit 1
+        stop "could not list $ptype files for $PKG_NAME $sversion"
       fi
       if [ -z "$parches" ]; then missing_stable="$missing_stable $ptype/no-files"; continue; fi
       for parch in $parches; do
@@ -620,8 +656,15 @@ while IFS= read -r stem; do
           if [ "$here_code" -eq 2 ]; then
             missing_stable="$missing_stable $ptype/$pdist(unreadable)"; continue
           fi
-          index_has "$ptype" "$pdist" "$parch" "$sversion" \
-            || missing_stable="$missing_stable $ptype/$pdist"
+          # Both lookups are classified the same way. Collapsing "the stable is not here" and "I could
+          # not ask" into one `||` reads the second as evidence of the first, which is how an
+          # unreadable index becomes a confident "kept: no replacement" that nobody investigates.
+          if index_has "$ptype" "$pdist" "$parch" "$sversion"; then there_code=0; else there_code=$?; fi
+          if [ "$there_code" -eq 2 ]; then
+            missing_stable="$missing_stable $ptype/$pdist(unreadable)"
+          elif [ "$there_code" -ne 0 ]; then
+            missing_stable="$missing_stable $ptype/$pdist"
+          fi
         done
       done
     done
@@ -629,6 +672,13 @@ while IFS= read -r stem; do
       # Deduplicated: the checks run per architecture, so one missing distribution is otherwise
       # reported once for each.
       echo "keep: $tag — $stem does not yet replace it in:$(printf '%s' "$missing_stable" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+      # Undetermined only when EVERY reason to keep was an unanswered question. One definite reason
+      # settles the outcome on its own, and an unreadable index sitting beside it changed nothing —
+      # counting that would redden a sweep whose decision was never in doubt, and a guard that cries
+      # wolf is one an operator learns to skip.
+      if ! printf '%s' "$missing_stable" | tr ' ' '\n' | grep -v '^$' | grep -qv '(unreadable)$'; then
+        undetermined=$((undetermined + 1))
+      fi
       continue
     fi
 
@@ -665,11 +715,41 @@ while IFS= read -r stem; do
   done < <(printf '%s\n' "${group_tags[@]}" | sort)
 done < <(printf '%s\n' "${!stem_seen[@]}" | sort)
 
-if [ "$dry_run" = true ]; then
-  echo "prune (dry-run): reported the selection above; no deletions issued"
-elif [ "$fail" -eq 0 ]; then
-  echo "prune: $pruned superseded rc tag(s) removed and verified gone across all three registries"
-else
-  echo "::warning::prune finished with $fail rc tag(s) still carrying residue on at least one registry; a later sweep re-enumerates and retries them" >&2
+# Two ways a completed sweep still owes the operator a non-zero answer under STRICT: tags it deleted
+# but could not verify gone, and candidates it kept because an index would not answer. Neither is a
+# reason to redden a release, so both stay warnings by default.
+#
+# A dry run reaches this too. Its whole purpose is to report the selection the real run would make,
+# and a preview that could not read an index did not establish that selection — so the preview the
+# manual dispatch runs BY DEFAULT must not come back green as though it had.
+# Composed, not chosen between: the two counters describe different candidates, so reporting only the
+# first would tell an operator about one tag's residue while silently dropping another tag whose
+# safety was never established.
+report=""
+if [ "$fail" -gt 0 ]; then
+  report="$fail rc tag(s) still carry residue on at least one registry; a later sweep re-enumerates and retries them"
 fi
+if [ "$undetermined" -gt 0 ]; then
+  if [ -n "$report" ]; then report="$report; also "; fi
+  report="${report}could not read a package index for $undetermined candidate(s), so they were kept with their safety unestablished"
+fi
+
+if [ -z "$report" ]; then
+  if [ "$dry_run" = true ]; then
+    echo "prune (dry-run): reported the selection above; no deletions issued"
+  else
+    echo "prune: $pruned superseded rc tag(s) removed and verified gone across all three registries"
+  fi
+  exit 0
+fi
+report="prune: $report"
+
+if [ "$dry_run" = true ]; then
+  report="$report (dry-run: no deletions were issued)"
+fi
+if [ "$strict" = true ]; then
+  echo "::error::$report" >&2
+  exit 1
+fi
+echo "::warning::$report" >&2
 exit 0

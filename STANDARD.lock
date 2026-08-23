@@ -18,7 +18,7 @@
     "packaging/gitignore.base": "f87bec1f6d1ec56ea3678d45920689ac26c7c3a737316a22570121dadac9a9ac",
     "packaging/glibc-floor.txt": "19665c22e6e4f27b0b855ba2bf5873d4619ee970fcb76bcc4fc1f25384e7cea9",
     "packaging/next-version.sh": "56c3a240d250e26bc09c7b7a4af4f2946e5f3ec454d43bd438c046c6572f44f8",
-    "packaging/prune-rcs.sh": "277c434c7198d44e38bf13214bcc71eaa117595f0547bd08c7092d4839080666",
+    "packaging/prune-rcs.sh": "55d52c9aed3888c242fff269828655a047775bcdc33cbef99a94714041aa8aaa",
     "packaging/publish-registry.sh": "b415d3ec7b55e6ec14ea70bdb2bb2702bb9433bd49b1316b6cd0f973230e98a0",
     "packaging/push-tag.sh": "6b30628f7b9b635bd537c3e4c3d8777f123a9ac580ffe4d5af148a945cb74ff2",
     "packaging/reconcile-releases.sh": "d41f41546138327a028420544cf59951609698f21b92175b38c1b797c2b9ba0e",
@@ -31,9 +31,9 @@
     "packaging/update-tap.sh": "0cb11d828ce3127ba550125af4d3583e59adb008342e089757454b0eae9bbcb4",
     "packaging/wait-for-pypi.sh": "117d43e6f681b15f941ae99020010797345f4a8c1678c14a91e8a2264b41f3c2",
     "tests/release/mirror-ci.sh": "7ab441ab71e6b02ed137494ac17f5bb31ec8bcbd134ca6d1c6e48e2c54f69796",
-    "tests/release/prune-rcs.sh": "cff9a7c2680a9173b48216a55418c0872e17a7f035c00db3532dd01d93836ea4"
+    "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5"
   },
-  "source_commit": "6c78a0372f7726f26a0c3385b4e3bfad4b72f08e",
+  "source_commit": "d4177c22798087ee72bc8c93c7411e2238f9197c",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.3"
+  "source_tag": "v0.1.7"
 }

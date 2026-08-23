@@ -245,6 +245,15 @@ def test_the_prune_sweep_cannot_fail_an_already_published_release() -> None:
     assert "prune-rcs.sh" in run
     assert "::warning::" in run, f"a failing prune would fail the release: {run}"
 
+    # The other half of the same decision: STRICT turns a stop into a non-zero exit, which is what the
+    # manual dispatch wants and what this path must never have. Swallowing already covers it today,
+    # but the two guards protect against opposite edits — someone removing the swallow here, or
+    # someone copying the manual step's env wholesale.
+    steps_env = next(s.get("env", {}) for s in steps if isinstance(s, dict) and "run" in s)
+    assert "STRICT" not in steps_env, (
+        f"the post-release sweep opts into reddening a published release: {steps_env.get('STRICT')!r}"
+    )
+
 
 def test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure_as_success() -> None:
     """The manual sweep is the one place a human aims a registry-wide delete at all three registries.
@@ -271,13 +280,11 @@ def test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure
     oversight worth tidying away. It is not: there a nonzero exit would redden a release that had
     already fully succeeded, while here nothing is being released.
 
-    Be precise about what that buys, because annotation severity and exit status are not the same
-    thing here. The script exits nonzero at only a few points: it cannot enumerate the package
-    registry, it cannot list a version's package files, or a transport error interrupts reading a
-    stable. Every other trouble — including a failed package DELETE that logs `::error::` — is
-    recorded as residue for a later sweep to retry and reaches an unconditional `exit 0`. Green
-    therefore still does not mean "swept clean", and the warnings remain the real report; not
-    swallowing is what makes those few fatal paths reach the maintainer at all.
+    What that buys is precise because the step also sets `STRICT: "true"`. Every way the sweep can fail
+    to do its job then reddens the job: stopping early on a partial picture, leaving residue behind a
+    delete it could not verify, or keeping a candidate because a package index would not answer.
+    publish.yml leaves STRICT unset and swallows the exit instead, for the reason above. Green here
+    certifies only that the sweep ran to completion, never that any particular rc was removed.
 
     One limit this cannot reach at all: `workflow_dispatch` runs the definition belonging to the ref
     it was dispatched from, and only then does the pinned checkout replace the tree. Everything above
@@ -333,7 +340,8 @@ def test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure
         "GH_TOKEN": "${{secrets.GH_REPO_WRITE_PAT}}",
         "PACKAGE_TOKEN": "${{secrets.CLUSTER_FORGEJO_REGISTRY_PUSH_PAT}}",
         "DRY_RUN": "${{inputs.dry_run}}",
-    }, f"the sweep's environment is not its four tokens plus DRY_RUN: {sweep['env']!r}"
+        "STRICT": "true",
+    }, f"the sweep's environment is not its four tokens, DRY_RUN and STRICT: {sweep['env']!r}"
 
     # The command is pinned rather than screened, because `||`, `; true`, `if ! cmd; then ... fi`, a
     # pipeline and `set +e` all turn a failed sweep green. Changing it on purpose means changing this

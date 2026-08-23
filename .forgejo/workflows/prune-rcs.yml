@@ -27,6 +27,10 @@ jobs:
           ref: main
       - name: Prune
         env:
+          # The manual half opts into strict reporting: a sweep that could not finish reddens this
+          # job. publish.yml deliberately leaves it off, because there a non-zero exit would redden a
+          # release that had already published on all three registries.
+          STRICT: "true"
           DRY_RUN: ${{ inputs.dry_run }}
           CLUSTER_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
           NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}

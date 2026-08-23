@@ -20,7 +20,10 @@
 #
 # Optional knobs: STUBBORN (every delete is a 204 that lied), FLAKY_TAG (a tag-ref delete that only
 # takes on a retry), STICKY_RELEASE (a release delete that persistently 500s), UNREADABLE (a registry
-# whose reads fail).
+# whose reads fail), UNREADABLE_INDEX (only the apt/dnf index fails, so enumeration succeeds and the
+# replacement check cannot be answered), UNREADABLE_STABLE_INDEX (only the stable's index read
+# fails, the candidate's succeeds), UNREADABLE_INDEX_DIST=<dist> (only that distribution's index
+# fails, so a candidate can hold one definite keep reason and one unanswered question at once).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -139,6 +142,33 @@ if [ -n "${UNREADABLE:-}" ] && [ "$reg" = "$UNREADABLE" ]; then
   emit 500 '{"message":"boom"}'
 fi
 
+# An index that answers neither yes nor no. Distinct from UNREADABLE above, which takes out a whole
+# registry: here every enumeration succeeds and only the apt/dnf lookup fails, which is the case that
+# leaves the sweep unable to say whether a stable replaces the candidate it is about to delete.
+case "$url" in
+  *api/packages/*/debian/dists/*|*api/packages/*/rpm/*/repodata/*)
+    [ -n "${UNREADABLE_INDEX:-}" ] && emit 503 '{"message":"index unavailable"}'
+    # Both lookups for a pair go to the SAME url — it carries the distribution and architecture but
+    # not the version — so failing by url alone cannot separate them. Counting reads PER url can: the
+    # first read of an index is always the candidate's and any later one is the stable's, because the
+    # stable is only asked about once the candidate answered. A global ordinal would not work, since
+    # a candidate that is simply absent from a distribution ends that pair with no stable read at all
+    # and slides every later count by one.
+    # One distribution's index only, so a candidate can have a DEFINITE keep reason from another.
+    if [ -n "${UNREADABLE_INDEX_DIST:-}" ]; then
+      case "$url" in
+        */dists/"$UNREADABLE_INDEX_DIST"/*|*/rpm/"$UNREADABLE_INDEX_DIST"/*)
+          emit 503 '{"message":"index unavailable"}' ;;
+      esac
+    fi
+    if [ -n "${UNREADABLE_STABLE_INDEX:-}" ]; then
+      key=$(printf '%s' "$url" | tr -c 'a-zA-Z0-9' '_')
+      hits=$(cat "$STATE/idx-$key" 2>/dev/null || echo 0)
+      hits=$((hits + 1)); printf '%s' "$hits" > "$STATE/idx-$key"
+      [ "$hits" -gt 1 ] && emit 503 '{"message":"index unavailable"}'
+    fi ;;
+esac
+
 case "$url" in
   # ---- the apt/dnf package registry (cluster only) ----
   *api/v1/packages/*/files)
@@ -202,7 +232,10 @@ case "$url" in
   # GET-by-tag, used only for the stable stem, and only meaningful while its ref exists.
   */releases/tags/*)
     stem="${url##*/}"
-    f="$STATE/stable-$reg.json"
+    # A per-stem file wins when present, so a fixture can publish more than one stable; the generic
+    # file stays the single-stable default every other case here relies on.
+    f="$STATE/stable-$reg-$stem.json"
+    [ -f "$f" ] || f="$STATE/stable-$reg.json"
     [ -f "$f" ] || emit 404 '{"message":"Not Found"}'
     body="$(jq --arg s "$stem" 'if .tag_name == $s then . else empty end' < "$f")"
     [ -n "$body" ] || emit 404 '{"message":"Not Found"}'
@@ -368,6 +401,49 @@ for reg in cluster nas github; do
   esac
 done
 
+# --- STRICT: one stop, reported two ways --------------------------------------------------------
+# STRICT changes the exit status and nothing else. The automatic caller leaves it off so a janitorial
+# failure cannot redden a release that already published on all three registries; the manual dispatch
+# turns it on so whoever pressed Run learns the sweep did not finish. Every case below therefore
+# checks the deletion count too: a reporting knob that changed behaviour would be the worst outcome.
+status() { # status [VAR=val ...] -> the script's exit code, which run() deliberately discards
+  local rc=0
+  env PATH="$TMP:$PATH" STATE="$STATE" FAKE_PKG="$FAKE_PKG" PRUNE_RETRY_SLEEP=0 \
+    CLUSTER_TOKEN=t NAS_TOKEN=t GH_TOKEN=t PACKAGE_TOKEN=t \
+    "$@" bash "$ROOT/packaging/prune-rcs.sh" >/dev/null 2>&1 || rc=$?
+  echo "$rc"
+}
+
+reset
+[ "$(status DRY_RUN=false UNREADABLE=cluster)" = 0 ] \
+  || fail "an unreadable registry reddened the default sweep, which publish.yml runs after a release"
+
+reset
+[ "$(status DRY_RUN=false UNREADABLE=cluster STRICT=true)" = 1 ] \
+  || fail "STRICT did not surface an unreadable registry"
+[ "$(deletes)" = 0 ] || fail "STRICT changed what was deleted; it may only change reporting"
+
+# Fail SAFE, the mirror image of DRY_RUN's fail-closed parse: anything but an exact "true" stays
+# quiet, so a caller passing the input through unevaluated cannot start reddening published releases.
+# shellcheck disable=SC2016  # the unexpanded literal IS the case: a forge input passed through
+for spelling in 1 yes TRUE True '${{ inputs.strict }}'; do
+  reset
+  [ "$(status DRY_RUN=false UNREADABLE=cluster STRICT="$spelling")" = 0 ] \
+    || fail "STRICT=$spelling was treated as strict"
+done
+
+# A sweep that finished is a success in both modes.
+reset
+[ "$(status DRY_RUN=false STRICT=true)" = 0 ] || fail "STRICT reddened a sweep that completed"
+survivor
+
+# Residue is the one outcome where the sweep RAN and still left work behind, and it follows the same
+# rule: quiet for the release path, loud for the operator who asked.
+reset
+[ "$(status DRY_RUN=false STUBBORN=1)" = 0 ] || fail "residue reddened the default sweep"
+reset
+[ "$(status DRY_RUN=false STUBBORN=1 STRICT=true)" = 1 ] || fail "STRICT did not surface residue"
+
 # --- the orphan tag ----------------------------------------------------------------------------
 # A previous partial sweep can delete an rc's release and fail before its tag. Enumerating only the
 # release listing would never name that tag again, so it would survive every future sweep.
@@ -411,6 +487,122 @@ grep -Eq "/api/v1/packages/[^/]+/debian/$FAKE_PKG/1\.0\.0~rc\.1$" "$STATE/delete
   || fail "the debian candidate was not deleted through the generic endpoint: $out"
 grep -Eq "/api/packages/[^/]+/rpm/testing/package/$FAKE_PKG/1\.0\.0~rc\.1-1/x86_64$" "$STATE/delete-order" \
   || fail "the rpm candidate was not deleted through the registry-native endpoint: $out"
+
+# The same fixture that just pruned cleanly, with only the index reads failing. The candidate is
+# kept, which is the third outcome a failure counter alone misses: nothing was deleted and no release
+# was wrong, but the sweep could not establish that a stable replaces this candidate in apt/dnf.
+reset
+pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
+       "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
+out="$(run DRY_RUN=false UNREADABLE_INDEX=1)"
+[ "$(deletes)" = 0 ] || fail "pruned while the package index could not be read: $out"
+case "$out" in
+  *"could not read a package index"*) ;;
+  *) fail "an unreadable index was not reported as undetermined: $out" ;;
+esac
+
+reset
+pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
+       "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
+[ "$(status DRY_RUN=false UNREADABLE_INDEX=1)" = 0 ] \
+  || fail "an unreadable index reddened the default sweep, which publish.yml runs after a release"
+
+reset
+pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
+       "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
+[ "$(status DRY_RUN=false UNREADABLE_INDEX=1 STRICT=true)" = 1 ] \
+  || fail "STRICT reported success while unable to tell whether the candidate was safe to remove"
+[ "$(deletes)" = 0 ] || fail "STRICT changed what was deleted; it may only change reporting"
+survivor
+
+# The preview is the manual dispatch's DEFAULT, so it has to be as honest as the real run: a dry run
+# that could not read an index did not establish the selection it exists to report.
+reset
+pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
+       "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
+[ "$(status DRY_RUN=true UNREADABLE_INDEX=1 STRICT=true)" = 1 ] \
+  || fail "a STRICT preview reported a selection it could not establish"
+[ "$(deletes)" = 0 ] || fail "a dry run issued deletions"
+
+reset
+pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
+       "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
+[ "$(status DRY_RUN=true UNREADABLE_INDEX=1)" = 0 ] \
+  || fail "a non-strict preview reddened on an unreadable index"
+
+# Only the STABLE lookup fails. "I could not ask" must not be filed as "it is not published", which
+# would read as a confident keep with a reason attached.
+reset
+pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
+       "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
+out="$(run DRY_RUN=false UNREADABLE_STABLE_INDEX=1)"
+[ "$(deletes)" = 0 ] || fail "pruned while the stable's index read failed: $out"
+case "$out" in
+  *"could not read a package index"*) ;;
+  *) fail "an unreadable stable index was filed as a plain missing replacement: $out" ;;
+esac
+reset
+pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
+       "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
+[ "$(status DRY_RUN=false UNREADABLE_STABLE_INDEX=1 STRICT=true)" = 1 ] \
+  || fail "STRICT passed while the stable's index could not be read"
+survivor
+
+# Both counters at once, on different candidates. They describe different tags, so a report that
+# picked one would tell the operator about a residue they can retry while dropping a candidate whose
+# safety was never established at all.
+reset
+for reg in cluster nas github; do
+  jq --arg i "33$reg" --arg j "93$reg" \
+     '. + [{"tag_name":"v3.0.0-rc.1","id":$i},{"tag_name":"v3.0.0","id":$j}]' \
+     "$STATE/releases-$reg.json" > "$TMP/j" && mv "$TMP/j" "$STATE/releases-$reg.json"
+  printf 'v3.0.0-rc.1\nv3.0.0\n' >> "$STATE/tagrefs-$reg"
+  jq '.tag_name = "v3.0.0" | .id = 93' "$STATE/stable-$reg.json" > "$STATE/stable-$reg-v3.0.0.json"
+done
+# Only v1.0.0 has packages, so it is the stem whose index reads fail; v3.0.0 has none, reaches the
+# delete, and STUBBORN makes that delete lie.
+pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
+       "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
+out="$(run DRY_RUN=false STUBBORN=1 UNREADABLE_STABLE_INDEX=1)"
+case "$out" in
+  *"still carry residue"*) ;;
+  *) fail "the composed report dropped the residue half: $out" ;;
+esac
+case "$out" in
+  *"could not read a package index"*) ;;
+  *) fail "the composed report dropped the unreadable-index half: $out" ;;
+esac
+survivor
+
+# A definite keep reason and an unanswered one, on the same candidate. The outcome was never in
+# doubt — the stable is provably absent from testing — so the unreadable stable-distribution index
+# changed nothing and must not redden a STRICT sweep. A guard that fires when the answer was certain
+# is one an operator learns to skip.
+reset
+# The stable must EXIST as a version, or the check short-circuits on "no package of that type"
+# and never reaches an index at all. It is served only in `stable`, so `testing` is a definite
+# miss while `stable` is the distribution whose index will not answer.
+pkgset "debian 1.0.0~rc.1 amd64 testing" "debian 1.0.0~rc.1 amd64 stable" \
+       "debian 1.0.0 amd64 stable"
+out="$(run DRY_RUN=false UNREADABLE_INDEX_DIST=stable)"
+[ "$(deletes)" = 0 ] || fail "pruned a candidate the stable does not replace: $out"
+case "$out" in
+  *"(unreadable)"*) ;;
+  *) fail "the fixture did not actually produce an unreadable distribution: $out" ;;
+esac
+case "$out" in
+  *"could not read a package index"*)
+    fail "an unreadable index was called undetermined next to a definite keep reason: $out" ;;
+esac
+reset
+# The stable must EXIST as a version, or the check short-circuits on "no package of that type"
+# and never reaches an index at all. It is served only in `stable`, so `testing` is a definite
+# miss while `stable` is the distribution whose index will not answer.
+pkgset "debian 1.0.0~rc.1 amd64 testing" "debian 1.0.0~rc.1 amd64 stable" \
+       "debian 1.0.0 amd64 stable"
+[ "$(status DRY_RUN=false UNREADABLE_INDEX_DIST=stable STRICT=true)" = 0 ] \
+  || fail "STRICT reddened a sweep whose keep decision was definite"
+survivor
 
 # A stable serving a DIFFERENT architecture does not replace the candidate for the one it serves.
 reset
