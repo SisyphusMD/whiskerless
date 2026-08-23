@@ -597,7 +597,10 @@ def test_every_compatibility_floor_is_clamped_against_renovate() -> None:
         name
         for rule in config.get("packageRules", [])
         for name in (rule.get("matchDepNames") or [])
-        if rule.get("allowedVersions") or rule.get("enabled") is False or rule.get("matchUpdateTypes")
+        # A real clamp only. `matchUpdateTypes` selects WHEN a rule applies and forbids nothing, so a
+        # rule that merely labels digest updates would otherwise read as protection while major and
+        # minor tag bumps walked straight past it.
+        if rule.get("allowedVersions") or rule.get("enabled") is False
     }
 
     floors = {dep for dep in annotated if "floor" in dep or "compat" in dep}
