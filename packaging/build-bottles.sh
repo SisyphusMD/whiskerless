@@ -97,6 +97,17 @@ if ! brew tap | grep -qx "$TAP"; then
 fi
 tapdir="$(brew --repo "$TAP")"
 
+# Homebrew refuses to LOAD a formula from an untrusted third-party tap, and building the rc loads the
+# stable one too: the rc formula's `conflicts_with` names it. So this only bites once a stable formula
+# exists in the tap — which is why one project hit it while the other, whose stable has not shipped
+# yet, was passing on an absence rather than on correctness.
+#
+# Guarded on the subcommand existing, not on its exit status: an older Homebrew has no `trust` and
+# needs none, while a `trust` that exists and fails is a real problem and must stop the build.
+if brew commands 2>/dev/null | tr ' ' '\n' | grep -qx trust; then
+  brew trust "$TAP"
+fi
+
 # The formula this bottles has to be the one this release just published.
 # Anything else produces bottles named for a version whose release will never
 # carry them.
