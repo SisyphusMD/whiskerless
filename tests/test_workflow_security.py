@@ -734,3 +734,142 @@ def _any_filter_matches(path: str, filters: set[str]) -> bool:
         if re.fullmatch(expression, path):
             return True
     return False
+
+
+def _renovate_annotations() -> dict[str, list[tuple[str, str]]]:
+    """Every `# renovate:` annotation in the repo, as {relative path: [(datasource, depName)]}.
+
+    Tracked files only. An `rglob` also walks `.venv`, caches and any other untracked working-tree
+    debris, so an annotation-shaped string inside an installed package would fail this locally and
+    pass in CI — a difference between two developers' checkouts, which is not a property of the
+    repository at all.
+    """
+    # `tests` is excluded deliberately: a test that asserts the annotation FORMAT necessarily
+    # contains an annotation-shaped string, and it is a fixture, not a dependency to manage.
+    tracked = subprocess.run(
+        ["git", "-C", str(_ROOT), "ls-files"], capture_output=True, text=True, check=True
+    ).stdout.split()
+    found: dict[str, list[tuple[str, str]]] = {}
+    for name in tracked:
+        if name.startswith("tests/"):
+            continue
+        path = _ROOT / name
+        if path.suffix not in {".yml", ".yaml", ".env", ".py"} and "Dockerfile" not in path.name:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        hits = re.findall(r"renovate:\s*datasource=(\S+)\s+depName=(\S+)", text)
+        if hits:
+            found[name] = hits
+    return found
+
+
+def _scans(pattern: str, path: str) -> bool:
+    """Renovate spells managerFilePatterns as /regex/."""
+    return re.search(pattern.strip("/"), path) is not None
+
+
+def _datasources_accepted(manager: dict) -> set[str]:
+    """The datasources a custom manager's matchStrings will actually bind."""
+    accepted: set[str] = set()
+    for pattern in manager.get("matchStrings", []):
+        group = re.search(r"\(\?<datasource>([^)]*)\)", pattern)
+        if group:
+            accepted |= set(group.group(1).split("|"))
+    return accepted
+
+
+def test_a_pin_named_for_its_version_is_clamped_to_that_version() -> None:
+    """A depName like `ubuntu-26.04-current` is a promise about which host qualifies the release.
+
+    Nothing enforces it but `allowedVersions`. Without the clamp Renovate reads a whole new distro
+    release as an ordinary upgrade and proposes swapping the qualification host — and because that
+    proposal cannot succeed, it retries it forever, which is what a dashboard full of stuck
+    "Errored" entries actually is.
+    """
+    config = json.loads((_ROOT / ".renovaterc.json").read_text())
+    clamped = {
+        name
+        for rule in config.get("packageRules", [])
+        if "allowedVersions" in rule or rule.get("enabled") is False
+        for name in rule.get("matchDepNames", [])
+    }
+    named = {dep for hits in _renovate_annotations().values() for _, dep in hits}
+    # A bare registry coordinate (`homebrew/brew`) names no version and promises nothing.
+    versioned = {d for d in named if re.search(r"\d", d) and "/" not in d}
+    unclamped = sorted(versioned - clamped)
+    assert not unclamped, f"these name a version nothing holds them to: {unclamped}"
+
+
+def test_no_renovate_annotation_sits_in_a_file_nothing_scans() -> None:
+    """An annotation outside every managerFilePattern is not an error, it is silence.
+
+    Renovate never reads it, the pin never moves, and the file still looks maintained — the exact
+    shape of drift that only surfaces when someone compares two repositories by hand.
+    """
+    config = json.loads((_ROOT / ".renovaterc.json").read_text())
+    patterns = [p for m in config.get("customManagers", []) for p in m.get("managerFilePatterns", [])]
+    unseen = sorted(
+        path for path in _renovate_annotations()
+        if not any(_scans(p, path) for p in patterns)
+    )
+    assert not unseen, f"annotated but scanned by no custom manager: {unseen}"
+
+
+def test_every_digest_pinned_image_in_packaging_is_annotated() -> None:
+    """A `FROM image@sha256:...` with no annotation is a dependency Renovate cannot see.
+
+    It never gets a digest refresh and never appears in any dashboard, so it silently ages while
+    the identical image in the sibling project keeps moving.
+    """
+    unmanaged = []
+    for dockerfile in sorted((_ROOT / "packaging").glob("*.Dockerfile")):
+        lines = dockerfile.read_text(encoding="utf-8").splitlines()
+        for number, line in enumerate(lines):
+            if not re.match(r"\s*FROM\s+\S+@sha256:", line):
+                continue
+            previous = lines[number - 1] if number else ""
+            if "renovate:" not in previous:
+                unmanaged.append(f"{dockerfile.name}:{number + 1}")
+    assert not unmanaged, f"digest-pinned with no renovate annotation above: {unmanaged}"
+
+
+def test_the_builtin_dockerfile_manager_never_competes_with_the_annotations() -> None:
+    """Two managers reading one FROM line produce two dependencies with different names.
+
+    The annotations declare synthetic names — `debian-12-compat`, `ubuntu-26.04-current` — because
+    the version is a deliberate qualification choice. Renovate's built-in dockerfile manager sees
+    only a plain `debian`, so with both enabled the `allowedVersions` rules that hold those choices
+    apply to one name and not the other, and the floor drifts in a PR of its own that looks
+    perfectly ordinary.
+    """
+    config = json.loads((_ROOT / ".renovaterc.json").read_text())
+    enabled = config.get("enabledManagers")
+    assert enabled is not None, "no enabledManagers: every built-in manager is live"
+    assert "dockerfile" not in enabled, (
+        f"the built-in dockerfile manager would compete with the annotations: {enabled}"
+    )
+
+
+def test_every_annotation_names_a_datasource_its_manager_will_bind() -> None:
+    """Matching the file is half of being read. The match string has to admit the datasource too.
+
+    Each custom manager fixes its datasources in an alternation inside the regex. An annotation
+    naming one that is missing from it binds nothing: the file is scanned, the line is skipped, and
+    the pin never moves. Nothing reports this — not the dashboard, not a failing run — so it looks
+    exactly like a dependency that simply had no updates.
+    """
+    config = json.loads((_ROOT / ".renovaterc.json").read_text())
+    managers = config.get("customManagers", [])
+    inert = []
+    for path, hits in _renovate_annotations().items():
+        reachable: set[str] = set()
+        for manager in managers:
+            if any(_scans(p, path) for p in manager.get("managerFilePatterns", [])):
+                reachable |= _datasources_accepted(manager)
+        for datasource, dep in hits:
+            if datasource not in reachable:
+                inert.append(f"{path}: datasource={datasource} depName={dep}")
+    assert not inert, f"annotated with a datasource no manager reading that file binds: {inert}"
