@@ -1388,3 +1388,55 @@ def test_every_install_matrix_caller_states_its_cache_ceiling() -> None:
                     f"{path.name}:{job} runs the matrix without stating a cache ceiling"
                 )
                 assert str(ceiling).isdigit(), f"{path.name}:{job} ceiling is not a number"
+
+
+def test_homebrew_bottles_come_from_the_mirror_where_it_is_reachable() -> None:
+    """Homebrew fetches bottles with its own HTTPS client, so neither dockerd's registry mirror nor
+    BuildKit's applies to them - and they are the bulk of what these jobs download.
+
+    It has to be ARTIFACT_DOMAIN. `HOMEBREW_BOTTLE_DOMAIN` makes Homebrew request a legacy flat file
+    (`.../oniguruma-6.9.10.x86_64_linux.bottle.tar.gz`) that an OCI registry does not serve, so every
+    bottle 404s and falls back upstream: configured, and mirroring nothing. ARTIFACT_DOMAIN rewrites
+    only the scheme and host and keeps `/v2/homebrew/core/...`, which is why the registry serves that
+    namespace at its root rather than under the usual per-upstream one.
+
+    Self-hosted only. The hosted runners are not on that network, and pointing them at it buys a
+    timeout before the fallback rather than a cache hit.
+    """
+    for name in ("packaging/install-smoke.Dockerfile", "packaging/homebrew-smoke.Dockerfile"):
+        text = (REPO / name).read_text()
+        assert "ARG BREW_MIRROR=" in text, f"{name} cannot receive a mirror"
+        assert '[ -z "$BREW_MIRROR" ] || export HOMEBREW_ARTIFACT_DOMAIN="$BREW_MIRROR"' in text, (
+            f"{name} must export ARTIFACT_DOMAIN, and only when a mirror was given"
+        )
+        assert "HOMEBREW_BOTTLE_DOMAIN" not in text, (
+            f"{name} uses BOTTLE_DOMAIN, which an OCI registry cannot serve"
+        )
+
+    def mirrored(path: Path) -> bool:
+        for job in yaml.safe_load(path.read_text())["jobs"].values():
+            for step in job.get("steps") or []:
+                if "BREW_MIRROR" in (step.get("env") or {}):
+                    return True
+                if "BREW_MIRROR=" in str(step.get("run", "")):
+                    return True
+        return False
+
+    forgejo = REPO / ".forgejo" / "workflows"
+    assert mirrored(forgejo / "install-matrix.yml"), "the self-hosted matrix does not mirror bottles"
+
+    # Every self-hosted build of the formula smoke, found rather than listed: the release path
+    # builds it a second time, and a fixed list would have passed while that one bypassed the
+    # mirror to pull the same rust and llvm bottles again.
+    for path in sorted(forgejo.glob("*.yml")):
+        document = yaml.safe_load(path.read_text())
+        for job, spec in (document.get("jobs") or {}).items():
+            for step in spec.get("steps") or []:
+                if "homebrew-smoke.Dockerfile" not in str(step.get("run", "")):
+                    continue
+                assert "BREW_MIRROR=" in str(step["run"]), (
+                    f"{path.name}:{job} builds the formula smoke without the mirror"
+                )
+    assert not mirrored(REPO / ".github" / "workflows" / "install-matrix.yml"), (
+        "a hosted runner was pointed at a mirror it cannot reach"
+    )
