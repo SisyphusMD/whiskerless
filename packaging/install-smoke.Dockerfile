@@ -267,6 +267,12 @@ ARG V FORGE
 # on the network the mirror lives on. Empty means upstream. It must be ARTIFACT_DOMAIN and not
 # BOTTLE_DOMAIN - the latter makes Homebrew ask for a legacy flat file the registry does not serve,
 # so every bottle 404s and falls back, mirroring nothing while looking configured.
+#
+# The retry count rises with it, and only with it. A pull-through registry buffers a blob from
+# upstream before it sends any of it, so a bottle nobody has fetched yet goes quiet for as long as
+# that takes while Homebrew's default three tries expire in about seven seconds. Each further try
+# also gives the registry longer to finish, so the same fetch succeeds warm. Upstream needs none of
+# this: it streams immediately.
 ARG BREW_MIRROR=
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
@@ -274,7 +280,7 @@ COPY packaging/fetch.sh /fetch
 # root), so the marker goes in that user's HOME rather than at / where it could
 # not be written.
 RUN set -eux; \
-    [ -z "$BREW_MIRROR" ] || export HOMEBREW_ARTIFACT_DOMAIN="$BREW_MIRROR"; \
+    [ -z "$BREW_MIRROR" ] || { export HOMEBREW_ARTIFACT_DOMAIN="$BREW_MIRROR"; export HOMEBREW_CURL_RETRIES=8; }; \
     before=$(brew list --formula | grep -cE '^rust$|^llvm$|^pkgconf$' || true); \
     brew update --quiet >/dev/null 2>&1; \
     brew tap sisyphusmd/tap "$FORGE/SisyphusMD/homebrew-tap.git" >/dev/null 2>&1; \

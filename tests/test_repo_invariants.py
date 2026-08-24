@@ -1406,8 +1406,17 @@ def test_homebrew_bottles_come_from_the_mirror_where_it_is_reachable() -> None:
     for name in ("packaging/install-smoke.Dockerfile", "packaging/homebrew-smoke.Dockerfile"):
         text = (REPO / name).read_text()
         assert "ARG BREW_MIRROR=" in text, f"{name} cannot receive a mirror"
-        assert '[ -z "$BREW_MIRROR" ] || export HOMEBREW_ARTIFACT_DOMAIN="$BREW_MIRROR"' in text, (
-            f"{name} must export ARTIFACT_DOMAIN, and only when a mirror was given"
+        assert 'export HOMEBREW_ARTIFACT_DOMAIN="$BREW_MIRROR"' in text, (
+            f"{name} must export ARTIFACT_DOMAIN when a mirror was given"
+        )
+        assert '[ -z "$BREW_MIRROR" ] ||' in text, (
+            f"{name} must export nothing when no mirror was given"
+        )
+        # A pull-through registry sends nothing while it buffers a blob it has never seen, and
+        # Homebrew's default three tries expire in about seven seconds. Without this the FIRST job
+        # to want a new bottle version fails, which is every version bump.
+        assert "HOMEBREW_CURL_RETRIES" in text, (
+            f"{name} keeps the default retry count, which no cold fetch survives"
         )
         assert "HOMEBREW_BOTTLE_DOMAIN" not in text, (
             f"{name} uses BOTTLE_DOMAIN, which an OCI registry cannot serve"
