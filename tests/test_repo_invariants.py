@@ -1324,3 +1324,43 @@ def test_every_install_matrix_fetch_retries_and_stays_portable() -> None:
             assert "--retry-all-errors" in line, f"{path.name}:{number} cannot retry a DNS failure"
             assert re.search(r"--retry(?:\s|=)\d", line), f"{path.name}:{number} does not retry"
             assert "| sh" not in line, f"{path.name}:{number} pipes a retryable body to sh"
+
+
+def test_the_macos_signing_step_survives_a_bad_minute_at_apples_timestamp_service() -> None:
+    """`codesign` and `productsign` each request a trusted timestamp from Apple, `notarytool`
+    uploads, and `stapler` downloads the ticket back. Every one reaches a network service on every
+    invocation, and a release that cannot reach it dies with "A timestamp was expected but was not
+    found."
+
+    Dropping the timestamp is not an option: it is what keeps the signature verifiable past the
+    certificate's expiry, and notarization refuses a build without one. So the retry wraps the call.
+    Keychain grants (`security import -T /usr/bin/codesign`) name the tools without invoking them
+    and are deliberately not matched here.
+    """
+    assert (REPO / "packaging" / "retry.sh").is_file(), "the retry helper is missing"
+
+    workflow = (REPO / ".github" / "workflows" / "release-macos.yml").read_text()
+    bare = []
+    for number, line in enumerate(workflow.splitlines(), 1):
+        if "security import" in line or line.lstrip().startswith("#"):
+            continue
+        if not re.search(r"\b(codesign|productsign|notarytool submit|stapler staple)\b", line):
+            continue
+        if "retry.sh" not in line:
+            bare.append(f"{number}: {line.strip()[:60]}")
+    assert not bare, f"reaches Apple without a retry, so one bad minute ends the release: {bare}"
+
+    # The claim above is only worth making if the schedule backs it. Derived from the script and the
+    # workflow rather than restated, so widening one without the other cannot pass quietly.
+    helper = (REPO / "packaging" / "retry.sh").read_text()
+    step = re.search(r"sleep \$\(\(n \* (\d+)\)\)", helper)
+    assert step, "retry.sh no longer backs off between attempts"
+    seconds = int(step.group(1))
+
+    attempts = [int(n) for n in re.findall(r"retry\.sh (\d+) ", workflow)]
+    assert attempts, "nothing in the release goes through the retry helper"
+    for count in attempts:
+        window = sum(seconds * n for n in range(1, count))
+        assert window >= 120, (
+            f"{count} attempts {seconds}s apart only covers {window}s; a minute-long outage wins"
+        )
