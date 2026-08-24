@@ -28,7 +28,23 @@ jobs:
   test:
     name: Test (${{ matrix.arch }}, ${{ matrix.tier }})
     # Forgejo also reads .github/workflows but has no macOS runner.
-    if: ${{ github.server_url == 'https://github.com' }}
+    # A same-repo PR branch already ran on `push` above, and that is the run the release
+    # gate reads (check-mirror-ci.sh queries event=push only), so a pull_request run for
+    # the same commit decides nothing the gate will ever look at. Fork PRs never fire
+    # push in this repository, so for them the pull_request run is the ONLY coverage and
+    # has to survive the filter.
+    #
+    # This is not free, and the cost is worth naming: the two runs are not identical, as
+    # `pull_request` checks out the synthetic merge of head into base while `push` checks
+    # the head. What is given up is macOS coverage of that merge BEFORE it lands, not of
+    # the merged code — `branches: ["**"]` includes main, so the merge commit is tested
+    # the moment it arrives. Keeping the PR run instead of the push run is not an option:
+    # a prerelease can be dispatched from any branch and the gate would find no
+    # event=push run for that commit at all.
+    if: >-
+      ${{ github.server_url == 'https://github.com'
+      && (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository) }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
