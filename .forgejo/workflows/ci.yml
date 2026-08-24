@@ -360,7 +360,6 @@ jobs:
           tag="v$(printf '%s' "$ver" | sed -E 's/rc([0-9]+)$/-rc.\1/')"
           rm -rf homebrew-smoke-result
           docker buildx build --platform linux/amd64 --build-arg TEST_TAG="$tag" \
-            --build-arg BREW_MIRROR="https://image-mirror.nas.bryantserver.com" \
             -f packaging/homebrew-smoke.Dockerfile --target result \
             --output type=local,dest=homebrew-smoke-result .
           test -f homebrew-smoke-result/homebrew-smoke-passed
