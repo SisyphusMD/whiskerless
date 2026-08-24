@@ -78,10 +78,7 @@ $ whiskerless provision
 robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
 
   Hold Connect on the robot now until its light
-  BLINKS YELLOW (about three seconds) — that is pairing mode — and
-  keep holding until the numbered steps below start. It only
-  advertises while you hold, and the link is opened after the
-  scan finds it.
+  BLINKS YELLOW (about three seconds) — that is pairing mode.
 
 ⠹ scanning for robots over BLE — done (3s)
    1 ▸ connected to F8:B3:B7:xx:xx:xx (MTU=500, cert chunk=100)
@@ -340,8 +337,8 @@ whiskerless setup
 It asks for your broker's address, offers to create a certificate authority, and
 prints the three files to install on your broker. **Install them and restart the
 broker before going further** — that is why this is a separate command from
-`provision`: a robot in pairing mode holds a short window open, and it should not
-be spent waiting on a broker restart.
+`provision`: a robot in pairing mode is off your network until a provision
+completes, and it should not be sitting there waiting on a broker restart.
 
 ## Provision the robot
 

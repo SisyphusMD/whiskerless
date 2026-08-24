@@ -373,7 +373,7 @@ async def test_the_last_page_never_reads_past_the_end() -> None:
     """The firmware answers an out-of-range read by dropping the BLE link.
 
     Not a graceful short page and not an error — the connection goes away, in the
-    middle of provisioning, with the pairing window already spent. A robot
+    middle of provisioning, after the operator had done everything right. A robot
     reporting 30 networks served 0-27 and then died on the request for 28-31, so
     any count that is not a multiple of the page size ended there: most
     households, presenting as flaky Bluetooth.

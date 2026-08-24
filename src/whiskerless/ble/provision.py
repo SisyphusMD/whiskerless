@@ -45,7 +45,7 @@ NetworkChooser = Callable[[list["m.WifiNetwork"]], Awaitable[tuple[str, str]]]
 #: the first write. Returning False aborts with the robot untouched.
 #: Takes the settled config and the robot's MAC, which is only known once the
 #: link is open — so the caller cannot have read it beforehand without opening a
-#: second connection inside the pairing window.
+#: second connection of its own.
 Confirm = Callable[["ProvisioningConfig", "str | None"], bool]
 
 # GetStatus poll cadence during the WiFi join verify. An auth failure typically
@@ -62,7 +62,7 @@ WIFI_SETTLE = 1.0
 #: the address is a nicety, and bounded by ``wifi_wait`` either way. Eight seconds
 #: was not enough for a robot that associated and then had DHCP answer later, and
 #: the BLE link is already open by this point, so the extra budget costs a slower
-#: provision rather than a missed pairing window.
+#: provision rather than a spurious failure.
 WIFI_LEASE_WAIT = 12.0
 
 
@@ -151,7 +151,7 @@ async def scan_networks(transport: ProtocommBLE) -> list[m.WifiNetwork]:
         # remain is an out-of-range read, and this firmware answers it by
         # dropping the BLE link rather than returning a short page: a robot
         # reporting 30 networks served 0-27 and then died on the request for
-        # 28-31, mid-provision, with the pairing window already spent. Any count
+        # 28-31, mid-provision, after the operator had done everything right. Any count
         # that is not a multiple of the page size ends there, so it fails for
         # most households and looks like flaky Bluetooth.
         page = m.parse_scan_results(
@@ -275,10 +275,8 @@ async def read_device_mac(address: str, *, scan_timeout: float = 15.0) -> str | 
     """Read-only preflight — connect and return the robot's 6-byte MAC.
 
     NOT used by `whiskerless provision`, deliberately: it opens a connection of
-    its own, and the pairing window is the scarcest thing in provisioning — the
-    robot advertises only while somebody holds Connect. `provision_robot` reads
-    the same MAC over the link it already has and hands it to the confirmation
-    callback. This stays for callers driving the library directly, who may want
+    its own, where `provision_robot` reads the same MAC over the link it already
+    has and hands it to the confirmation callback. This stays for callers driving the library directly, who may want
     to identify a device without provisioning it.
     """
     from bleak import BleakClient  # lazy: bleak is the [ble] extra

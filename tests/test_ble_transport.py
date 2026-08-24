@@ -234,10 +234,8 @@ async def test_the_scan_retries_before_giving_up() -> None:
 
 
 async def test_the_scan_stops_at_the_first_answer_instead_of_running_the_window_out() -> None:
-    """A robot only advertises while someone holds Connect. A scan that always
-    waits its full timeout SPENDS that window — a bench session lost one exactly
-    that way, finding the robot and then failing to connect because it had gone
-    quiet by the time the scan ended."""
+    """``timeout`` is a ceiling, not a duration: the scan returns as soon as a
+    robot answers, however long the caller was willing to wait."""
     found = {"a": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID]))}
     with _scanner(found):
         # A timeout of an hour must not be waited on when the robot answers now.
@@ -252,8 +250,7 @@ async def test_a_device_that_is_not_an_lr4_is_ignored() -> None:
 
 
 async def test_an_address_targeted_scan_does_not_wait_to_settle() -> None:
-    """Only one device can match an address, so there is nothing to wait for —
-    and this is the mode most likely to be running against a pairing window."""
+    """Only one device can match an address, so there is nothing to wait for."""
     import asyncio
 
     found = {"a": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID]))}
@@ -367,9 +364,7 @@ async def test_a_machine_with_no_bluetooth_gets_a_sentence_not_a_traceback() -> 
 
     With no D-Bus at all — a container, a headless box with bluetooth masked, a Pi
     whose service never started — it fails on the socket and raises a bare
-    FileNotFoundError, which reached the user as a traceback from the one command
-    that cannot be casually retried: the robot only advertises while somebody is
-    holding its button."""
+    FileNotFoundError, which reached the user as a traceback."""
 
     class NoBluetooth(FakeScanner):
         async def start(self) -> None:

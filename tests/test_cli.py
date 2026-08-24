@@ -429,8 +429,8 @@ def _prov_args(tmp_path: Any) -> list[str]:
 
     The broker and the certificate authority are established by `whiskerless
     setup`, a separate command — three files have to reach the broker and it has
-    to restart before a robot can use them, and a robot in pairing mode cannot be
-    kept waiting for that.
+    to restart before a robot can use them, and a robot in pairing mode is off the
+    network for all of it.
     """
     from whiskerless import pki
     from whiskerless.robot_profiles import RobotProfileStore

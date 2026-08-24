@@ -667,9 +667,9 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
     Separate from `provision` on purpose. Between generating certificates and a
     robot being able to use them, somebody has to install three files on their
     broker and restart it — and on anything more involved than a local Mosquitto
-    that is minutes, not seconds. A robot sits in pairing mode with a limited
-    window, so doing this in the middle of a provisioning session would spend the
-    window on paperwork and then fail in a way that looks like a broken robot.
+    that is minutes, not seconds. A robot in pairing mode is off the network until
+    a provision completes, so doing this in the middle of a provisioning session
+    strands it on paperwork and then fails in a way that looks like a broken robot.
     """
     store = _store(args)
     saved = store.load_broker() if store.has_broker() else None
@@ -779,8 +779,8 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     if not store.has_broker() or not ready:
         # Deliberately does NOT offer to do it here. Between generating
         # certificates and a robot being able to use them, three files have to
-        # reach the broker and it has to restart — and the robot is holding a
-        # pairing window open the whole time.
+        # reach the broker and it has to restart — and the robot is off the
+        # network the whole time.
         raise WhiskerlessError(
             "this machine is not set up yet — run `whiskerless setup` first. It "
             "establishes your broker and its certificates, which have to be "
@@ -823,28 +823,14 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         client_key=identity.key_pem if identity else None,
     )
 
-    # Said BEFORE the scan starts, because it is a physical prerequisite and the
-    # window is short: the robot advertises only while Connect is held, so anyone
-    # who learns this from the scan failing has already missed it. The tool knew
-    # this — the scan returns on the first answer precisely to spend as little of
-    # that window as possible — and never told the person holding the robot.
-    # Shown for --address too: that still scans (filtered to one device) and then
-    # connects, so the window matters exactly as much.
-    #
-    # "until it says connected", not "while this scans": the scan ENDS before the
-    # link is opened, and somebody who releases at the end of the scan spends the
-    # window in the gap — which is the failure `scan()` was rewritten to avoid.
-    # The signal is the LIGHT, which is what Whisker's own documentation and this
-    # command's own failure path both name. An earlier version of this hint said to
-    # hold "until it beeps": the robot has no beep, so the one cue it gave was for
-    # something that never happens, and the reader is left guessing during the only
-    # step with a hard physical deadline.
+    # Said BEFORE the scan starts, because it is a physical prerequisite: nobody
+    # who learns it from the scan failing can act on it without starting over.
+    # Shown for --address too, which still scans (filtered to one device) before it
+    # connects. The signal is the LIGHT, which is what Whisker's own documentation
+    # and this command's failure path both name.
     print(
         f"\n  Hold {_console.accent('Connect')} on the robot now until its light\n"
-        f"  {_console.accent('BLINKS YELLOW')} (about three seconds) — that is pairing mode — and\n"
-        "  keep holding until the numbered steps below start. It only\n"
-        "  advertises while you hold, and the link is opened after the\n"
-        "  scan finds it.\n"
+        f"  {_console.accent('BLINKS YELLOW')} (about three seconds) — that is pairing mode.\n"
     )
     # Said at the moment of the hold, because that is the only moment it can still
     # be avoided. Whisker documents the same behaviour for their own app

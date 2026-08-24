@@ -21,8 +21,8 @@ marker, and #64 read as open for four days after it shipped.
   keeps its value while carrying a `level_provisional` attribute.
 - **#68** — the hopper gauge under-reports.
 - ~~**#83**~~ — closed: `diagnose` is gone, and its library functions with it.
-- **#84** — delete the false "only advertises while you hold" instruction wherever it
-  is repeated.
+- ~~**#84**~~ — closed: the false "only advertises while you hold" instruction is gone
+  from every place it was said.
 - **#85** — multi-robot CLI: no picker when several are saved, and ten of the twelve
   robot commands never say which robot they acted on.
 - **#86** — naming a robot: stored and printed already, but never offered, no `rename`,
@@ -1409,7 +1409,42 @@ tooling or go with it — they are not used elsewhere.
 uncovered statements; removing the command removes its tests too, which is fine, but
 `wifi_diagnosis` staying without a caller would not be.
 
-### #84 — The hold instruction states something false, and says it at length
+### #84 — The hold instruction states something false, and says it at length — **DONE 2026-08-24**
+
+**Deleted, not rewritten, as the entry asked.** The provision hint now stops at "that is
+pairing mode" and says nothing about advertising or holding through the scan. The README
+transcript matches it. The `diagnose` hint that repeated it went with #83.
+
+`ble/transport.py` keeps the behaviour and loses the story: `scan()` still documents
+`timeout` as a ceiling that returns on the first answer, with the pairing-window rationale
+and the bench-session anecdote dropped and no replacement cause invented in their place.
+The same false clause is gone from the D-Bus comment, which keeps its real reason (BlueZ
+raises a bare `OSError` that has to be wrapped). Both test docstrings that asserted the
+false version now state the behaviour under test instead.
+
+**The entry's list was not the whole list.** Searching for the *model* rather than the
+sentence turned up seventeen more sites across twelve files, none of them named here:
+comments and docstrings in `cli.py`, `provision.py` and `transport.py`, four test
+docstrings, the README's reason for `setup` being a separate command,
+`docs/design/authentication.md`, and three passages in the device captures. Each stated
+or implied a window that expires when the button is released.
+
+**The term went with the model.** "Pairing window" now appears nowhere in `src/`,
+`tests/`, `docs/` or the README, because the phrase carries the expiry claim even where
+the surrounding sentence does not. What the code needed to say in those places was
+either "while the robot is in pairing mode" or "the robot is off the network until a
+provision completes", and both are true. The two surviving uses are in closed backlog
+entries above, left as the dated record of what was believed when they were written.
+
+What survives is the distinction that matters: a robot in pairing mode is off the
+network until a provision completes, which is a real cost worth designing around, but
+nothing about it is timed. `scan()` returning on the first answer is kept as good
+behaviour with no rationale attached, per the entry. The capture notebook keeps what the
+bench session *observed* and now marks the going-quiet reading as superseded rather than
+deleting it, because a failure that is still unexplained is worth leaving on the record.
+
+**One touchpoint was already closed.** The CHANGELOG bullet's false rationale was removed
+by `d6e27d1` when `[Unreleased]` was rewritten; nothing was left there to fix.
 
 **Reported by the owner 2026-08-20.** The provision prompt tells the operator:
 

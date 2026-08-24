@@ -142,7 +142,7 @@ what an upgraded 0.1.3 store looks like, because the certificate hoists across
 from the robot profiles and the key was never in there to hoist. So the default
 outcome of upgrading was a store that could not issue anything, that said nothing
 about it, and that looked identical to a working one until somebody was standing
-at a robot with the pairing window open.
+at a robot in pairing mode.
 
 Two modes also cost more than they returned: `can_issue` forked `_ensure_pki`,
 `_refresh_server_cert`, provisioning and the broker documentation, and the weaker
@@ -376,9 +376,9 @@ Python 3.13's `VERIFY_X509_STRICT` then rejects — the worst possible split.
 provision` puts a robot on them. Doing both in one command looked tidier and was
 wrong: between generating certificates and a robot being able to use them,
 somebody has to copy three files to a broker and restart it — minutes, on
-anything more involved than a local Mosquitto. A robot sits in pairing mode with
-a limited window, so the single command would have spent that window on paperwork
-and then failed in a way that looks exactly like a broken robot.
+anything more involved than a local Mosquitto. A robot in pairing mode is off the
+network until a provision completes, so the single command would have stranded it
+on paperwork and then failed in a way that looks exactly like a broken robot.
 
 ### Nothing about the machine is committed until a robot accepts it
 

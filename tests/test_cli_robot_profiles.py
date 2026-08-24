@@ -1127,7 +1127,7 @@ def _flag_run(store: RobotProfileStore, *setup_flags: str, provision: tuple[str,
 
     Two commands on purpose: between generating certificates and a robot being
     able to use them, three files have to reach the broker and it has to restart,
-    and a robot in pairing mode cannot be kept waiting for that.
+    and a robot in pairing mode is off the network for all of it.
     """
     code = main(["setup", "--host", "192.0.2.10", *setup_flags])
     if code != 0:
