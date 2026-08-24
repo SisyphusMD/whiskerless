@@ -23,10 +23,8 @@ marker, and #64 read as open for four days after it shipped.
 - ~~**#83**~~ — closed: `diagnose` is gone, and its library functions with it.
 - ~~**#84**~~ — closed: the false "only advertises while you hold" instruction is gone
   from every place it was said.
-- **#85** — multi-robot CLI: no picker when several are saved, and ten of the twelve
-  robot commands never say which robot they acted on.
-- **#86** — naming a robot: stored and printed already, but never offered, no `rename`,
-  and `--serial` will not take the name. Do it with #85.
+- ~~**#85**~~ / ~~**#86**~~ — closed: the picker, the announcements, `rename`, and
+  `--serial` taking a name all landed together.
 - **#87** — README (and the CLI banner it copies) speaks as "we/our"; make it
   impersonal without strengthening the n=1 pairing-mode claim.
 - **#82** — hidden-SSID joining is asserted in a comment and has never been tested on
