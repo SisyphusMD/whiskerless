@@ -1,0 +1,92 @@
+name: Warm the bottle mirror
+
+# The mirror syncs ON DEMAND, so the first request for a bottle it has never seen blocks
+# while it pulls from ghcr.io — measured at about 21s per entry from a runner, against the
+# roughly 7s Homebrew's default three retries allow. The smoke jobs raise that budget so a
+# cold entry survives, but paying it inside a release is latency nobody asked for, and it
+# is paid again on every dependency whenever upstream rebuilds its bottles.
+#
+# So walk the formula's OWN dependency closure ahead of time and fetch each bottle through
+# the mirror, which is what populates it. `brew fetch` downloads without installing, and
+# `brew deps` supplies the list, so nothing here hardcodes a formula list that could drift
+# away from what the smoke actually installs.
+on:
+  # Daily, and deliberately offset from the sibling's copy: both warm the same registry, and
+  # two simultaneous cold syncs of the same blob would just queue behind each other.
+  schedule:
+    - cron: "23 9 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .forgejo/workflows/warm-bottle-mirror.yml
+      - packaging/homebrew/whiskerless.rb
+
+concurrency:
+  group: warm-bottle-mirror
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    name: Fetch the formula's dependency bottles through the mirror
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Warm every dependency bottle
+        env:
+          BREW_MIRROR: https://image-mirror.nas.bryantserver.com
+          FORGE: ${{ github.server_url }}
+        # NO_FALLBACK is what makes this job meaningful. The smoke jobs keep the fallback to
+        # ghcr.io on purpose, so a mirror miss there costs latency rather than a red build - but
+        # a warmer that falls back would fetch the whole closure from upstream and report a warm
+        # mirror that received nothing. Here a fetch the mirror cannot serve MUST fail.
+        #
+        # Known limit: the closure comes from the published tap, so a dependency added to
+        # packaging/homebrew/whiskerless.rb is not warm until a release puts it there. The first
+        # job to want it pays one cold sync, which the raised retry budget already absorbs.
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e HOMEBREW_ARTIFACT_DOMAIN="$BREW_MIRROR" \
+            -e HOMEBREW_ARTIFACT_DOMAIN_NO_FALLBACK=1 \
+            -e HOMEBREW_CURL_RETRIES=8 \
+            -e HOMEBREW_DOCKER_REGISTRY_TOKEN=QQ== \
+            -e HOMEBREW_NO_ANALYTICS=1 -e HOMEBREW_NO_ENV_HINTS=1 \
+            homebrew/brew:latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd \
+            bash -c '
+              set -euo pipefail
+              # Fail fast rather than spend the whole closure discovering it one bottle at a time.
+              curl -fsS --max-time 30 "$HOMEBREW_ARTIFACT_DOMAIN/v2/" >/dev/null
+              brew update --quiet >/dev/null 2>&1
+              brew tap sisyphusmd/tap "'"$FORGE"'/SisyphusMD/homebrew-tap.git" >/dev/null 2>&1
+              # Same trust step the install smoke performs: without it, reading a third-party
+              # formula exits non-zero even when it printed the formula perfectly well.
+              if brew commands 2>/dev/null | tr " " "\n" | grep -qx trust; then
+                brew trust sisyphusmd/tap >/dev/null 2>&1 || true
+              fi
+              # The RC formula FIRST, chosen by the file that exists rather than by an exit code.
+              # update-tap.sh advances only the rc on a prerelease, so once a stable release exists
+              # the stable formula sits at the previous version - measured three dependencies short
+              # of its own rc - and that is precisely the closure the smoke is about to install.
+              tap="$(brew --repository sisyphusmd/tap)"
+              formula=sisyphusmd/tap/whiskerless-rc
+              [ -f "$tap/Formula/whiskerless-rc.rb" ] || formula=sisyphusmd/tap/whiskerless
+              echo "warming the closure of $formula"
+              deps=$(brew deps --include-build --formula "$formula")
+              echo "closure: $(printf "%s" "$deps" | wc -w) formulae"
+              warmed=0; missed=""
+              for d in $deps; do
+                if brew fetch --formula --quiet "$d" >/dev/null 2>&1; then
+                  warmed=$((warmed + 1))
+                else
+                  missed="$missed $d"
+                fi
+              done
+              echo "warmed=$warmed"
+              [ -z "$missed" ] || echo "not served by the mirror:$missed"
+              # Nothing warming means the mirror is not proxying, which is a fault worth waking to.
+              # One bottle upstream has not published yet is not, and the next run collects it.
+              [ "$warmed" -gt 0 ]
+            '
