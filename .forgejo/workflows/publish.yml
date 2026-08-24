@@ -16,6 +16,14 @@ on:
     tags: ["v*.*.*"]
 
 
+concurrency:
+  # Deduplicate only the same tag, and never cancel. A single global group keeps just one pending
+  # run, so a later tag can displace an earlier tag's still-pending publication and leave it
+  # assetless. The FULL ref, because `ref_name` drops refs/heads and refs/tags alike: a branch
+  # sharing a tag's name would land in the same group, and publish.yml is dispatchable.
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # Dispatching from `main` would treat "main" as the version: packages named for
   # it, a wait for a tag that does not exist, and releases called `main` created

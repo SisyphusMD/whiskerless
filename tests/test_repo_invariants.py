@@ -1388,3 +1388,48 @@ def test_every_install_matrix_caller_states_its_cache_ceiling() -> None:
                     f"{path.name}:{job} runs the matrix without stating a cache ceiling"
                 )
                 assert str(ceiling).isdigit(), f"{path.name}:{job} ceiling is not a number"
+
+
+def test_ci_can_be_redispatched_without_an_unrelated_commit() -> None:
+    """Forgejo has no rerun API.
+
+    Without a dispatch trigger, a fault outside this repository - a runner losing the network, a
+    hosted action failing to fetch its own manifest - leaves main red and the only way back is an
+    unrelated commit, which is a lie in the history about what changed and why.
+    """
+    document = yaml.safe_load((REPO / ".forgejo" / "workflows" / "ci.yml").read_text())
+    # PyYAML resolves a bare `on:` to the boolean True under YAML 1.1.
+    triggers = document.get("on") or document.get(True) or {}
+    assert "workflow_dispatch" in triggers, (
+        f"ci.yml cannot be redispatched, so an infrastructure fault strands main: {sorted(triggers)}"
+    )
+
+
+def test_ci_supersedes_itself_and_publishing_never_does() -> None:
+    """The two workflows want opposite concurrency, and getting either backwards is expensive.
+
+    A second push to a branch makes the first CI answer irrelevant, so that run should be cancelled
+    rather than left competing for runners. A publish is the reverse: cancelling one midway leaves a
+    release half-written across three registries, and a group any wider than the tag lets a later
+    tag displace an earlier tag's still-pending publication and leave it assetless.
+    """
+    def concurrency(name: str) -> dict:
+        document = yaml.safe_load((REPO / ".forgejo" / "workflows" / name).read_text())
+        value = document.get("concurrency")
+        assert isinstance(value, dict), f"{name} declares no workflow-level concurrency: {value!r}"
+        return value
+
+    ci = concurrency("ci.yml")
+    assert "github.ref" in str(ci["group"]), f"ci.yml does not group per ref: {ci['group']}"
+    assert ci.get("cancel-in-progress") is True, "a superseded CI run should not keep a runner"
+
+    publish = concurrency("publish.yml")
+    # `github.ref`, not `ref_name`: the short name drops refs/heads and refs/tags alike, so a
+    # branch sharing a tag's name shares its group - and publish.yml can be dispatched on one.
+    assert re.search(r"github\.ref\s*}}", str(publish["group"])), (
+        f"publish.yml groups wider than the exact ref, so one ref can displace another: "
+        f"{publish['group']}"
+    )
+    assert publish.get("cancel-in-progress") is False, (
+        "cancelling a publish leaves a release half-written across registries"
+    )
