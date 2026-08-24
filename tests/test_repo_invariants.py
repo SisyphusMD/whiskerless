@@ -1228,3 +1228,51 @@ def test_the_inline_shellcheck_pin_matches_the_vendored_script() -> None:
         "the fork-PR workflow pins a different shellcheck image than the vendored script; "
         "the pin is owned by the standard, so re-vendor and update both copies together"
     )
+
+
+def test_every_job_that_writes_the_tap_shares_one_concurrency_group() -> None:
+    """Two tap writers running at once both clone the same tip.
+
+    The loser pushes a non-fast-forward, and the tap keeps whichever formula won the race — a
+    published tap missing the formula the release just built, with every job green. Mirrored from
+    dreame-valetudo, which writes the same tap from the same three jobs.
+    """
+    publish = yaml.safe_load((REPO / ".forgejo" / "workflows" / "publish.yml").read_text())
+    for job in ("homebrew-tap", "homebrew-bottles"):
+        assert job in publish["jobs"], job
+        group = publish["jobs"][job].get("concurrency", {}).get("group")
+        assert group == "tap-write", f"{job} writes the tap outside the shared group: {group}"
+
+    bottles = yaml.safe_load((REPO / ".forgejo" / "workflows" / "tap-bottles.yml").read_text())
+    assert bottles.get("concurrency", {}).get("group") == "tap-write", bottles.get("concurrency")
+
+
+def test_publishing_refuses_to_ship_unsigned_packages() -> None:
+    """An unsigned package installs perfectly well, so nothing downstream notices.
+
+    It fails only for subscribers running `gpgcheck=1` — the people who configured the repository
+    the way the docs tell them to. Both forges build packages, so both have to hand the key in: an
+    arm64 release signed by nobody would look identical to a signed one everywhere it was tested.
+
+    Mirrored from dreame-valetudo, which builds and signs the same way.
+    """
+    build = (REPO / "packaging" / "build-linux-arch.sh").read_text()
+
+    # `:?` and not a default: a missing key must end the build, not silently produce packages
+    # nobody signed.
+    assert "GPG_SIGNING_KEY:?" in build
+    assert "NFPM_SIGNING_KEY_FILE" in build
+    assert "GPG_SIGNING_KEY is not set" not in build, "the key is optional somewhere"
+
+    # Written outside the build context. `docker cp . :/w` sends the whole tree, so a key staged
+    # inside the workspace would be copied into the image alongside the package it signs.
+    assert 'KEYFILE="$(mktemp)"' in build
+    assert 'rm -f "$KEYFILE"' in build, "the key outlives the build"
+
+    for workflow in (
+        REPO / ".forgejo" / "workflows" / "publish.yml",
+        REPO / ".github" / "workflows" / "release-linux-arm64.yml",
+    ):
+        assert "GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}" in workflow.read_text(), (
+            f"{workflow.name} builds packages without handing in the signing key"
+        )
