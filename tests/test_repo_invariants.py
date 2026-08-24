@@ -1276,3 +1276,44 @@ def test_publishing_refuses_to_ship_unsigned_packages() -> None:
         assert "GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}" in workflow.read_text(), (
             f"{workflow.name} builds packages without handing in the signing key"
         )
+
+
+def test_every_install_matrix_fetch_retries_and_stays_portable() -> None:
+    """A single-attempt download makes the whole matrix only as reliable as one DNS lookup.
+
+    This is not hypothetical: a candidate's macOS leg failed on `Could not resolve host: astral.sh`
+    while fetching the uv installer, and the infra-retry workflow correctly declined to rescue it —
+    the failure was inside one of our own steps, which is exactly what that workflow refuses to
+    launder into green. The fix belongs on the fetch.
+
+    The flags differ by where the fetch runs, and that split is load-bearing. `--retry-all-errors`
+    is what makes a failed DNS lookup retryable at all, but it arrived in curl 7.71 and Rocky 8
+    ships 7.61, which rejects the option outright rather than ignoring it. Release artifacts are
+    downloaded on every distro in the matrix, Rocky 8 included, so those get the portable flags
+    only; the uv installer runs on GitHub runners and Debian-family containers, where it does not.
+    """
+    paths = [
+        REPO / "packaging" / "install-smoke.Dockerfile",
+        REPO / ".github" / "workflows" / "install-matrix.yml",
+        REPO / ".forgejo" / "workflows" / "install-matrix.yml",
+    ]
+    unprotected, unportable = [], []
+    for path in paths:
+        if not path.is_file():
+            continue
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if not re.search(r"\bcurl\s+-[A-Za-z]+\s", line):
+                continue
+            where = f"{path.name}:{number}"
+            # A whole option, not a prefix: `--retry-delay 2` alone contains "--retry" and
+            # would satisfy a substring check while leaving the fetch single-attempt.
+            if not re.search(r"--retry(?:\s|=)\d", line):
+                unprotected.append(where)
+            # `$DL` is the published release; that fetch runs on every distro the matrix covers.
+            if "$DL/" in line and "--retry-all-errors" in line:
+                unportable.append(where)
+
+    assert not unprotected, f"a network fetch with no retry: {unprotected}"
+    assert not unportable, (
+        f"--retry-all-errors on a fetch that also runs on Rocky 8's curl 7.61: {unportable}"
+    )
