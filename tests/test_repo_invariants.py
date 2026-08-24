@@ -1364,3 +1364,27 @@ def test_the_macos_signing_step_survives_a_bad_minute_at_apples_timestamp_servic
         assert window >= 120, (
             f"{count} attempts {seconds}s apart only covers {window}s; a minute-long outage wins"
         )
+
+
+def test_every_install_matrix_caller_states_its_cache_ceiling() -> None:
+    """The ceiling cannot be measured from inside the job, so the caller has to say it.
+
+    The self-hosted runner reaches its Docker daemon over TCP, so a `df` in the job container
+    measures a different filesystem entirely and would do it silently. The default is deliberately
+    the small one, because a ceiling ABOVE the disk never prunes at all -- the failure that looks
+    like nothing is wrong. Left implicit, a large runner would quietly keep the small default.
+    """
+    for name in (".forgejo/workflows/install-matrix.yml", ".github/workflows/install-matrix.yml"):
+        path = REPO / name
+        if not path.is_file():
+            continue
+        document = yaml.safe_load(path.read_text())
+        for job, spec in document["jobs"].items():
+            for step in spec.get("steps") or []:
+                if "install-matrix-arch.sh" not in str(step.get("run", "")):
+                    continue
+                ceiling = (step.get("env") or {}).get("CACHE_CEILING_GB")
+                assert ceiling is not None, (
+                    f"{path.name}:{job} runs the matrix without stating a cache ceiling"
+                )
+                assert str(ceiling).isdigit(), f"{path.name}:{job} ceiling is not a number"
