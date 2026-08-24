@@ -1388,3 +1388,88 @@ def test_every_install_matrix_caller_states_its_cache_ceiling() -> None:
                     f"{path.name}:{job} runs the matrix without stating a cache ceiling"
                 )
                 assert str(ceiling).isdigit(), f"{path.name}:{job} ceiling is not a number"
+
+
+def test_ci_can_be_redispatched_without_an_unrelated_commit() -> None:
+    """Forgejo has no rerun API.
+
+    Without a dispatch trigger, a fault outside this repository - a runner losing the network, a
+    hosted action failing to fetch its own manifest - leaves main red and the only way back is an
+    unrelated commit, which is a lie in the history about what changed and why.
+    """
+    document = yaml.safe_load((REPO / ".forgejo" / "workflows" / "ci.yml").read_text())
+    # PyYAML resolves a bare `on:` to the boolean True under YAML 1.1.
+    triggers = document.get("on") or document.get(True) or {}
+    assert "workflow_dispatch" in triggers, (
+        f"ci.yml cannot be redispatched, so an infrastructure fault strands main: {sorted(triggers)}"
+    )
+
+
+def test_ci_supersedes_itself_and_publishing_never_does() -> None:
+    """The two workflows want opposite concurrency, and getting either backwards is expensive.
+
+    A second push to a branch makes the first CI answer irrelevant, so that run should be cancelled
+    rather than left competing for runners. A publish is the reverse: cancelling one midway leaves a
+    release half-written across three registries, and a group any wider than the tag lets a later
+    tag displace an earlier tag's still-pending publication and leave it assetless.
+    """
+    def concurrency(name: str) -> dict:
+        document = yaml.safe_load((REPO / ".forgejo" / "workflows" / name).read_text())
+        value = document.get("concurrency")
+        assert isinstance(value, dict), f"{name} declares no workflow-level concurrency: {value!r}"
+        return value
+
+    ci = concurrency("ci.yml")
+    assert "github.ref" in str(ci["group"]), f"ci.yml does not group per ref: {ci['group']}"
+    assert ci.get("cancel-in-progress") is True, "a superseded CI run should not keep a runner"
+
+    publish = concurrency("publish.yml")
+    # `github.ref`, not `ref_name`: the short name drops refs/heads and refs/tags alike, so a
+    # branch sharing a tag's name shares its group - and publish.yml can be dispatched on one.
+    assert re.search(r"github\.ref\s*}}", str(publish["group"])), (
+        f"publish.yml groups wider than the exact ref, so one ref can displace another: "
+        f"{publish['group']}"
+    )
+    assert publish.get("cancel-in-progress") is False, (
+        "cancelling a publish leaves a release half-written across registries"
+    )
+
+
+def test_dependencies_that_move_together_are_reviewed_together() -> None:
+    """The two manylinux builders are one upstream release under two names.
+
+    They move to the same dated tag together, so reviewing them apart shows half the change - and a
+    toolchain skew BETWEEN the arches is exactly the risk their hand-review exists to catch. It also
+    doubles the rebase churn, since merging either rebases the other open PR and restarts its checks.
+
+    The versioning regex belongs with it: without one, `latest` is offered as an upgrade over a
+    dated tag, and the reviewer loses the version they need to judge the bump at all.
+    """
+    config = json.loads((REPO / ".renovaterc.json").read_text())
+    arches = {
+        "quay.io/pypa/manylinux_2_28_x86_64",
+        "quay.io/pypa/manylinux_2_28_aarch64",
+    }
+    grouped = [
+        rule for rule in config.get("packageRules", [])
+        if rule.get("groupName") and arches <= set(rule.get("matchDepNames") or [])
+    ]
+    assert grouped, "the manylinux arches are not grouped, so they arrive as separate reviews"
+    assert len(grouped) == 1, f"more than one rule groups them: {[r['groupName'] for r in grouped]}"
+    assert "regex:" in str(grouped[0].get("versioning", "")), (
+        "without a dated-tag versioning scheme, `latest` is offered as an upgrade over a dated tag"
+    )
+    # Grouping alone does not stop a lone arch arriving: Renovate opens a branch as soon as ONE
+    # update in the group exists, so whichever arch Quay published first would be reviewed by
+    # itself - the exact skew the grouping is for.
+    assert grouped[0].get("minimumGroupSize", 1) >= len(arches), (
+        f"a branch can open with fewer than both arches: {grouped[0].get('minimumGroupSize')}"
+    )
+
+    # And the group size still only COUNTS updates; it does not compare their targets. If the pins
+    # already lag a release and Quay publishes the next tag for one arch first, both arches have an
+    # update and the branch opens with mismatched targets. Renovate cannot express "same tag", so
+    # the pins themselves are what proves it: whatever lands, the two must agree.
+    tags = re.findall(r"manylinux_2_28_(?:x86_64|aarch64):([0-9.]+-\d+)@sha256:", (REPO / "packaging" / "release-pins.env").read_text())
+    assert len(tags) == 2, f"expected both manylinux pins, found {len(tags)}"
+    assert tags[0] == tags[1], f"the two arches are pinned to different builder releases: {tags}"
