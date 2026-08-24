@@ -626,3 +626,39 @@ def test_an_unreadable_password_file_is_a_clean_error_not_a_traceback(tmp_path: 
 
     with pytest.raises(WhiskerlessError, match="WiFi password file"):
         _wifi_password(args)
+
+
+# --- the update nudge, which runs before dispatch ----------------------------
+def test_the_update_nudge_reaches_a_person_watching(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It goes to stderr so it cannot corrupt a piped stdout, and it is the whole point of the
+    pre-dispatch block: a person running this by hand is told a newer version exists."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
+    with patch("whiskerless.update_check.check", return_value="a newer whiskerless is out"):
+        assert main(["robots"]) == 0
+    assert "a newer whiskerless is out" in capsys.readouterr().err
+
+
+def test_the_update_nudge_stays_out_of_a_pipe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Piping this into a script must not add a line the script never asked for, so the check does
+    not even run when nobody is watching."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    monkeypatch.setattr("sys.stderr.isatty", lambda: False)
+    with patch("whiskerless.update_check.check") as check:
+        assert main(["robots"]) == 0
+    check.assert_not_called()
+
+
+def test_a_broken_update_check_never_breaks_the_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The nudge is a courtesy. A failure reading it - no network, an unreadable cache - must not
+    take down a command that has nothing to do with it."""
+    monkeypatch.setenv("WHISKERLESS_HOME", str(tmp_path))
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
+    with patch("whiskerless.update_check.check", side_effect=OSError("no network")):
+        assert main(["robots"]) == 0

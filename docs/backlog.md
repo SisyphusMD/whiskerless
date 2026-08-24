@@ -1371,8 +1371,16 @@ than reworded, because the command never appeared in a stable release.
 `_describe_status` helper only reachable from them are removed from `ble/provision.py`
 and from `ble/__init__.py`'s exports. The entry offered keeping them as bench tooling;
 they had no other caller, and this repo's coverage floor makes an uncalled function a
-liability rather than a spare part. Their tests came out with them, and the gate still
-passes on its own terms: 1318 tests, 99.03% against the 99% floor.
+liability rather than a spare part.
+
+**Deleting covered code moves the ratio down, which the 3.11 job caught.** Removing 71
+fully-covered statements while the uncovered remainder stayed fixed took the floor job
+from exactly 99.00% to 98.98% - main had no margin at all there, and only the 3.11 leg
+runs that close because the integration's PEP 695 tests skip on it. The answer was to
+cover something real rather than move the floor: the pre-dispatch update nudge in
+`main()` now has tests for all three things its comment promises - it reaches a person
+watching, it stays out of a pipe, and a failure reading it does not take the command
+down. 1318 tests, 99.14%.
 
 **Decided 2026-08-20: take it out before 0.2.0 stable.** It shipped in
 `v0.2.0-rc.35` and should not survive into the release.
