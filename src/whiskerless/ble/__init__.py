@@ -9,10 +9,8 @@ from __future__ import annotations
 from .provision import (
     ProvisioningConfig,
     ProvisioningResult,
-    diagnose_wifi,
     provision_robot,
     read_device_mac,
-    wifi_diagnosis,
 )
 from .transport import DiscoveredRobot, scan
 
@@ -20,9 +18,7 @@ __all__ = [
     "DiscoveredRobot",
     "ProvisioningConfig",
     "ProvisioningResult",
-    "diagnose_wifi",
     "provision_robot",
     "read_device_mac",
     "scan",
-    "wifi_diagnosis",
 ]

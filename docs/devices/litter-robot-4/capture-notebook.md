@@ -412,10 +412,12 @@ The dry run also enumerated the live endpoint surface for #51 — `mqtt-config`,
 `MTU=500, cert chunk=460`.
 
 **Two things this session cost, both now fixed in code.** The BLE scan ran its full
-window even after finding the robot, which *spends* the pairing window rather than
-using it — one attempt found the robot and then failed to connect because it had
-gone quiet. And the WiFi join verification printed `ip=0.0.0.0`, because the robot
-answers CONNECTED as soon as the STA associates, before DHCP returns.
+window even after finding the robot; it now returns on the first answer. One attempt
+found the robot and then failed to connect, read at the time as the robot having gone
+quiet — pairing mode turned out to persist (#80), so that reading was wrong and the
+cause of that failure is still unexplained. And the WiFi join verification printed
+`ip=0.0.0.0`, because the robot answers CONNECTED as soon as the STA associates,
+before DHCP returns.
 
 ### 2026-08-15→16, 8h55m — one visit end to end, and `0x6F` meets `0xBC`
 

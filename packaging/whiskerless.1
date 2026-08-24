@@ -32,22 +32,6 @@ Offers to create a certificate authority, issues your broker's server
 certificate and this machine's own identity, and prints the three files to
 install on the broker. Run once, before any robot.
 .TP
-.B diagnose
-Ask the robot why its WiFi will not hold, over Bluetooth. Reads only \(em the
-one request it sends is the same status read
-.B provision
-already uses to verify a join. Often inconclusive, and honest about it: reaching the robot
-needs pairing mode, which takes it off WiFi, so the usual answer is that the robot
-is trying to connect \(em the state the command itself caused. When the robot does
-volunteer a verdict it is a real one, because
-.B AUTH_ERROR
-and
-.B NETWORK_NOT_FOUND
-describe an attempt it already made and distinguish a wrong passphrase from a
-network the robot cannot see. Must therefore be followed by a
-.BR provision ,
-and warns and asks before doing anything.
-.TP
 .B provision
 Re-provision a robot onto your broker over Bluetooth. Prompts for the serial,
 lists the networks the robot can see, and writes your CA, an identity for the

@@ -44,8 +44,8 @@ The advertisement carries three AD structures and no identifying information:
 
 No local name, no manufacturer data, no serial. **The app scans for that service UUID
 and connects to whatever answers.** Since a robot only advertises while it is in
-pairing mode — a three-second hold on Connect — exactly one is ever discoverable, so
-there is nothing to disambiguate and no device list to present.
+pairing mode, which a three-second hold on Connect puts it into, exactly one is ever
+discoverable, so there is nothing to disambiguate and no device list to present.
 
 The GAP device name, read after connecting, is `LitterRobot4` on every unit.
 
@@ -122,7 +122,7 @@ pattern without thinking about the boundary produced a real failure: whiskerless
 asked for a full four every time, so a robot reporting 30 networks served 0-27 and
 then sent a request for 28-31. The firmware answers that out-of-range read by
 **dropping the BLE link** — not a short page, not an error — in the middle of
-provisioning, with the pairing window already spent. Any result count that is not
+provisioning, after the operator had done everything right. Any result count that is not
 a multiple of four ends there, which is most households, and it presents as flaky
 Bluetooth. Proven live 2026-08-18 on a robot seeing 30 networks; fixed by clamping
 to `min(page, count - start)`.

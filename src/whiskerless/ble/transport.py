@@ -54,9 +54,7 @@ async def translated(action: str) -> AsyncIterator[None]:
         # Not every unusable radio arrives as a BleakError. With no D-Bus at all —
         # a container, a headless box with bluetooth masked, a Pi whose service
         # never started — the BlueZ backend fails on the SOCKET and raises a bare
-        # OSError, which reached the user as a traceback from the one command that
-        # cannot be casually retried: the robot only advertises while somebody is
-        # holding its button.
+        # OSError, which reached the user as a traceback.
         #
         # Only the three that mean "the backend is not reachable". This wraps whole
         # provisioning sessions, not just the scan, so a robot dropping the link
@@ -101,11 +99,7 @@ async def scan(
     """Scan for advertising LR4s, matched by protocomm service UUID (or name).
 
     ``timeout`` is a CEILING, not a duration: the scan returns as soon as a
-    robot answers. This is not just about feeling quick — a robot only
-    advertises while it is in pairing mode, and a scan that always runs its
-    window out spends the pairing window rather than using it. A bench session
-    lost a window exactly that way, discovering the robot and then failing to
-    connect because it had stopped advertising by the time the scan ended.
+    robot answers.
 
     ``settle`` keeps listening for a beat after the first answer, so a second
     robot advertising in the same window is still offered rather than silently
@@ -158,7 +152,7 @@ async def scan(
                     await asyncio.wait_for(answered.wait(), timeout)
                 # Only worth settling when there is something else to collect.
                 # An address-targeted scan can match exactly one device, so
-                # waiting would spend the pairing window it exists to save.
+                # waiting could only add delay for a second robot that cannot come.
                 if settle > 0 and address is None:
                     await asyncio.sleep(settle)
             except TimeoutError:

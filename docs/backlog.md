@@ -20,8 +20,9 @@ marker, and #64 read as open for four days after it shipped.
 - ~~**#79**~~ — closed: decoded, the CLI qualifies the drawer line, and the HA sensor
   keeps its value while carrying a `level_provisional` attribute.
 - **#68** — the hopper gauge under-reports.
-- **#83** / **#84** — pre-release text cleanups: remove `diagnose`, and delete the
-  false "only advertises while you hold" instruction wherever it is repeated.
+- ~~**#83**~~ — closed: `diagnose` is gone, and its library functions with it.
+- ~~**#84**~~ — closed: the false "only advertises while you hold" instruction is gone
+  from every place it was said.
 - **#85** — multi-robot CLI: no picker when several are saved, and ten of the twelve
   robot commands never say which robot they acted on.
 - **#86** — naming a robot: stored and printed already, but never offered, no `rename`,
@@ -1359,7 +1360,27 @@ capture of the app onboarding a hidden network would also answer.
 
 ## Added 2026-08-20
 
-### #83 — Remove `whiskerless diagnose`: its useful verdicts are probably unreachable
+### #83 — Remove `whiskerless diagnose`: its useful verdicts are probably unreachable — **DONE 2026-08-24**
+
+**Removed rather than qualified, as decided.** The subcommand, `_cmd_diagnose` and its
+parser registration are out of `cli.py`; the man-page entry, the README section and the
+`[Unreleased]` CHANGELOG bullet are out with it. The bullet was deleted outright rather
+than reworded, because the command never appeared in a stable release.
+
+**The library functions went too.** `wifi_diagnosis`, `diagnose_wifi` and the
+`_describe_status` helper only reachable from them are removed from `ble/provision.py`
+and from `ble/__init__.py`'s exports. The entry offered keeping them as bench tooling;
+they had no other caller, and this repo's coverage floor makes an uncalled function a
+liability rather than a spare part.
+
+**Deleting covered code moves the ratio down, which the 3.11 job caught.** Removing 71
+fully-covered statements while the uncovered remainder stayed fixed took the floor job
+from exactly 99.00% to 98.98% - main had no margin at all there, and only the 3.11 leg
+runs that close because the integration's PEP 695 tests skip on it. The answer was to
+cover something real rather than move the floor: the pre-dispatch update nudge in
+`main()` now has tests for all three things its comment promises - it reaches a person
+watching, it stays out of a pipe, and a failure reading it does not take the command
+down. 1318 tests, 99.14%.
 
 **Decided 2026-08-20: take it out before 0.2.0 stable.** It shipped in
 `v0.2.0-rc.35` and should not survive into the release.
@@ -1396,7 +1417,42 @@ tooling or go with it — they are not used elsewhere.
 uncovered statements; removing the command removes its tests too, which is fine, but
 `wifi_diagnosis` staying without a caller would not be.
 
-### #84 — The hold instruction states something false, and says it at length
+### #84 — The hold instruction states something false, and says it at length — **DONE 2026-08-24**
+
+**Deleted, not rewritten, as the entry asked.** The provision hint now stops at "that is
+pairing mode" and says nothing about advertising or holding through the scan. The README
+transcript matches it. The `diagnose` hint that repeated it went with #83.
+
+`ble/transport.py` keeps the behaviour and loses the story: `scan()` still documents
+`timeout` as a ceiling that returns on the first answer, with the pairing-window rationale
+and the bench-session anecdote dropped and no replacement cause invented in their place.
+The same false clause is gone from the D-Bus comment, which keeps its real reason (BlueZ
+raises a bare `OSError` that has to be wrapped). Both test docstrings that asserted the
+false version now state the behaviour under test instead.
+
+**The entry's list was not the whole list.** Searching for the *model* rather than the
+sentence turned up seventeen more sites across twelve files, none of them named here:
+comments and docstrings in `cli.py`, `provision.py` and `transport.py`, four test
+docstrings, the README's reason for `setup` being a separate command,
+`docs/design/authentication.md`, and three passages in the device captures. Each stated
+or implied a window that expires when the button is released.
+
+**The term went with the model.** "Pairing window" now appears nowhere in `src/`,
+`tests/`, `docs/` or the README, because the phrase carries the expiry claim even where
+the surrounding sentence does not. What the code needed to say in those places was
+either "while the robot is in pairing mode" or "the robot is off the network until a
+provision completes", and both are true. The two surviving uses are in closed backlog
+entries above, left as the dated record of what was believed when they were written.
+
+What survives is the distinction that matters: a robot in pairing mode is off the
+network until a provision completes, which is a real cost worth designing around, but
+nothing about it is timed. `scan()` returning on the first answer is kept as good
+behaviour with no rationale attached, per the entry. The capture notebook keeps what the
+bench session *observed* and now marks the going-quiet reading as superseded rather than
+deleting it, because a failure that is still unexplained is worth leaving on the record.
+
+**One touchpoint was already closed.** The CHANGELOG bullet's false rationale was removed
+by `d6e27d1` when `[Unreleased]` was rewritten; nothing was left there to fix.
 
 **Reported by the owner 2026-08-20.** The provision prompt tells the operator:
 

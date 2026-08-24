@@ -35,7 +35,6 @@ much of the hopper work.
 - New install channels: apt, dnf, Homebrew, `.deb`/`.rpm`, a notarized macOS `.pkg`, and Linux binaries.
 - `whiskerless backup` and `restore` put the whole store in one optionally-encrypted file.
 - The CLI remembers your robots, with `robots`, `use`, `forget` and `rename`.
-- `whiskerless diagnose` asks the robot over Bluetooth when the panel only says "blinking blue".
 - `whiskerless uninstall` finds every copy on the machine and asks before removing any.
 - New entities: last cat visit, visit duration, panel brightness, and excess-weight detection.
 - Provisioning verifies the WiFi join, so a mistyped password fails loudly.

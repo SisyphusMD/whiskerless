@@ -78,10 +78,7 @@ $ whiskerless provision
 robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
 
   Hold Connect on the robot now until its light
-  BLINKS YELLOW (about three seconds) — that is pairing mode — and
-  keep holding until the numbered steps below start. It only
-  advertises while you hold, and the link is opened after the
-  scan finds it.
+  BLINKS YELLOW (about three seconds) — that is pairing mode.
 
 ⠹ scanning for robots over BLE — done (3s)
    1 ▸ connected to F8:B3:B7:xx:xx:xx (MTU=500, cert chunk=100)
@@ -340,8 +337,8 @@ whiskerless setup
 It asks for your broker's address, offers to create a certificate authority, and
 prints the three files to install on your broker. **Install them and restart the
 broker before going further** — that is why this is a separate command from
-`provision`: a robot in pairing mode holds a short window open, and it should not
-be spent waiting on a broker restart.
+`provision`: a robot in pairing mode is off your network until a provision
+completes, and it should not be sitting there waiting on a broker restart.
 
 ## Provision the robot
 
@@ -469,30 +466,6 @@ whiskerless use LR4Cxxxxxx               # pick the default of several
 whiskerless state --serial LR4Cyyyyyy    # or name one per command
 whiskerless backup ~/Documents           # your CA and robots, in one file
 ```
-
-**When a robot will not stay on WiFi**, the panel tells you almost nothing — a
-blinking light, and that is it. The robot itself knows more, and Bluetooth still
-works when the network does not:
-
-```bash
-whiskerless diagnose                     # ask the robot why (read-only)
-```
-
-**Expect it to be inconclusive more often than not.** Reaching the robot needs
-pairing mode, and pairing mode takes it off WiFi — so the most common answer is the
-robot reporting that it is trying to connect, which is the state this command itself
-put it in. It says so plainly rather than dressing that up as a finding.
-
-When it *does* have something, it is worth the trip: refused (a wrong passphrase, or
-an access point turning it away), the network not found (it cannot see that SSID from
-where it sits — it is 2.4 GHz only), or joined but never given an address (look at
-DHCP, not the password). Those are verdicts the robot volunteers about an attempt it
-already made, so pairing mode does not confound them.
-
-> ⚠️ It needs **pairing mode** to reach the robot over Bluetooth, and entering that
-> mode makes the robot forget its saved WiFi. So it asks first, and you must follow
-> it with a `provision`. Run it on a robot that is already failing — not as a
-> routine check.
 
 There are no per-command broker flags: one machine points at one broker, behind
 one CA, and a flag naming a different one would still present this store's
