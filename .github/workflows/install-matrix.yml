@@ -154,6 +154,9 @@ jobs:
       - name: Install every Linux channel and smoke each one
         env:
           VERSION: ${{ needs.wait.outputs.version }}
+          # GitHub's arm64 hosted runner has roughly 14 GB of SSD. A ceiling above that would
+          # never prune at all, which is the failure mode that looks like nothing is wrong.
+          CACHE_CEILING_GB: "4"
         run: bash packaging/install-matrix-arch.sh arm64
 
   summary:

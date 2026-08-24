@@ -77,6 +77,9 @@ jobs:
       - name: Install every Linux channel and smoke each one
         env:
           VERSION: ${{ needs.wait.outputs.version }}
+          # The self-hosted runner's dind volume; its own idle pruner keeps 25 GiB free, so a
+          # third of the volume leaves room for the images the channels pull beside the cache.
+          CACHE_CEILING_GB: "20"
         # The channel list lives in the script, not here, so the amd64 and arm64 halves of this
         # matrix cannot drift apart across two forges.
         run: bash packaging/install-matrix-arch.sh amd64

@@ -60,13 +60,25 @@ CHANNELS=(
   pypi-uvx pipx pip bottle-pour broker provision auth-modes hacs
 )
 
+# Told, not measured. This script runs on two very different machines - a self-hosted amd64 runner
+# with a large volume, and GitHub's arm64 hosted runner with roughly 14 GB - and neither can be
+# read from here: the self-hosted job talks to a separate dind daemon over TCP, so a `df` in this
+# container measures the wrong filesystem entirely and would do it silently. The caller knows which
+# runner it is on, so the caller says. The default is the small one, because a ceiling ABOVE the
+# disk never prunes at all, and that is the failure that looks like nothing is wrong.
+cache_gb="${CACHE_CEILING_GB:-4}"
+case "$cache_gb" in
+  ''|*[!0-9]*) echo "::error::CACHE_CEILING_GB must be a whole number of GB, got '$cache_gb'"; exit 1 ;;
+esac
+echo "bounding the build cache at ${cache_gb}GB"
+
 # buildx renamed `--keep-storage` to `--max-used-space`; the runner's version is whatever
 # setup-buildx-action installed. Detected rather than assumed, because the wrong flag makes the
 # prune fail and a swallowed failure here reads exactly like a prune that worked.
 if docker buildx prune --help 2>&1 | grep -q -- --max-used-space; then
-  PRUNE_LIMIT=(--max-used-space 8GB)
+  PRUNE_LIMIT=(--max-used-space "${cache_gb}GB")
 elif docker buildx prune --help 2>&1 | grep -q -- --keep-storage; then
-  PRUNE_LIMIT=(--keep-storage 8GB)
+  PRUNE_LIMIT=(--keep-storage "${cache_gb}GB")
 else
   # Neither flag: a full prune still bounds the disk, just less kindly.
   PRUNE_LIMIT=()
@@ -98,6 +110,10 @@ for channel in "${CHANNELS[@]}"; do
   # self-hosted runner with a finite disk, so unbounded the cache grows across the whole matrix and
   # whichever channel runs last is the one that dies of it, long after the channel that filled it.
   # A ceiling rather than a wipe, so the base layers every channel shares still cache.
+  #
+  # Sized against the runner volume, not guessed: the runner's own idle pruner keeps a fixed number
+  # of GiB free, so this ceiling has to leave room for the images and layers the channels pull
+  # beside it. It is an absolute figure and does not re-tune itself when that volume changes.
   if ! docker buildx prune --force "${PRUNE_LIMIT[@]}" >/dev/null 2>&1; then
     echo "::warning::could not prune the build cache after $channel; disk may fill"
   fi

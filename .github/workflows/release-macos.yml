@@ -95,17 +95,17 @@ jobs:
           set -euo pipefail
           trap 'rm -f notary.p8' EXIT
           PKG="whiskerless-${GITHUB_REF_NAME#v}-macos-${{ matrix.arch }}.pkg"
-          codesign --force --options runtime --timestamp \
+          bash packaging/retry.sh 5 codesign --force --options runtime --timestamp \
             --entitlements packaging/entitlements.plist --sign "$APP_IDENTITY" dist/whiskerless
           mkdir -p root/usr/local/bin
           cp dist/whiskerless root/usr/local/bin/whiskerless
           pkgbuild --root root --identifier com.sisyphusmd.whiskerless \
             --version "${GITHUB_REF_NAME#v}" --install-location / unsigned.pkg
-          productsign --sign "$INSTALLER_IDENTITY" unsigned.pkg "$PKG"
+          bash packaging/retry.sh 5 productsign --sign "$INSTALLER_IDENTITY" unsigned.pkg "$PKG"
           echo "$NOTARY_KEY_P8" | base64 -d > notary.p8
-          xcrun notarytool submit "$PKG" \
+          bash packaging/retry.sh 5 xcrun notarytool submit "$PKG" \
             --key notary.p8 --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" --wait
-          xcrun stapler staple "$PKG"
+          bash packaging/retry.sh 5 xcrun stapler staple "$PKG"
       - name: Install the signed package, run it, and remove it
         run: |
           set -euo pipefail
