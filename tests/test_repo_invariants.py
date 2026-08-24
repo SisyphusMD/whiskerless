@@ -1540,3 +1540,24 @@ def test_homebrew_bottles_come_from_the_mirror_where_it_is_reachable() -> None:
     assert not mirrored(REPO / ".github" / "workflows" / "install-matrix.yml"), (
         "a hosted runner was pointed at a mirror it cannot reach"
     )
+
+
+def test_the_formula_is_built_on_every_macos_lane_the_library_is() -> None:
+    """A formula proven on current arm64 only leaves the two axes that differ to a tag.
+
+    Both formulae compile native code on the installing machine - a Rust extension here, a C
+    resource in the sibling - so a break can be specific to Intel or to the macOS floor. The
+    bottle build covers those lanes but runs at tag time, and a tag is immutable by the time it
+    reports. Whatever set `ci-macos.yml` holds the library to, the formula is held to as well.
+    """
+    def lanes(name: str) -> set[str]:
+        document = yaml.safe_load((REPO / ".github" / "workflows" / name).read_text())
+        job = next(iter(document["jobs"].values()))
+        include = (((job.get("strategy") or {}).get("matrix") or {}).get("include")) or []
+        return {entry["os"] for entry in include} or {job["runs-on"]}
+
+    library, formula = lanes("ci-macos.yml"), lanes("formula-macos.yml")
+    assert formula == library, (
+        f"the formula is built on {sorted(formula)} while the library is tested on "
+        f"{sorted(library)}; the difference is where a break reaches a tag unseen"
+    )
