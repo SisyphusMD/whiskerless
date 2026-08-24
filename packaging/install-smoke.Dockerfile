@@ -43,12 +43,13 @@ RUN set -eux; \
     apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 
 # --- a downloaded .deb, installed by hand — still a documented route -----------------
 FROM deb-base AS deb-file
 ARG V PV DL ARCH_DEB
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
     apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -60,7 +61,7 @@ FROM deb-base AS apt-repo
 ARG V DIST FORGE
 RUN set -eux; \
     install -d /etc/apt/keyrings; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 "$FORGE/api/packages/SisyphusMD/debian/repository.key" -o /etc/apt/keyrings/w.asc; \
+    /fetch /etc/apt/keyrings/w.asc "$FORGE/api/packages/SisyphusMD/debian/repository.key"; \
     echo "deb [signed-by=/etc/apt/keyrings/w.asc] $FORGE/api/packages/SisyphusMD/debian $DIST main" \
       > /etc/apt/sources.list.d/w.list; \
     apt-get update -qq >/dev/null; \
@@ -74,7 +75,7 @@ COPY --from=apt-repo /passed /passed
 FROM deb-base AS raw-binary
 ARG V DL ARCH_BIN
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
+    /fetch /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
     chmod +x /usr/local/bin/whiskerless; \
     if command -v python3 >/dev/null; then \
       echo "this image has python — the test is not proving what it claims"; exit 1; fi; \
@@ -105,11 +106,12 @@ RUN set -eux; \
     dnf install -y -q openssl >/dev/null; \
     command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 
 FROM rpm-base AS rpm-file
 ARG V PV DL ARCH_RPM
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
     dnf install -y -q /tmp/w.rpm >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -119,8 +121,8 @@ COPY --from=rpm-file /passed /passed
 FROM rpm-base AS dnf-repo
 ARG V REPOFILE FORGE
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/$REPOFILE" \
-      -o /etc/yum.repos.d/sisyphusmd.repo; \
+    /fetch /etc/yum.repos.d/sisyphusmd.repo "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/$REPOFILE"; \
+      :; \
     dnf install -y -q whiskerless >/dev/null; \
     rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
     bash /smoke.sh whiskerless "$V"; \
@@ -140,7 +142,7 @@ COPY --from=dnf-repo /passed /passed
 FROM deb-base AS deb-lifecycle
 ARG V PV DL ARCH_DEB
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
     apt-get install -y -qq /tmp/w.deb >/dev/null; \
     installed=$(dpkg-query -W -f='${Version}' whiskerless); \
     [ "$installed" = "$PV" ] || { echo "installed $installed, expected $PV"; exit 1; }; \
@@ -172,7 +174,7 @@ COPY --from=deb-lifecycle /passed /passed
 FROM deb-base AS deb-file-github
 ARG V GH_DL GH_PV ARCH_DEB
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.deb "$GH_DL/whiskerless_${GH_PV}_${ARCH_DEB}.deb"; \
+    /fetch /tmp/w.deb "$GH_DL/whiskerless_${GH_PV}_${ARCH_DEB}.deb"; \
     apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -187,10 +189,11 @@ COPY --from=deb-file-github /passed /passed
 FROM debian:12-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS deb-file-floor
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     apt-get update -qq >/dev/null; \
     apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
     apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -201,10 +204,11 @@ COPY --from=deb-file-floor /passed /passed
 FROM ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc AS deb-file-ubuntu-floor
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     apt-get update -qq >/dev/null; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -215,10 +219,11 @@ COPY --from=deb-file-ubuntu-floor /passed /passed
 FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b AS deb-file-ubuntu
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     apt-get update -qq >/dev/null; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
+    /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -230,9 +235,10 @@ COPY --from=deb-file-ubuntu /passed /passed
 FROM rockylinux/rockylinux:8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6 AS rpm-file-floor
 ARG V PV DL ARCH_RPM
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     dnf install -y -q openssl >/dev/null; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
     dnf install -y -q /tmp/w.rpm >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -243,9 +249,10 @@ COPY --from=rpm-file-floor /passed /passed
 FROM fedora:44@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b898 AS rpm-file-fedora
 ARG V PV DL ARCH_RPM
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     dnf install -y -q openssl >/dev/null; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
     dnf install -y -q /tmp/w.rpm >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -257,6 +264,7 @@ COPY --from=rpm-file-fedora /passed /passed
 FROM homebrew/brew:latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd AS bottle-pour
 ARG V FORGE
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 # No USER juggling: this image already runs as `linuxbrew` (brew refuses to run as
 # root), so the marker goes in that user's HOME rather than at / where it could
 # not be written.
@@ -288,7 +296,7 @@ RUN set -eux; apt-get install -y -qq mosquitto mosquitto-clients >/dev/null
 COPY packaging/broker-smoke.sh /broker-smoke.sh
 COPY tests/integration/fixtures/lr4_state.json /lr4_state.json
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
+    /fetch /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
     chmod +x /usr/local/bin/whiskerless; \
     bash /broker-smoke.sh /usr/local/bin/whiskerless /lr4_state.json; \
     touch /passed
@@ -338,9 +346,10 @@ FROM opensuse/leap:16.0@sha256:f239b4819f4dd322d99509f1b5b14f2107bf23857f9ccd3c1
 ARG V PV DL ARCH_RPM FORGE
 RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     rpm --import "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc"; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
     # Not --allow-unsigned-rpm: the imported key has to be what makes this work,
     # or the test proves nothing about the signature.
     zypper --non-interactive install /tmp/w.rpm >/dev/null; \
@@ -355,9 +364,10 @@ FROM opensuse/leap:15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6
 ARG V PV DL ARCH_RPM FORGE
 RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     rpm --import "$FORGE/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc"; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
     # Not --allow-unsigned-rpm: the imported key has to be what makes this work,
     # or the test proves nothing about the signature.
     zypper --non-interactive install /tmp/w.rpm >/dev/null; \
@@ -380,7 +390,7 @@ COPY --from=zypper-floor /passed /passed
 FROM deb-base AS provision
 ARG V DL ARCH_BIN
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
+    /fetch /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
     chmod +x /usr/local/bin/whiskerless; \
     openssl req -x509 -newkey rsa:2048 -nodes -keyout /ca.key -out /ca.crt -days 2 \
       -subj "/CN=whiskerless provision smoke" >/dev/null 2>&1; \
@@ -412,7 +422,7 @@ COPY --from=provision /passed /passed
 FROM deb-base AS auth-modes
 ARG V DL ARCH_BIN
 RUN set -eux; \
-    curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
+    /fetch /usr/local/bin/whiskerless "$DL/whiskerless-${V}-linux-${ARCH_BIN}"; \
     chmod +x /usr/local/bin/whiskerless; \
     openssl req -x509 -newkey rsa:2048 -nodes -keyout /ca.key -out /ca.crt -days 2 \
       -subj "/CN=whiskerless auth smoke" >/dev/null 2>&1; \

@@ -88,7 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           DL="$FORGE/SisyphusMD/whiskerless/releases/download/$TAG"
-          curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 10 -o /tmp/w.pkg "$DL/whiskerless-${VERSION}-macos-${{ matrix.arch }}.pkg"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 -o /tmp/w.pkg "$DL/whiskerless-${VERSION}-macos-${{ matrix.arch }}.pkg"
           # Gatekeeper's own verdict, before installing. `installer` does not
           # enforce notarization, so installing successfully proves nothing about
           # whether a user double-clicking it would be allowed to.
