@@ -698,6 +698,11 @@ The library is structured so a new robot drops in under
 `custom_components/whiskerless/devices/<x>.py`, reusing the shared MQTT transport,
 BLE provisioning, and safety guard. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Support development
+
+If whiskerless is useful to you and you would like to chip in: [buymeacoffee.com/sisyphusmd](https://buymeacoffee.com/sisyphusmd). Donations are entirely
+optional and change nothing about the project. Everything here is free and MIT-licensed.
+
 ## License
 
 [MIT](https://github.com/SisyphusMD/whiskerless/blob/main/LICENSE). Not affiliated with or endorsed by Whisker. "Litter-Robot" is a
