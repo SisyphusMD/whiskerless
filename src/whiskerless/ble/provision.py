@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -289,112 +289,6 @@ async def read_device_mac(address: str, *, scan_timeout: float = 15.0) -> str | 
         await transport.discover_endpoints()
         response = await transport.request(m.EP_WHISKER, m.whisker_device_id_request())
         return _format_mac(m.parse_device_id(response))
-
-
-def wifi_diagnosis(samples: Sequence[m.WifiStatus | None]) -> str:
-    """Turn a run of GetStatus samples into a sentence, or say that it cannot.
-
-    **The honest answer is usually "this tells you nothing", and that is the point.**
-    Reading GetStatus needs the robot advertising, which needs pairing mode, and
-    pairing mode itself takes the station down — so an all-CONNECTING run is what
-    this tool PRODUCES, not a fault it found. Reporting that as "stuck associating"
-    was the exact mistake this function exists to stop being made again.
-
-    What survives the confound is a verdict the robot volunteers about an attempt it
-    already made: AUTH_ERROR and NETWORK_NOT_FOUND are real answers. A lease is a
-    real answer too — a robot that reports one is plainly not broken.
-    """
-    states = [s.state for s in samples if s is not None]
-    reasons = {s.fail_reason for s in samples if s is not None and s.fail_reason is not None}
-    leased = next((_lan_address(s.ip4) for s in samples if s is not None and _lan_address(s.ip4)), None)
-
-    if not states:
-        return (
-            "the robot answered no status at all — it may not support GetStatus, "
-            "or the link dropped. Nothing can be concluded."
-        )
-    if m.WifiConnectFailedReason.AUTH_ERROR in reasons:
-        return (
-            "AUTH_ERROR — the network refused it. Almost always a wrong passphrase; "
-            "an access point rejecting the robot by MAC filter or band steering looks "
-            "the same. This is a real verdict, not an artefact of pairing mode."
-        )
-    if m.WifiConnectFailedReason.NETWORK_NOT_FOUND in reasons:
-        return (
-            "NETWORK_NOT_FOUND — the robot cannot see that SSID from where it sits, "
-            "whatever your phone sees. Signal or band (it is 2.4 GHz only), not "
-            "credentials. A real verdict, not an artefact of pairing mode."
-        )
-    if leased:
-        return f"connected with a lease ({leased}) — the WiFi join itself is fine."
-    if m.WifiStationState.CONNECTED in states:
-        return (
-            "associated, but no address arrived while this ran. DHCP is the thing to "
-            "look at, not the passphrase."
-        )
-    if all(state is m.WifiStationState.CONNECTING for state in states):
-        return (
-            "only CONNECTING, with no failure reason — which is what pairing mode "
-            "itself produces, because entering it takes the robot off WiFi. This run "
-            "does NOT show a fault; it shows the robot in the state this command "
-            "required to talk to it. Do not read it as 'stuck associating'."
-        )
-    # Anything else reached here without a usable verdict: DISCONNECTED, or a
-    # CONNECTION_FAILED whose reason this firmware spells in a way we do not map.
-    # Those are NOT the pairing-mode artefact, and saying "no fault was shown" about
-    # them would bury the one interesting thing the robot said.
-    seen = ", ".join(sorted({state.name for state in states}))
-    return (
-        f"inconclusive — the robot reported {seen} and no reason this understands. "
-        "That is not the pairing-mode artefact, so it may be a real failure state; "
-        "capture the run with --debug and compare against the register map."
-    )
-
-
-async def diagnose_wifi(
-    address: str,
-    *,
-    polls: int = 8,
-    interval: float = 3.0,
-    on_step: ProgressCallback | None = None,
-) -> list[m.WifiStatus | None]:
-    """Poll the robot's own WiFi status over BLE. Reads only; writes nothing.
-
-    The single request sent is GetStatus — the same one `provision` already uses to
-    verify a join — so nothing here configures, applies or reboots anything.
-    """
-    from bleak import BleakClient  # lazy: bleak is the [ble] extra
-
-    samples: list[m.WifiStatus | None] = []
-    async with translated(f"BLE connection to {address} failed"), BleakClient(address) as client:
-        _assert_lr4(client)
-        transport = ProtocommBLE(client)
-        await transport.discover_endpoints()
-        for index in range(polls):
-            if index:
-                await asyncio.sleep(interval)
-            try:
-                status = m.parse_wifi_status(
-                    await transport.request(m.EP_PROV_CONFIG, m.wifi_get_status())
-                )
-            except Exception as exc:  # noqa: BLE001 — a dropped link is itself a result
-                log.debug("GetStatus %d failed: %s", index, exc)
-                status = None
-            samples.append(status)
-            if on_step:
-                on_step(_describe_status(index, status))
-    return samples
-
-
-def _describe_status(index: int, status: m.WifiStatus | None) -> str:
-    if status is None:
-        return f"{index:>2}  no answer"
-    bits = [f"state={status.state.name}"]
-    if status.fail_reason is not None:
-        bits.append(f"fail_reason={status.fail_reason.name}")
-    if status.ip4:
-        bits.append(f"ip4={status.ip4}")
-    return f"{index:>2}  " + "  ".join(bits)
 
 
 async def provision_robot(

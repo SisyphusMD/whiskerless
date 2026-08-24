@@ -743,55 +743,6 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _cmd_diagnose(args: argparse.Namespace) -> int:
-    """Ask the robot why its WiFi will not hold. Reads only.
-
-    Exists because the panel says "blinking blue" and nothing else, while the robot
-    itself knows whether it was refused, could not see the network, or joined and
-    never got a lease. BLE does not need the WiFi up, so this works exactly when
-    nothing else does.
-    """
-    from . import ble
-
-    _console.banner("THIS PUTS THE ROBOT IN PAIRING MODE — WHICH TAKES IT OFF WIFI")
-    print(
-        "  Reading the robot's status needs it advertising over Bluetooth, and the\n"
-        "  only way in is pairing mode — which makes it forget its saved network.\n"
-        "  It will NOT rejoin on its own afterwards: finish with a `provision`.\n\n"
-        "  So run this when the robot is ALREADY failing and you are prepared to\n"
-        "  re-provision it. It is not a free look.\n"
-    )
-    if not (args.yes or _confirm("Continue? Type 'yes': ")):
-        print("aborted", file=sys.stderr)
-        return 1
-
-    print(
-        f"\n  Hold {_console.accent('Connect')} until the light "
-        f"{_console.accent('BLINKS YELLOW')}, and keep holding\n"
-        "  until the numbered lines below start.\n"
-    )
-    with _console.progress("scanning for robots over BLE"):
-        robots = await ble.scan(timeout=args.scan_timeout, address=args.address)
-    if not robots:
-        print(
-            "no LR4 found advertising — HOLD Connect for about three seconds, until "
-            "the light BLINKS YELLOW, then rerun.",
-            file=sys.stderr,
-        )
-        return 1
-    target = _pick_robot(robots, args.address)
-
-    samples = await ble.diagnose_wifi(
-        target.address,
-        polls=args.polls,
-        interval=args.interval,
-        on_step=lambda line: print(f"  {_console.dim(line)}"),
-    )
-    print(f"\n  {_console.accent(ble.wifi_diagnosis(samples))}\n")
-    print(_console.dim("  The robot is in pairing mode now. Run `whiskerless provision` to restore it.\n"))
-    return 0
-
-
 async def _cmd_provision(args: argparse.Namespace) -> int:
     from . import ble
 
@@ -3003,17 +2954,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_power = add_parser("power", "toggle robot power (it may not come back)")
     add_conn(p_power)
     p_power.set_defaults(func=_cmd_power)
-
-    p_diag = add_parser(
-        "diagnose",
-        "ask the robot why its WiFi will not hold (read-only, BLE; often inconclusive)",
-    )
-    p_diag.add_argument("--address", help="BLE MAC to target directly (skip the picker)")
-    p_diag.add_argument("--scan-timeout", type=float, default=15.0)
-    p_diag.add_argument("--polls", type=int, default=8, help="how many status reads to take")
-    p_diag.add_argument("--interval", type=float, default=3.0, help="seconds between reads")
-    p_diag.add_argument("--yes", action="store_true", help="skip the pairing-mode confirmation")
-    p_diag.set_defaults(func=_cmd_diagnose)
 
     p_prov = add_parser("provision", "re-provision a robot onto your broker over BLE")
     p_prov.add_argument(

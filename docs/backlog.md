@@ -20,8 +20,9 @@ marker, and #64 read as open for four days after it shipped.
 - ~~**#79**~~ — closed: decoded, the CLI qualifies the drawer line, and the HA sensor
   keeps its value while carrying a `level_provisional` attribute.
 - **#68** — the hopper gauge under-reports.
-- **#83** / **#84** — pre-release text cleanups: remove `diagnose`, and delete the
-  false "only advertises while you hold" instruction wherever it is repeated.
+- ~~**#83**~~ — closed: `diagnose` is gone, and its library functions with it.
+- **#84** — delete the false "only advertises while you hold" instruction wherever it
+  is repeated.
 - **#85** — multi-robot CLI: no picker when several are saved, and ten of the twelve
   robot commands never say which robot they acted on.
 - **#86** — naming a robot: stored and printed already, but never offered, no `rename`,
@@ -1359,7 +1360,19 @@ capture of the app onboarding a hidden network would also answer.
 
 ## Added 2026-08-20
 
-### #83 — Remove `whiskerless diagnose`: its useful verdicts are probably unreachable
+### #83 — Remove `whiskerless diagnose`: its useful verdicts are probably unreachable — **DONE 2026-08-24**
+
+**Removed rather than qualified, as decided.** The subcommand, `_cmd_diagnose` and its
+parser registration are out of `cli.py`; the man-page entry, the README section and the
+`[Unreleased]` CHANGELOG bullet are out with it. The bullet was deleted outright rather
+than reworded, because the command never appeared in a stable release.
+
+**The library functions went too.** `wifi_diagnosis`, `diagnose_wifi` and the
+`_describe_status` helper only reachable from them are removed from `ble/provision.py`
+and from `ble/__init__.py`'s exports. The entry offered keeping them as bench tooling;
+they had no other caller, and this repo's coverage floor makes an uncalled function a
+liability rather than a spare part. Their tests came out with them, and the gate still
+passes on its own terms: 1318 tests, 99.03% against the 99% floor.
 
 **Decided 2026-08-20: take it out before 0.2.0 stable.** It shipped in
 `v0.2.0-rc.35` and should not survive into the release.
