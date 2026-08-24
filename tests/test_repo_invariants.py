@@ -1433,3 +1433,43 @@ def test_ci_supersedes_itself_and_publishing_never_does() -> None:
     assert publish.get("cancel-in-progress") is False, (
         "cancelling a publish leaves a release half-written across registries"
     )
+
+
+def test_dependencies_that_move_together_are_reviewed_together() -> None:
+    """The two manylinux builders are one upstream release under two names.
+
+    They move to the same dated tag together, so reviewing them apart shows half the change - and a
+    toolchain skew BETWEEN the arches is exactly the risk their hand-review exists to catch. It also
+    doubles the rebase churn, since merging either rebases the other open PR and restarts its checks.
+
+    The versioning regex belongs with it: without one, `latest` is offered as an upgrade over a
+    dated tag, and the reviewer loses the version they need to judge the bump at all.
+    """
+    config = json.loads((REPO / ".renovaterc.json").read_text())
+    arches = {
+        "quay.io/pypa/manylinux_2_28_x86_64",
+        "quay.io/pypa/manylinux_2_28_aarch64",
+    }
+    grouped = [
+        rule for rule in config.get("packageRules", [])
+        if rule.get("groupName") and arches <= set(rule.get("matchDepNames") or [])
+    ]
+    assert grouped, "the manylinux arches are not grouped, so they arrive as separate reviews"
+    assert len(grouped) == 1, f"more than one rule groups them: {[r['groupName'] for r in grouped]}"
+    assert "regex:" in str(grouped[0].get("versioning", "")), (
+        "without a dated-tag versioning scheme, `latest` is offered as an upgrade over a dated tag"
+    )
+    # Grouping alone does not stop a lone arch arriving: Renovate opens a branch as soon as ONE
+    # update in the group exists, so whichever arch Quay published first would be reviewed by
+    # itself - the exact skew the grouping is for.
+    assert grouped[0].get("minimumGroupSize", 1) >= len(arches), (
+        f"a branch can open with fewer than both arches: {grouped[0].get('minimumGroupSize')}"
+    )
+
+    # And the group size still only COUNTS updates; it does not compare their targets. If the pins
+    # already lag a release and Quay publishes the next tag for one arch first, both arches have an
+    # update and the branch opens with mismatched targets. Renovate cannot express "same tag", so
+    # the pins themselves are what proves it: whatever lands, the two must agree.
+    tags = re.findall(r"manylinux_2_28_(?:x86_64|aarch64):([0-9.]+-\d+)@sha256:", (REPO / "packaging" / "release-pins.env").read_text())
+    assert len(tags) == 2, f"expected both manylinux pins, found {len(tags)}"
+    assert tags[0] == tags[1], f"the two arches are pinned to different builder releases: {tags}"
