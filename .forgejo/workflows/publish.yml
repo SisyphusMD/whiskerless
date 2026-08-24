@@ -284,6 +284,7 @@ jobs:
           mkdir -p formula-smoke-dist
           cp "$work"/dist/whiskerless-*.tar.gz formula-smoke-dist/
           docker buildx build --build-arg TEST_TAG="$GITHUB_REF_NAME" \
+            --build-arg BREW_MIRROR="https://image-mirror.nas.bryantserver.com" \
             -f packaging/homebrew-smoke.Dockerfile --target result \
             --output "type=local,dest=homebrew-smoke-result" .
           test -f homebrew-smoke-result/homebrew-smoke-passed
