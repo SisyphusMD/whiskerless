@@ -88,7 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           DL="$FORGE/SisyphusMD/whiskerless/releases/download/$TAG"
-          curl -fsSL -o /tmp/w.pkg "$DL/whiskerless-${VERSION}-macos-${{ matrix.arch }}.pkg"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 -o /tmp/w.pkg "$DL/whiskerless-${VERSION}-macos-${{ matrix.arch }}.pkg"
           # Gatekeeper's own verdict, before installing. `installer` does not
           # enforce notarization, so installing successfully proves nothing about
           # whether a user double-clicking it would be allowed to.
@@ -127,7 +127,10 @@ jobs:
           set -euo pipefail
           brew uninstall --force whiskerless-rc >/dev/null 2>&1 || true
           PYPI_V="$(printf '%s' "$VERSION" | sed -E 's/-rc\.([0-9]+)$/rc\1/')"
-          curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
+          curl -LsSf --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 -o /tmp/uv-install.sh https://astral.sh/uv/install.sh
+          # Written to a file, never piped: curl cannot rewind a pipe, so a retried
+          # partial body would reach `sh` concatenated with the first attempt's.
+          sh /tmp/uv-install.sh >/dev/null 2>&1
           export PATH="$HOME/.local/bin:$PATH"
           printf '#!/bin/sh\nexec uvx -q --from '"'"'whiskerless[ble]==%s'"'"' whiskerless "$@"\n' "$PYPI_V" > /tmp/wskl
           chmod +x /tmp/wskl
