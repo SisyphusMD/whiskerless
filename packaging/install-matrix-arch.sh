@@ -60,6 +60,18 @@ CHANNELS=(
   pypi-uvx pipx pip bottle-pour broker provision auth-modes hacs
 )
 
+# buildx renamed `--keep-storage` to `--max-used-space`; the runner's version is whatever
+# setup-buildx-action installed. Detected rather than assumed, because the wrong flag makes the
+# prune fail and a swallowed failure here reads exactly like a prune that worked.
+if docker buildx prune --help 2>&1 | grep -q -- --max-used-space; then
+  PRUNE_LIMIT=(--max-used-space 8GB)
+elif docker buildx prune --help 2>&1 | grep -q -- --keep-storage; then
+  PRUNE_LIMIT=(--keep-storage 8GB)
+else
+  # Neither flag: a full prune still bounds the disk, just less kindly.
+  PRUNE_LIMIT=()
+fi
+
 failed=""
 for channel in "${CHANNELS[@]}"; do
   echo "──────── $channel"
@@ -81,6 +93,14 @@ for channel in "${CHANNELS[@]}"; do
     [ -f "out/$channel/passed" ] && ok=1
   fi
   if [ -n "$ok" ]; then echo "  → $channel OK"; else failed="$failed $channel"; fi
+
+  # Bound the build cache, per channel. Every channel pulls its own base image and layers onto a
+  # self-hosted runner with a finite disk, so unbounded the cache grows across the whole matrix and
+  # whichever channel runs last is the one that dies of it, long after the channel that filled it.
+  # A ceiling rather than a wipe, so the base layers every channel shares still cache.
+  if ! docker buildx prune --force "${PRUNE_LIMIT[@]}" >/dev/null 2>&1; then
+    echo "::warning::could not prune the build cache after $channel; disk may fill"
+  fi
 done
 
 echo
