@@ -1228,3 +1228,20 @@ def test_the_inline_shellcheck_pin_matches_the_vendored_script() -> None:
         "the fork-PR workflow pins a different shellcheck image than the vendored script; "
         "the pin is owned by the standard, so re-vendor and update both copies together"
     )
+
+
+def test_every_job_that_writes_the_tap_shares_one_concurrency_group() -> None:
+    """Two tap writers running at once both clone the same tip.
+
+    The loser pushes a non-fast-forward, and the tap keeps whichever formula won the race — a
+    published tap missing the formula the release just built, with every job green. Mirrored from
+    dreame-valetudo, which writes the same tap from the same three jobs.
+    """
+    publish = yaml.safe_load((REPO / ".forgejo" / "workflows" / "publish.yml").read_text())
+    for job in ("homebrew-tap", "homebrew-bottles"):
+        assert job in publish["jobs"], job
+        group = publish["jobs"][job].get("concurrency", {}).get("group")
+        assert group == "tap-write", f"{job} writes the tap outside the shared group: {group}"
+
+    bottles = yaml.safe_load((REPO / ".forgejo" / "workflows" / "tap-bottles.yml").read_text())
+    assert bottles.get("concurrency", {}).get("group") == "tap-write", bottles.get("concurrency")
