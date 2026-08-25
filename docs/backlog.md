@@ -360,6 +360,93 @@ as a globe-motor fault raise, twice in five days, values `55/12`, `14/14`,
 cleanest test it has had, but still leaves two samples from one fault on one
 robot. Next fault is still the decode.
 
+SEVENTH PASS 2026-08-24 covered 5d07h (08-19 21:11Z → 08-25 04:52Z) from Loki:
+1,065,899 lines → 47,655 records, 0 malformed → 17,359 readings across 7,322
+distinct payload seconds, deduped on (payload time, SERIAL, register, value) — the
+serial belongs in the key for any pass spanning both robots, or two devices
+reporting one value in one second collapse and a board looks exclusive when it is not (the mbRevision 89 board 13,973; the mbRevision 93 board 3,386).
+
+**The lead had its cleanest test yet and survived without advancing.** Zero
+`0x5F`-`0x63` in 5d07h, and zero `0x35` — which is the evidence that matters,
+because `0x35` is the fault marker the reading is coupled to. The state fields are
+NOT usable as proof here: `events.py` records a captured live fault during which
+`globeMotorFaultStatus` stayed zero throughout, so their being zero across this
+window (they were) says nothing either way. On the `0x35` evidence this window is
+fault-free, which makes it consistent with the reading rather than support for it —
+a fault WITHOUT the five is what would refute it, and none occurred. Cumulative
+clean run is now 3d22h + 5d07h ≈ 9d05h. Still two samples from one fault on one
+robot. Next fault is still the decode.
+
+**RETRIEVAL, corrected again.** `kubectl logs --since-time` returned 549 lines
+covering five MINUTES: the container log had rotated, even though the pod itself
+has 1 restart and 5d23h uptime. The rule above ("while the pod is alive with 0
+restarts, kubectl beats Loki") needs a third condition — the container log must
+not have rotated past the window. Check what `kubectl logs` actually spans before
+trusting it; Loki held the full 5d07h.
+
+**`registers.md` is one register behind the decoder, not four.** A first pass
+here claimed `0x3E`, `0x49` and `0x59` were undocumented; they are not. The file
+covers them as RANGES — `0x3D–0x40` for the odometers, `0x48`–`0x4A` for the three
+drawer lasers, `0x58–0x5A` for ToF1/2/3 — which a literal search for `0x3E` misses.
+Only `0x0C` (`LITTER_HOPPER_DISPENSED`, named in `events.py`) is genuinely absent.
+Search that file for ranges before concluding anything is missing from it.
+
+**`0x3E` corroborates its own decode**, independently of the code: 155 readings,
+155 DISTINCT values, and consecutive where they cluster (`0x1FC5`, `0x1FC6`,
+`0x1FC7`, `0x1FC8`, `0x1FC9`, `0x1FCA`). A monotonic counter that never repeats a
+value is what `ODOMETER_CLEAN_CYCLES` should look like.
+
+**`0x6D` emits activity from inside the sweep's only silent gap — the most useful thing in
+this pass.** `registers.md` records that a properly paced type-1 sweep answered 123 of the 128
+addresses at or below `0x7F`, and that "the only gap inside the low range is `0x6A`–`0x6E`,
+five contiguous addresses". `0x6D` is in that gap. It answered no read, and yet it pushed six
+readings in nine minutes here. That does not make the sweep wrong — the same file already warns
+that "a silent register proves nothing on its own" — it supplies the direct evidence for that
+warning: read-silent and emit-active are different properties, and the gap is not empty.
+
+The rest, classified against what that file actually says rather than a literal search for each
+address (three separate claims in this pass were wrong because ranges do not match a text
+search for `0x3E`):
+
+| Register | Status in `registers.md` | Readings | Values | Seen on |
+|---|---|---:|---|---|
+| `0x6D` | inside the `0x6A`–`0x6E` **sweep gap** | 6 | `0x0101`, `0x4101`, `0x8101`, `0x8100`, `0x4100`, `0x0100` | rev 89 |
+| `0x65` | answered the sweep, named nowhere | 25 | always `0x0000` | both |
+| `0x67` | answered the sweep, named nowhere | 45 | 29 distinct (`0x011B`, `0x0119`, `0x020F`, `0x0319`) | rev 93 |
+| `0x71` | answered the sweep, named nowhere | 4 | always `0x0001` | rev 89 |
+| `0x74` | listed "answering but unidentified" | 4 | `0x00FB`, `0x01EC`, `0x022B`, `0x03F2` | rev 93 this window |
+| `0x75` | listed "answering but unidentified" | 1 | `0x00E4` | rev 93 this window |
+
+`0x74`/`0x75` sit inside `0x73`–`0x7F`, which that file calls a board identity block
+(`0x79` = `mbRevisionId`, `0x7A` = `mbDeviceId`, `0x7F` = `mbHardware`). Both firing in one
+second is what a board-identity read looks like, which is why they are kept OUT of the
+firmware correlation below rather than counted toward it.
+
+**The per-robot split tracks MAIN-BOARD firmware, and that is the strongest
+result in this pass.** Equal `espFirmware=1.1.75` rules out only an ESP-build
+difference — #19 said as much and kept a firmware explanation open. The main board
+is where they differ, on identical hardware (`mbHardware=10500`, `mbBom=3072`,
+`mbSuite=2`, same `mbDeviceId` on both):
+
+| `mbRevision` | `mbBuild` | `mbRevisionId` | emits |
+|---:|---:|---:|---|
+| 89 | 1 | 41027 | `0x6D`, `0x71` |
+| 93 | 2 | 41088 | `0x67` |
+
+`0x74`/`0x75` are deliberately NOT in that table. The sixth pass saw `0x74` from BOTH
+robots in boot windows, so its one-sided showing here is this window's sample, not a
+board-linked trait, and it cannot support the correlation.
+
+Identified by board revision rather than by "robot 1/2": that numbering is already in
+use elsewhere in this file and mapping onto it was not verified here.
+
+The newer board emits one set and the older the other, with `0x65` on both. That is
+a clean correlation on n=2 rather than a proof, and the test is cheap: when either
+board updates, its unknown registers should switch sets. **Do NOT attribute this to
+accessories** — both robots carry a LitterHopper (see the 08-11 night), so the
+`0x0C` count difference is usage, not inventory. `0x74`+`0x75` landing in one second
+still reads as a one-off report dump rather than telemetry.
+
 Rolling LR4 capture analysis (pod `lr4-capture` in namespace `homeassistant`).
 
 Sixth pass 2026-08-19 covered 3d22h (08-15 18:46Z → 08-19 20:42Z) from Loki:
@@ -377,7 +464,10 @@ unusable here is wrong. Query `{namespace="homeassistant", pod=~"lr4-capture.*"}
 and page it forward (limit 5000, cursor past the newest line of each batch).
 
 METHOD RULE, learned the hard way: time everything by the payload's own
-`timestamp` and dedupe on (payload time, register, value). Passes 1–3 used MQTT
+`timestamp` and dedupe on (payload time, SERIAL, register, value). The serial is
+part of the key, not optional: a pass spanning both robots that omits it collapses
+two devices reporting one value in one second into a single reading, undercounting
+a board and able to manufacture the appearance that a register is exclusive to one. Passes 1–3 used MQTT
 arrival stamps, which shifted cycle boundaries by seconds, inflated every
 activity count and hid that `-30` fired twice in one cycle.
 
