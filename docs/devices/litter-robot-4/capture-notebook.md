@@ -55,7 +55,7 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | What do `0x3C` / `0x66` measure? | **`0x66` = 16 × `0x3C`, narrowed 2026-08-19.** Exact at two of the four cycle sample points (lag ≤1.3 units) and reproducibly ~38 and ~42 behind at the other two, across 143 paired seconds and both robots. `0x66` publishes on its own cadence and `0x3C`'s message repeats its last value, so the lag is sampling skew during movement, not a different quantity. Still open: what the shared quantity IS. Interrupt a cycle mid-way — the prediction is that the lag scales with globe speed |
 | What are `0x33`, `0x49`, `0x4A`, `0x5E`, `0x64`, `0x71`? | **`0x33` will not move** — 55 readings over four days, both robots, every one `34` (`0x22`). Look for a configuration word, not a sensor. **`0x5E` and `0x64` never co-occur** (0 of 165 seconds), alternate by cycle position (`0x5E` P1/P4, `0x64` P2/P3) and sit in disjoint per-robot bands — consistent with one quantity under two names, so test them together or not at all. `0x49`, `0x4A`, `0x71`: perturb something physical and watch which one moves |
 | What are `0x0C`, `0x41`, `0x67`? | `0x0C` is **demand-driven** — robot 2 ran it while starved, stopped after a refill and has been silent for five cycles; robot 1 has never needed a dispense. Whether it needs the *hardware* is still open: run a cycle with litter scooped out of the globe and the hopper off. **`0x41` is answered** — it flags the drawer level as provisional after a Reset, see its row in `registers.md`. `0x67` remains open |
-| What are `0x5F`–`0x63`? | Twice, both in the same second as robot 2's `0x350001` raises and nowhere else in **nine** days: `0x5F` 55/12, `0x60` 14/14, `0x61` 326/172, `0x62` 65520 (`0xFFF0`, -16 int16) then 62, `0x63` 0/0. A further 3d22h to 2026-08-19 carried no `0x35` and none of the five, which is the cleanest negative test the reading has had. Still needs a second fault to decode |
+| What are `0x5F`–`0x63`? | Twice, both in the same second as robot 2's `0x350001` raises and nowhere else in **~14** days of capture: `0x5F` 55/12, `0x60` 14/14, `0x61` 326/172, `0x62` 65520 (`0xFFF0`, -16 int16) then 62, `0x63` 0/0. A further 3d22h to 2026-08-19, then 5d07h to 2026-08-25, carried no `0x35` and none of the five — about 9d05h of clean run. Consistent with the reading, not support for it; a `0x35` fault WITHOUT the five is what would refute it. Still needs a second fault to decode |
 | ~~What does the `0x3402C0` tick count?~~ | **ANSWERED 2026-08-11, narrowed 2026-08-15.** It marks the clean delay: repeating ticks 2 min apart ahead of an automatic cycle. It does **not** count anything down — the value is constant (`0x02C0` = 704) — and neither the tick count nor the gap to the cycle is fixed: three ticks ending 13 s before the cycle on 08-11, two ticks ending 92 s before it on 08-15. The 2-minute spacing is the only part that has held |
 | Why does an automatic cycle get a `0x34` pre-marker and a commanded one not? | Looked settled (`1064` automatic, `0x01=0201` commanded) until a cycle carried the button code with nobody at the machine. Needs cycles where presence is certain |
 | Is the `catWeight` divisor 100 for certain? | **The known-weight method does not work** — three trials gave divisors 72.4, 84.8 and 88.5, and an inert object sheds load against the globe wall. Needs a real cat, a clean tare, and a same-evening household weigh-in |
@@ -69,6 +69,83 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 | Does anything above `0x7F` exist on 1.1.75? | Not a null result any more: robot 2 emits `0xB9` (×48+57) and `0xBC` (×51+60) across five days and then four more to 2026-08-19, and robot 1 emits neither in either window. Both are on ESP 1.1.75, which rules the ESP build out but does not by itself name the cause: the main-board versions differ too (#19), and so does everything else about two physical robots. Ask what else separates them before crediting the board |
 
 ## Sessions
+
+### 2026-08-19→25, 5d07h — seventh pass, and an active sweep that retracts the register-file gap
+
+1,065,899 Loki lines → 47,655 records, 0 malformed → 17,359 deduped readings over
+7,322 distinct payload seconds. Deduped on (payload time, SERIAL, register, value) and kept as `{register: [values]}`, per the two
+method rules. The serial belongs in the key whenever a pass spans both robots: without it, two
+devices reporting the same value in the same second collapse into one reading, which would
+undercount a board and could invent the exclusivity the correlation below rests on.
+
+**`kubectl logs` could not serve this window and said so quietly.** `--since-time` returned
+549 lines covering five MINUTES against a pod with 5d23h uptime: the container log had
+rotated. The standing rule ("while the pod is alive with 0 restarts, kubectl beats Loki")
+needs a third condition — the log must not have rotated past the window you want. Check what
+it actually spans before trusting it.
+
+**`0x5F`-`0x63`: none, and `0x35`: none.** On the `0x35` marker this window is fault-free, so
+it is consistent with the fault-coupled reading rather than support for it. What would refute
+the reading is a `0x35` fault with none of the five, and that did not happen. Do NOT read the
+state fields as corroboration: a captured live fault (see `events.py`) left
+`globeMotorFaultStatus` at zero throughout, so those fields are silent on this question.
+Cumulative clean run ≈ 9d05h.
+
+**One register is decoded in code but missing from `registers.md` — not four.** A first pass
+here claimed `0x3E`, `0x49` and `0x59` were undocumented. They are not: that file covers them
+as RANGES (`0x3D–0x40` odometers, `0x48`–`0x4A` drawer lasers, `0x58–0x5A` ToF1/2/3), which a
+literal search for `0x3E` does not match. Only `0x0C` (`LITTER_HOPPER_DISPENSED`, in
+`events.py`) is genuinely absent. Search that file for ranges before declaring a gap.
+
+**`0x3E` corroborates its own decode from the data alone:** 155 readings, 155 distinct values,
+consecutive where they cluster (`0x1FC5`, `0x1FC6`, `0x1FC7`, `0x1FC8`, `0x1FC9`, `0x1FCA`).
+A counter that never repeats a value is what a clean-cycle odometer should look like.
+
+**RETRACTED, and replaced by a better result: there is no gap.** This entry first claimed
+`0x6D` emits from inside the sweep's only silent gap. An active sweep of the OTHER robot
+(2026-08-25, `0x00`–`0x7F`, paced 3s) then showed `0x6A`–`0x6E` answering there, and repeat
+probes showed them answering on the swept robot too — the addresses `registers.md` records as
+"the only gap inside the low range". Two passes on each robot, every one of the five returning
+`0x0000`. **The documented gap does not reproduce.**
+
+What silence actually does is MOVE. The upstairs sweep found exactly one silent address
+(`0x73`), which then answered 231 on three consecutive confirmation passes. Downstairs, `0x73`
+was silent once and `0x6A` was silent once, both answering on the next pass. A read that
+succeeds takes 0.3-0.5s, measured across seven registers, so these are not slow answers inside
+an 8s budget. What causes them is NOT established: 24 consecutive reads of `0x34` dropped none,
+but at roughly one miss per 128-read sweep that run is what uniform loss would also produce, so
+it distinguishes nothing. Occasional, and cause unknown.
+
+This is the direct evidence for the warning `registers.md` already carries — "a silent register
+proves nothing on its own" — and it is worth more than the finding it replaces. A single-pass
+sweep manufactures phantom gaps, and one of them had been written down as fact until this pass
+retracted it in `registers.md`.
+
+The rest, classified against what that file actually says rather than a literal search for each
+address (three separate claims in this pass were wrong because ranges do not match a text
+search for `0x3E`):
+
+| Register | Status in `registers.md` | Readings | Values | Seen on |
+|---|---|---:|---|---|
+| `0x6D` | answers a read on BOTH robots (the "gap" is retracted above) | 6 | `0x0101`, `0x4101`, `0x8101`, `0x8100`, `0x4100`, `0x0100` | rev 89 |
+| `0x65` | answered the sweep, named nowhere | 25 | always `0x0000` | both |
+| `0x67` | answered the sweep, named nowhere | 45 | 29 distinct (`0x011B`, `0x0119`, `0x020F`, `0x0319`) | rev 93 |
+| `0x71` | answered the sweep, named nowhere | 4 | always `0x0001` | rev 89 |
+| `0x74` | listed "answering but unidentified" | 4 | `0x00FB`, `0x01EC`, `0x022B`, `0x03F2` | rev 93 this window |
+| `0x75` | listed "answering but unidentified" | 1 | `0x00E4` | rev 93 this window |
+
+`0x74`/`0x75` sit inside `0x73`–`0x7F`, which that file calls a board identity block
+(`0x79` = `mbRevisionId`, `0x7A` = `mbDeviceId`, `0x7F` = `mbHardware`). Both firing in one
+second is what a board-identity read looks like, which is why they are kept OUT of the
+firmware correlation below rather than counted toward it.
+
+**The per-robot split tracks MAIN-BOARD firmware.** Equal `espFirmware=1.1.75` rules out only
+an ESP-build difference. The boards differ on identical hardware (`mbHardware=10500`,
+`mbBom=3072`, `mbSuite=2`): the `mbRevision` 89 board (`mbBuild` 1, `mbRevisionId` 41027)
+emits `0x6D`+`0x71`; the `mbRevision` 93 board (2, 41088) emits `0x67`. `0x74`/`0x75` are excluded from the correlation on purpose: the sixth pass saw `0x74` from BOTH robots in boot windows, so its one-sided showing here is this window's sample rather than a board-linked trait. `0x65` appears on
+both. A clean correlation on n=2, not a proof — and cheap to test: when either board updates,
+its unknown registers should change sets. Not accessories: both robots carry a LitterHopper, so
+the `0x0C` gap is usage. `0x74`+`0x75` in one second still reads as a one-off dump.
 
 ### 2026-08-19, narrated — a drawer bag change, and what a Reset actually clears
 

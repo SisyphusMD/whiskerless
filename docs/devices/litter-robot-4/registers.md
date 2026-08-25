@@ -214,11 +214,22 @@ please [report it](compatibility.md#open-items).
 ## The register file is `0x00`–`0x7F`
 
 A full sweep — a type-1 read of all 256 addresses, paced 3 s apart — answered on
-**123 of the 128 addresses at or below `0x7F` and on none at all above it**. So the
-readable file is 7-bit. `0xBC` (cat visit duration) and the `0xA0`–`0xAE` macros never
+**123 of the 128 addresses at or below `0x7F` and on none at all above it** on that
+single pass. So the readable file is 7-bit. The five it missed have since answered on
+both robots (see the retraction below), so the current aggregate is **128 of 128
+readable**; the 123 is kept as what one pass saw, which is the point of the retraction. `0xBC` (cat visit duration) and the `0xA0`–`0xAE` macros never
 answer a read: they are a separate namespace, not entries in this file.
 
-The only gap inside the low range is `0x6A`–`0x6E`, five contiguous addresses.
+~~The only gap inside the low range is `0x6A`–`0x6E`, five contiguous addresses.~~
+**RETRACTED 2026-08-25 — there is no gap.** An active sweep of the second robot answered all
+five, and repeat probes answered all five on the robot swept originally: two passes each,
+every read returning `0x0000`. The gap was an artefact of a single pass, which is what the
+warning below predicts. Silence moves between passes — one sweep went quiet on `0x73` alone,
+which then read 231 three times running, and `0x6A` went quiet once on the other robot and
+answered on the next attempt. A successful read takes 0.3-0.5s, so these are not slow answers
+inside the budget. The cause is NOT established: 24 consecutive reads of one register dropped
+none, but at roughly one miss per 128-read sweep that is what uniform loss would also produce,
+so it excludes nothing. Treat a lone no-echo as noise until a second paced pass repeats it.
 
 **Pacing is not optional, and a silent register proves nothing on its own.** The same
 sweep at 1 s spacing answered about a tenth as often, and a burst answered 30 and then
@@ -228,11 +239,25 @@ properly paced sweep, ideally twice.
 
 ### Identified by matching the sweep against the state document
 
-| Reg | Value read | Field |
-|---|---|---|
-| `0x79` | 41027 | `mbRevisionId` |
-| `0x7A` | 29856 | `mbDeviceId` |
-| `0x7F` | 10500 | `mbHardware` |
+| Reg | Robot A (rev 89) | Robot B (rev 93) | Field | Strength |
+|---|---|---|---|---|
+| `0x79` | 41027 | **41088** | `mbRevisionId` | **two robots, DIFFERENT values, each matching its own state** |
+| `0x7A` | 29856 | 29856 | `mbDeviceId` | unique, large; identical on both, so the second robot adds no discrimination |
+| `0x7F` | 10500 | 10500 | `mbHardware` | same |
+| `0x3D` | — | 22 | `odometerPowerCycles` | unique match, and the first entry of the documented `0x3D–0x40` odometer range |
+
+**`0x79` is the one this upgrades from inference to evidence.** A single robot matching one field
+could be coincidence. Two robots reading DIFFERENT values, each equal to that robot's own
+`mbRevisionId`, is the register tracking the field.
+
+The method validated itself on the same pass: `0x34` read 4 and matched `robotStatus`, which
+`const.py` already names `ROBOT_STATUS` — a known answer arrived at independently.
+
+Everything else the second sweep matched is coincidence of small integers and stays unassigned,
+which is the same standard `0x7E` was held to: `0x15`=26 fits two DFI fields, `0x19`=100 fits both
+`nightLightBrightness` and `DisplayIntensityLow`, `0x16` and `0x52` both read 7 against a single
+`cleanCycleWaitTime`, and `0x51`/`0x55` both read 4 against `robotStatus`. A value that fits more
+than one field, or a field fitted by more than one register, identifies nothing.
 
 `0x73`–`0x7F` looks like a board identity block; `0x7E` read 5, which matches three
 different state fields, so it stays unassigned rather than guessed.
