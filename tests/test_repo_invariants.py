@@ -1561,3 +1561,57 @@ def test_the_formula_is_built_on_every_macos_lane_the_library_is() -> None:
         f"the formula is built on {sorted(formula)} while the library is tested on "
         f"{sorted(library)}; the difference is where a break reaches a tag unseen"
     )
+
+def test_ci_is_not_green_until_native_macos_agrees() -> None:
+    """CI ran the Linux suites and called that a verdict, while macOS ran only on the mirror.
+
+    A pull request could therefore read green with its macOS matrix red, and nothing noticed until
+    the release gate refused to tag - at which point the bad commit was already on main. The gate
+    waits by EXACT head SHA so a newer green branch run cannot qualify an older revision.
+
+    Three things this pins beyond its existence, each of which would break something real:
+
+    - It must not run for a TAG. A prerelease stamps a commit that is pushed only as a tag, and the
+      mirrored workflow runs on branch pushes, so no run can ever exist for that sha - the gate
+      would poll to its timeout and fail every prerelease. Either this repository's CI does not
+      trigger on tags at all, or the gate excludes them.
+    - It must hold no WRITE credential. Reading public run conclusions needs a scopeless token;
+      going without one shares a 60-request hour with everything else leaving this network,
+      including the sibling's copy of this gate, which turns a fine commit into a timeout.
+    - Checkout must not persist credentials, or the repository token sits in git config while a
+      script from a PR-controlled ref runs beside it.
+    """
+    text = (REPO / ".forgejo" / "workflows" / "ci.yml").read_text()
+    document = yaml.safe_load(text)
+    # Bounded at the next top-level job. A tail slice would read whatever is appended after this
+    # one as part of it, which both invents failures and hides real ones.
+    start = text.index("\n  macos:\n") + 1
+    rest = text[start + 1 :]
+    end = re.search(r"^  [a-z][a-z0-9-]*:$", rest, re.MULTILINE)
+    job = rest[: end.start()] if end else rest
+
+    assert "check-mirror-ci.sh" in job, "the macos gate does not consult the mirror"
+    assert ".github/workflows/ci-macos.yml" in job, "the gate names no macOS workflow to wait on"
+    assert '["pull_request"]["head"]["sha"]' in job, (
+        "the gate does not resolve the PR head, so it can qualify the wrong commit"
+    )
+    assert "needs:" in job, "the macos gate does not run after the suites it should follow"
+    assert "persist-credentials: false" in job, (
+        "the gate's checkout leaves the repository token in git config"
+    )
+
+    # Case-insensitive: secret expressions are not required to be shouted, and a
+    # `secrets.write_pat` that this missed would be a silently unguarded credential.
+    for secret in re.findall(r"secrets\.([A-Za-z_0-9]+)", job):
+        assert secret.upper() == "GH_REPO_READ_PAT", (
+            f"the macos gate takes {secret}; it runs on every push and needs only to READ "
+            "public run conclusions"
+        )
+
+    triggers = document.get("on") or document.get(True) or {}
+    tagged = "tags" in (triggers.get("push") or {})
+    if tagged:
+        assert "refs/tags/" in str(document["jobs"]["macos"].get("if", "")), (
+            "CI runs on tags and the macOS gate does not exclude them, so every prerelease will "
+            "wait for a mirrored run that cannot exist and fail"
+        )

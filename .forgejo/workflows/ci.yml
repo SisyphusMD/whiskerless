@@ -365,3 +365,49 @@ jobs:
             --output type=local,dest=homebrew-smoke-result .
           test -f homebrew-smoke-result/homebrew-smoke-passed
           echo "build OK: frozen bundle, .deb + .rpm installed and run, and a real Linuxbrew formula install"
+
+  macos:
+    # By the time the Linux suites finish, the mirrored macOS workflow normally has too. This keeps
+    # the shared public GitHub API budget and the self-hosted runner slot out of a needless poll.
+    needs: [quality, hygiene, dependency-floors, homeassistant, build]
+    # GitHub's mirror runs the same commit on native arm64 and Intel hosts. Waiting by exact head
+    # SHA prevents a newer green branch run from qualifying an older pull request revision.
+    #
+    # NOT on a tag. A prerelease stamps a fresh `prerelease:` commit and pushes only the tag, so that
+    # commit is reachable from nothing else - while ci-macos.yml runs on branch pushes, which a tag
+    # is not. There can never be a run to wait for, so this would poll to its timeout and fail every
+    # prerelease. The commit it was stamped onto was already gated: prerelease.yml requires the same
+    # macOS verdict for the SOURCE sha before it authorizes the tag at all.
+    if: >-
+      (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository)
+      && !startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The step below runs a script from this checkout against a PR-controlled ref; leaving the
+          # repository token in git config would hand that script a WRITE credential the job has no
+          # use for. The release mirror gate withholds it for the same reason.
+          persist-credentials: false
+      - name: Resolve the mirrored commit
+        id: mirrored
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            sha=$(python3 -c 'import json, os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"]))["pull_request"]["head"]["sha"])')
+          else
+            sha="$GITHUB_SHA"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Require native macOS CI for this exact commit
+        env:
+          # Optional and read-only. Unauthenticated GitHub allows 60 requests an hour PER IP, shared
+          # with everything else egressing from this network — including the sibling repository's
+          # copy of this same gate, which polls the same API for the same reason. A token needs NO
+          # scopes for a public repo and lifts the limit to 5,000/hour; exhausting it turns this gate
+          # into a timeout that blames the mirror for a commit nothing was wrong with. The job holds
+          # no WRITE credential either way, which is the property that matters.
+          MIRROR_CI_TOKEN: ${{ secrets.GH_REPO_READ_PAT }}
+        # Only the fast macOS matrix, not the formula build: this decides whether CI may call itself
+        # green, and the release gates separately require the formula job before a tag is allowed.
+        run: bash packaging/check-mirror-ci.sh "${{ steps.mirrored.outputs.sha }}" .github/workflows/ci-macos.yml
