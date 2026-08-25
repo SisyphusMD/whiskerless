@@ -396,13 +396,25 @@ Search that file for ranges before concluding anything is missing from it.
 `0x1FC7`, `0x1FC8`, `0x1FC9`, `0x1FCA`). A monotonic counter that never repeats a
 value is what `ODOMETER_CLEAN_CYCLES` should look like.
 
-**`0x6D` emits activity from inside the sweep's only silent gap — the most useful thing in
-this pass.** `registers.md` records that a properly paced type-1 sweep answered 123 of the 128
-addresses at or below `0x7F`, and that "the only gap inside the low range is `0x6A`–`0x6E`,
-five contiguous addresses". `0x6D` is in that gap. It answered no read, and yet it pushed six
-readings in nine minutes here. That does not make the sweep wrong — the same file already warns
-that "a silent register proves nothing on its own" — it supplies the direct evidence for that
-warning: read-silent and emit-active are different properties, and the gap is not empty.
+**RETRACTED, and replaced by a better result: there is no gap.** This entry first claimed
+`0x6D` emits from inside the sweep's only silent gap. An active sweep of the OTHER robot
+(2026-08-25, `0x00`–`0x7F`, paced 3s) then showed `0x6A`–`0x6E` answering there, and repeat
+probes showed them answering on the swept robot too — the addresses `registers.md` records as
+"the only gap inside the low range". Two passes on each robot, every one of the five returning
+`0x0000`. **The documented gap does not reproduce.**
+
+What silence actually does is MOVE. The upstairs sweep found exactly one silent address
+(`0x73`), which then answered 231 on three consecutive confirmation passes. Downstairs, `0x73`
+was silent once and `0x6A` was silent once, both answering on the next pass. A read that
+succeeds takes 0.3-0.5s, measured across seven registers, so these are not slow answers inside
+an 8s budget. What causes them is NOT established: 24 consecutive reads of `0x34` dropped none,
+but at roughly one miss per 128-read sweep that run is what uniform loss would also produce, so
+it distinguishes nothing. Occasional, and cause unknown.
+
+This is the direct evidence for the warning `registers.md` already carries — "a silent register
+proves nothing on its own" — and it is worth more than the finding it replaces. A single-pass
+sweep manufactures phantom gaps, and one of them had been written down as fact until this pass
+retracted it in `registers.md`.
 
 The rest, classified against what that file actually says rather than a literal search for each
 address (three separate claims in this pass were wrong because ranges do not match a text
@@ -410,7 +422,7 @@ search for `0x3E`):
 
 | Register | Status in `registers.md` | Readings | Values | Seen on |
 |---|---|---:|---|---|
-| `0x6D` | inside the `0x6A`–`0x6E` **sweep gap** | 6 | `0x0101`, `0x4101`, `0x8101`, `0x8100`, `0x4100`, `0x0100` | rev 89 |
+| `0x6D` | answers a read on BOTH robots (the "gap" is retracted above) | 6 | `0x0101`, `0x4101`, `0x8101`, `0x8100`, `0x4100`, `0x0100` | rev 89 |
 | `0x65` | answered the sweep, named nowhere | 25 | always `0x0000` | both |
 | `0x67` | answered the sweep, named nowhere | 45 | 29 distinct (`0x011B`, `0x0119`, `0x020F`, `0x0319`) | rev 93 |
 | `0x71` | answered the sweep, named nowhere | 4 | always `0x0001` | rev 89 |

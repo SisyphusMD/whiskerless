@@ -214,11 +214,22 @@ please [report it](compatibility.md#open-items).
 ## The register file is `0x00`–`0x7F`
 
 A full sweep — a type-1 read of all 256 addresses, paced 3 s apart — answered on
-**123 of the 128 addresses at or below `0x7F` and on none at all above it**. So the
-readable file is 7-bit. `0xBC` (cat visit duration) and the `0xA0`–`0xAE` macros never
+**123 of the 128 addresses at or below `0x7F` and on none at all above it** on that
+single pass. So the readable file is 7-bit. The five it missed have since answered on
+both robots (see the retraction below), so the current aggregate is **128 of 128
+readable**; the 123 is kept as what one pass saw, which is the point of the retraction. `0xBC` (cat visit duration) and the `0xA0`–`0xAE` macros never
 answer a read: they are a separate namespace, not entries in this file.
 
-The only gap inside the low range is `0x6A`–`0x6E`, five contiguous addresses.
+~~The only gap inside the low range is `0x6A`–`0x6E`, five contiguous addresses.~~
+**RETRACTED 2026-08-25 — there is no gap.** An active sweep of the second robot answered all
+five, and repeat probes answered all five on the robot swept originally: two passes each,
+every read returning `0x0000`. The gap was an artefact of a single pass, which is what the
+warning below predicts. Silence moves between passes — one sweep went quiet on `0x73` alone,
+which then read 231 three times running, and `0x6A` went quiet once on the other robot and
+answered on the next attempt. A successful read takes 0.3-0.5s, so these are not slow answers
+inside the budget. The cause is NOT established: 24 consecutive reads of one register dropped
+none, but at roughly one miss per 128-read sweep that is what uniform loss would also produce,
+so it excludes nothing. Treat a lone no-echo as noise until a second paced pass repeats it.
 
 **Pacing is not optional, and a silent register proves nothing on its own.** The same
 sweep at 1 s spacing answered about a tenth as often, and a burst answered 30 and then
