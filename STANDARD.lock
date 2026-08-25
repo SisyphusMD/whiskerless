@@ -14,8 +14,8 @@
     "packaging/dependency-bumps.sh": "f8d0ee53297e7e257d709b3a7e9e5fc402e7dc8a2e4c8ec76235025a97a93472",
     "packaging/entitlements.plist": "7d4b164998eb6084488799c470d3b7b3d7e01fc3071eedadd00dc4374f56a5c1",
     "packaging/fetch-release-assets.sh": "7ea0d08b74e777db0deac090b8f59da4a5dd0a6d3b4a1935202aaf83432d728b",
-    "packaging/forgejo-release.sh": "d482595fc0771235679a509942d7307e4da4f82fb2cb3df9c496fa6c5967f728",
-    "packaging/github-release.sh": "50d41ca1cb7cff3b87c6f2cd6c800afc9077c290cee16ac25c512c99a912af5a",
+    "packaging/forgejo-release.sh": "dc5e96e22d9f4de7750353fc2fc7610341c99ff7be3160eeea32f9017c81114c",
+    "packaging/github-release.sh": "f9ce4ed630e24c3c9e43f65240b14757d3282628c8e2d82c610be4a9fb1df93c",
     "packaging/gitignore.base": "f87bec1f6d1ec56ea3678d45920689ac26c7c3a737316a22570121dadac9a9ac",
     "packaging/glibc-floor.txt": "19665c22e6e4f27b0b855ba2bf5873d4619ee970fcb76bcc4fc1f25384e7cea9",
     "packaging/next-version.sh": "56c3a240d250e26bc09c7b7a4af4f2946e5f3ec454d43bd438c046c6572f44f8",
@@ -24,7 +24,7 @@
     "packaging/publish-registry.sh": "b415d3ec7b55e6ec14ea70bdb2bb2702bb9433bd49b1316b6cd0f973230e98a0",
     "packaging/push-tag.sh": "6b30628f7b9b635bd537c3e4c3d8777f123a9ac580ffe4d5af148a945cb74ff2",
     "packaging/reconcile-releases.sh": "d41f41546138327a028420544cf59951609698f21b92175b38c1b797c2b9ba0e",
-    "packaging/release-common.sh": "9abaa8130597b20d41be47c616ef6bd5d1cc6dd3e86bc374d525bdfdf5ba28e8",
+    "packaging/release-common.sh": "767a7e7484f3e7f1289ff87c60a461ca374c2364b064ea37523f614bc8f744f3",
     "packaging/render-formula.sh": "688b6838aedf4d87ab66d166a4eee0c7c88e505fa8dac06d74e782ed74638ae9",
     "packaging/revendor-standard.sh": "32c93eeea1a08fdea43149456d6a1efde8834a721b2e98c9d7a1004fd454036a",
     "packaging/shellcheck-all.sh": "14c87d497082a8982044c61c09207845b010e8a5a6f5eecca657cc4c68677c5d",
@@ -35,9 +35,9 @@
     "packaging/wait-for-pypi.sh": "00e3b723203d1522be3050066d5752932962299b748fa37f3ecafe4f1f5aa000",
     "tests/release/mirror-ci.sh": "7ab441ab71e6b02ed137494ac17f5bb31ec8bcbd134ca6d1c6e48e2c54f69796",
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
-    "tests/release/release-scripts.sh": "f0bc9126e5055cff48a9ba92528e348574daf4f58e8f2780217254b3da6d16cb"
+    "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "000163cdbcc9f305779115bb924e833de892d52c",
+  "source_commit": "8218cf7a8447f577533bb85d61910acf8ecf48c7",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.16"
+  "source_tag": "v0.1.17"
 }

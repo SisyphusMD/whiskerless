@@ -50,9 +50,14 @@ for argument in "$@"; do
   case "$argument" in attachment=@*) upload="${argument#attachment=@}" ;; esac
   previous="$argument"
 done
+# Metadata reads are file-backed too now, so -o alone no longer identifies an asset download —
+# only the download URL does. Everything else with -o still wants the JSON body below, just written
+# to the file instead of stdout.
 if [ -n "$out" ]; then
-  cp "$STUB_REMOTE" "$out"
-  exit 0
+  case "$*" in
+    *download.example*) cp "$STUB_REMOTE" "$out"; exit 0 ;;
+    *) exec > "$out" ;;
+  esac
 fi
 if [ -n "$upload" ]; then
   case "$STUB_MODE" in

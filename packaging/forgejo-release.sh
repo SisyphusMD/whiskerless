@@ -66,7 +66,8 @@ for f in "$@"; do
     state=$?
   fi
   case "$state" in
-    10) ;;                       # absent — upload below
+    # 12 is "could not ask" — fall through to the upload path, which re-checks before it writes.
+    10|12) ;;
     11)
       [ "$REL_REPLACE_POLICY" = replace ] || { rel_reject_conflict "$name"; exit 1; }
       old=$(rel_asset_id "$api/releases/$id/assets" "$name")
@@ -77,15 +78,5 @@ for f in "$@"; do
       ;;
     *) exit "$state" ;;
   esac
-  if upload_asset "$f" "$name"; then
-    rel_verify_uploaded_asset "$api/releases/$id/assets" "$name" "$f" \
-      || { echo "could not verify uploaded $name on $host" >&2; exit 1; }
-    echo "  uploaded immutable $name -> $host"
-  elif rel_verify_uploaded_asset "$api/releases/$id/assets" "$name" "$f"; then
-    # A rejected upload is also what losing the race to an identical concurrent upload looks like.
-    echo "  concurrent publisher uploaded identical $name -> $host"
-  else
-    echo "upload failed or raced with different bytes for $name on $host" >&2
-    exit 1
-  fi
+  rel_upload_verified "$api/releases/$id/assets" "$name" "$f" "$host" || exit 1
 done
