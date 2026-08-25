@@ -25,6 +25,7 @@ marker, and #64 read as open for four days after it shipped.
   from every place it was said.
 - ~~**#85**~~ / ~~**#86**~~ — closed: the picker, the announcements, `rename`, and
   `--serial` taking a name all landed together.
+- **#88** — sweep the command surface, verified from telemetry rather than by eye.
 - **#87** — README (and the CLI banner it copies) speaks as "we/our"; make it
   impersonal without strengthening the n=1 pairing-mode claim.
 - **#82** — hidden-SSID joining is asserted in a comment and has never been tested on
@@ -1820,3 +1821,150 @@ that side.
 - #62 GLIBCXX check: **done 2026-08-13** — the checker now holds GLIBCXX/CXXABI to the floor-era ceilings (GCC 8 for glibc 2.28) via an explicit table that fails loudly on an unknown floor
 - #37 terminal UX: **done 2026-08-13** — `src/whiskerless/console.py` (stdlib-only): per-stream color gating with NO_COLOR/TERM=dumb, a live spinner+elapsed progress row for the BLE scan (heartbeat when piped), danger banners on the empty/power prompts, and colorized monitor/state output. Deliberately NOT ported from dreame: prompt bookmarking and idle timeouts (tmux-workflow machinery whiskerless has no equivalent of) and die()/abort() (the CLI already has its exception→exit-code architecture)
 - #38 README: **done 2026-08-13** — restructured around the guided flow (an honest abridged transcript up front), "What you need" with the label-line diagram, per-platform install sections including Homebrew, "Provision the robot" with the hold-until-yellow instruction, Everyday use, Upgrading, Release candidates (and switching back), Uninstalling
+
+## Added 2026-08-25
+
+### #88 — Sweep the command surface, verified from telemetry rather than by eye
+
+**Asked for 2026-08-25**, after the register sweep against the second robot. The read
+sweep mapped what the robot *answers*; nothing has mapped what it *accepts*.
+
+**#81 is the concrete target, and the reason this is not just exploration.** Replace Filter is
+the one app control with no equivalent here, and #81's open claim is precisely that the wizard
+was written off as having "no backing settings register to write instead" — a claim about the
+register space that a write sweep is the right instrument for. Not the hold: writing press type
+`02` is inert and that is settled. A backing register would be reachable the way lockout and the
+night light already are. So the sweep has a success criterion beyond a census: a register whose
+write moves filter state.
+
+**The effect of a command is machine-detectable, which is what makes this worth doing.**
+Proven against the seventh pass's own traffic: three synthesised panel presses appear on
+the wire in that window, and diffing `/state` afterwards attributes an effect to a command with
+nobody watching: `0x02010201` (CYCLE, short) showed `odometerCleanCycles` 8135→8136 at **+12s**.
+So the sweep does not need a person confirming each code.
+
+**The first attempt at this demonstration misattributed, which is the best evidence in the
+entry.** It credited a `0x02010401` (RESET, short) press with an increment at +160s. That
+increment was almost certainly the CYCLE press fired 2.5 minutes later — 01:26:20 against a press
+at 01:26:11, a +9s latency matching the other cycle exactly — and the odometer increments at a
+cycle's START. So RESET's own effect was never observed, a naive first-match detector produced a
+confident wrong answer, and the real command latency is about ten seconds, not 160. So do not budget a verifier window for a
+160-second effect that never happened — but do not size one to ten seconds either: the observed
+cycle answered at +12s, which a 10s window misses, and an unknown register bounds nothing at all.
+The rule that governs is one command per SETTLED window plus a command-specific signal, with the
+observed 9-12s latency describing only the case already understood.
+
+**A `/state` diff is correlation, and the robot acts on its own.** The verifier watches only the robot it
+commanded, so the rate that matters is per robot and the two are not alike: over 5d07h the busier
+one ran 129 cycles (one per 59 min, ~6.5% chance of an autonomous cycle inside a four-minute
+window) and the quieter one 29 (one per 263 min, ~1.5%). Nearly all are cat-triggered. So a diff
+would misattribute roughly one probe in fifteen on the busy robot — and sweeping the quiet one is
+four times cleaner, which is worth choosing deliberately rather than by which robot is nearer. The verifier therefore cannot accept "something changed" as
+acceptance. It needs a command-SPECIFIC signal: the register echo panel writes already produce
+(live-proven on ESP 1.1.75, three trials, each echoing the register back with the documented
+signature), or a transition that only that command could produce. Anything else — unrelated
+telemetry, or none — stays UNRESOLVED rather than being scored either way.
+
+**The third press is the design constraint.** It was missed, because it landed 2.5 minutes
+after the RESET press while that cycle was still running, and the diff attributed the
+change to the wrong command. So: ONE command per settled window — send, wait for idle,
+diff, record — which sets the cadence at roughly four minutes rather than the protocol's
+three seconds.
+
+**Scope, and what the space actually costs.** A write is `0x02RRVVVV`: an 8-bit register
+and a 16-bit value, so the full space is 256 x 65,536 = 16,777,216 sends — about 1.6 years
+at 3s pacing, and not a candidate. What is tractable:
+
+**Short press only — the hold is unreachable.** Writing press type `02` produces no event at
+all, while an unknown type `00` is normalised to `01` and performed: the firmware recognises the
+long press and declines it. Every hold-only chord is out of reach from MQTT, Whisker's own cloud
+included, and that is settled — do not spend another trial on it. So the panel space is 2^5 - 1 =
+**31 chords**, not 62.
+
+| Sweep | Codes | At one settled window (~4 min) | With a 10s window |
+|---|---:|---|---|
+| Panel chords, captured short values | 4 | minutes | already what the tool sends |
+| Panel chords, unobserved combinations | 27 | ~2 h | capture-first; not a sweep |
+| One probe value per register | 256 | ~17 h | **~45 min** (but see below) |
+| Every value of ONE chosen register | 65,536 | ~182 days | ~8 days |
+
+The window is the whole cost, so choose it deliberately. A fixed settled window is correct and
+expensive. A short window is affordable and can MISATTRIBUTE, though not in the way first written here: an autonomous cycle landing
+inside the window is one risk, at the per-robot rates above, and a slow effect is another. The
+CYCLE press answering in 9-12s bounds nothing for an unknown register: settings already commit
+with variable latency and need read-verify-retry, so a delayed effect can overlap the next probe. And a short window is NOT justified by assuming most probes do nothing — that assumption is
+the untested one. The 65,536-value sweep should be dropped rather than backgrounded: nearly every value in it is
+unobserved and therefore DANGEROUS by this project's own classification, an unattended run cannot
+be stopped when a physical effect appears, and running it at all contradicts the rule two
+paragraphs down that unknown values are tested singly. It is listed here to price it, not to
+recommend it.
+
+**One probe value per register cannot map acceptance, which limits what that row is worth.**
+The accepted value is unknown too, so a handler that only takes `1` reads as inert when probed
+with `0`. A null result there is inconclusive rather than evidence of no handler, and the entry
+should not be read as promising otherwise. Probe values need a reason — a neighbouring register's
+range, a value seen in telemetry — or the row is a census of nothing.
+
+**So the order of work is capture first, synthesis second.** Press the chords on the panel while
+capturing, learn what the panel actually emits for each, then synthesise only those. That inverts
+the appeal of this item — it needs a person at the robot for the part that produces the new
+information, and the automated verification above is what makes the *replay* cheap, not the
+discovery. Anything beyond captured values is a genuine experiment on an untested path and should
+be run as one: deliberately, singly, and not as a sweep.
+
+**Two claims were made while drafting this and both were wrong; they are recorded so the next
+reader does not re-derive them.** First, that `0x1A`-`0x1C` being acknowledged and discarded
+shows unhandled writes are harmless. It does not: those are *known computed* registers that
+reject writes, and `safety.py` is explicit that "what a write to a register with no handler does
+is simply untested". Second, that the panel bitmask space is safe because the firmware's
+interlocks apply to a synthesised press as to a finger. That holds only for values the panel is
+known to emit, and three things are being conflated when it is stated loosely:
+
+- **Captured emissions:** four singles — Power, Cycle, Reset, Empty. The press that restored the
+  robot emitted `0x010101`. Connect is NOT in this class: it is proven only by the robot vanishing
+  when written, and `0x011001` may be permanently unobservable, since capturing it means watching a
+  robot that has just taken itself off the network.
+- **Classified SAFE:** only Cycle, Reset and Empty. Power and Connect are observed but take the
+  robot off the air.
+- **Unobserved:** the multi-button chords — with one exception that matters. Cycle+Empty is a
+  CAPTURED emission: the panel produced `0x0A02` for the filter change. So that bitmask is
+  observed; what is untested is its short-press form.
+
+**That exception points at the experiment #81 wants, but the order is capture then send.**
+Composing the captured bitmask `0x0A` with the working press type `0x01` does NOT yield a captured
+value: classification is on the whole 16-bit value, and `0x0A01` has never been observed —
+only `0x0A02`. So the trial is: press Cycle+Empty SHORT on the panel while capturing, and see what
+the panel emits. If it emits `0x0A01`, synthesising `0x02010A01` is then a replay of a captured
+value and is worth doing; if it emits nothing, that answers only the short-chord question — it does not
+distinguish #81's other candidates (an app-written settings register, a separate macro, or a
+UI-only wizard), and the cloud capture #81 asks for stays the way to settle those.
+Either way it is one physical press and one observation, not a sweep — and it does not re-test the
+hold, which is settled.
+
+The established procedure already covers this: `commands.md` says capture an unknown button
+value physically before writing it. That is not a formality to label around.
+
+**What stays out is four opcodes, not the range.** `0xA3`, `0xA4`, `0xAC` and `0xAD` are
+refused unconditionally — reset/OTA orchestrator, globe-motor OTA, flash erase, hardware reset.
+Why they behave as they do is not known here — mutual TLS establishes who may publish, not what a
+handler does with what arrives, and `safety.py` is deliberate about refusing that set on cost
+rather than on any claim about mechanism. The rest of `0xA0`-`0xAE` is NOT excluded here, and excluding it would defeat the
+point: #81's own candidate for Replace Filter is a distinct type-2 macro, and "cycle and reset are
+reachable through `0x01`" says nothing about a filter macro. `0xA2`, `0xA5`, `0xA6`, `0xA8`,
+`0xAA`, `0xAB` are unmapped and are exactly where such a macro would live — but they sit between
+flash erase and OTA staging, so the way to investigate them is #81's cloud capture, which reveals
+the opcode AND its value without guessing either.
+
+**Two buttons take the robot off the air, not one.** Power can leave it off and unreachable,
+and Connect toggles wifi — proven to silence the robot within 0.8s. Silence is indistinguishable
+from "did nothing", so both classes need a person nearby. Only **7** of the 31 chords exclude both — and 4 of those 7 are still unobserved combinations,
+so the genuinely unattended set is the **3 classified SAFE single presses** the tool already sends
+— Cycle, Reset, Empty. Power is captured but takes the robot off the air; Connect is neither.
+Everything else is attended work by definition, which is the honest shape of this item.
+
+**Do not assume all 31 bitmasks are real panel events.** Cycle, Reset and Empty short presses are
+what the catalogue actually evidences; the rest are combinations nobody has seen the panel emit.
+`commands.md` says to capture an unknown button value physically before writing it, and that
+instruction applies here — a chord that no panel produces is a write of an unobserved value, which
+is a different experiment from synthesising a press, and should be labelled as one.
+
