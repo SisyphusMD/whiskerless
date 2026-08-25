@@ -37,7 +37,7 @@ ARG GH_PV
 # openssl is verified present rather than assumed: installed-smoke.sh SKIPS its
 # certificate half without it, which is most of what it proves.
 # renovate: datasource=docker depName=debian-13-current packageName=debian
-FROM debian:13-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS deb-base
+FROM debian:13-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS deb-base
 RUN set -eux; \
     apt-get update -qq >/dev/null; \
     apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
