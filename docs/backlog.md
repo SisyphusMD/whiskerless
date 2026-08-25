@@ -26,8 +26,9 @@ marker, and #64 read as open for four days after it shipped.
 - ~~**#85**~~ / ~~**#86**~~ — closed: the picker, the announcements, `rename`, and
   `--serial` taking a name all landed together.
 - **#88** — sweep the command surface, verified from telemetry rather than by eye.
-- **#87** — README (and the CLI banner it copies) speaks as "we/our"; make it
-  impersonal without strengthening the n=1 pairing-mode claim.
+- ~~**#87**~~ — closed: the README prose is impersonal in both repos (whiskerless 13 hits to 3,
+  dreame to 0). The three survivors are quoted CLI menu labels in the USER's voice and one passage
+  quoting them, all kept on purpose.
 - **#82** — hidden-SSID joining is asserted in a comment and has never been tested on
   hardware.
 - **#81** — "Replace Filter" is the only Whisker-app control with no equivalent here,

@@ -239,11 +239,25 @@ properly paced sweep, ideally twice.
 
 ### Identified by matching the sweep against the state document
 
-| Reg | Value read | Field |
-|---|---|---|
-| `0x79` | 41027 | `mbRevisionId` |
-| `0x7A` | 29856 | `mbDeviceId` |
-| `0x7F` | 10500 | `mbHardware` |
+| Reg | Robot A (rev 89) | Robot B (rev 93) | Field | Strength |
+|---|---|---|---|---|
+| `0x79` | 41027 | **41088** | `mbRevisionId` | **two robots, DIFFERENT values, each matching its own state** |
+| `0x7A` | 29856 | 29856 | `mbDeviceId` | unique, large; identical on both, so the second robot adds no discrimination |
+| `0x7F` | 10500 | 10500 | `mbHardware` | same |
+| `0x3D` | — | 22 | `odometerPowerCycles` | unique match, and the first entry of the documented `0x3D–0x40` odometer range |
+
+**`0x79` is the one this upgrades from inference to evidence.** A single robot matching one field
+could be coincidence. Two robots reading DIFFERENT values, each equal to that robot's own
+`mbRevisionId`, is the register tracking the field.
+
+The method validated itself on the same pass: `0x34` read 4 and matched `robotStatus`, which
+`const.py` already names `ROBOT_STATUS` — a known answer arrived at independently.
+
+Everything else the second sweep matched is coincidence of small integers and stays unassigned,
+which is the same standard `0x7E` was held to: `0x15`=26 fits two DFI fields, `0x19`=100 fits both
+`nightLightBrightness` and `DisplayIntensityLow`, `0x16` and `0x52` both read 7 against a single
+`cleanCycleWaitTime`, and `0x51`/`0x55` both read 4 against `robotStatus`. A value that fits more
+than one field, or a field fitted by more than one register, identifies nothing.
 
 `0x73`–`0x7F` looks like a board identity block; `0x7E` read 5, which matches three
 different state fields, so it stays unassigned rather than guessed.
