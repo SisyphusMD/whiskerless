@@ -64,10 +64,14 @@ for argument in "$@"; do
   esac
   previous="$argument"
 done
+# Only a mock:// URL is an asset download. Metadata reads are file-backed too now, so -o alone no
+# longer identifies one; those still want the JSON body below, written to the file instead.
 if [ -n "$out" ]; then
-  [ -n "$url" ] || exit 22
-  cp "$STUB_REMOTES/${url#mock://}" "$out" 2>/dev/null || exit 22
-  exit 0
+  if [ -n "$url" ]; then
+    cp "$STUB_REMOTES/${url#mock://}" "$out" 2>/dev/null || exit 22
+    exit 0
+  fi
+  exec > "$out"
 fi
 if [ -n "$upload" ]; then
   name=$(basename "$upload")
