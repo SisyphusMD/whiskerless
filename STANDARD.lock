@@ -3,7 +3,7 @@
     ".editorconfig": "27f0a420340998f882c86c46436e722cf924be3d81e96d23ddca9a182f24175c",
     ".github/PULL_REQUEST_TEMPLATE.md": "8582cf583c3af1f61aa9e2f5214616e66b151470a9b61e211f4b03d257b57da6",
     "packaging/bottle-block.py": "f177e14d16ec56bdae29b2f6f07bc5df186b2e1fc303bb40e3f2b290446c0cc6",
-    "packaging/build-bottles.sh": "c928b2127878363fd54a3adaf051cb44f19e250685f7b7124699646dafce8321",
+    "packaging/build-bottles.sh": "9992c104126e42336643f1e02c158d6f1ab71e7f8c67acaa6f783c047d20f66f",
     "packaging/changelog-section.sh": "acacfbeca5807ef8e886e7692e5c75c5e60348e0d3f90303cf080eddef59b301",
     "packaging/check-doc-links.py": "44c9b053672d2b2c73379205490ba9ff61f06b48c3acc85de9c1a2057d27038d",
     "packaging/check-gitignore-base.py": "2a7a5e2f770d8879c43a32f8d9901eb54f0ebe6f3107a0b17318fed1b5563141",
@@ -37,7 +37,7 @@
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
     "tests/release/release-scripts.sh": "f0bc9126e5055cff48a9ba92528e348574daf4f58e8f2780217254b3da6d16cb"
   },
-  "source_commit": "e9e4bcce8394a8b9f845af26b221b25cee8bbb89",
+  "source_commit": "000163cdbcc9f305779115bb924e833de892d52c",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.15"
+  "source_tag": "v0.1.16"
 }
