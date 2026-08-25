@@ -1615,3 +1615,30 @@ def test_ci_is_not_green_until_native_macos_agrees() -> None:
             "CI runs on tags and the macOS gate does not exclude them, so every prerelease will "
             "wait for a mirrored run that cannot exist and fail"
         )
+
+
+def test_the_bottle_wait_outlasts_a_slow_publish() -> None:
+    """`build-bottles.sh` waits for publish.yml's first tap pass, and the budget is the whole
+    protection.
+
+    The two halves of that handshake run on different forges with no shared clock, so the only
+    thing keeping them together is that this wait outlasts however long publish takes to write the
+    formula. Publish has been measured reaching that point anywhere between 17 and 37 minutes, and
+    a budget inside that spread silently costs a release its bottles and then the install matrix
+    that waits on them.
+
+    Widening is close to free because the loop breaks the moment the formula appears, so this is a
+    failure bound rather than a delay. Hence a floor of 60 minutes: clear of the top of the
+    observed spread, not the middle of it.
+    """
+    text = (REPO / "packaging" / "build-bottles.sh").read_text()
+    match = re.search(r"for _ in \$\(seq 1 (\d+)\); do", text)
+    assert match, "the tap wait loop is not recognisable; did its shape change?"
+    sleep = re.search(r"\n\s*sleep (\d+)\n\s*done", text)
+    assert sleep, "the tap wait has no recognisable sleep"
+    seconds = int(match.group(1)) * int(sleep.group(1))
+
+    assert seconds >= 3600, (
+        f"the tap wait is {seconds // 60} minutes; publish has been measured at 37, and a "
+        "budget under 60 loses the release's bottles to a slow publish"
+    )

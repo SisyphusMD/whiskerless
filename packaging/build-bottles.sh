@@ -111,7 +111,17 @@ fi
 # The formula this bottles has to be the one this release just published.
 # Anything else produces bottles named for a version whose release will never
 # carry them.
-for _ in $(seq 1 90); do
+#
+# 270 x 20s = 90 minutes. This wait is one half of a handshake — it waits for
+# publish.yml's first tap pass, and publish.yml's second pass then waits for the
+# bottles built here — so the budget only has to outlast how long publish takes to
+# REACH that first pass. That has been measured as high as 37 minutes and as low as
+# 17, and the budget must clear the top of that spread, not the middle.
+#
+# Widening is close to free: the loop breaks as soon as the formula appears, so this
+# is a FAILURE bound rather than a delay. Too small silently costs a release its
+# bottles; too large costs a longer red run when publishing is genuinely broken.
+for _ in $(seq 1 270); do
   # `pull --ff-only`, not `reset --hard origin/HEAD`: a Homebrew tap clone does not
   # reliably carry the origin/HEAD symbolic ref, and resolving it is the kind of
   # thing that works here and dies on a runner. Failures are swallowed because
@@ -128,6 +138,11 @@ done
 for formula in $formulae; do
   grep -Fq "${sdist_stem}.tar.gz" "$tapdir/Formula/${formula}.rb" 2>/dev/null || {
     echo "::error::the tap never published ${formula} at ${pypi_version} — nothing to bottle" >&2
+    # Name the way out. This is a WAIT that expired, not a broken build: publish.yml
+    # writes the formula and may simply still be working. Re-dispatch this workflow
+    # with the tag as its input once the tap carries it — that runs the CURRENT
+    # scripts against the existing release, which is what the tag input is for.
+    echo "::error::if publish.yml has since written it, re-dispatch Bottles with tag=${tag}" >&2
     exit 1
   }
 done
