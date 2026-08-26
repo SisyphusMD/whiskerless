@@ -36,9 +36,15 @@ ARG GH_PV
 # --- Debian-family base -------------------------------------------------------------
 # openssl is verified present rather than assumed: installed-smoke.sh SKIPS its
 # certificate half without it, which is most of what it proves.
+# A mirror that drops a connection mid-fetch is not this project failing, but apt treats it as
+# fatal and the whole install leg goes red for it — observed against ports.ubuntu.com. Retries are
+# set as apt POLICY rather than around each call: every derived stage inherits the file, so a new
+# leg cannot forget it. This is not laundering a flaky test, it is making a network fetch survive
+# the network; a package that genuinely does not install still fails.
 # renovate: datasource=docker depName=debian-13-current packageName=debian
 FROM debian:13-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS deb-base
 RUN set -eux; \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
     apt-get update -qq >/dev/null; \
     apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     command -v openssl >/dev/null
@@ -64,6 +70,7 @@ RUN set -eux; \
     /fetch /etc/apt/keyrings/w.asc "$FORGE/api/packages/SisyphusMD/debian/repository.key"; \
     echo "deb [signed-by=/etc/apt/keyrings/w.asc] $FORGE/api/packages/SisyphusMD/debian $DIST main" \
       > /etc/apt/sources.list.d/w.list; \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
     apt-get update -qq >/dev/null; \
     apt-get install -y -qq whiskerless >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
@@ -191,6 +198,7 @@ ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 RUN set -eux; \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
     apt-get update -qq >/dev/null; \
     apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
@@ -206,6 +214,7 @@ ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 RUN set -eux; \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
     apt-get update -qq >/dev/null; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
@@ -221,6 +230,7 @@ ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 RUN set -eux; \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
     apt-get update -qq >/dev/null; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \

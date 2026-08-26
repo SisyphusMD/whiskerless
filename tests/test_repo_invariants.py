@@ -1673,3 +1673,35 @@ def test_the_install_wait_outlasts_the_bottle_wait_it_depends_on() -> None:
         f"the install wait is {downstream // 60} minutes but the bottle wait it depends on may "
         f"itself run {upstream // 60}; leave room for the build that follows it"
     )
+
+
+def test_every_apt_base_sets_the_retry_policy() -> None:
+    """A mirror that drops a connection is not this project failing, and apt's default is to treat
+    it as fatal anyway.
+
+    Derived stages inherit the policy file from their base, so the only way to lose it is to add a
+    NEW base for a new distro and not think about it — which is exactly the case a reader of the
+    comment beside it would assume was covered. Checked per `apt-get update`, because that is the
+    call that fetches and so the one that can be killed by someone else's network.
+    """
+    text = (REPO / "packaging" / "install-smoke.Dockerfile").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    # A negative is only worth asserting once the search that produced it is known to find
+    # anything at all: a refactor that renames these calls would otherwise leave nothing to flag
+    # and this test would pass by looking at an empty set.
+    updates = [i + 1 for i, line in enumerate(lines) if "apt-get update" in line]
+    assert len(updates) >= 4, (
+        f"only {len(updates)} apt-get update sites found; the scan no longer matches what it is "
+        "meant to guard, so finding none unguarded proves nothing"
+    )
+    unguarded = [
+        i + 1
+        for i, line in enumerate(lines)
+        if "apt-get update" in line
+        and "99retries" not in line
+        and (i == 0 or "99retries" not in lines[i - 1])
+    ]
+    assert not unguarded, (
+        f"apt-get update without a retry policy at line(s) {unguarded}; a mirror hiccup there "
+        "reddens an install leg for a fault that is not ours"
+    )
