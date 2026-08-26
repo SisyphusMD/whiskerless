@@ -1800,3 +1800,93 @@ def test_every_distro_rung_belongs_to_its_group() -> None:
     assert annotated, "no distro annotations found — has the naming changed?"
     stray = {n for n in annotated if not n.endswith(("-compat", "-current"))}
     assert not stray, f"distro rungs outside both groups: {sorted(stray)}"
+
+
+def test_every_supported_version_the_readme_promises_is_install_tested() -> None:
+    """The README's table is a promise: "tested on every minimum version below".
+
+    Nothing enforced that, and three claims had already drifted from reality — a promised Fedora
+    floor the shipped .rpm was never installed on, an openSUSE minimum stated above the version
+    actually tested, and a whole matrix missing from one of the two projects. Each was invisible
+    because the table and the Dockerfile are read by different people at different times.
+    """
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    pins = (REPO / "packaging" / "install-smoke.Dockerfile").read_text(encoding="utf-8")
+
+    rows = re.findall(r"^\| (Debian[^|]*|Ubuntu|Fedora|RHEL-compatible|openSUSE Leap) \|([^|]*)\|([^|]*)\|$",
+                      readme, re.M)
+    assert rows, "the support matrix is gone from the README"
+
+    images = {
+        "Debian": "debian:{v}-slim",
+        "Ubuntu": "ubuntu:{v}",
+        "Fedora": "fedora:{v}",
+        "RHEL-compatible": "rockylinux/rockylinux:{v}",
+        "openSUSE Leap": "opensuse/leap:{v}",
+    }
+    # Resolved through the stage graph, not by searching the file: a pinned base with no channel
+    # installing on it is exactly the Fedora gap this exists to catch, and `pin in text` cannot
+    # tell those apart.
+    # {stage: whatever it derives from}, built in that direction on purpose: several stages share
+    # one base, so a {base: stage} map silently keeps only the last and loses half the graph.
+    parent = {stage: base for base, stage in re.findall(r"^FROM (\S+) AS ([a-z0-9-]+)$", pins, re.M)}
+    channels = set(
+        re.search(r"^CHANNELS=\(\n(.*?)^\)$", (REPO / "packaging" / "install-matrix-arch.sh").read_text(encoding="utf-8"), re.M | re.S)
+        .group(1)
+        .split()
+    )
+    exercised = set()
+    for channel in channels:
+        stage, seen = channel, set()
+        while stage in parent and stage not in seen:
+            seen.add(stage)
+            base = parent[stage]
+            if base in parent:      # another stage — keep walking down to the real image
+                stage = base
+                continue
+            exercised.add(base.split("@")[0])
+            break
+    exercised = " ".join(sorted(exercised))
+
+    # The matrix builds `<channel>-result`, not `<channel>`, and BuildKit follows the COPY rather
+    # than the name. A result stage copying from the wrong place would execute a different graph
+    # while every name-based check above still agreed.
+    for channel in channels:
+        copied = re.search(
+            r"^FROM scratch AS " + re.escape(channel) + r"-result\nCOPY --from=([a-z0-9-]+) ",
+            pins,
+            re.M,
+        )
+        assert copied, f"{channel}-result is missing or does not copy from a stage"
+        assert copied.group(1) == channel, (
+            f"{channel}-result copies from {copied.group(1)}, so building it exercises that stage "
+            f"instead of {channel}"
+        )
+
+    checked = 0
+    for label, minimum, also in rows:
+        key = next((k for k in images if label.startswith(k)), None)
+        assert key, f"unmapped support-matrix row: {label}"
+        for cell in (minimum, also):
+            for version in re.findall(r"\b(\d+\.\d+|\d+)\b", cell):
+                if key == "openSUSE Leap" and "." not in version:
+                    continue  # Leap versions are always X.Y; a bare number here is prose
+                pin = images[key].format(v=version)
+                assert pin in exercised, (
+                    f"README promises {label} {version} but no install channel puts the shipped "
+                    f"package on {pin}"
+                )
+                checked += 1
+    assert checked >= 8, f"only {checked} promised versions checked — the parse has gone stale"
+
+    # Two rows name a system no lane installs on: RHEL has no public image to install into, and
+    # Raspberry Pi OS is Debian underneath. Both are honest only while the README says so, and the
+    # version parse above cannot notice their absence — "RHEL" and "Bookworm" carry no number.
+    for system, phrase in (
+        ("Raspberry Pi OS", "Raspberry Pi OS** is not tested as its own image"),
+        ("RHEL", "**RHEL** is not tested directly"),
+    ):
+        assert phrase in readme, (
+            f"the README no longer says {system} is covered by inheritance rather than its own "
+            "lane, which turns it back into a promise nothing tests"
+        )
