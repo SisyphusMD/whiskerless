@@ -38,7 +38,12 @@ esac
 
 FORGE="${FORGE:-https://forgejo.bryantserver.com}"
 API="$FORGE/api/v1/repos/SisyphusMD/whiskerless/releases/tags/$TAG"
-ATTEMPTS="${WAIT_ATTEMPTS:-120}"
+# 300 x 30s = 150 minutes, and the number comes from the chain this waits on rather than from
+# taste. The bottles cannot start until publish.yml has proven the formula installs and pushed the
+# first tap pass, which builds from source; build-bottles.sh will itself wait up to 90 minutes for
+# that, and the bottle build then takes about half an hour before the second pass lands them on the
+# release. A budget under the sum of those does not test a slow release, it fails one.
+ATTEMPTS="${WAIT_ATTEMPTS:-300}"
 INTERVAL="${WAIT_INTERVAL:-30}"
 
 case "$TAG" in
@@ -110,14 +115,23 @@ for _ in $(seq 1 "$ATTEMPTS"); do
   # tag — that is the whole point of the tag input — and a release cut before the per-architecture
   # split carries one `SHA256SUMS` instead of two. Demanding the new pair would make such a
   # dispatch wait out its full deadline and then fail for a release that is perfectly complete.
-  if have '\.deb$' && have '\.rpm$' && have 'linux-x86_64$' && have 'linux-arm64$' \
-     && have 'macos-arm64\.pkg$' && have 'bottle\.tar\.gz$' \
-     && { { have 'SHA256SUMS-x86_64' && have 'SHA256SUMS-aarch64'; } || have '^SHA256SUMS$'; }; then
+  # Named, not just counted. A silent poll that ends in "never became installable" says nothing
+  # about WHICH artifact never arrived, and that is the one fact needed to tell a slow bottle from
+  # a broken .pkg.
+  missing=""
+  for pattern in '\.deb$' '\.rpm$' 'linux-x86_64$' 'linux-arm64$' 'macos-arm64\.pkg$' 'bottle\.tar\.gz$'; do
+    have "$pattern" || missing="$missing $pattern"
+  done
+  { { have 'SHA256SUMS-x86_64' && have 'SHA256SUMS-aarch64'; } || have '^SHA256SUMS$'; } \
+    || missing="$missing SHA256SUMS"
+  if [ -z "$missing" ]; then
     if tap_ready "$rel" && registry_ready; then
       echo "$TAG is complete, the tap advertises the bottles it is serving, and apt/dnf have it"
       exit 0
     fi
     echo "  release complete; waiting for the tap and the apt/dnf registry to catch up to $TAG"
+  else
+    echo "  waiting: $TAG does not carry$missing yet"
   fi
   sleep "$INTERVAL"
 done

@@ -10,13 +10,21 @@
 
 # Every curl below is time-bounded. An unreachable forge would otherwise hang with no deadline at
 # all, stranding whichever release targets are sequenced after this one — Whiskerless lost a
-# release's GitHub assets to exactly that. Reads retry because they are idempotent; MUTATIONS DO
-# NOT, because a timed-out write may already have been applied and repeating it would duplicate
-# rather than recover. Downloads get a wider ceiling: asset byte-comparison pulls the whole file,
-# and these are tens of megabytes.
-REL_READ=(--max-time 30 --retry 2 --retry-connrefused --retry-max-time 90)
+# release's GitHub assets to exactly that. Reads retry here because they are idempotent. Writes do
+# NOT retry at this layer, because curl cannot tell a request that never landed from one that landed
+# and lost its reply, and repeating the second duplicates rather than recovers. Retrying a write is
+# therefore done one level up, in rel_upload_verified, which asks the forge what it holds before it
+# writes again. Downloads get a wider ceiling: asset byte-comparison pulls the whole file, and these
+# are tens of megabytes.
+#
+# curl's own --retry does not cover a connection reset mid-transfer, which is the shape these
+# failures actually take. That is deliberately NOT patched with --retry-all-errors here: the layer
+# above already recovers such a read (rel_asset_state reports 12, and its callers look again), and
+# it recovers writes with a check-before-writing that curl cannot perform. Probing for the flag also
+# means running curl at source time, which is a request in its own right.
+REL_READ=(--max-time 30 --retry 3 --retry-connrefused --retry-max-time 120)
 REL_MUTATE=(--max-time 300)
-REL_DOWNLOAD=(--max-time 600 --retry 2 --retry-connrefused --retry-max-time 900)
+REL_DOWNLOAD=(--max-time 600 --retry 3 --retry-connrefused --retry-max-time 900)
 
 # REL_REPLACE_POLICY — "immutable" (default) or "replace".
 #
@@ -60,10 +68,26 @@ rel_wait_for_tag() {
   return 1  # fail closed: the tag never appeared, so the caller must abort (not release blind)
 }
 
+# rel_read_json <url> — GET a JSON body under the retry profile, safely.
+#
+# curl cannot rewind a stdout it has already written to, so a response reset MID-body and then
+# retried would emit the truncated first body followed by the whole second one, and the caller would
+# parse the concatenation. Writing to a file lets curl truncate on each retry instead, which is the
+# difference between a retry that heals the request and one that turns a dropped connection into a
+# malformed-JSON error — the very failure the retries were added to remove.
+rel_read_json() {
+  local tmp rc=0
+  tmp=$(mktemp) || return 1
+  curl -fsS "${REL_READ[@]}" "${auth[@]}" -o "$tmp" "$1" || rc=$?
+  [ "$rc" -eq 0 ] && cat "$tmp"
+  rm -f "$tmp"
+  return "$rc"
+}
+
 # rel_release_id <releases-api> <tag> — print the existing release id for <tag>, or empty. Uses
 # $auth. <releases-api> is the ".../releases" base; the by-tag lookup is "<base>/tags/<tag>".
 rel_release_id() {
-  curl -sf "${REL_READ[@]}" "${auth[@]}" "$1/tags/$2" 2>/dev/null | jq -r '.id // empty' || true
+  rel_read_json "$1/tags/$2" 2>/dev/null | jq -r '.id // empty' || true
 }
 
 # rel_ensure_release_state <release-url> <expected-prerelease>
@@ -74,7 +98,7 @@ rel_release_id() {
 # must not be mistaken for a repaired release.
 rel_ensure_release_state() {
   local url="$1" expected="$2" state payload
-  state=$(curl -fsS "${REL_READ[@]}" "${auth[@]}" "$url") || return 1
+  state=$(rel_read_json "$url") || return 1
   if jq -e --argjson expected "$expected" \
       '(.draft == false) and (.prerelease == $expected)' <<<"$state" >/dev/null; then
     return 0
@@ -82,7 +106,7 @@ rel_ensure_release_state() {
   payload=$(jq -n --argjson expected "$expected" '{draft:false, prerelease:$expected}')
   curl -fsS "${REL_MUTATE[@]}" "${auth[@]}" -X PATCH -H "Content-Type: application/json" \
     -d "$payload" "$url" >/dev/null || return 1
-  state=$(curl -fsS "${REL_READ[@]}" "${auth[@]}" "$url") || return 1
+  state=$(rel_read_json "$url") || return 1
   jq -e --argjson expected "$expected" \
     '(.draft == false) and (.prerelease == $expected)' <<<"$state" >/dev/null
 }
@@ -92,13 +116,16 @@ rel_ensure_release_state() {
 #   0  the one existing same-named asset already holds identical bytes
 #  10  absent
 #  11  present but the bytes DIFFER — a content conflict
-#   1  duplicate name, unreadable metadata, or a failed request
+#  12  the forge could not be asked — the request itself failed
+#   1  duplicate name or unreadable metadata
 #
-# 11 is separated from 1 so a caller can apply REL_REPLACE_POLICY to a genuine byte conflict without
-# also swallowing an ambiguous or failed lookup. Nothing is deleted here in either case.
+# 11 and 12 are separated from 1 because they license different responses: 11 is a verdict about the
+# bytes and invites REL_REPLACE_POLICY, 12 is the absence of a verdict and invites another attempt,
+# and 1 is ambiguous and invites neither. Folding 12 into 1 is what makes a dropped connection
+# indistinguishable from a real conflict. Nothing is deleted here in any case.
 rel_asset_state() {
   local listing matches count url remote
-  listing=$(curl -fsS "${REL_READ[@]}" "${auth[@]}" "$1") || return 1
+  listing=$(rel_read_json "$1") || return 12
   matches=$(jq -c --arg name "$2" '[.[] | select(.name==$name)]' <<<"$listing") || return 1
   count=$(jq -r 'length' <<<"$matches") || return 1
   case "$count" in
@@ -112,7 +139,7 @@ rel_asset_state() {
   remote=$(mktemp)
   if ! curl -fsSL "${REL_DOWNLOAD[@]}" "${auth[@]}" -o "$remote" "$url"; then
     rm -f "$remote"
-    return 1
+    return 12
   fi
   if cmp -s "$3" "$remote"; then
     rm -f "$remote"
@@ -124,7 +151,7 @@ rel_asset_state() {
 
 # rel_asset_id <list-api> <name> — print the id of the one asset called <name>, or empty.
 rel_asset_id() {
-  curl -fsS "${REL_READ[@]}" "${auth[@]}" "$1" 2>/dev/null \
+  rel_read_json "$1" 2>/dev/null \
     | jq -r --arg name "$2" 'map(select(.name==$name)) | if length == 1 then .[0].id else empty end' \
     || true
 }
@@ -147,11 +174,52 @@ rel_verify_uploaded_asset() {
     else
       status=$?
     fi
-    # 10 is "not visible yet" and worth another look; 11 (different bytes) and 1 are terminal.
-    [ "$status" -eq 10 ] || return "$status"
+    # 10 (not visible yet) and 12 (could not ask) are both worth another look; 11 and 1 are verdicts.
+    [ "$status" -eq 10 ] || [ "$status" -eq 12 ] || return "$status"
     sleep 2
   done
   echo "uploaded release asset did not become visible: $2" >&2
+  return 1
+}
+
+# rel_upload_verified <list-api> <name> <local-file> <label> — put the asset there and prove it.
+#
+# Uploads through the caller's `upload_asset <file> <name>`, and retries. A write is normally unsafe
+# to repeat because a request that timed out may already have been applied, and repeating it would
+# duplicate rather than recover. That is answered here by asking the forge what it actually holds
+# before every attempt after the first: an upload whose connection broke AFTER the forge committed
+# it is seen as already present and is not sent again, so the only thing a retry can do is finish an
+# unfinished job. The readback also settles the race where a concurrent publisher wrote the same
+# bytes first, which is indistinguishable from a rejected upload at the HTTP layer.
+rel_upload_verified() {
+  local list=$1 name=$2 file=$3 label=$4 attempt status
+  for attempt in 1 2 3 4; do
+    if [ "$attempt" -gt 1 ]; then sleep $(( (attempt - 1) * 5 )); fi
+    # Nothing is written without a definite ABSENT verdict, on the first attempt as much as the
+    # later ones. 12 is an unanswered question, not a licence to write: treating it as one is how a
+    # write that already landed gets sent a second time, which is the duplication this exists to
+    # prevent. Under REL_REPLACE_POLICY=replace the caller has already deleted the old asset, so an
+    # 11 here is a delete that has not become visible yet and is worth another look rather than a
+    # conflict to report.
+    status=0; rel_asset_state "$list" "$name" "$file" || status=$?
+    case "$status" in
+      0)  echo "  $name already present and identical on $label"; return 0 ;;
+      10) ;;
+      12) continue ;;
+      11)
+        if [ "$REL_REPLACE_POLICY" = replace ]; then continue; fi
+        rel_reject_conflict "$name"; return 1 ;;
+      *)  return 1 ;;
+    esac
+    if upload_asset "$file" "$name"; then
+      status=0; rel_verify_uploaded_asset "$list" "$name" "$file" || status=$?
+      case "$status" in
+        0)  echo "  uploaded immutable $name -> $label"; return 0 ;;
+        11) rel_reject_conflict "$name"; return 1 ;;
+      esac
+    fi
+  done
+  echo "could not upload and verify $name on $label after 4 attempts" >&2
   return 1
 }
 
