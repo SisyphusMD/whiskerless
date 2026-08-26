@@ -1719,15 +1719,18 @@ def test_the_install_matrix_is_reachable_for_every_release() -> None:
     So both halves are pinned here: the matrix must NOT race the publish, and the publish must
     still hand it over, after everything the matrix installs from exists.
     """
-    matrix = yaml.safe_load(
-        (REPO / ".forgejo" / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
-    )
-    # YAML 1.1 reads a bare `on` as the boolean true, which is why this is not matrix["on"].
-    triggers = matrix.get(True, matrix.get("on"))
-    assert "workflow_dispatch" in triggers, "the matrix can no longer be dispatched at all"
-    assert "push" not in triggers, (
-        "the matrix triggers on push again — it will race the publish it depends on and starve it"
-    )
+    # Both halves, because they are one matrix split by hardware rather than two kinds of test —
+    # and a mechanism that differs per forge is how the two drift apart.
+    for forge in (".forgejo", ".github"):
+        matrix = yaml.safe_load(
+            (REPO / forge / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
+        )
+        # YAML 1.1 reads a bare `on` as the boolean true, which is why this is not matrix["on"].
+        triggers = matrix.get(True, matrix.get("on"))
+        assert "workflow_dispatch" in triggers, f"{forge} matrix can no longer be dispatched at all"
+        assert "push" not in triggers, (
+            f"{forge} matrix triggers on push again — it starts before the release it installs exists"
+        )
 
     publish = yaml.safe_load(
         (REPO / ".forgejo" / "workflows" / "publish.yml").read_text(encoding="utf-8")
@@ -1748,6 +1751,11 @@ def test_the_install_matrix_is_reachable_for_every_release() -> None:
     # default needs-semantics that healed, COMPLETE release would have its handoff skipped, which
     # is the no-matrix-at-all state this whole job exists to avoid.
     assert "reconcile" in handoff[0]["needs"], "the handoff can precede the healing it depends on"
+    dispatched = yaml.dump(handoff[0]).count("install-matrix.yml/dispatches")
+    assert dispatched == 2, (
+        f"the handoff dispatches {dispatched} matrix half/halves; both forges are one matrix and "
+        "starting only one leaves the other never running at all"
+    )
     assert "!cancelled()" in str(handoff[0].get("if", "")), (
         "the handoff is gated on its producers succeeding, so a healed release gets no matrix"
     )
