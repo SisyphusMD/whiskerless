@@ -1705,3 +1705,98 @@ def test_every_apt_base_sets_the_retry_policy() -> None:
         f"apt-get update without a retry policy at line(s) {unguarded}; a mirror hiccup there "
         "reddens an install leg for a fault that is not ours"
     )
+
+
+def test_the_install_matrix_is_reachable_for_every_release() -> None:
+    """The Linux matrix is dispatched by publish.yml, and nothing else starts it.
+
+    It used to trigger on the tag push, which is the same instant publish starts, so its wait job
+    held one of this runner's few slots for its whole budget polling for artifacts the publish it
+    was starving had not built yet. Moving it behind publish removes that, but replaces a trigger
+    that cannot silently disappear with a step that can — and a release whose matrix never ran is
+    not obviously different from one whose matrix passed.
+
+    So both halves are pinned here: the matrix must NOT race the publish, and the publish must
+    still hand it over, after everything the matrix installs from exists.
+    """
+    matrix = yaml.safe_load(
+        (REPO / ".forgejo" / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
+    )
+    # YAML 1.1 reads a bare `on` as the boolean true, which is why this is not matrix["on"].
+    triggers = matrix.get(True, matrix.get("on"))
+    assert "workflow_dispatch" in triggers, "the matrix can no longer be dispatched at all"
+    assert "push" not in triggers, (
+        "the matrix triggers on push again — it will race the publish it depends on and starve it"
+    )
+
+    publish = yaml.safe_load(
+        (REPO / ".forgejo" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    )
+    handoff = [
+        job
+        for job in publish["jobs"].values()
+        if "install-matrix.yml/dispatches" in yaml.dump(job)
+    ]
+    assert len(handoff) == 1, (
+        "publish.yml no longer hands the release to the install matrix; nothing else will, so "
+        "the release would go untested until the promotion gate refused it"
+    )
+    assert "homebrew-bottles" in handoff[0]["needs"], (
+        f"the handoff runs after {handoff[0]['needs']}, which can precede the bottle block"
+    )
+    # A producer can fail its upload and reconcile can heal the release afterwards. Under the
+    # default needs-semantics that healed, COMPLETE release would have its handoff skipped, which
+    # is the no-matrix-at-all state this whole job exists to avoid.
+    assert "reconcile" in handoff[0]["needs"], "the handoff can precede the healing it depends on"
+    assert "!cancelled()" in str(handoff[0].get("if", "")), (
+        "the handoff is gated on its producers succeeding, so a healed release gets no matrix"
+    )
+
+
+def test_both_package_formats_are_gated_before_publish() -> None:
+    """nfpm builds the .deb and the .rpm in separate passes, which can fail independently.
+
+    Smoking only one of them publishes the other on the strength of a different artifact — the
+    failure is invisible until a user installs it, because every later check reads the published
+    package rather than the built one. Pinned per format rather than by counting calls, so dropping
+    one and duplicating the other cannot pass.
+    """
+    script = (REPO / "packaging" / "build-linux-arch.sh").read_text(encoding="utf-8")
+    smoked = set(re.findall(r"^smoke_pkg (deb|rpm) ", script, re.M))
+    assert smoked == {"deb", "rpm"}, f"pre-publish smoke covers {sorted(smoked) or 'nothing'}"
+    for name in ("package-smoke.Dockerfile", "package-smoke-rpm.Dockerfile"):
+        assert (REPO / "packaging" / name).is_file(), f"{name} is referenced but missing"
+
+
+def test_every_distro_rung_belongs_to_its_group() -> None:
+    """Each rung is annotated `-compat` or `-current`, and the groups match on that suffix.
+
+    The suffix is therefore load-bearing rather than decorative: a new distro pinned as
+    `fedora-45` instead of `fedora-45-current` still builds, still gets bumped, and silently
+    escapes the review its siblings share. Nothing else would notice, so this does.
+
+    Scanned over TRACKED files rather than a walk: the working tree also holds virtualenvs and
+    scratch files, and an annotation-shaped string in local debris would fail this on one checkout
+    and pass in CI. Tracked also picks up release-pins.env, which the docker manager reads too.
+    """
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    grouped = {
+        name
+        for rule in config["packageRules"]
+        if rule.get("groupName", "").startswith("distro ")
+        for name in rule["matchDepNames"]
+    }
+    assert grouped == {"/-current$/", "/-compat$/"}, (
+        f"the distro groups no longer match by suffix: {sorted(grouped)}"
+    )
+
+    annotated = {
+        name
+        for _, text in TRACKED
+        for name in re.findall(
+            r"depName=((?:debian|ubuntu|fedora|rocky|opensuse)[a-z0-9.-]*)", text
+        )
+    }
+    assert annotated, "no distro annotations found — has the naming changed?"
+    stray = {n for n in annotated if not n.endswith(("-compat", "-current"))}
+    assert not stray, f"distro rungs outside both groups: {sorted(stray)}"

@@ -22,12 +22,15 @@ name: Install matrix (Linux amd64)
 # does evaluate, and that is what `check-rc-install-matrix.sh` reads to recognise
 # a re-dispatch (dispatches run from main, so their ref says `main`).
 
+# Dispatched by publish.yml once the release is actually complete, NOT by the tag push that starts
+# publish. Both used to fire at the same instant, so the wait job below held one of this runner's
+# few slots for its entire budget, polling for artifacts the publish it was starving had not built
+# yet. Forgejo has no `workflow_run`, so the finished publish says so explicitly.
+#
+# Dispatch is also what a re-run has always used, for an unrelated reason worth keeping in view: the
+# tag is an INPUT rather than the ref, because a dispatch AT the tag would faithfully re-run the
+# scripts frozen there, and the reason to re-run is usually a fix to those scripts.
 on:
-  push:
-    tags: ["v*.*.*"]
-  # Dispatchable with an explicit tag, the same shape as bottles.yml: when the
-  # reason to re-run is a fix to these scripts, a dispatch at the tag would
-  # faithfully re-run the old ones.
   workflow_dispatch:
     inputs:
       tag:
