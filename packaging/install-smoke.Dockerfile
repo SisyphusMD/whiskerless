@@ -278,6 +278,26 @@ RUN set -eux; \
 FROM scratch AS rpm-file-fedora-result
 COPY --from=rpm-file-fedora /passed /passed
 
+# The oldest maintained Fedora, which is the minimum the README promises. Fedora moves fast enough
+# that its floor is a different OS from its current release, and promising a version nothing
+# installs the shipped .rpm on is the gap this closes — the pre-merge ladder builds from source,
+# which proves something else.
+# renovate: datasource=docker depName=fedora-43-compat packageName=fedora
+FROM fedora:43@sha256:762d73ba1c455232b0272c5d445a34f36c4b9f421cbc05ce8102552325b6a222 AS fedora-floor-base
+RUN set -eux; dnf install -y -q openssl >/dev/null
+COPY packaging/installed-smoke.sh /smoke.sh
+COPY packaging/fetch.sh /fetch
+
+FROM fedora-floor-base AS rpm-file-fedora-floor
+ARG V PV DL ARCH_RPM
+RUN set -eux; \
+    /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
+    dnf install -y -q /tmp/w.rpm >/dev/null; \
+    bash /smoke.sh whiskerless "$V"; \
+    touch /passed
+FROM scratch AS rpm-file-fedora-floor-result
+COPY --from=rpm-file-fedora-floor /passed /passed
+
 # dnf5 is a reimplementation rather than a new version of dnf: it parses .repo files and enforces
 # gpgcheck in its own code, so the leg above proves nothing about it. Fedora 41 onward ships it as
 # `dnf`, which makes it the repository client a current-Fedora user actually gets.
