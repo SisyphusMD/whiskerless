@@ -213,6 +213,13 @@
       "allowedVersions": "/^26\\.04$/"
     },
     {
+      "description": "Fedora 43 remains the oldest supported Fedora until 45 reaches GA; Renovate still refreshes its immutable digest.",
+      "matchDepNames": [
+        "fedora-43-compat"
+      ],
+      "allowedVersions": "/^43$/"
+    },
+    {
       "description": "Fedora 44 is the deliberately selected current qualification host; Renovate refreshes its digest but a future Fedora is reviewed after GA before replacing it.",
       "matchDepNames": [
         "fedora-44-current"

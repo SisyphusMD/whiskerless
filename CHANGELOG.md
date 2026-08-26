@@ -39,6 +39,8 @@ much of the hopper work.
 - New entities: last cat visit, visit duration, panel brightness, and excess-weight detection.
 - Provisioning verifies the WiFi join, so a mistyped password fails loudly.
 - A once-a-day update check that names the right upgrade command for how you installed.
+- A documented list of the systems release packages are tested on, so "supported" means something checkable rather than implied.
+- The published `.rpm` is now installed and run on the oldest maintained Fedora as well as the current one.
 
 ### Fixed
 
