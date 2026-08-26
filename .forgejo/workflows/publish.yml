@@ -516,6 +516,36 @@ jobs:
           chmod +x packaging/reconcile-releases.sh packaging/forgejo-release.sh packaging/github-release.sh
           bash packaging/reconcile-releases.sh
 
+  install-matrix:
+    name: Hand the finished release to the Linux install matrix
+    # Everything the matrix installs FROM has to exist first: the release assets, both package
+    # registries, the NAS copy, and a tap carrying this version's bottle block. Waiting for that
+    # from a job started by the tag push cost more than it looks — the waiter and the publisher
+    # competed for the same handful of runner slots, so the wait made the publish slower, which
+    # made the wait longer.
+    needs: [guard, releases, registry, nas-bridge, homebrew-tap, homebrew-bottles, reconcile]
+    # Runs even when a producer reported failure, which is not laxness but the point: a destination
+    # can fail its upload and `reconcile` can then heal the release across registries, leaving a
+    # COMPLETE release whose handoff had already been skipped — a release with no install matrix at
+    # all, which is the exact state this job exists to prevent. Whether the release is genuinely
+    # installable is not decided here; wait-for-release.sh is the authority on that, and it names
+    # what is missing when it is not.
+    if: ${{ !cancelled() && needs.guard.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch the matrix at this tag
+        env:
+          TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+        run: |
+          set -euo pipefail
+          # From `main`, not from the tag: a dispatch at the tag would run the matrix scripts frozen
+          # there, and the tag input is what tells it which release to install.
+          curl -fsS --max-time 60 --retry 3 --retry-connrefused --retry-max-time 180 \
+            -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+            -d "{\"ref\":\"main\",\"inputs\":{\"tag\":\"$GITHUB_REF_NAME\"}}" \
+            "https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless/actions/workflows/install-matrix.yml/dispatches"
+          echo "dispatched the Linux install matrix for $GITHUB_REF_NAME"
+
   prune-rcs:
     name: Prune the candidates this release supersedes
     # Last, not after `releases`: the sweep deletes a candidate only once its
