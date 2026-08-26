@@ -15,7 +15,25 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 cd "$(dirname "$here")" || exit 1
 
-arch="${1:?usage: install-matrix-arch.sh <amd64|arm64>}"
+arch="${1:?usage: install-matrix-arch.sh <amd64|arm64> [shard-index] [shard-count]}"
+# Optional sharding. The channels are independent — each builds one image and installs one package —
+# so the only reason they ran in sequence was that nothing had split them. On the arm64 runner that
+# sequence was the whole tail of a release: every macOS leg finished in minutes while this one job
+# worked through two dozen channels for half an hour. Round-robin rather than contiguous blocks, so
+# the heavy channels (the bottle pour drags a multi-GB image) spread across shards instead of
+# stacking into one.
+#
+# Both arguments or neither. A shard index with no count would silently run one channel and report
+# the arch green, which is the failure mode this whole matrix exists to prevent.
+shard_index="${2:-}"; shard_count="${3:-}"
+if [ -n "$shard_index" ] || [ -n "$shard_count" ]; then
+  if [ -z "$shard_index" ] || [ -z "$shard_count" ]; then
+    echo "shard index and count must be given together" >&2; exit 2
+  fi
+  case "$shard_index$shard_count" in *[!0-9]*) echo "shard index and count must be whole numbers" >&2; exit 2 ;; esac
+  [ "$shard_count" -gt 0 ] || { echo "shard count must be positive" >&2; exit 2; }
+  [ "$shard_index" -lt "$shard_count" ] || { echo "shard index $shard_index is outside 0..$((shard_count-1))" >&2; exit 2; }
+fi
 : "${TAG:?TAG must be set}" "${VERSION:?VERSION must be set}" "${FORGE:?FORGE must be set}"
 case "$arch" in
   amd64) ARCH_DEB=amd64; ARCH_RPM=x86_64;  ARCH_BIN=x86_64 ;;
@@ -82,6 +100,18 @@ elif docker buildx prune --help 2>&1 | grep -q -- --keep-storage; then
 else
   # Neither flag: a full prune still bounds the disk, just less kindly.
   PRUNE_LIMIT=()
+fi
+
+if [ -n "$shard_count" ]; then
+  mine=()
+  for i in "${!CHANNELS[@]}"; do
+    [ $((i % shard_count)) -eq "$shard_index" ] && mine+=("${CHANNELS[$i]}")
+  done
+  CHANNELS=("${mine[@]}")
+  echo "shard $shard_index of $shard_count: ${#CHANNELS[@]} channel(s) — ${CHANNELS[*]}"
+  # An empty shard means the count outgrew the channel list; reporting green for nothing is worse
+  # than failing here, where the number is visible.
+  [ "${#CHANNELS[@]}" -gt 0 ] || { echo "::error::shard $shard_index has no channels to run" >&2; exit 1; }
 fi
 
 failed=""

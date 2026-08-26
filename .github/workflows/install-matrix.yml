@@ -22,12 +22,13 @@ name: Install matrix (macOS + Linux arm64)
 # record nothing about which tag it tested. `candidate-gate` matches on this.
 run-name: Install matrix (macOS + Linux arm64) ${{ inputs.tag || github.ref_name }}
 
+# Dispatched by publish.yml once the release is complete, exactly like the Forgejo half.
+# Triggering on the tag instead meant this waited ~22 minutes for artifacts publish had not
+# built yet. That wait blocked nothing here — GitHub's runners were free, and every leg still
+# started within seconds of the artifacts landing — so this buys no wall clock. It is for
+# consistency: one mechanism starts both halves, and a mechanism that differs per forge is how
+# the two drift apart.
 on:
-  push:
-    tags: ["v*.*.*"]
-  # Dispatchable with an explicit tag, the same shape as bottles.yml: when the
-  # reason to re-run is a fix to these scripts, a dispatch at the tag would
-  # faithfully re-run the old ones.
   workflow_dispatch:
     inputs:
       tag:
@@ -140,8 +141,16 @@ jobs:
   # calls the SAME script, which is what keeps the two architectures testing the
   # same list of channels rather than two lists that were equal once.
   linux-arm64:
-    name: Linux installs (arm64)
+    name: Linux installs (arm64) shard ${{ matrix.shard }}
     needs: wait
+    # Sharded because the channels are independent and were only sequential by default. On the arm64
+    # runner that sequence was the whole tail of a release: every macOS leg finished in minutes while
+    # this one job worked through two dozen channels for half an hour. Round-robin inside the script
+    # keeps the heavy channels (the bottle pour drags a multi-GB image) off any single shard.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-24.04-arm
     steps:
@@ -157,7 +166,7 @@ jobs:
           # GitHub's arm64 hosted runner has roughly 14 GB of SSD. A ceiling above that would
           # never prune at all, which is the failure mode that looks like nothing is wrong.
           CACHE_CEILING_GB: "4"
-        run: bash packaging/install-matrix-arch.sh arm64
+        run: bash packaging/install-matrix-arch.sh arm64 ${{ matrix.shard }} 4
 
   summary:
     name: Every macOS and Linux arm64 channel installed and ran
