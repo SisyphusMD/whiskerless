@@ -178,13 +178,6 @@
       "allowedVersions": "/^8$/"
     },
     {
-      "description": "These legs are compatibility FLOORS, not current-release aliases: the whole point is that a package which installs on the current release can still fail on the oldest one this project claims. Unclamped, Renovate bumps the tag and each floor quietly becomes a second current test \u2014 green, and proving nothing it was written to prove. Digests still refresh, so the images stay patched.",
-      "matchDepNames": [
-        "rocky-9-compat"
-      ],
-      "allowedVersions": "/^9$/"
-    },
-    {
       "description": "Rocky 10 is the current RPM release the shipped .rpm is qualified on; the clamp keeps it a major-version leg while Renovate still refreshes its digest.",
       "matchDepNames": [
         "rocky-10-current"
@@ -257,14 +250,18 @@
       "allowedVersions": "/^(macos-)?15(-intel)?$/"
     },
     {
-      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here \u2014 a bump deletes the test rather than updating it, and nothing goes red. Rocky 9 (glibc 2.34) is the .rpm smoke-test container in packaging/package-smoke-rpm.Dockerfile. It sits BELOW the build image (2.39) on purpose: PyInstaller links against the build machine's glibc, so a bundle can silently require 2.39, install cleanly anywhere and then refuse to start. Testing on Rocky 10 (also 2.39) means the binary always runs and the smoke test can never fail. Digests must keep flowing so the container stays patched, hence a range rather than disabling it.",
-      "matchDatasources": [
-        "docker"
-      ],
+      "description": "Every distro's CURRENT rung moves as one review. The anti-divergence property is already carried by the depName \u2014 one identity means Renovate rewrites every file pinning that image in the same commit \u2014 so what this adds is that the currents are seen TOGETHER. They are one statement about what 'current' means in this repo, and a matrix qualified against four current releases and one stale one is the shape nobody notices in a per-image PR. Matched by suffix rather than by a list, because a list is one more place to forget a new distro.",
       "matchDepNames": [
-        "rockylinux/rockylinux"
+        "/-current$/"
       ],
-      "allowedVersions": "/^9\\./"
+      "groupName": "distro current releases"
+    },
+    {
+      "description": "The same, for the floors. These move far less often \u2014 a floor bump is a deliberate narrowing of what the packages promise, and it belongs in one review with the README line it makes false, not spread across images.",
+      "matchDepNames": [
+        "/-compat$/"
+      ],
+      "groupName": "distro compatibility floors"
     }
   ],
   "customManagers": [

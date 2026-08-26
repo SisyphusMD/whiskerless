@@ -30,8 +30,8 @@ skip() { printf '  SKIP  %s\n' "$1"; }
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# `diff` is NOT on every base image this runs on — rockylinux:9 ships no
-# diffutils — and depending on it made this smoke report "restore did not
+# `diff` is NOT on every base image this runs on — the RHEL-family images ship
+# no diffutils — and depending on it made this smoke report "restore did not
 # reproduce the store" on an image where restore was perfectly fine. A test that
 # fails for its own reasons and blames the product is worse than no test, so the
 # comparison is done with a checksum manifest instead.

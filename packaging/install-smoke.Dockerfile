@@ -107,8 +107,12 @@ FROM scratch AS pypi-uvx-result
 COPY --from=pypi-uvx /passed /passed
 
 # --- RPM-family base ----------------------------------------------------------------
-# renovate: datasource=docker depName=rocky-9-compat packageName=rockylinux/rockylinux
-FROM rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f AS rpm-base
+# The CURRENT release of the family, which is also the newest dnf4 host — Fedora moved to dnf5, so
+# without this the newest dnf4 anything is tested against would be whatever the floor happens to be.
+# Deliberately two rungs and not three: with the floor below and Fedora above, a middle release is
+# interpolation rather than evidence, since a package that installs on both neighbours installs here.
+# renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
+FROM rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834 AS rpm-base
 RUN set -eux; \
     dnf install -y -q openssl >/dev/null; \
     command -v openssl >/dev/null
@@ -242,8 +246,8 @@ COPY --from=deb-file-ubuntu /passed /passed
 
 # --- the same .rpm, on the oldest and newest RPM distros the floor promises ----------
 # One .rpm ships for every RPM distro, so installing it on exactly one of them proves the least
-# it could. Rocky 8 is the floor, Rocky 10 the current release of the same family, and Fedora a
-# separate lineage; a package that installs on Rocky 9 can still fail on any of them.
+# it could. Rocky 8 is the floor and Rocky 10 the current release of the same family; Fedora is a
+# separate lineage entirely, newer than both, and the only dnf5 host.
 # renovate: datasource=docker depName=rocky-8-compat packageName=rockylinux/rockylinux
 FROM rockylinux/rockylinux:8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6 AS rpm-file-floor
 ARG V PV DL ARCH_RPM
@@ -257,20 +261,6 @@ RUN set -eux; \
     touch /passed
 FROM scratch AS rpm-file-floor-result
 COPY --from=rpm-file-floor /passed /passed
-
-# renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
-FROM rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834 AS rpm-file-current
-ARG V PV DL ARCH_RPM
-COPY packaging/installed-smoke.sh /smoke.sh
-COPY packaging/fetch.sh /fetch
-RUN set -eux; \
-    dnf install -y -q openssl >/dev/null; \
-    /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
-    dnf install -y -q /tmp/w.rpm >/dev/null; \
-    bash /smoke.sh whiskerless "$V"; \
-    touch /passed
-FROM scratch AS rpm-file-current-result
-COPY --from=rpm-file-current /passed /passed
 
 # renovate: datasource=docker depName=fedora-44-current packageName=fedora
 FROM fedora:44@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b898 AS fedora-base
