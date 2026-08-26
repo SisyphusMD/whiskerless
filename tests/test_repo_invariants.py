@@ -1898,3 +1898,32 @@ def test_every_supported_version_the_readme_promises_is_install_tested() -> None
             f"the README no longer says {system} is covered by inheritance rather than its own "
             "lane, which turns it back into a promise nothing tests"
         )
+
+
+def test_each_matrix_half_runs_every_shard_it_declares() -> None:
+    """The shard list and the count handed to the script have to agree, in both directions.
+
+    Declare four shards while passing two and the extra jobs fail loudly on a range check, which is
+    survivable. The other way round is the dangerous one: pass four while declaring two and half the
+    channels are simply never selected, the two shards that do run pass, and the matrix reports the
+    architecture green having installed half of what it publishes. Nothing else compares these two
+    numbers — they live in different parts of the same file.
+    """
+    for forge in (".forgejo", ".github"):
+        spec = yaml.safe_load(
+            (REPO / forge / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
+        )
+        job = next(
+            name for name, body in spec["jobs"].items()
+            if "install-matrix-arch" in yaml.dump(body)
+        )
+        declared = spec["jobs"][job]["strategy"]["matrix"]["shard"]
+        run = next(
+            step["run"] for step in spec["jobs"][job]["steps"]
+            if "install-matrix-arch" in step.get("run", "")
+        )
+        passed = int(run.strip().split()[-1])
+        assert declared == list(range(passed)), (
+            f"{forge}: the matrix runs shards {declared} but tells the script there are {passed}; "
+            "a shard the script never selects is a channel nobody installs"
+        )

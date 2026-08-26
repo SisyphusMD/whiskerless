@@ -64,14 +64,16 @@ jobs:
   linux:
     name: Linux installs (x86_64) shard ${{ matrix.shard }}
     needs: wait
-    # Sharded because the channels are independent and were only sequential by default. On the arm64
-    # runner that sequence was the whole tail of a release: every macOS leg finished in minutes while
-    # this one job worked through two dozen channels for half an hour. Round-robin inside the script
-    # keeps the heavy channels (the bottle pour drags a multi-GB image) off any single shard.
+    # Sharded for the same reason as the GitHub half, but TWO ways rather than four, because this
+    # runner pool is four self-hosted runners and nothing else. Four shards would take all of them:
+    # the sibling project's publish, every PR check and this repo's own next job would queue behind a
+    # matrix that is not even the slow half — measured at 8-14 minutes here against 20+ on GitHub, so
+    # finishing it sooner does not move the release. Same mechanism, sized to the pool, exactly as
+    # CACHE_CEILING_GB below is sized to the disk.
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1]
     # NO QEMU setup, and no arm64 leg: this runner is amd64, the script refuses to
     # build for anything else, and the arm64 half runs natively on GitHub.
     runs-on: ubuntu-latest
@@ -97,7 +99,7 @@ jobs:
           BREW_MIRROR: "https://image-mirror.nas.bryantserver.com"
         # The channel list lives in the script, not here, so the amd64 and arm64 halves of this
         # matrix cannot drift apart across two forges.
-        run: bash packaging/install-matrix-arch.sh amd64 ${{ matrix.shard }} 4
+        run: bash packaging/install-matrix-arch.sh amd64 ${{ matrix.shard }} 2
 
   summary:
     name: Every Linux amd64 channel installed and ran
