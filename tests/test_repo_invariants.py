@@ -1642,3 +1642,34 @@ def test_the_bottle_wait_outlasts_a_slow_publish() -> None:
         f"the tap wait is {seconds // 60} minutes; publish has been measured at 37, and a "
         "budget under 60 loses the release's bottles to a slow publish"
     )
+
+
+def test_the_install_wait_outlasts_the_bottle_wait_it_depends_on() -> None:
+    """The install matrix waits for a release to be installable, and a bottle is part of that.
+
+    So this wait sits DOWNSTREAM of the one above: bottles cannot appear until build-bottles.sh
+    stops waiting for the tap and then spends about half an hour building. Budget the two
+    independently and the downstream one can expire while the thing it waits for is still legitimately
+    coming — which reports a healthy release as a failed one, on both forges at once, because they
+    share this script.
+
+    Derived from the upstream budget rather than written as a number, so raising one and forgetting
+    the other cannot happen quietly.
+    """
+    bottles = (REPO / "packaging" / "build-bottles.sh").read_text()
+    up_n = re.search(r"for _ in \$\(seq 1 (\d+)\); do", bottles)
+    up_s = re.search(r"\n\s*sleep (\d+)\n\s*done", bottles)
+    assert up_n and up_s, "the tap wait is not recognisable; did its shape change?"
+    upstream = int(up_n.group(1)) * int(up_s.group(1))
+
+    wait = (REPO / "packaging" / "wait-for-release.sh").read_text()
+    dn_n = re.search(r'ATTEMPTS="\$\{WAIT_ATTEMPTS:-(\d+)\}"', wait)
+    dn_s = re.search(r'INTERVAL="\$\{WAIT_INTERVAL:-(\d+)\}"', wait)
+    assert dn_n and dn_s, "the install wait no longer declares a default budget"
+    downstream = int(dn_n.group(1)) * int(dn_s.group(1))
+
+    # The build itself, on top of however long the upstream wait is allowed to run.
+    assert downstream >= upstream + 1800, (
+        f"the install wait is {downstream // 60} minutes but the bottle wait it depends on may "
+        f"itself run {upstream // 60}; leave room for the build that follows it"
+    )
