@@ -1719,8 +1719,6 @@ def test_the_install_matrix_is_reachable_for_every_release() -> None:
     So both halves are pinned here: the matrix must NOT race the publish, and the publish must
     still hand it over, after everything the matrix installs from exists.
     """
-    import yaml
-
     matrix = yaml.safe_load(
         (REPO / ".forgejo" / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
     )
@@ -1768,3 +1766,37 @@ def test_both_package_formats_are_gated_before_publish() -> None:
     assert smoked == {"deb", "rpm"}, f"pre-publish smoke covers {sorted(smoked) or 'nothing'}"
     for name in ("package-smoke.Dockerfile", "package-smoke-rpm.Dockerfile"):
         assert (REPO / "packaging" / name).is_file(), f"{name} is referenced but missing"
+
+
+def test_every_distro_rung_belongs_to_its_group() -> None:
+    """Each rung is annotated `-compat` or `-current`, and the groups match on that suffix.
+
+    The suffix is therefore load-bearing rather than decorative: a new distro pinned as
+    `fedora-45` instead of `fedora-45-current` still builds, still gets bumped, and silently
+    escapes the review its siblings share. Nothing else would notice, so this does.
+
+    Scanned over TRACKED files rather than a walk: the working tree also holds virtualenvs and
+    scratch files, and an annotation-shaped string in local debris would fail this on one checkout
+    and pass in CI. Tracked also picks up release-pins.env, which the docker manager reads too.
+    """
+    config = json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+    grouped = {
+        name
+        for rule in config["packageRules"]
+        if rule.get("groupName", "").startswith("distro ")
+        for name in rule["matchDepNames"]
+    }
+    assert grouped == {"/-current$/", "/-compat$/"}, (
+        f"the distro groups no longer match by suffix: {sorted(grouped)}"
+    )
+
+    annotated = {
+        name
+        for _, text in TRACKED
+        for name in re.findall(
+            r"depName=((?:debian|ubuntu|fedora|rocky|opensuse)[a-z0-9.-]*)", text
+        )
+    }
+    assert annotated, "no distro annotations found — has the naming changed?"
+    stray = {n for n in annotated if not n.endswith(("-compat", "-current"))}
+    assert not stray, f"distro rungs outside both groups: {sorted(stray)}"
