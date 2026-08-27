@@ -72,5 +72,11 @@ case "$out" in
   *) echo "installed CLI reports the wrong version: $out (wanted $version)" >&2; exit 1 ;;
 esac
 "$cli" send --help >/dev/null
+# Import a module that pulls cryptography at module level. The CLI imports it lazily, so --help and
+# --version both pass on a formula where cryptography is absent entirely — which is exactly what
+# this smoke exists to refuse. It is supplied by `depends_on` rather than built as a resource, and
+# it reaches the venv only through the homebrew_deps.pth that virtualenv_create writes; a
+# dependency that becomes `=> :build` is pruned from that walk and the module silently vanishes.
+"$(brew --prefix "$tap/$formula")/libexec/bin/python" -c 'import whiskerless.pki' >/dev/null
 
 echo "Homebrew formula smoke PASS: $formula $pypi_version"

@@ -42,6 +42,15 @@ PLATFORMS = ("macos", "linux")
 # backend Homebrew can build, so the FORMULA pins <3 while pyproject does not.
 _FORMULA_CONSTRAINTS = "bleak<3\n"
 
+# Supplied by `depends_on` instead of built here. cryptography's sdist is a Rust extension, and
+# because virtualenv_install_with_resources builds every resource from source, listing it cost ~21
+# minutes per platform per release and dragged rust and llvm in as build deps. Homebrew already
+# bottles cryptography for every platform this formula targets, so the compile is one somebody else
+# has already done. Homebrew's virtualenv_create writes a homebrew_deps.pth for each non-build
+# dependency that ships site-packages, which is what makes the brewed module importable in the venv
+# — so a name removed here MUST gain a `depends_on`, or the formula installs and fails on import.
+_BREWED = frozenset({"cryptography"})
+
 
 def _closure(platform: str) -> dict[str, str]:
     """name -> pinned version for this checkout's [ble] extra, on one platform."""
@@ -68,6 +77,8 @@ def _closure(platform: str) -> dict[str, str]:
             found[name.strip()] = pinned.strip()
     # The package itself is the formula's `url`, not one of its resources.
     found.pop("whiskerless", None)
+    for name in _BREWED:
+        found.pop(name, None)
     return found
 
 

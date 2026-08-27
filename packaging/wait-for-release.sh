@@ -36,8 +36,14 @@ case "$TAG" in
   *) echo "::error::not a release tag: $TAG" >&2; exit 1 ;;
 esac
 
+here="$(cd "$(dirname "$0")" && pwd)"
+[ -f "$here/project.env" ] || { echo "$0: packaging/project.env is missing" >&2; exit 2; }
+# shellcheck source=/dev/null
+. "$here/project.env"
+: "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
+
 FORGE="${FORGE:-https://forgejo.bryantserver.com}"
-API="$FORGE/api/v1/repos/SisyphusMD/whiskerless/releases/tags/$TAG"
+API="$FORGE/api/v1/repos/$PROJECT_REPO_SLUG/releases/tags/$TAG"
 # 300 x 30s = 150 minutes, and the number comes from the chain this waits on rather than from
 # taste. The bottles cannot start until publish.yml has proven the formula installs and pushed the
 # first tap pass, which builds from source; build-bottles.sh will itself wait up to 90 minutes for
@@ -107,7 +113,12 @@ tap_ready() {  # tap_ready <release-json>
   [ -n "$want" ] && [ "$want" = "$have" ]
 }
 
-for _ in $(seq 1 "$ATTEMPTS"); do
+# A wall-clock deadline rather than a countdown of iterations. The GitHub check deliberately sleeps
+# on its own cadence, so counting iterations would make the real budget depend on WHICH thing we are
+# waiting for — a release whose local side went ready early would get a shorter deadline than one
+# that did not, and the documented budget above would stop being the budget.
+DEADLINE=$(( $(date +%s) + ATTEMPTS * INTERVAL ))
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   rel=$(fetch "$API" || true)
   names=$(printf '%s' "$rel" | jq -r '.assets[]?.name' 2>/dev/null || true)
   have() { printf '%s\n' "$names" | grep -q "$1"; }
@@ -115,7 +126,51 @@ for _ in $(seq 1 "$ATTEMPTS"); do
   # tag — that is the whole point of the tag input — and a release cut before the per-architecture
   # split carries one `SHA256SUMS` instead of two. Demanding the new pair would make such a
   # dispatch wait out its full deadline and then fail for a release that is perfectly complete.
-  # Named, not just counted. A silent poll that ends in "never became installable" says nothing
+  # The matrix's deb-file-github channel downloads from GitHub, not from this forge, so a release
+# whose GitHub upload failed is NOT installable however complete it looks here. That gap used to be
+# covered by accident: the handoff waited on reconcile, which heals the mirrors, so GitHub had been
+# repaired by dispatch time. The handoff no longer waits — reconcile's full-history sweep is not
+# worth the critical path — so readiness now states directly what the ordering used to imply.
+#
+# Checked only after the local roles pass, which keeps it off the polling hot path: a handful of
+# calls on a healthy release, and repeated only while a repair is genuinely in flight. That rate is
+# fine unauthenticated; a token is used when one is present.
+github_ready() {
+  local auth=() names code body
+  [ -n "${GITHUB_ASSET_TOKEN:-}" ] && auth=(-H "Authorization: Bearer ${GITHUB_ASSET_TOKEN}")
+  body="$(mktemp)"
+  code="$(curl -sS -o "$body" -w '%{http_code}' --max-time 60 "${auth[@]}" \
+    -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/$PROJECT_REPO_SLUG/releases/tags/$TAG" || echo 000)"
+  # A throttled read is NOT an absent asset, and reporting it as one turns a quota problem into
+  # "the release never became installable" — a diagnosis pointing at the wrong system entirely.
+  case "$code" in
+    403|429) echo "  GitHub rate-limited the readiness check (HTTP $code); still waiting" ;;
+  esac
+  # `.state`, not just `.name`. GitHub keeps the asset RECORD when an upload dies partway, in state
+  # "starter" rather than "uploaded" — and a name-only match would accept that record and release the
+  # matrix against a download that still 404s, which is the precise failure this check exists to stop.
+  names="$(jq -r '.assets[]? | select(.state == "uploaded") | .name' < "$body" 2>/dev/null || true)"
+  rm -f "$body"
+  [ "$code" = 200 ] || return 1
+  [ -n "$names" ] || return 1
+  # No version match needed: the query is already scoped to this tag's release, so any .deb under
+  # it is this tag's. Both arches, because they upload one after the other and a poll landing
+  # between them would release the arm64 legs against a GitHub release that only has amd64.
+  printf '%s\n' "$names" | grep -q -- "_amd64.deb$" && \
+  printf '%s\n' "$names" | grep -q -- "_arm64.deb$"
+}
+
+# Spaced on its own cadence, not the loop's. Unauthenticated GitHub allows 60 requests an hour and
+# the loop polls far faster than that, so a repair that takes a while would burn the quota and turn
+# a slow release into a failed one — the same constraint check-mirror-ci.sh sizes its interval to. A
+# token lifts it to 5,000/hour, so use the fast cadence only when one is present.
+if [ -n "${GITHUB_ASSET_TOKEN:-}" ]; then
+  GH_INTERVAL="${GH_WAIT_INTERVAL:-20}"
+else
+  GH_INTERVAL="${GH_WAIT_INTERVAL:-60}"
+fi
+# Named, not just counted. A silent poll that ends in "never became installable" says nothing
   # about WHICH artifact never arrived, and that is the one fact needed to tell a slow bottle from
   # a broken .pkg.
   missing=""
@@ -126,8 +181,13 @@ for _ in $(seq 1 "$ATTEMPTS"); do
     || missing="$missing SHA256SUMS"
   if [ -z "$missing" ]; then
     if tap_ready "$rel" && registry_ready; then
-      echo "$TAG is complete, the tap advertises the bottles it is serving, and apt/dnf have it"
-      exit 0
+      if github_ready; then
+        echo "$TAG is complete, the tap advertises the bottles it is serving, and apt/dnf have it"
+        exit 0
+      fi
+      # Its own cadence, not the loop's — see GH_INTERVAL.
+      echo "  release complete here; waiting for the GitHub release to catch up to $TAG"
+      sleep "$GH_INTERVAL"; continue
     fi
     echo "  release complete; waiting for the tap and the apt/dnf registry to catch up to $TAG"
   else

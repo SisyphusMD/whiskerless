@@ -32,7 +32,18 @@ workflow="${2:?usage: check-mirror-ci.sh <sha> <workflow-file>}"
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid commit SHA: $sha" >&2; exit 2; }
 repo="${MIRROR_REPO:-$PROJECT_REPO_SLUG}"
 timeout="${MIRROR_CI_TIMEOUT:-2400}"
-interval="${MIRROR_CI_INTERVAL:-300}"   # 300s: ~8 polls per 40 min, well under 60/hour
+# Sized to the limit that actually applies. 300s keeps an UNAUTHENTICATED caller under 60
+# requests/hour, which is the constraint when no token is set. Callers in the release path do set
+# MIRROR_CI_TOKEN, lifting the ceiling to 5,000/hour — and against that, 300s is not throttling,
+# it is rounding: the verdict is only ever noticed at the next boundary, so a run finishing at
+# 23:54 is reported at 23:56 and the release waits out the difference. 30s costs ~120 requests an
+# hour, under 3% of the authenticated quota.
+if [ -n "${MIRROR_CI_TOKEN:-}" ]; then
+  poll_interval="${MIRROR_CI_INTERVAL:-30}"
+else
+  poll_interval="${MIRROR_CI_INTERVAL:-300}"
+fi
+interval="$poll_interval"
 
 # event=push, not every run for the sha. A pull_request run for the same commit is evidence about
 # the PR, not about the branch the release is cut from — and because a success below outranks a
@@ -60,7 +71,7 @@ while :; do
       # Clear the throttle record: a successful read means the eventual timeout
       # is about the RUN, not the quota, and the diagnosis must say so.
       throttled=0
-      interval="${MIRROR_CI_INTERVAL:-300}"
+      interval="$poll_interval"
       ;;
     403|429)
       # Rate limited or throttled. Not a verdict on the commit, so keep waiting

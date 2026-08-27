@@ -8,7 +8,7 @@
     "packaging/check-doc-links.py": "44c9b053672d2b2c73379205490ba9ff61f06b48c3acc85de9c1a2057d27038d",
     "packaging/check-gitignore-base.py": "2a7a5e2f770d8879c43a32f8d9901eb54f0ebe6f3107a0b17318fed1b5563141",
     "packaging/check-glibc-floor.py": "7179de8c55695ffd52e46ee71fe69d1683869c123d5e8dc05421ebf2fee9cc63",
-    "packaging/check-mirror-ci.sh": "cd1239ed877f69b3cd8686cefe94863b54a3393badc48ed68ae5590c6e6b352d",
+    "packaging/check-mirror-ci.sh": "e762a08d1a2486cc7e9f485a6648991931ead65b15b539b47fb4603607e53c53",
     "packaging/check-rc-install-matrix.sh": "9291d1c489bc729efdffaa3337c01da984343e5ab9eda261bc16642d83b1b999",
     "packaging/check-standard-sync.py": "80a42b514811cf69b9493ebee035a68199f0c117732be9d01457faccc48ef4f4",
     "packaging/dependency-bumps.sh": "f8d0ee53297e7e257d709b3a7e9e5fc402e7dc8a2e4c8ec76235025a97a93472",
@@ -37,7 +37,7 @@
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "8218cf7a8447f577533bb85d61910acf8ecf48c7",
+  "source_commit": "c8c71c330df00701c3b9aa1dfd535ca9e0803369",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.17"
+  "source_tag": "v0.1.18"
 }
