@@ -21,8 +21,17 @@ ENV PATH="/opt/whiskerless-python/bin:${PATH}" \
 RUN dnf install -y -q make zlib-devel openssl-devel bzip2-devel libffi-devel xz-devel \
       sqlite-devel readline-devel ncurses-devel \
  && dnf clean all
-RUN curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" \
-      -o /tmp/python.tar.xz \
+# Retried in the shell rather than with curl --retry, for the reason packaging/fetch.sh gives:
+# --retry classifies neither a name-resolution failure nor a reset mid-transfer as transient,
+# and those are the shapes this actually fails in. The digest check below is unchanged, so no
+# repeat can smuggle in different bytes; the partial file is removed so it cannot be reused.
+RUN attempt=1; \
+    until curl -fsSL --connect-timeout 10 --max-time 600 \
+          "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" \
+          -o /tmp/python.tar.xz; do \
+      [ "$attempt" -ge 5 ] && { echo "python.org unreachable after $attempt attempts" >&2; exit 1; }; \
+      rm -f /tmp/python.tar.xz; sleep $((attempt * 3)); attempt=$((attempt + 1)); \
+    done \
  && printf '%s  %s\n' "$PYTHON_SHA256" /tmp/python.tar.xz | sha256sum -c - \
  && tar -xJf /tmp/python.tar.xz -C /tmp \
  && cd "/tmp/Python-${PYTHON_VERSION}" \
