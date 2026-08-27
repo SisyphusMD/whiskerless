@@ -1961,6 +1961,14 @@ def test_tap_pass_one_does_not_wait_on_the_release_build() -> None:
     assert "pypi" in needs, (
         f"tap pass 1 runs after {needs}, which does not include the upload it takes its url from"
     )
+    # `!cancelled()`, not `always()`. Both override a failed dependency, which is what lets a tap
+    # write survive a wobbly pypi step, but only one of them stops when an operator cancels the
+    # release — and this job pushes a formula to a public tap. reconcile keeps `always()` because it
+    # only heals releases that already exist. The sibling pins the same split.
+    condition = str(tap.get("if") or "")
+    assert "!cancelled()" in condition, (
+        f"tap pass 1 runs under {condition!r}; a cancelled release must not still publish a formula"
+    )
 
 
 def test_release_creation_waits_for_pypi() -> None:
