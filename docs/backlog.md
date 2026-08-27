@@ -45,7 +45,8 @@ marker, and #64 read as open for four days after it shipped.
   itself; only a completed provision restores it.
 
 **Design conversations, not code yet:** #43 (replacing the app's notifications),
-#44 (firmware updates, which collide with a safety invariant).
+#44 (firmware updates, which collide with a safety invariant), #89 (provisioning from Home
+Assistant over its own Bluetooth stack, with an external issuer so the CA signing key stays out of HA).
 
 **Waiting on something outside the repo:** #13 (empty half — costs a litter refill)
 and #14 (the same press), #19 (Brent), #21 (needs the dropout to recur), #22 (the
@@ -1968,4 +1969,48 @@ what the catalogue actually evidences; the rest are combinations nobody has seen
 `commands.md` says to capture an unknown button value physically before writing it, and that
 instruction applies here — a chord that no panel produces is a write of an unobserved value, which
 is a different experiment from synthesising a press, and should be labelled as one.
+
+## Added 2026-08-27
+
+### #89 — Provision from Home Assistant itself, rather than only from the CLI — **discuss**
+
+**Asked for 2026-08-27.** Today provisioning is a CLI activity: install `whiskerless[ble]` on a
+laptop, carry it to the robot, hold the button. Every HA user therefore meets a second tool before
+the integration can see anything. Many HA installs already have Bluetooth — a built-in adapter, or
+an ESPHome Bluetooth Proxy that may well be closer to the litter box than any laptop — so the
+hardware to do this is usually already in the house and already talking to HA.
+
+**Why this is `discuss` and not `open`.** It reopens a boundary that today's dependency layout was
+built around, so the design has to come first.
+
+- **The integration deliberately does not depend on `bleak`.** `manifest.json` pins
+  `whiskerless==<version>` with no `[ble]` extra, and nothing under `custom_components/` imports BLE
+  code. That is why `ble/transport.py` and `ble/provision.py` defer their bleak imports at all. HA
+  also does not want raw bleak in an integration: it owns the adapter through its `bluetooth`
+  component and hands out `BLEDevice`s. So the question is not "add bleak to the manifest" — it is
+  whether `provision.py`'s transport can accept a connection HA supplies, instead of opening one.
+- **Bluetooth proxies are the interesting half and the risky half.** A proxy near the robot removes
+  the "stand next to it with a laptop" step entirely, which is most of the value here. But
+  provisioning is a full GATT write session, not passive advertisement scraping, and proxies have a
+  bounded number of active connection slots. Whether a proxy can hold a provisioning session for its
+  whole duration, reliably, is the first thing to establish — on hardware, not from documentation.
+- **Whether the CA *signing key* enters Home Assistant is a design choice, not a given.** It is
+  only forced if HA issues the certificates itself. `ProvisioningConfig` already takes optional
+  pre-issued `client_cert`/`client_key`, and `docs/setup/certificates.md` documents `--auth
+  supplied` for precisely the arrangement where the signing key lives elsewhere — cert-manager,
+  Vault, an offline root. In that mode nothing issues on demand: an external issuer produces the
+  robot's identity beforehand and whiskerless only stores and presents it. That is the design to
+  try first, and `--auth anonymous` is a third option.
+
+  Be exact about what HA would still hold, because the two are easy to conflate: `ca_pem` is
+  required on every path and `provision_robot()` always writes it, so HA receives the **public**
+  `ca.crt` regardless. That is not the sensitive half. Keeping the **private** signing key out is
+  the property worth designing for; putting it in HA's config directory is a fallback to argue for
+  explicitly, with `docs/setup/` and the backup story revisited before it, not after.
+- **The button hold stays physical regardless.** Nothing here removes the trip to the robot to put
+  it in provisioning mode; it removes the laptop, not the walk. Worth being honest about in any UX
+  sketch, because "provision from HA" sounds like it removes both.
+
+**Not a dreame-valetudo item.** It has no Home Assistant surface at all, which
+`project-standard/VARIANCE.md` already records as the one channel whiskerless has and it does not.
 
