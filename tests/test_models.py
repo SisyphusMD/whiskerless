@@ -6,8 +6,10 @@ import pytest
 
 from whiskerless.devices.litter_robot_4.models import (
     LitterRobot4State,
+    cat_detect_bit0,
     every_weekday_is,
     litter_level_percent_from_mm,
+    weekday_sleep_days_match,
 )
 
 
@@ -368,7 +370,6 @@ def test_a_stale_single_day_does_not_confirm_an_all_days_write() -> None:
     A register left at 0x01 by the old implementation already reads as enabled,
     so a dropped all-days write would report success with six days unarmed.
     """
-    from whiskerless.devices.litter_robot_4.models import weekday_sleep_days_match
 
     stale = LitterRobot4State.from_state_doc({"weekdaySleepModeEnabled": 0x01})
     assert stale.weekday_sleep_enabled          # the weak predicate is satisfied
@@ -449,7 +450,6 @@ def test_an_unmappable_string_is_returned_as_itself() -> None:
 
 def test_cat_detect_bit0_reads_the_bit_and_refuses_strings() -> None:
     """Bit 0 tracked the cat on both observed vocabularies; bit 1 did not."""
-    from whiskerless.devices.litter_robot_4.models import cat_detect_bit0
 
     assert cat_detect_bit0(0) is False
     assert cat_detect_bit0(1) is True

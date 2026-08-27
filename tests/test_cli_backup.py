@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 
 from whiskerless import backup, pki
-from whiskerless.cli import main
+from whiskerless.cli import _write_bytes_private, main
 from whiskerless.robot_profiles import Broker, RobotProfile, RobotProfileStore, Serial
 
 CA = pki.generate_ca("test CA")
@@ -823,7 +823,6 @@ def test_a_backup_survives_a_filesystem_that_cannot_fsync_a_directory(
     """Some network and FUSE-backed destinations reject a directory fsync. The archive is already
     committed by then, so raising made the caller delete it — turning "cannot promise durability"
     into "backups here always fail"."""
-    from whiskerless.cli import _write_bytes_private
 
     real = os.fsync
 
@@ -845,7 +844,6 @@ def test_a_real_fsync_failure_is_still_an_error(
 ) -> None:
     """Only the "this filesystem cannot do that" errnos are tolerated; an EIO means the write is
     genuinely in doubt and must not be reported as a finished backup."""
-    from whiskerless.cli import _write_bytes_private
 
     monkeypatch.setattr(os, "fsync", lambda fd: (_ for _ in ()).throw(OSError(errno.EIO, "io")))
     with pytest.raises(OSError):
@@ -857,7 +855,6 @@ def test_a_write_only_destination_still_keeps_the_backup(
 ) -> None:
     """A drop-box directory may allow write and execute but not read, and opening it O_RDONLY for
     the durability fsync raises EACCES — after the archive has already been committed."""
-    from whiskerless.cli import _write_bytes_private
 
     real_open = os.open
 

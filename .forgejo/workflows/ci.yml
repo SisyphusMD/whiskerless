@@ -55,7 +55,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,ble]"
       - name: Ruff
-        run: ruff check src custom_components tests packaging
+        # Every tracked .py, matching the sibling. Naming directories meant scripts/ was
+        # linted by nobody — a file is covered because it is in the repo, not because
+        # someone remembered to add its directory here.
+        run: ruff check $(git ls-files '*.py' | tr '\n' ' ')
       - name: Mypy (library, strict)
         run: mypy
       - name: Pytest (library)

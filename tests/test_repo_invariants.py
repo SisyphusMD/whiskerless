@@ -7,6 +7,7 @@ neither Home Assistant nor a broker, and they fail on the file that drifted.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
@@ -18,6 +19,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from whiskerless.cli import build_parser
 
 REPO = Path(__file__).resolve().parent.parent
 INTEGRATION = REPO / "custom_components" / "whiskerless"
@@ -317,7 +320,6 @@ def test_the_man_page_documents_every_subcommand() -> None:
     """A man page is only worth shipping if it is true. Adding a subcommand and
     forgetting the page is invisible in review — and once the packages are in a
     repository, lintian checks the page EXISTS but never that it is complete."""
-    from whiskerless.cli import build_parser
 
     page = (REPO / "packaging" / "whiskerless.1").read_text(encoding="utf-8")
     sub = next(a for a in build_parser()._actions if getattr(a, "_name_parser_map", None))
@@ -718,9 +720,11 @@ def test_no_in_page_anchor_targets_a_heading_with_an_apostrophe() -> None:
             # would look for a link nobody could have written.
             forgejo = re.sub(r"[^a-z0-9 -]", "", lowered.replace("'", "-").replace("\u2019", "-"))
             forgejo = forgejo.replace(" ", "-")
-            for slug in (github, forgejo):
-                if f"#{slug}" in targeted:
-                    offenders.append(f"{name}: {heading!r} <- #{slug}")
+            offenders.extend(
+                f"{name}: {heading!r} <- #{slug}"
+                for slug in (github, forgejo)
+                if f"#{slug}" in targeted
+            )
     assert offenders == [], (
         "an apostrophe in a linked heading is dead on one of the two forges:\n  "
         + "\n  ".join(offenders)
@@ -1000,7 +1004,6 @@ def test_the_integration_imports_nothing_the_library_does_not_promise() -> None:
     there. Anything the integration needs is public; if that feels like too much to promise, the
     answer is for the integration to need less, not for the promise to look smaller than reality.
     """
-    import ast
 
     # The integration is written for Home Assistant's interpreter (3.13+) and uses PEP 695 syntax —
     # `type X = ...`, `def f[T]`. This suite also runs on the LIBRARY's 3.11.0 floor, where parsing
@@ -1053,7 +1056,6 @@ def test_the_integration_imports_nothing_the_library_does_not_promise() -> None:
 
 def _module_names(path: Path) -> set[str]:
     """The names a module declares in `__all__`, or an empty set if it declares none."""
-    import ast
 
     if not path.exists():
         return set()
@@ -2049,4 +2051,82 @@ def test_the_wait_covers_every_registry_the_matrix_installs_from() -> None:
     assert called, (
         "github_ready() is defined but never called, so readiness silently stops covering GitHub "
         "while every assertion about its existence still passes"
+    )
+
+def test_every_macos_version_the_readme_promises_has_an_install_lane() -> None:
+    """The macOS row of the support matrix was the one row nothing checked.
+
+    The version parse in the row test above only maps Linux distro names to images, so the macOS
+    row could name any release at all and no lane had to exist for it — the same shape of gap that
+    let a promised Fedora floor go untested. Both arches are asserted separately because the row
+    says "Apple Silicon or Intel": a matrix that quietly dropped the Intel runners would still
+    satisfy a check that only looked for the version number.
+    """
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    matrix = yaml.safe_load(
+        (REPO / ".github" / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
+    )
+
+    row = re.search(r"^\| macOS[^|]*\|([^|]*)\|([^|]*)\|$", readme, re.M)
+    assert row, "the macOS row is gone from the README support matrix"
+    promised = {v for cell in row.groups() for v in re.findall(r"macOS (\d+)", cell)}
+    assert promised, f"the macOS row names no version: {row.group(0)!r}"
+
+    lanes = {
+        entry["os"]
+        for job in matrix["jobs"].values()
+        for entry in (job.get("strategy", {}).get("matrix", {}).get("include") or [])
+        if str(entry.get("os", "")).startswith("macos-")
+    }
+    for version in sorted(promised):
+        for label, runner in (("Apple Silicon", f"macos-{version}"),
+                              ("Intel", f"macos-{version}-intel")):
+            assert runner in lanes, (
+                f"README promises macOS {version} on {label}, but the install matrix has no "
+                f"{runner} lane, so nothing installs the shipped artifact there"
+            )
+
+def test_the_readme_keeps_its_untested_platforms_honest() -> None:
+    """Platforms with no version number in the matrix cannot be caught by the version parse.
+
+    Windows carries no row and no number, so nothing stops the README from quietly starting to
+    promise it. The sibling carries the identical statement: both projects have the same intent to
+    support Windows eventually, and the honest position until then is the same sentence in both.
+    Also pins the glibc floor to the file the build actually enforces, rather than to prose.
+    """
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    # The whole sentence, not a fragment. Both projects are in the same position — no Windows
+    # support today, support planned — so both say it the same way; a fragment match would let one
+    # of them quietly soften into "expected to work" while still passing here.
+    stance = (
+        "Windows is not in that matrix and is not supported yet. Nothing installs and runs this "
+        "project on Windows on any release, so whatever works there today is unverified rather "
+        "than promised. Windows support is planned for a future update; until it lands and a lane "
+        "exercises it every release, it is not promised in the sense the table above means."
+    )
+    assert " ".join(stance.split()) in " ".join(readme.split()), (
+        "the README's Windows position has drifted from the sibling's; both projects are in the "
+        "same state and say so in the same words"
+    )
+    # The sentence alone is not the invariant. A Windows ROW could be added to the table while the
+    # disclaimer below it stayed, and the promise would then be made twice over in the same document.
+    # Scoped to the support matrix rather than every table: the README has others, and one of them
+    # naming Windows in a first cell is documentation, not a support claim.
+    matrix = re.search(
+        r"^\| Operating system \|.*?\n\n", readme, re.M | re.S
+    )
+    assert matrix, "the support matrix header is gone, so its rows cannot be checked"
+    offenders = [
+        row.split("|")[1].strip()
+        for row in matrix.group(0).splitlines()
+        if row.startswith("|") and "windows" in row.split("|")[1].lower()
+    ]
+    assert not offenders, (
+        f"the support matrix now has a Windows row ({offenders}) while the text below still says "
+        "Windows is untested; one of the two is lying"
+    )
+    floor = (REPO / "packaging" / "glibc-floor.txt").read_text(encoding="utf-8").strip()
+    assert f"glibc {floor} or newer" in readme, (
+        f"the build enforces a glibc floor of {floor} (packaging/glibc-floor.txt) but the README "
+        "does not say so; one of the two has moved without the other"
     )

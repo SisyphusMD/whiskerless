@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from unittest.mock import patch
 
+import custom_components.whiskerless.coordinator as coord
 from homeassistant.components import mqtt
 from homeassistant.components.mqtt.models import ReceiveMessage
 from homeassistant.core import HomeAssistant, State
@@ -151,7 +152,6 @@ def capture_writes(robot: Robot, *, echo: bool = False) -> Iterator[list[str]]:
     before it will call itself done — a press never reads back in the state
     document the way a settings write does.
     """
-    import custom_components.whiskerless.coordinator as coord
 
     sent: list[str] = []
     original = coord.build_command_payload

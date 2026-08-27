@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...safety import Hazard, classify_code
+from ...safety import CommandType, Hazard, classify_code, parse_code
 from . import const
 from .codec import encode_read, encode_write
 
@@ -71,7 +71,6 @@ class Command:
 
 def is_edge_triggered(code: str) -> bool:
     """True for a panel-button write, which must never be delivered twice."""
-    from ...safety import CommandType, parse_code
 
     ctype, register, _ = parse_code(code)
     return ctype is CommandType.WRITE and register == const.Register.PANEL_BUTTON

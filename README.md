@@ -194,9 +194,7 @@ Older systems might work, but that isn't promised until they are part of this te
 
 Two rows are covered by inheritance rather than by a lane of their own, which is worth knowing if you are relying on either. **Raspberry Pi OS** is not tested as its own image: Bookworm *is* Debian 12, and the Debian 12 lane runs on arm64 as well as x86_64. **RHEL** is not tested directly either — it needs a subscription and has no public image to install into — so Rocky Linux stands in for it, being a bug-for-bug rebuild of the same release.
 
-Windows is not in that matrix. The PyPI CLI is expected to work there and the Bluetooth backend
-supports it, but nothing installs and runs it on Windows on every release, so it is not promised in
-the sense the table above means.
+Windows is not in that matrix and is not supported yet. Nothing installs and runs this project on Windows on any release, so whatever works there today is unverified rather than promised. Windows support is planned for a future update; until it lands and a lane exercises it every release, it is not promised in the sense the table above means.
 
 The `.deb` and `.rpm` need glibc 2.28 or newer.
 
@@ -326,8 +324,9 @@ chmod +x ./whiskerless-<version>-linux-x86_64
 ./whiskerless-<version>-linux-x86_64 provision
 ```
 
-**Windows** — no standalone binary, but the PyPI CLI works **natively**; `bleak`
-drives Windows' built-in Bluetooth:
+**Windows** — no standalone binary. The PyPI CLI is known to run natively and `bleak` drives
+Windows' built-in Bluetooth, but nothing tests this on a release, so it is unverified rather
+than supported (see the matrix above):
 
 ```powershell
 uvx --from 'whiskerless[ble]' whiskerless provision

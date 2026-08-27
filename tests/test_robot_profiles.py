@@ -12,10 +12,14 @@ from unittest.mock import patch
 
 import pytest
 
+from whiskerless import pki
 from whiskerless import robot_profiles as robot_profiles_module
 from whiskerless.exceptions import RobotProfileError
 from whiskerless.robot_profiles import (
+    DEFAULT_SUBDIR,
     HOME_ENV,
+    LAYOUT_VERSION,
+    LEGACY_SUBDIR,
     AuthMode,
     Broker,
     RobotProfile,
@@ -442,7 +446,6 @@ def test_reopening_such_a_store_rewrites_it_host_only(store: RobotProfileStore) 
 
 def test_settings_carry_the_ca_and_this_machines_identity(store: RobotProfileStore) -> None:
     """One broker, one CA, one client certificate — none of it per-robot."""
-    from whiskerless import pki
 
     store.save_broker(Broker(host="192.0.2.10"))
     store.save_ca(pki.generate_ca())
@@ -466,7 +469,6 @@ def test_settings_without_a_ca_or_identity_still_describe_the_broker(
 
 
 def test_this_machines_identity_is_minted_from_the_ca_once(store: RobotProfileStore) -> None:
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     assert not store.has_client()
@@ -478,7 +480,6 @@ def test_this_machines_identity_is_minted_from_the_ca_once(store: RobotProfileSt
 def test_a_hidden_legacy_store_is_moved_rather_than_copied(tmp_path: Path) -> None:
     """Two directories that both look like the store is where somebody edits the
     wrong one."""
-    from whiskerless.robot_profiles import DEFAULT_SUBDIR, LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR
     RobotProfileStore(legacy).save(make(serial="LR4C111111"))
@@ -496,7 +497,6 @@ def test_a_migration_that_cannot_move_the_old_store_refuses_to_carry_on(
     """Carrying on would start a second, empty store while the real one stays
     hidden — every robot would look forgotten, and a second CA would be made
     beside the one they already trust."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     RobotProfileStore(tmp_path / LEGACY_SUBDIR).save(make(serial="LR4C111111"))
     with (
@@ -509,7 +509,6 @@ def test_a_migration_that_cannot_move_the_old_store_refuses_to_carry_on(
 def test_a_layout_from_the_future_is_refused(store: RobotProfileStore) -> None:
     """Never rewrite data we cannot read: a newer build may have reshaped
     something, and a best-effort read would drop it and save the remains back."""
-    from whiskerless.robot_profiles import LAYOUT_VERSION
 
     store.save(make())
     (store.root / ".layout").write_text(f"{LAYOUT_VERSION + 1}\n")
@@ -523,7 +522,6 @@ def test_a_pre_layout_store_keeps_its_broker_and_its_ca(tmp_path: Path) -> None:
     like it has neither — so provisioning would offer a NEW authority, and
     accepting it leaves every robot trusting a certificate the broker no longer
     presents."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR
     robot = legacy / "robots" / "LR4C654321"
@@ -545,7 +543,6 @@ def test_a_pre_layout_store_keeps_its_broker_and_its_ca(tmp_path: Path) -> None:
 
 def test_a_root_ca_from_an_even_older_layout_is_adopted(tmp_path: Path) -> None:
     """A stray ca.crt at the root predates the ca/ directory."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR
     (legacy / "robots" / "LR4C654321").mkdir(parents=True)
@@ -560,7 +557,6 @@ def test_a_root_ca_from_an_even_older_layout_is_adopted(tmp_path: Path) -> None:
 def test_the_migration_runs_once(tmp_path: Path) -> None:
     """Stamped afterwards, so a later hand-edit of broker.json is not undone by
     the next command re-reading a robot's stale copy."""
-    from whiskerless.robot_profiles import LAYOUT_VERSION, LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR
     (legacy / "robots" / "LR4C654321").mkdir(parents=True)
@@ -575,7 +571,6 @@ def test_the_migration_runs_once(tmp_path: Path) -> None:
 
 def test_a_pre_layout_store_with_no_robots_migrates_quietly(tmp_path: Path) -> None:
     """An empty legacy directory has nothing to hoist and must not fail trying."""
-    from whiskerless.robot_profiles import LAYOUT_VERSION, LEGACY_SUBDIR
 
     (tmp_path / LEGACY_SUBDIR / "robots").mkdir(parents=True)
     store = RobotProfileStore.from_env({"HOME": str(tmp_path)})
@@ -588,7 +583,6 @@ def test_a_pre_layout_profile_that_will_not_parse_loses_only_the_broker(
 ) -> None:
     """A corrupt profile must not take the whole migration down — the CA beside
     it is still the certificate every robot trusts."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
     robot.mkdir(parents=True)
@@ -601,7 +595,6 @@ def test_a_pre_layout_profile_that_will_not_parse_loses_only_the_broker(
 
 def test_the_default_robot_is_the_one_whose_broker_is_hoisted(tmp_path: Path) -> None:
     """With several robots, the one marked default is the machine's real broker."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR
     for serial, host in (("LR4C111111", "10.0.0.1"), ("LR4C222222", "10.0.0.2")):
@@ -619,7 +612,6 @@ def test_the_layout_is_not_stamped_if_the_migration_fails(tmp_path: Path) -> Non
     """A marker written mid-migration would make the next run skip the unfinished
     work forever — leaving the CA behind, so `setup` generates a replacement that
     every existing robot refuses."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
     robot.mkdir(parents=True)
@@ -646,7 +638,6 @@ def test_a_legacy_profile_of_the_wrong_shape_does_not_break_every_command(
 ) -> None:
     """Migration runs from from_env(), so anything raising here takes the whole
     CLI down — including `robots`, which is how you would diagnose it."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
     robot.mkdir(parents=True)
@@ -658,7 +649,6 @@ def test_a_legacy_profile_of_the_wrong_shape_does_not_break_every_command(
 
 
 def test_a_legacy_profile_with_an_unusable_port_still_hoists(tmp_path: Path) -> None:
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C654321"
     robot.mkdir(parents=True)
@@ -677,7 +667,6 @@ def test_migration_takes_the_hoisted_values_out_of_the_robot_profiles(tmp_path: 
     Leaving them is not merely untidy: they are what somebody edits when the
     broker moves, and then wonders why nothing changed.
     """
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C123456"
     robot.mkdir(parents=True)
@@ -715,7 +704,6 @@ def test_the_only_trust_anchor_survives_when_it_is_not_on_the_default_robot(
     running would keep working, but `provision` would then offer a NEW authority,
     and accepting it strands every one of them.
     """
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     for serial in ("LR4C111111", "LR4C222222"):
@@ -738,7 +726,6 @@ def test_a_broker_on_a_non_default_robot_is_not_dropped(tmp_path: Path) -> None:
     Hoisting nothing and then stripping `host` from the readable one destroys the
     only broker address there was — and unlike the CA, nothing else has a copy.
     """
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     (legacy / "LR4C111111").mkdir(parents=True)
@@ -760,8 +747,6 @@ def test_a_divergent_trust_anchor_is_left_where_it_is(tmp_path: Path) -> None:
     trust anchor is worth more than tidiness, and the notice names the broker it
     goes with.
     """
-    from whiskerless import pki
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     theirs = pki.generate_ca("theirs").cert_pem
@@ -806,7 +791,6 @@ def test_an_unreadable_anchor_is_skipped_when_another_robot_has_one(
 ) -> None:
     """One bad file must not take every command down when the same anchor is
     readable elsewhere — this runs from `from_env()`."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     for serial in ("LR4C111111", "LR4C222222"):
@@ -827,7 +811,6 @@ def test_no_readable_anchor_leaves_the_migration_pending(
     """Carrying on would stamp the layout, so the next run skips the migration
     forever — and `setup` then offers a replacement authority that every robot
     trusting the preserved one refuses. Better to stop and say so."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C123456"
     robot.mkdir(parents=True)
@@ -851,8 +834,6 @@ def test_the_hoisted_ca_belongs_to_the_hoisted_broker(tmp_path: Path) -> None:
     first pairs broker B with CA A: every handshake fails, and `setup` then asks
     for the key of an authority that is not the one in use.
     """
-    from whiskerless import pki
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     first_ca = pki.generate_ca("first by name").cert_pem
@@ -878,7 +859,6 @@ def test_a_robot_on_another_broker_keeps_the_address_that_says_so(tmp_path: Path
     """One host survives in the store. A robot belonging to the other broker keeps
     its profile untouched, because that profile is the only remaining record of
     which address it belongs to — and splitting it into its own store needs it."""
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     for serial, host in (("LR4C111111", "192.0.2.10"), ("LR4C222222", "198.51.100.20")):
@@ -901,8 +881,6 @@ def test_a_divergent_anchor_on_the_same_broker_is_also_left_alone(tmp_path: Path
     store keeps one CA, and `save()` removes the per-robot copies, which would
     destroy the only copy of the other one.
     """
-    from whiskerless import pki
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     theirs = pki.generate_ca("theirs").cert_pem
@@ -928,7 +906,6 @@ def test_an_unreadable_anchor_during_cleanup_skips_that_robot(
     Unreadable means unprovable, and `save()` would delete the file — so the safe
     answer is to leave that robot exactly as it is.
     """
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     for serial in ("LR4C111111", "LR4C222222"):
@@ -962,8 +939,6 @@ def test_saving_a_divergent_robot_keeps_the_anchor_the_migration_preserved(
     """The migration leaves a robot whose CA is not the store's exactly where it
     is. Nothing preserves that if the next `save()` — a rename, a calibration —
     deletes the file anyway; the protection has to survive being used."""
-    from whiskerless import pki
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     theirs = pki.generate_ca("theirs").cert_pem
@@ -1033,7 +1008,6 @@ def test_an_unreadable_leftover_anchor_is_kept_rather_than_deleted(
 ) -> None:
     """Unreadable cannot be proven to be a copy of the store's own CA, and
     unlinking is the branch that has to be proven — nothing puts the file back."""
-    from whiskerless import pki
 
     store = RobotProfileStore(tmp_path / "store")
     store.save_ca(pki.generate_ca("ours"))
@@ -1089,7 +1063,6 @@ def test_every_mode_survives_a_write_and_a_read(store: RobotProfileStore, mode: 
 
 
 def test_mutual_without_a_signing_key_is_an_error_not_a_downgrade(store: RobotProfileStore) -> None:
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca().cert_pem)
     store.save_broker(Broker(host="192.0.2.10", auth=AuthMode.MUTUAL))
@@ -1112,7 +1085,6 @@ def test_connecting_does_not_need_a_key_it_will_never_use(store: RobotProfileSto
     """A store whose CA key has gone missing still talks to its broker with the
     identity it holds. Failing `state` over a key that only matters at the next
     provision would be a guard firing at the wrong moment."""
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     store.client_identity()
@@ -1125,7 +1097,6 @@ def test_an_anonymous_store_presents_no_identity_of_its_own(store: RobotProfileS
     """The CLI connects the way the robots do. Presenting a certificate on a
     listener that accepts anonymous clients would make the CLI the one client on
     it held to a different standard."""
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     store.client_identity()
@@ -1141,7 +1112,6 @@ def test_an_anonymous_store_presents_no_identity_of_its_own(store: RobotProfileS
 def test_a_robots_identity_is_kept_and_reused(store: RobotProfileStore) -> None:
     """A robot re-provisioned — a new WiFi password is enough — stays the same
     client to the broker, so ACLs and log lines keyed to it keep pointing at it."""
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     first = store.robot_identity("LR4C123456")
@@ -1155,7 +1125,6 @@ def test_a_robots_identity_can_be_replaced_without_losing_its_profile(
 ) -> None:
     """The escape hatch a cached key needs: replacing one believed compromised
     must not cost the measurements on the profile beside it."""
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     store.save(RobotProfile(serial=Serial("LR4C123456"), litter_full_mm=90))
@@ -1168,7 +1137,6 @@ def test_a_robots_identity_can_be_replaced_without_losing_its_profile(
 def test_replacing_the_authority_drops_the_identities_it_signed(store: RobotProfileStore) -> None:
     """Left behind, `robot_identity()` hands back a certificate the retired CA
     signed — reported as current, refused by the broker."""
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     store.save(RobotProfile(serial=Serial("LR4C123456"), cert_serial="ab12"))
@@ -1183,7 +1151,6 @@ def test_a_supplied_identity_is_stored_where_an_issued_one_would_be(
 ) -> None:
     """One slot either way: the store keeps what it cannot recreate and caches
     what it can, and nothing downstream has to know which it is holding."""
-    from whiskerless import pki
 
     ca = pki.generate_ca()
     store.save_ca_cert_only(ca.cert_pem)
@@ -1195,7 +1162,6 @@ def test_a_supplied_identity_is_stored_where_an_issued_one_would_be(
 
 def test_a_robots_identity_survives_a_profile_save(store: RobotProfileStore) -> None:
     """`save()` rewrites the directory the identity lives in."""
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     store.robot_identity("LR4C123456")

@@ -17,10 +17,17 @@ from unittest.mock import patch
 
 import custom_components.whiskerless.coordinator as coord
 import pytest
+from custom_components.whiskerless.const import (
+    CONF_LEARNED_LITTER,
+    CONF_LITTER_EMPTY_MM,
+    CONF_LITTER_FULL_MM,
+)
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from whiskerless import WhiskerlessError
@@ -32,7 +39,7 @@ from . import (
     robot_online,
     setup_integration,
 )
-from .const import ACTIVITY_TOPIC
+from .const import ACTIVITY_TOPIC, MOCK_SERIAL
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -390,9 +397,7 @@ async def test_a_firmware_update_refreshes_the_device_registry(
 ) -> None:
     """Device info is registered when entities are added, so an OTA landing
     while the entry stayed loaded showed the old firmware until a reload."""
-    from homeassistant.helpers import device_registry as dr
 
-    from .const import MOCK_SERIAL
 
     robot = await setup_integration(hass, mock_config_entry, state_payload)
     doc = json.loads(state_payload)
@@ -473,7 +478,6 @@ async def test_the_learned_litter_low_survives_dedupe_and_drives_the_percentage(
     fullest reading and persist it; and with no manual calibration that learned
     low anchors the percentage at 90.
     """
-    from custom_components.whiskerless.const import CONF_LEARNED_LITTER
 
     # Without the firmware's own percentage, which always outranks the
     # calibrated approximation this test pins.
@@ -513,10 +517,7 @@ async def test_two_point_calibration_yields_a_true_scale(
     cached snapshot — and with both points stored the percentage is linear
     between them, no assumed slope.
     """
-    from custom_components.whiskerless.const import CONF_LITTER_EMPTY_MM, CONF_LITTER_FULL_MM
-    from homeassistant.helpers import entity_registry as er
 
-    from .const import MOCK_SERIAL
 
     doc = json.loads(state_payload)
     del doc["litterLevelPercentage"]  # the firmware's own percentage outranks calibration

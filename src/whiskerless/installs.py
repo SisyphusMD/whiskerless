@@ -19,6 +19,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 __all__ = ["Install", "find_installs"]
@@ -63,7 +64,6 @@ def _installed_as_editable() -> bool:
     metadata does: pip writes a `whiskerless` distribution either way, and a plain `git clone` on
     `sys.path` has none.
     """
-    from importlib.metadata import PackageNotFoundError, distribution
 
     try:
         distribution("whiskerless")
