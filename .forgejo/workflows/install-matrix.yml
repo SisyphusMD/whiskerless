@@ -60,6 +60,9 @@ jobs:
           set -euo pipefail
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           bash packaging/wait-for-release.sh "$TAG"
+        env:
+          # Only this step reads it, so it is not granted to the shard jobs or their actions.
+          GITHUB_ASSET_TOKEN: ${{ secrets.GH_REPO_READ_PAT }}
 
   linux:
     name: Linux installs (x86_64) shard ${{ matrix.shard }}

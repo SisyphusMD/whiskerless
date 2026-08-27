@@ -1747,10 +1747,12 @@ def test_the_install_matrix_is_reachable_for_every_release() -> None:
     assert "homebrew-bottles" in handoff[0]["needs"], (
         f"the handoff runs after {handoff[0]['needs']}, which can precede the bottle block"
     )
-    # The reverse of what you might expect: the handoff must NOT wait on reconcile. That sweep
-    # takes ~13 minutes across every historical tag, and the matrix does not need it — the wait
-    # polls until the release is installable, so a copy healed while it waits is still picked up.
-    # This assertion exists because blocking on it looks prudent and costs a quarter of the release.
+    # The reverse of what you might expect: the handoff must NOT wait on reconcile. That sweep takes
+    # ~13 minutes across every historical tag, and the matrix does not need it — PROVIDED readiness
+    # covers every registry the matrix installs from, which is what test_the_wait_covers_every
+    # _registry_the_matrix_installs_from pins. Those two move together: dropping this edge while the
+    # wait polls only this forge is a race, not a saving, because deb-file-github downloads from
+    # GitHub and would 404 against a release reconcile has not repaired yet.
     assert "reconcile" not in handoff[0]["needs"], (
         "the handoff waits on reconcile again, putting its full-history sweep on the critical path "
         "of every release; wait-for-release.sh already covers a late heal"
@@ -2014,3 +2016,37 @@ def test_cryptography_is_a_dependency_and_not_a_resource() -> None:
             f"{path} declares cryptography as a build dep ({line!r}); virtualenv_create prunes "
             "build deps from homebrew_deps.pth, so the module never reaches the venv"
         )
+
+
+def test_the_wait_covers_every_registry_the_matrix_installs_from() -> None:
+    """Readiness is only meaningful if it names every host the matrix downloads from.
+
+    The matrix installs one channel straight from GitHub while the wait polls this forge, so a
+    release whose GitHub upload failed reads as installable here and 404s there. That used to be
+    masked by ordering — the handoff waited on reconcile, which repairs the mirrors — and dropping
+    that edge for the ~13 minutes it costs is only safe while this check exists. Asserted against
+    the matrix's own source so adding a second GitHub-sourced channel cannot quietly widen the gap.
+    """
+    matrix = (REPO / "packaging" / "install-matrix-arch.sh").read_text(encoding="utf-8")
+    wait = (REPO / "packaging" / "wait-for-release.sh").read_text(encoding="utf-8")
+
+    assert "github.com" in matrix, (
+        "no channel downloads from GitHub any more; if that is deliberate, this invariant and the "
+        "github_ready() check it guards can both go"
+    )
+    assert "api.github.com/repos/" in wait, (
+        "github_ready() no longer asks GitHub for the release's assets"
+    )
+    # The CALL, not the definition. A function left defined but no longer invoked satisfies a
+    # name search while doing nothing at all, which is precisely the regression this guards.
+    body = wait.split("github_ready() {", 1)
+    assert len(body) == 2, "github_ready() is gone from the waiter"
+    called = [
+        line
+        for line in (body[0] + body[1].split("\n}", 1)[1]).splitlines()
+        if "github_ready" in line and not line.strip().startswith("#")
+    ]
+    assert called, (
+        "github_ready() is defined but never called, so readiness silently stops covering GitHub "
+        "while every assertion about its existence still passes"
+    )

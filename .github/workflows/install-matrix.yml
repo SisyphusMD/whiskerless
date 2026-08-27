@@ -62,6 +62,9 @@ jobs:
           set -euo pipefail
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           bash packaging/wait-for-release.sh "$TAG"
+        env:
+          # Readiness reads this repo's own release, which the built-in token already covers.
+          GITHUB_ASSET_TOKEN: ${{ github.token }}
 
   macos:
     name: macOS installs (${{ matrix.os }})
