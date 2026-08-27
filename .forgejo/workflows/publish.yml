@@ -248,7 +248,13 @@ jobs:
       cancel-in-progress: false
     # After pypi: update-tap.sh requires PyPI to already serve bytes identical to
     # the sdist it builds locally, which is the whole point of the check.
-    needs: pypi
+    # `always()` rather than the default needs-condition, matching every other downstream job
+    # here: `twine upload --skip-existing` can report failure after the sdist actually landed,
+    # and a skipped tap would leave the formula on the previous version with nothing to heal it.
+    # The render fails on its own terms if the sdist really is absent. NOT `always()`: this job
+    # pushes to the tap, and a cancelled release must not keep making externally visible writes.
+    needs: [guard, pypi]
+    if: ${{ !cancelled() && needs.guard.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -523,7 +529,12 @@ jobs:
     # from a job started by the tag push cost more than it looks — the waiter and the publisher
     # competed for the same handful of runner slots, so the wait made the publish slower, which
     # made the wait longer.
-    needs: [guard, releases, registry, nas-bridge, homebrew-tap, homebrew-bottles, reconcile]
+    # Deliberately NOT waiting on `reconcile`. It sweeps every historical tag across all three
+    # registries and takes ~13 minutes, and the matrix does not need it: wait-for-release.sh polls
+    # until the release is actually installable, so a copy reconcile heals while the matrix is
+    # waiting is still picked up. Blocking on it put those 13 minutes on the critical path of every
+    # release to buy nothing.
+    needs: [guard, releases, registry, nas-bridge, homebrew-tap, homebrew-bottles]
     # Runs even when a producer reported failure, which is not laxness but the point: a destination
     # can fail its upload and `reconcile` can then heal the release across registries, leaving a
     # COMPLETE release whose handoff had already been skipped — a release with no install matrix at
