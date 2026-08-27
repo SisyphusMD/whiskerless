@@ -43,10 +43,11 @@ ARG GH_PV
 # the network; a package that genuinely does not install still fails.
 # renovate: datasource=docker depName=debian-13-current packageName=debian
 FROM debian:13-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS deb-base
+COPY packaging/retry.sh /retry
 RUN set -eux; \
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
-    apt-get update -qq >/dev/null; \
-    apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
+    /retry 5 apt-get update -qq >/dev/null; \
+    /retry 5 apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
@@ -56,7 +57,7 @@ FROM deb-base AS deb-file
 ARG V PV DL ARCH_DEB
 RUN set -eux; \
     /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
-    apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    /retry 5 apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS deb-file-result
@@ -71,8 +72,8 @@ RUN set -eux; \
     echo "deb [signed-by=/etc/apt/keyrings/w.asc] $FORGE/api/packages/SisyphusMD/debian $DIST main" \
       > /etc/apt/sources.list.d/w.list; \
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
-    apt-get update -qq >/dev/null; \
-    apt-get install -y -qq whiskerless >/dev/null; \
+    /retry 5 apt-get update -qq >/dev/null; \
+    /retry 5 apt-get install -y -qq whiskerless >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS apt-repo-result
@@ -113,8 +114,9 @@ COPY --from=pypi-uvx /passed /passed
 # interpolation rather than evidence, since a package that installs on both neighbours installs here.
 # renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
 FROM rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834 AS rpm-base
+COPY packaging/retry.sh /retry
 RUN set -eux; \
-    dnf install -y -q openssl >/dev/null; \
+    /retry 5 dnf install -y -q openssl >/dev/null; \
     command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
@@ -123,7 +125,7 @@ FROM rpm-base AS rpm-file
 ARG V PV DL ARCH_RPM
 RUN set -eux; \
     /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
-    dnf install -y -q /tmp/w.rpm >/dev/null; \
+    /retry 5 dnf install -y -q /tmp/w.rpm >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS rpm-file-result
@@ -134,7 +136,7 @@ ARG V REPOFILE FORGE TAG
 RUN set -eux; \
     /fetch /etc/yum.repos.d/sisyphusmd.repo \
       "$FORGE/SisyphusMD/whiskerless/raw/tag/$TAG/packaging/$REPOFILE"; \
-    dnf install -y -q whiskerless >/dev/null; \
+    /retry 5 dnf install -y -q whiskerless >/dev/null; \
     rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -154,7 +156,7 @@ FROM deb-base AS deb-lifecycle
 ARG V PV DL ARCH_DEB
 RUN set -eux; \
     /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
-    apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    /retry 5 apt-get install -y -qq /tmp/w.deb >/dev/null; \
     installed=$(dpkg-query -W -f='${Version}' whiskerless); \
     [ "$installed" = "$PV" ] || { echo "installed $installed, expected $PV"; exit 1; }; \
     stable=${PV%%\~*}; \
@@ -186,7 +188,7 @@ FROM deb-base AS deb-file-github
 ARG V GH_DL GH_PV ARCH_DEB
 RUN set -eux; \
     /fetch /tmp/w.deb "$GH_DL/whiskerless_${GH_PV}_${ARCH_DEB}.deb"; \
-    apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    /retry 5 apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS deb-file-github-result
@@ -198,15 +200,16 @@ COPY --from=deb-file-github /passed /passed
 # dreame-valetudo pins, deliberately: both projects then qualify against identical snapshots.
 # renovate: datasource=docker depName=debian-12-compat packageName=debian
 FROM debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS deb-file-floor
+COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
-    apt-get update -qq >/dev/null; \
-    apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
+    /retry 5 apt-get update -qq >/dev/null; \
+    /retry 5 apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
-    apt-get install -y -qq /tmp/w.deb >/dev/null; \
+    /retry 5 apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS deb-file-floor-result
@@ -214,13 +217,14 @@ COPY --from=deb-file-floor /passed /passed
 
 # renovate: datasource=docker depName=ubuntu-22.04-compat packageName=ubuntu
 FROM ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc AS deb-file-ubuntu-floor
+COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
-    apt-get update -qq >/dev/null; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
+    /retry 5 apt-get update -qq >/dev/null; \
+    DEBIAN_FRONTEND=noninteractive /retry 5 apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
@@ -230,13 +234,14 @@ COPY --from=deb-file-ubuntu-floor /passed /passed
 
 # renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
 FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b AS deb-file-ubuntu
+COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 RUN set -eux; \
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
-    apt-get update -qq >/dev/null; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
+    /retry 5 apt-get update -qq >/dev/null; \
+    DEBIAN_FRONTEND=noninteractive /retry 5 apt-get install -y -qq curl ca-certificates openssl >/dev/null; \
     /fetch /tmp/w.deb "$DL/whiskerless_${PV}_${ARCH_DEB}.deb"; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/w.deb >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
@@ -250,13 +255,14 @@ COPY --from=deb-file-ubuntu /passed /passed
 # separate lineage entirely, newer than both, and the only dnf5 host.
 # renovate: datasource=docker depName=rocky-8-compat packageName=rockylinux/rockylinux
 FROM rockylinux/rockylinux:8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6 AS rpm-file-floor
+COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_RPM
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 RUN set -eux; \
-    dnf install -y -q openssl >/dev/null; \
+    /retry 5 dnf install -y -q openssl >/dev/null; \
     /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
-    dnf install -y -q /tmp/w.rpm >/dev/null; \
+    /retry 5 dnf install -y -q /tmp/w.rpm >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS rpm-file-floor-result
@@ -264,15 +270,17 @@ COPY --from=rpm-file-floor /passed /passed
 
 # renovate: datasource=docker depName=fedora-44-current packageName=fedora
 FROM fedora:44@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b898 AS fedora-base
-RUN set -eux; dnf install -y -q openssl >/dev/null
+COPY packaging/retry.sh /retry
+RUN set -eux; /retry 5 dnf install -y -q openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 
 FROM fedora-base AS rpm-file-fedora
+COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_RPM
 RUN set -eux; \
     /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
-    dnf install -y -q /tmp/w.rpm >/dev/null; \
+    /retry 5 dnf install -y -q /tmp/w.rpm >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS rpm-file-fedora-result
@@ -284,15 +292,17 @@ COPY --from=rpm-file-fedora /passed /passed
 # which proves something else.
 # renovate: datasource=docker depName=fedora-43-compat packageName=fedora
 FROM fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42 AS fedora-floor-base
-RUN set -eux; dnf install -y -q openssl >/dev/null
+COPY packaging/retry.sh /retry
+RUN set -eux; /retry 5 dnf install -y -q openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
 COPY packaging/fetch.sh /fetch
 
 FROM fedora-floor-base AS rpm-file-fedora-floor
+COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_RPM
 RUN set -eux; \
     /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
-    dnf install -y -q /tmp/w.rpm >/dev/null; \
+    /retry 5 dnf install -y -q /tmp/w.rpm >/dev/null; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
 FROM scratch AS rpm-file-fedora-floor-result
@@ -302,12 +312,13 @@ COPY --from=rpm-file-fedora-floor /passed /passed
 # gpgcheck in its own code, so the leg above proves nothing about it. Fedora 41 onward ships it as
 # `dnf`, which makes it the repository client a current-Fedora user actually gets.
 FROM fedora-base AS dnf5-repo
+COPY packaging/retry.sh /retry
 ARG V REPOFILE FORGE TAG
 RUN set -eux; \
-    dnf --version | head -1 | grep -q '^dnf5 '; \
+    /retry 5 dnf --version | head -1 | grep -q '^dnf5 '; \
     /fetch /etc/yum.repos.d/sisyphusmd.repo \
       "$FORGE/SisyphusMD/whiskerless/raw/tag/$TAG/packaging/$REPOFILE"; \
-    dnf install -y -q whiskerless >/dev/null; \
+    /retry 5 dnf install -y -q whiskerless >/dev/null; \
     rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -367,7 +378,7 @@ COPY --from=bottle-pour /home/linuxbrew/passed /passed
 # published port — which is what lets it run on both arches.
 FROM deb-base AS broker
 ARG V DL ARCH_BIN
-RUN set -eux; apt-get install -y -qq mosquitto mosquitto-clients >/dev/null
+RUN set -eux; /retry 5 apt-get install -y -qq mosquitto mosquitto-clients >/dev/null
 COPY packaging/broker-smoke.sh /broker-smoke.sh
 COPY tests/integration/fixtures/lr4_state.json /lr4_state.json
 RUN set -eux; \
@@ -381,7 +392,7 @@ COPY --from=broker /passed /passed
 # --- pipx, which the README offers for "CLI on PATH" ---------------------------------
 FROM deb-base AS pipx
 ARG V
-RUN set -eux; apt-get install -y -qq pipx >/dev/null
+RUN set -eux; /retry 5 apt-get install -y -qq pipx >/dev/null
 RUN set -eux; \
     PYPI_V=$(printf '%s' "$V" | sed -E 's/-rc\.([0-9]+)$/rc\1/'); \
     PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin \
@@ -394,7 +405,7 @@ COPY --from=pipx /passed /passed
 # --- plain pip into a venv, the "library + BLE provisioning" line ---------------------
 FROM deb-base AS pip
 ARG V
-RUN set -eux; apt-get install -y -qq python3 python3-venv >/dev/null
+RUN set -eux; /retry 5 apt-get install -y -qq python3 python3-venv >/dev/null
 RUN set -eux; \
     PYPI_V=$(printf '%s' "$V" | sed -E 's/-rc\.([0-9]+)$/rc\1/'); \
     python3 -m venv /opt/w; \
@@ -418,6 +429,7 @@ COPY --from=pip /passed /passed
 # identical apart from the base image. The sibling project runs the same pair, under the same names.
 # renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
 FROM opensuse/leap:16.0@sha256:f239b4819f4dd322d99509f1b5b14f2107bf23857f9ccd3c14333f0928a2bcc6 AS zypper
+COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_RPM FORGE
 RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
@@ -427,7 +439,7 @@ RUN set -eux; \
     /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
     # Not --allow-unsigned-rpm: the imported key has to be what makes this work,
     # or the test proves nothing about the signature.
-    zypper --non-interactive install /tmp/w.rpm >/dev/null; \
+    /retry 5 zypper --non-interactive install /tmp/w.rpm >/dev/null; \
     rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -436,6 +448,7 @@ COPY --from=zypper /passed /passed
 
 # renovate: datasource=docker depName=opensuse-leap-15.6-compat packageName=opensuse/leap
 FROM opensuse/leap:15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421 AS zypper-floor
+COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_RPM FORGE
 RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
@@ -445,7 +458,7 @@ RUN set -eux; \
     /fetch /tmp/w.rpm "$DL/whiskerless-${PV}.${ARCH_RPM}.rpm"; \
     # Not --allow-unsigned-rpm: the imported key has to be what makes this work,
     # or the test proves nothing about the signature.
-    zypper --non-interactive install /tmp/w.rpm >/dev/null; \
+    /retry 5 zypper --non-interactive install /tmp/w.rpm >/dev/null; \
     rpm -qi whiskerless | grep -qi "cce50015d058e9bf"; \
     bash /smoke.sh whiskerless "$V"; \
     touch /passed
@@ -576,7 +589,7 @@ ARG V TAG FORGE
 # in a dependency with no aarch64 wheel (lru-dict), which would otherwise make this
 # channel pass on one architecture and fail on the other for reasons that say
 # nothing about whiskerless.
-RUN set -eux; apt-get install -y -qq python3 python3-venv python3-dev build-essential >/dev/null
+RUN set -eux; /retry 5 apt-get install -y -qq python3 python3-venv python3-dev build-essential >/dev/null
 COPY packaging/hacs-smoke.sh /hacs-smoke.sh
 RUN set -eux; bash /hacs-smoke.sh "$TAG" "$V" "$FORGE"; touch /passed
 FROM scratch AS hacs-result
