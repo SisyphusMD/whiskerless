@@ -49,7 +49,12 @@ _FORMULA_CONSTRAINTS = "bleak<3\n"
 # has already done. Homebrew's virtualenv_create writes a homebrew_deps.pth for each non-build
 # dependency that ships site-packages, which is what makes the brewed module importable in the venv
 # — so a name removed here MUST gain a `depends_on`, or the formula installs and fails on import.
-_BREWED = frozenset({"cryptography"})
+# cffi and pycparser are here because cryptography is: they are its dependency chain and
+# nothing else in the closure asks for them, so Homebrew's cryptography formula brings its
+# own and the virtualenv reaches them through the same homebrew_deps.pth. Building our own
+# copies from sdist cost about a minute per platform per release to duplicate what was
+# already poured. Verified by the formula smoke, which imports a module that needs them.
+_BREWED = frozenset({"cryptography", "cffi", "pycparser"})
 
 
 def _closure(platform: str) -> dict[str, str]:
