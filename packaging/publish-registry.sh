@@ -114,7 +114,13 @@ fi
 remote_matches() {
   local stored rc
   stored=$(mktemp)
-  if curl --max-time 300 -sSfL -H "$auth" -o "$stored" "$2"; then
+  # A read, so a repeat costs nothing but time; retried for the same reset-mid-transfer reason.
+  local dl=1
+  while ! curl --max-time 300 -sSfL -H "$auth" -o "$stored" "$2"; do
+    [ "$dl" -ge 3 ] && break
+    rm -f "$stored"; sleep $((dl * 3)); dl=$((dl + 1))
+  done
+  if [ -s "$stored" ]; then
     cmp -s "$1" "$stored"
     rc=$?
   else
@@ -140,9 +146,28 @@ download_url() {
 }
 
 upload() {  # upload <file> <upload-url>
-  local code
-  code=$(curl --max-time 300 -sS -o "$body" -w '%{http_code}' -X PUT \
-    -H "$auth" --upload-file "$1" "$2")
+  local code attempt=1
+  # Retried HERE rather than with curl's --retry, for the reason release-common.sh gives: the
+  # failure that actually happens is a reset mid-transfer, which --retry does not classify as
+  # transient, and --retry-all-errors would retry a write blindly. This layer can do what curl
+  # cannot — a repeat lands on 409 below, which refuses to report success until it has verified the
+  # stored bytes are these bytes. So the retry is safe precisely because the check follows it.
+  while :; do
+    code=$(curl --max-time 300 -sS -o "$body" -w '%{http_code}' -X PUT \
+      -H "$auth" --upload-file "$1" "$2") && break
+    if [ "$attempt" -ge 4 ]; then
+      # The transfer may have STORED the bytes and lost the response on the way back, which is what
+      # a reset mid-upload looks like from here. Failing now would redden a release that actually
+      # published. Ask the registry what it holds before giving up — the same question the 409 path
+      # asks, and the only one that can tell those two outcomes apart.
+      if remote_matches "$1" "$(download_url "$1" "$2")"; then
+        echo "    $(basename "$1") → stored despite a lost response (bytes verified)"; return 0
+      fi
+      echo "::error::PUT $2 failed to complete after $attempt attempts" >&2; return 1
+    fi
+    echo "    $(basename "$1") → transfer failed, retrying ($attempt)"
+    sleep $((attempt * 5)); attempt=$((attempt + 1))
+  done
   case "$code" in
     201) echo "    $(basename "$1") → 201" ;;
     # This workflow is dispatchable so a partly-failed publish can be finished

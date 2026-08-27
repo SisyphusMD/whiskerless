@@ -21,7 +21,7 @@
     "packaging/next-version.sh": "56c3a240d250e26bc09c7b7a4af4f2946e5f3ec454d43bd438c046c6572f44f8",
     "packaging/promote-changelog.sh": "c70413841343bad7417417ee6335e39edba4d4f809e334eec221534f7f64fe05",
     "packaging/prune-rcs.sh": "55d52c9aed3888c242fff269828655a047775bcdc33cbef99a94714041aa8aaa",
-    "packaging/publish-registry.sh": "b415d3ec7b55e6ec14ea70bdb2bb2702bb9433bd49b1316b6cd0f973230e98a0",
+    "packaging/publish-registry.sh": "0b79b9976f3a2b77c0ad59153806ab33f734ab10e3c4bd5e1fdaea15bf97d76e",
     "packaging/push-tag.sh": "6b30628f7b9b635bd537c3e4c3d8777f123a9ac580ffe4d5af148a945cb74ff2",
     "packaging/reconcile-releases.sh": "d41f41546138327a028420544cf59951609698f21b92175b38c1b797c2b9ba0e",
     "packaging/release-common.sh": "767a7e7484f3e7f1289ff87c60a461ca374c2364b064ea37523f614bc8f744f3",
@@ -37,7 +37,7 @@
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "c8c71c330df00701c3b9aa1dfd535ca9e0803369",
+  "source_commit": "2c3a63fcebe0a07dd99811a9eac45954ae994c3e",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.18"
+  "source_tag": "v0.1.20"
 }
