@@ -7,6 +7,7 @@ neither Home Assistant nor a broker, and they fail on the file that drifted.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
@@ -18,6 +19,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from whiskerless.cli import build_parser
 
 REPO = Path(__file__).resolve().parent.parent
 INTEGRATION = REPO / "custom_components" / "whiskerless"
@@ -317,7 +320,6 @@ def test_the_man_page_documents_every_subcommand() -> None:
     """A man page is only worth shipping if it is true. Adding a subcommand and
     forgetting the page is invisible in review — and once the packages are in a
     repository, lintian checks the page EXISTS but never that it is complete."""
-    from whiskerless.cli import build_parser
 
     page = (REPO / "packaging" / "whiskerless.1").read_text(encoding="utf-8")
     sub = next(a for a in build_parser()._actions if getattr(a, "_name_parser_map", None))
@@ -718,9 +720,11 @@ def test_no_in_page_anchor_targets_a_heading_with_an_apostrophe() -> None:
             # would look for a link nobody could have written.
             forgejo = re.sub(r"[^a-z0-9 -]", "", lowered.replace("'", "-").replace("\u2019", "-"))
             forgejo = forgejo.replace(" ", "-")
-            for slug in (github, forgejo):
-                if f"#{slug}" in targeted:
-                    offenders.append(f"{name}: {heading!r} <- #{slug}")
+            offenders.extend(
+                f"{name}: {heading!r} <- #{slug}"
+                for slug in (github, forgejo)
+                if f"#{slug}" in targeted
+            )
     assert offenders == [], (
         "an apostrophe in a linked heading is dead on one of the two forges:\n  "
         + "\n  ".join(offenders)
@@ -1000,7 +1004,6 @@ def test_the_integration_imports_nothing_the_library_does_not_promise() -> None:
     there. Anything the integration needs is public; if that feels like too much to promise, the
     answer is for the integration to need less, not for the promise to look smaller than reality.
     """
-    import ast
 
     # The integration is written for Home Assistant's interpreter (3.13+) and uses PEP 695 syntax —
     # `type X = ...`, `def f[T]`. This suite also runs on the LIBRARY's 3.11.0 floor, where parsing
@@ -1053,7 +1056,6 @@ def test_the_integration_imports_nothing_the_library_does_not_promise() -> None:
 
 def _module_names(path: Path) -> set[str]:
     """The names a module declares in `__all__`, or an empty set if it declares none."""
-    import ast
 
     if not path.exists():
         return set()

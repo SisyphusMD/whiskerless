@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+import custom_components.whiskerless.coordinator as coord
 import pytest
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -51,7 +52,6 @@ async def test_the_schedule_is_written_to_every_weekday_register(
 
     sent: list[str] = []
     with robot_online(robot):
-        import custom_components.whiskerless.coordinator as coord
 
         original = coord.build_command_payload
 

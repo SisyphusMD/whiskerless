@@ -54,7 +54,7 @@ try:  # POSIX only; Windows has no fcntl and the accommodation is documented on 
 except ImportError:  # pragma: no cover - exercised only on Windows
     _HAVE_FLOCK = False
 
-from . import pki
+from . import __version__, pki
 from .exceptions import AmbiguousRobotError, RobotProfileError, WhiskerlessError
 from .mqtt import DEFAULT_TLS_PORT, MqttSettings
 from .pki import KeyPair
@@ -94,7 +94,6 @@ _LAYOUT_SINCE: dict[int, str] = {1: "0.2.0"}
 def _tool_version() -> str:
     """This build's version. Imported inside the function to keep the package root out of this
     module's import graph."""
-    from . import __version__
 
     return __version__
 

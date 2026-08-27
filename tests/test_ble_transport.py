@@ -11,6 +11,7 @@ Whether the robot on the bench agrees is a bench question, not a test one.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from inspect import signature
 from types import SimpleNamespace
@@ -60,7 +61,9 @@ class FakeBleakClient:
 
     async def read_gatt_descriptor(self, handle: int) -> bytes:
         if self._read_fails:
-            import bleak
+            # Local by necessity: a module-level import runs before the importorskip
+            # guard below, so it would fail the suite instead of skipping it.
+            import bleak  # noqa: PLC0415
 
             raise bleak.exc.BleakError("descriptor unreadable")
         return self._names[handle]
@@ -251,7 +254,6 @@ async def test_a_device_that_is_not_an_lr4_is_ignored() -> None:
 
 async def test_an_address_targeted_scan_does_not_wait_to_settle() -> None:
     """Only one device can match an address, so there is nothing to wait for."""
-    import asyncio
 
     found = {"a": (FakeDevice("AA:01"), FakeAdv(uuids=[PROV_SERVICE_UUID]))}
     with _scanner(found):
@@ -289,7 +291,9 @@ async def test_a_bluetooth_failure_is_a_sentence_not_a_stack_trace() -> None:
     """The CLI cannot catch BleakError itself — bleak is the optional [ble]
     extra, so importing it just to name an exception type would put a Bluetooth
     stack behind every non-BLE command. Translation belongs at this boundary."""
-    import bleak
+    # Local by necessity: a module-level import runs before the importorskip
+    # guard below, so it would fail the suite instead of skipping it.
+    import bleak  # noqa: PLC0415
 
     class Broken(FakeScanner):
         async def start(self) -> None:

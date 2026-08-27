@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ..exceptions import ProvisioningError, WhiskerlessError
+from ..pki import KeyPair, check_pair
 from . import messages as m
 from .messages import PROV_SERVICE_UUID
 from .transport import ProtocommBLE, translated
@@ -202,7 +203,6 @@ class ProvisioningConfig:
             # Both present is not the same as both belonging together. A
             # mismatched pair provisions cleanly and then fails every handshake,
             # and the only cure is another trip to the robot with a laptop.
-            from ..pki import KeyPair, check_pair
 
             try:
                 check_pair(KeyPair(cert_pem=self.client_cert, key_pem=self.client_key))
@@ -279,7 +279,9 @@ async def read_device_mac(address: str, *, scan_timeout: float = 15.0) -> str | 
     has and hands it to the confirmation callback. This stays for callers driving the library directly, who may want
     to identify a device without provisioning it.
     """
-    from bleak import BleakClient  # lazy: bleak is the [ble] extra
+    # Deferred, and verified so: importing bleak at module level would make this module
+    # unimportable for anyone who installed without the [ble] extra.
+    from bleak import BleakClient  # noqa: PLC0415
 
     async with translated(f"could not read the device id at {address}"), BleakClient(address) as client:
         _assert_lr4(client)
@@ -305,7 +307,9 @@ async def provision_robot(
     robot is still untouched if the caller backs out — and the networks it is
     offered are the ones the robot itself can see.
     """
-    from bleak import BleakClient  # lazy: bleak is the [ble] extra
+    # Deferred, and verified so: importing bleak at module level would make this module
+    # unimportable for anyone who installed without the [ble] extra.
+    from bleak import BleakClient  # noqa: PLC0415
 
     if "BEGIN CERTIFICATE" not in config.ca_pem:
         raise ProvisioningError("ca_pem does not look like a PEM certificate")

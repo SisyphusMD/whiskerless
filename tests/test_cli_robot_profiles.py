@@ -9,6 +9,11 @@ sentence rather than a stack trace.
 from __future__ import annotations
 
 import asyncio
+import datetime
+import datetime as _dt
+import datetime as dt
+import json
+import json as json_module
 import tempfile
 from dataclasses import replace
 from functools import cache
@@ -19,11 +24,39 @@ from unittest.mock import patch
 
 import aiomqtt
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from whiskerless.cli import _check_host, _check_ssid, _pick_saved_robot, _profile, _read_pem, main
+from whiskerless import pki
+from whiskerless.ble.messages import WifiNetwork
+from whiskerless.ble.provision import ProvisioningConfig, ProvisioningResult
+from whiskerless.ble.transport import DiscoveredRobot
+from whiskerless.cli import (
+    _ask,
+    _check_host,
+    _check_ssid,
+    _choose_network,
+    _dns_name_matches,
+    _pick_saved_robot,
+    _profile,
+    _read_pem,
+    main,
+)
 from whiskerless.cli import _store as cli_store
+from whiskerless.devices.litter_robot_4.models import LitterRobot4State
+from whiskerless.devices.litter_robot_4.protocol import StateMessage
 from whiskerless.exceptions import ProvisioningError, RobotProfileError, WhiskerlessError
-from whiskerless.robot_profiles import AuthMode, Broker, RobotProfile, RobotProfileStore, Serial
+from whiskerless.pki import KeyPair
+from whiskerless.robot_profiles import (
+    LEGACY_SUBDIR,
+    AuthMode,
+    Broker,
+    RobotProfile,
+    RobotProfileStore,
+    Serial,
+)
 
 CA = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
 
@@ -53,7 +86,6 @@ def seed(store: RobotProfileStore, serial: str = "LR4C123456", **kwargs: object)
     if not store.has_broker():
         store.save_broker(Broker(host="192.0.2.10"))
     if not store.has_ca():
-        from whiskerless import pki
 
         # A real authority, key included: every provision issues the robot a
         # certificate now, so a store that cannot sign is not one provision runs on.
@@ -431,7 +463,6 @@ def test_an_ssid_passes_through_untouched() -> None:
 
 def test_a_bad_answer_is_re_asked_rather_than_fatal(capsys: pytest.CaptureFixture[str]) -> None:
     """The point of validating at the prompt: a typo costs one line, not five."""
-    from whiskerless.cli import _ask
 
     with patch("builtins.input", side_effect=["", "192.168.1.10"]):
         assert _ask("host: ", None, _check_host) == "192.168.1.10"
@@ -440,14 +471,12 @@ def test_a_bad_answer_is_re_asked_rather_than_fatal(capsys: pytest.CaptureFixtur
 
 def test_a_bad_value_from_the_command_line_is_fatal() -> None:
     """Nobody is at a prompt to correct it, so re-asking would loop forever."""
-    from whiskerless.cli import _ask
 
     with pytest.raises(WhiskerlessError):
         _ask("host: ", "", _check_host)
 
 
 def test_input_that_ends_mid_prompt_is_an_error_not_a_hang() -> None:
-    from whiskerless.cli import _ask
 
     with (
         patch("builtins.input", side_effect=EOFError),
@@ -460,7 +489,6 @@ def test_input_that_ends_mid_prompt_is_an_error_not_a_hang() -> None:
 def test_the_model_number_is_not_accepted_as_a_serial() -> None:
     """The REAL designator, not a strawman: LR4-0301-00-US is long enough and
     carries enough digits to pass every shape check — the hyphen is the tell."""
-    from whiskerless.ble.provision import ProvisioningConfig
 
     with pytest.raises(ProvisioningError, match="looks like the model number"):
         ProvisioningConfig.check_serial("LR4-0301-00-US")
@@ -469,13 +497,11 @@ def test_the_model_number_is_not_accepted_as_a_serial() -> None:
 
 
 def test_a_real_serial_is_normalized() -> None:
-    from whiskerless.ble.provision import ProvisioningConfig
 
     assert ProvisioningConfig.check_serial(" lr4c123456 ") == "LR4C123456"
 
 
 def test_another_model_is_refused_outright() -> None:
-    from whiskerless.ble.provision import ProvisioningConfig
 
     with pytest.raises(ProvisioningError, match="only supports the LR4"):
         ProvisioningConfig.check_serial("LR3C123456")
@@ -508,8 +534,6 @@ def _run_state(captured: dict[str, Any], *extra: str, _argv: list[str] | None = 
             return None
 
     async def _one_state(self: Any) -> Any:
-        from whiskerless.devices.litter_robot_4.models import LitterRobot4State
-        from whiskerless.devices.litter_robot_4.protocol import StateMessage
 
         yield StateMessage(state=LitterRobot4State(raw={}), raw={})
 
@@ -701,7 +725,6 @@ def test_an_ssid_is_still_asked_for_when_the_prior_robot_has_none(
 
 
 async def _fake_scan(**_: object) -> list[Any]:
-    from whiskerless.ble.transport import DiscoveredRobot
 
     return [DiscoveredRobot(address="AA:BB:CC:DD:EE:FF", name="LitterRobot", rssi=-40)]
 
@@ -720,7 +743,6 @@ def _fake_provision(*, success: bool) -> Any:
     """
 
     async def _provision(*_a: object, **kwargs: object) -> Any:
-        from whiskerless.ble.provision import ProvisioningResult
 
         config = _a[1] if len(_a) > 1 else kwargs.get("config")
         chooser = kwargs.get("choose_network")
@@ -757,7 +779,6 @@ def _prepared(store: RobotProfileStore | None = None, *, with_key: bool = True) 
     Always with a key: since 0.2.0 setup cannot finish without one, so a store
     without it is not a state this helper can produce.
     """
-    from whiskerless import pki
 
     store = store or RobotProfileStore.from_env()
     if not store.has_broker():
@@ -788,7 +809,6 @@ def _provisioned(argv: list[str], answer: str | None = None) -> int:
 
 # --- choosing a network from what the robot can see ---------------------------
 def _networks() -> list[Any]:
-    from whiskerless.ble.messages import WifiNetwork
 
     return [
         WifiNetwork(ssid="Near", channel=1, rssi=-40, secured=True),
@@ -799,7 +819,6 @@ def _networks() -> list[Any]:
 def test_a_robot_that_sees_nothing_falls_back_to_typing() -> None:
     """Hidden SSIDs are real and the robot joins them fine; it just cannot list
     them. Falling back beats refusing."""
-    from whiskerless.cli import _choose_network
 
     answers = iter(["Hidden", ""])
     with (
@@ -811,7 +830,6 @@ def test_a_robot_that_sees_nothing_falls_back_to_typing() -> None:
 
 
 def test_a_hidden_network_can_be_typed_instead_of_picked() -> None:
-    from whiskerless.cli import _choose_network
 
     answers = iter(["-", "Hidden", ""])
     with (
@@ -823,7 +841,6 @@ def test_a_hidden_network_can_be_typed_instead_of_picked() -> None:
 
 
 def test_a_nonsense_selection_just_asks_again() -> None:
-    from whiskerless.cli import _choose_network
 
     answers = iter(["nope", "99", "1", ""])
     with (
@@ -836,14 +853,12 @@ def test_a_nonsense_selection_just_asks_again() -> None:
 
 def test_input_ending_at_the_network_list_is_an_error() -> None:
     """A pipe must fail with a sentence, not hang or pick something."""
-    from whiskerless.cli import _choose_network
 
     with patch("builtins.input", side_effect=EOFError), pytest.raises(WhiskerlessError):
         _run_async(_choose_network(_networks()))
 
 
 def test_the_list_is_shown_strongest_first(capsys: pytest.CaptureFixture[str]) -> None:
-    from whiskerless.cli import _choose_network
 
     answers = iter(["0", ""])
     with (
@@ -881,8 +896,6 @@ def test_a_named_network_still_gets_its_passphrase_asked_for(store: RobotProfile
 
 def test_a_supplied_passphrase_survives_the_network_chooser() -> None:
     """--wifi-pass with no SSID still needs the list, but must not be overwritten."""
-    from whiskerless.ble.messages import WifiNetwork
-    from whiskerless.cli import _choose_network
 
     networks = [WifiNetwork(ssid="Near", channel=1, rssi=-40, secured=True)]
 
@@ -899,8 +912,6 @@ def test_a_supplied_passphrase_survives_the_network_chooser() -> None:
 
 def test_an_open_network_is_never_asked_for_a_password() -> None:
     """Asking for a password a network does not have invites someone to invent one."""
-    from whiskerless.ble.messages import WifiNetwork
-    from whiskerless.cli import _choose_network
 
     networks = [WifiNetwork(ssid="Cafe", channel=1, rssi=-50, secured=False)]
 
@@ -931,7 +942,6 @@ def _provision_output(store: RobotProfileStore, *extra: str) -> str:
 def test_a_ca_we_can_sign_with_means_the_robot_gets_our_identity(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     _provision_output(store)
@@ -962,7 +972,6 @@ def test_every_robot_gets_an_identity_with_no_way_to_opt_out(
 
 # --- setting up a certificate authority on a fresh machine --------------------
 def _ca_files(tmp_path: Path, *, with_key: bool = True) -> tuple[str, str | None]:
-    from whiskerless import pki
 
     ca = pki.generate_ca("someone else's CA")
     cert = tmp_path / "their-ca.crt"
@@ -1078,7 +1087,6 @@ def test_a_server_certificate_is_missing_a_ca_and_says_so(
 ) -> None:
     """The "I gave you my server cert" mistake, caught at the prompt rather than
     as an unexplained TLS failure weeks later."""
-    from whiskerless import pki
 
     ca = pki.generate_ca()
     leaf = pki.issue_server(ca, "192.0.2.10")
@@ -1177,7 +1185,6 @@ def test_a_client_certificate_can_be_supplied_by_flag(
 ) -> None:
     """For somebody who mints this machine's identity themselves — from the same
     CA, but somewhere else — rather than letting the store issue it."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     ca = pki.read_pair(Path(cert), Path(key))
@@ -1202,12 +1209,7 @@ def test_half_a_client_identity_is_refused(
 def test_an_expired_ca_is_refused(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    import datetime as dt
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "stale CA")])
@@ -1233,12 +1235,7 @@ def test_a_ca_without_key_usage_warns_about_the_failure_it_will_cause(
 ) -> None:
     """It works for the robot and then breaks our own CLI on Python 3.13 — the
     worst possible split, and worth naming before it happens."""
-    import datetime as dt
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "loose CA")])
@@ -1283,12 +1280,7 @@ def test_a_certificate_with_no_constraints_at_all_is_not_a_ca(
 ) -> None:
     """Older self-signed certificates often carry no basicConstraints extension;
     absent is not the same as CA:TRUE."""
-    import datetime as dt
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "bare")])
@@ -1316,7 +1308,6 @@ def test_a_different_ca_is_refused_rather_than_swapped_in(
 ) -> None:
     """Replacing it leaves every provisioned robot trusting a certificate the
     broker no longer presents, and each rescue is a walk to the robot."""
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca("the one they trust"))
     seed(store, "LR4C111111", name="Upstairs")
@@ -1368,7 +1359,6 @@ def test_declining_a_dry_run_is_still_a_decline(
     """A script reading the exit code must not be told a run it declined
     succeeded, dry or not."""
     _prepared(store)
-    from whiskerless import pki
 
     store.save_ca(pki.generate_ca())
     with (
@@ -1429,7 +1419,6 @@ def test_moving_the_broker_reissues_its_certificate(
     it stayed put handed the robot a SAN naming somewhere it does not connect —
     a handshake that fails every time and looks exactly like a broken robot.
     Worse, `setup` then printed those same three files and said to install them."""
-    from whiskerless import pki
 
     with (
         patch("whiskerless.cli.sys.stdin.isatty", lambda: True),
@@ -1464,7 +1453,6 @@ def test_a_moved_broker_gets_a_reissued_certificate(
     """A certificate naming the old address fails every handshake while looking
     right on disk. The store can always sign now, so it is simply replaced —
     where 0.1.3 could only warn, because the key might not have been here."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
@@ -1515,7 +1503,6 @@ def test_bringing_your_own_ca_and_key_also_gets_a_broker_certificate(
     machine's identity, and then tell you to make sure your broker presents a
     certificate signed by that CA — with the thing that could sign it sitting
     right there."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path, with_key=True)
     assert main(["setup", "--host", "192.0.2.10", "--ca", cert, "--ca-key", key]) == 0
@@ -1533,7 +1520,6 @@ def test_a_server_certificate_you_placed_yourself_is_never_overwritten(
     process may have put the real one there already — and as long as it names
     this broker, it is theirs to keep. (An UNREADABLE one is reissued instead;
     that is a different test, and deliberate.)"""
-    from whiskerless import pki
 
     # ONE call: _ca_files mints a fresh CA each time, so calling it twice would
     # sign the fixture with a CA that is never imported — which the code now
@@ -1554,7 +1540,6 @@ def test_a_broker_certificate_from_a_foreign_ca_is_never_overwritten(
     replaced: proving a chain is harder than it looks (an intermediate, or an
     RSASSA-PSS signature, reads as "not ours"), and a false negative that
     overwrites would destroy somebody's certificate and its private key."""
-    from whiskerless import pki
 
     stranger = pki.issue_server(pki.generate_ca("not yours"), "192.0.2.10")
     store.save_broker_certs(stranger)
@@ -1569,7 +1554,6 @@ def test_a_broker_certificate_from_a_foreign_ca_is_never_overwritten(
 def test_a_wrong_ca_broker_certificate_is_called_out_when_it_cannot_be_reissued(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     store.save_broker_certs(pki.issue_server(pki.generate_ca("not yours"), "192.0.2.10"))
     cert, key = _ca_files(tmp_path)
@@ -1584,7 +1568,6 @@ def test_an_unreadable_broker_certificate_file_does_not_crash_setup(
 ) -> None:
     """The chain check reads the file a second time; a read that fails there must
     not take down a command that was only deciding whether to reissue."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path, with_key=True)
     assert key is not None
@@ -1609,7 +1592,6 @@ def test_a_broker_certificate_that_vanishes_mid_check_is_not_treated_as_usable(
 ) -> None:
     """`is_file()` then `read_text()` is a check-then-use; if the read fails the
     answer must be "not usable", never "fine"."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path, with_key=True)
     assert key is not None
@@ -1636,9 +1618,7 @@ def test_a_migrated_store_is_told_what_changed_once(
     which they would never discover, because a trust anchor with no key looks
     exactly like a deliberate choice to everything downstream.
     """
-    import json
 
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     robot = tmp_path / LEGACY_SUBDIR / "robots" / "LR4C123456"
     robot.mkdir(parents=True)
@@ -1667,7 +1647,6 @@ def test_a_store_placed_by_hand_is_told_what_changed_without_claiming_a_move(
     is no move to announce, so announcing one sends them looking for a directory
     that was never created.
     """
-    import json
 
     home = tmp_path / "elsewhere"
     robot = home / "robots" / "LR4C123456"
@@ -1694,7 +1673,6 @@ def test_a_store_with_a_certificate_but_no_key_is_refused_without_a_terminal(
     Carrying on regardless is the worst option — it looks identical to a working
     setup while silently declining to issue the certificates the version exists
     for. A script gets told which flags finish the job."""
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
     assert main(["setup", "--host", "192.0.2.10"]) != 0
@@ -1708,7 +1686,6 @@ def test_the_missing_key_can_be_supplied_and_nothing_is_re_provisioned(
 ) -> None:
     """The cheap answer: the robots already trust this authority, so filing its
     key leaves every one of them working."""
-    from whiskerless import pki
 
     ca = pki.generate_ca("theirs")
     store.save_ca_cert_only(ca.cert_pem)
@@ -1732,7 +1709,6 @@ def test_a_key_for_a_different_authority_is_refused(
 ) -> None:
     """A key that signs for something else would leave every robot out there
     trusting an authority this store cannot sign for."""
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
     other = pki.generate_ca("somebody else")
@@ -1754,7 +1730,6 @@ def test_replacing_the_authority_needs_the_cost_typed_out(
 ) -> None:
     """Generating a new authority strands every robot until it is re-provisioned,
     so it is not something a stray keypress does."""
-    from whiskerless import pki
 
     original = pki.generate_ca("theirs").cert_pem
     store.save_ca_cert_only(original)
@@ -1791,9 +1766,7 @@ def test_a_second_broker_is_reported_rather_than_dropped(
     Almost certainly nobody's setup, but a silent wrong answer is worse than a
     stated one, and this is the only moment the discarded address exists to
     report."""
-    import json as json_module
 
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     for serial, host in (("LR4C111111", "192.0.2.10"), ("LR4C222222", "198.51.100.20")):
@@ -1815,9 +1788,7 @@ def test_one_broker_across_robots_says_nothing_extra(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The ordinary case must not grow a warning about a choice nobody faced."""
-    import json as json_module
 
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     for serial in ("LR4C111111", "LR4C222222"):
@@ -1834,9 +1805,7 @@ def test_one_broker_across_robots_says_nothing_extra(
 
 def test_a_robot_profile_too_damaged_to_read_does_not_stop_the_hoist(tmp_path: Path) -> None:
     """This runs from from_env(), so anything raising takes every command down."""
-    import json as json_module
 
-    from whiskerless.robot_profiles import LEGACY_SUBDIR
 
     legacy = tmp_path / LEGACY_SUBDIR / "robots"
     (legacy / "LR4C111111").mkdir(parents=True)
@@ -1856,7 +1825,6 @@ def test_the_key_question_with_nobody_to_ask_names_the_flags(
     """A terminal that closes mid-question must not become a traceback. It is the
     same answer the non-interactive path gives, because the situation is the
     same: nobody can say which authority this store should end up with."""
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
 
@@ -1878,7 +1846,6 @@ def test_replacing_the_authority_works_without_a_broker_on_file(
     """Migration keeps a CA even when it can hoist no broker address, so this
     store is reachable — and replacing the authority is irreversible, so it must
     not get half-done and then fail looking for a broker that was never there."""
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
     assert not store.has_broker()
@@ -1902,7 +1869,6 @@ def test_replacing_the_authority_replaces_this_machines_identity_too(
 
     Keeping it means setup reports success and the CLI is then refused the moment
     the listener asks for a certificate — with nothing to connect the two."""
-    from whiskerless import pki
 
     old_ca = pki.generate_ca("theirs")
     store.save_ca_cert_only(old_ca.cert_pem)
@@ -1957,7 +1923,6 @@ def test_replacing_the_authority_does_not_overwrite_a_foreign_broker_certificate
     """Overwriting a certificate this store did not issue destroys its private key
     too, which is why `_refresh_server_cert` never does it. Rotating the authority
     must go through the same guard rather than writing directly."""
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
     store.save_broker(Broker(host="192.0.2.10"))
@@ -2016,7 +1981,6 @@ def test_replacing_the_authority_leaves_an_unreadable_broker_certificate_alone(
     """Whether the old certificate is ours has to be read off disk, and that read
     can fail. Unprovable is treated as somebody else's, because overwriting takes
     the private key with it and there is no way to put one back."""
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca("theirs").cert_pem)
     store.save_broker(Broker(host="192.0.2.10"))
@@ -2060,14 +2024,8 @@ def _provision_run(*extra: str) -> int:
 
 def _expired_client(ca: Any, common_name: str) -> Any:
     """A client certificate that was valid once, for the check that it is not now."""
-    import datetime
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
-    from whiskerless.pki import KeyPair
 
     issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
     signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
@@ -2096,14 +2054,8 @@ def _expired_client(ca: Any, common_name: str) -> Any:
 
 def _future_client(ca: Any, common_name: str) -> Any:
     """A certificate whose validity has not started yet."""
-    import datetime
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
-    from whiskerless.pki import KeyPair
 
     issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
     signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
@@ -2135,14 +2087,8 @@ def _bare_client(ca: Any, common_name: str, *, eku: Any = None) -> Any:
     ExtendedKeyUsage. Plenty of hand-rolled CAs issue exactly this. `eku` adds one
     back, for the checks that only apply when the extension is there to disagree
     with."""
-    import datetime
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
-    from whiskerless.pki import KeyPair
 
     issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
     signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
@@ -2179,7 +2125,6 @@ def _bare_client(ca: Any, common_name: str, *, eku: Any = None) -> Any:
 
 def _their_robot_cert(tmp_path: Path, ca_cert: str, ca_key: str, serial: str) -> tuple[str, str]:
     """A robot certificate somebody else issued, from the same authority."""
-    from whiskerless import pki
 
     ca = pki.read_pair(Path(ca_cert), Path(ca_key))
     theirs = pki.issue_client(ca, serial)
@@ -2200,7 +2145,6 @@ def test_supplied_mode_takes_a_ca_certificate_with_no_key(
 ) -> None:
     """The cert-manager arrangement: the signing key never reaches this machine.
     Stricter than the default, not weaker — so it must not need one."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2247,7 +2191,6 @@ def test_supplied_mode_needs_this_machines_own_certificate(
 def test_supplied_mode_with_no_certificate_for_this_robot_says_so(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2266,7 +2209,6 @@ def test_a_robot_certificate_from_the_wrong_authority_is_refused(
 ) -> None:
     """Written to the robot it produces a robot the broker refuses, and the
     failure surfaces as a TLS handshake that names nothing."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2399,7 +2341,6 @@ def test_a_non_signing_mode_with_no_ca_and_no_terminal_says_which_flag(
 def test_a_non_signing_mode_asks_for_the_ca_when_there_is_somebody_to_ask(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2441,7 +2382,6 @@ def test_a_foreign_broker_certificate_naming_the_wrong_host_is_reported(
 ) -> None:
     """Nothing here can replace it — no key — so saying what is wrong with it is
     the whole of what this can do."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2460,7 +2400,6 @@ def test_the_upgrade_prompt_names_the_way_out_that_costs_no_robot(
     """Somebody whose key is in cert-manager should not have to pick "generate a
     new authority" — and re-provision the fleet — to escape a prompt written for
     somebody who lost theirs."""
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca().cert_pem)
     store.save_broker(Broker(host="192.0.2.10"))
@@ -2477,7 +2416,6 @@ def test_the_upgrade_prompt_names_the_way_out_that_costs_no_robot(
 def test_the_scripted_upgrade_error_names_it_too(
     store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     store.save_ca_cert_only(pki.generate_ca().cert_pem)
     store.save_broker(Broker(host="192.0.2.10"))
@@ -2491,7 +2429,6 @@ def test_the_ca_cannot_be_handed_over_as_a_robots_certificate(
     """A CA certificate IS signed by the stored authority when it is the stored
     authority, so a signature check alone accepts it — and provisioning writes the
     key beside it to the robot."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2510,7 +2447,6 @@ def test_the_ca_cannot_be_handed_over_as_a_robots_certificate(
 def test_an_expired_supplied_certificate_is_refused(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2573,7 +2509,6 @@ def test_rotating_the_authority_reaches_an_identity_no_profile_names(
 
 def _supplied_store(store: RobotProfileStore, tmp_path: Path) -> tuple[str, str]:
     """A `supplied` store, ready to be handed a robot certificate."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2591,7 +2526,6 @@ def test_a_certificate_with_no_extensions_at_all_is_accepted(
 ) -> None:
     """Minimal certificates from a hand-rolled CA are common and work. Refusing
     one for lacking extensions would strand somebody whose setup is fine."""
-    from whiskerless import pki
 
     cert, key = _supplied_store(store, tmp_path)
     bare = _bare_client(pki.read_pair(Path(cert), Path(key)), "LR4C123456")
@@ -2608,9 +2542,7 @@ def test_a_certificate_marked_for_the_wrong_purpose_is_reported(
     """A leaf that chains and names the robot, but says it is for a server. Warned
     rather than refused: brokers that check extended key usage reject it, and
     plenty do not."""
-    from cryptography.x509.oid import ExtendedKeyUsageOID
 
-    from whiskerless import pki
 
     cert, key = _supplied_store(store, tmp_path)
     odd = _bare_client(
@@ -2640,7 +2572,6 @@ def test_a_broker_certificate_from_another_authority_is_reported(
 ) -> None:
     """Setup's next line says to restart the broker with it, so every way it can
     be wrong has to be said here."""
-    from whiskerless import pki
 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
@@ -2657,7 +2588,6 @@ def test_a_broker_certificate_from_another_authority_is_reported(
 def test_an_expired_broker_certificate_is_reported(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2734,7 +2664,6 @@ def test_a_broker_certificate_naming_another_host_in_its_san_is_reported(
 ) -> None:
     """Modern issuers leave the CN empty, so treating a missing one as fine
     passes a certificate for some other broker."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2760,7 +2689,6 @@ def test_the_ca_cannot_be_filed_as_this_machines_identity(
 def test_a_client_certificate_from_another_authority_is_refused(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
@@ -2821,7 +2749,6 @@ def test_a_certificate_that_is_not_valid_yet_is_refused(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The broker refuses it until the hour it starts, and says nothing useful."""
-    from whiskerless import pki
 
     cert, key = _supplied_store(store, tmp_path)
     future = _future_client(pki.read_pair(Path(cert), Path(key)), "LR4C123456")
@@ -2837,7 +2764,6 @@ def test_a_certificate_with_no_common_name_is_flagged_not_refused(
 ) -> None:
     """It works on a broker that does not key off the name, so refusing would
     strand somebody whose setup is fine — but they should know what they lose."""
-    from whiskerless import pki
 
     cert, key = _supplied_store(store, tmp_path)
     nameless = _bare_client(pki.read_pair(Path(cert), Path(key)), "")
@@ -2865,7 +2791,6 @@ def test_a_dns_name_is_compared_the_way_tls_compares_it(
 ) -> None:
     """A false negative here prints advice to replace a certificate that was
     already correct."""
-    from whiskerless.cli import _dns_name_matches
 
     assert _dns_name_matches(pattern, host) is matches
 
@@ -2874,7 +2799,6 @@ def test_a_rejected_replacement_leaves_this_machines_identity_working(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The store may hold the only copy of the one being replaced."""
-    from whiskerless import pki
 
     cert, key = _supplied_store(store, tmp_path)
     working = store.load_client().cert_pem
@@ -2894,12 +2818,7 @@ def test_a_broker_certificate_placed_with_a_wildcard_name_is_not_overwritten(
 ) -> None:
     """Signed by this store's CA, and valid for the broker by TLS's rules.
     Overwriting it destroys the private key beside it."""
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
 
-    from whiskerless import pki
-    from whiskerless.pki import KeyPair
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2909,7 +2828,6 @@ def test_a_broker_certificate_placed_with_a_wildcard_name_is_not_overwritten(
     issuer = x509.load_pem_x509_certificate(ca.cert_pem.encode())
     signing = serialization.load_pem_private_key(ca.key_pem.encode(), password=None)
     leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    import datetime as _dt
 
     now = _dt.datetime.now(_dt.UTC)
     wildcard = (
@@ -2941,12 +2859,7 @@ def test_a_ca_dated_into_the_future_is_refused(
 ) -> None:
     """Stored, it makes every chain fail until that date — including at every
     robot that was given it."""
-    import datetime as _dt
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     later = _dt.datetime.now(_dt.UTC) + _dt.timedelta(days=7)
@@ -2971,7 +2884,6 @@ def test_a_ca_dated_into_the_future_is_refused(
 def test_a_broker_certificate_dated_into_the_future_is_reported(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -2985,7 +2897,6 @@ def test_a_cached_supplied_certificate_that_has_expired_stops_the_provision(
 ) -> None:
     """A WiFi password change is a re-provision, and what was in date when it was
     filed may not be now."""
-    from whiskerless import pki
 
     cert, key = _supplied_store(store, tmp_path)
     stale = _expired_client(pki.read_pair(Path(cert), Path(key)), "LR4C123456")
@@ -2999,7 +2910,6 @@ def test_a_cached_issued_certificate_that_has_expired_is_replaced(
 ) -> None:
     """This store signs, so an expired cached certificate is one mint away —
     writing it would produce a robot the broker refuses."""
-    from whiskerless import pki
 
     seed(store)
     stale = _expired_client(store.load_ca(), "LR4C123456")
@@ -3017,7 +2927,6 @@ def test_an_expired_machine_certificate_says_why_instead_of_failing_at_tls(
 ) -> None:
     """Nothing here can mint a replacement, so this is the only place the reason
     can be given."""
-    from whiskerless import pki
 
     cert, key = _supplied_store(store, tmp_path)
     store.save_client(_expired_client(pki.read_pair(Path(cert), Path(key)), "whiskerless-test"))
@@ -3030,7 +2939,6 @@ def test_a_broker_certificate_of_ours_that_expired_is_reissued(
 ) -> None:
     """This store can sign, so advertising an out-of-date certificate for
     installation would send somebody to restart their broker for nothing."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -3047,7 +2955,6 @@ def test_a_broker_certificate_with_no_key_beside_it_is_not_advertised(
 ) -> None:
     """Mosquitto cannot serve a certificate without its key, and setup's next line
     tells somebody to install both."""
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -3060,7 +2967,6 @@ def test_a_broker_certificate_with_no_key_beside_it_is_not_advertised(
 def test_a_broker_certificate_with_the_wrong_key_is_not_advertised(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from whiskerless import pki
 
     cert, key = _ca_files(tmp_path)
     assert key is not None
@@ -3076,12 +2982,7 @@ def test_an_expired_authority_stops_a_provision_before_the_robot_is_touched(
 ) -> None:
     """An authority managed elsewhere can expire between two robots, and writing
     it produces one that cannot verify the broker — another walk to the machine."""
-    import datetime as _dt
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
     cert, _ = _ca_files(tmp_path)
     assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
@@ -3111,15 +3012,8 @@ def test_a_certificate_whose_only_san_is_irrelevant_falls_back_to_its_name(
     """A URI SAN does not participate in hostname verification, so OpenSSL reads
     the common name and accepts it. Treating any SAN at all as authoritative would
     call this foreign and overwrite it, private key and all."""
-    import datetime as _dt
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
 
-    from whiskerless import pki
-    from whiskerless.pki import KeyPair
 
     cert, key = _ca_files(tmp_path)
     assert key is not None

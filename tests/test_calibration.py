@@ -20,8 +20,10 @@ from whiskerless.devices.litter_robot_4.calibration import (
     Learned,
     hopper_is_empty,
     hopper_percent,
+    hopper_percent_provisional,
     litter_is_sampleable,
 )
+from whiskerless.devices.litter_robot_4.models import litter_level_percent_from_mm
 
 IDLE = {"robotStatus": 4, "catDetect": 0, "litterLevel": 455}
 
@@ -325,7 +327,6 @@ def test_a_learned_range_is_never_treated_as_a_true_empty_end() -> None:
     maximum to zero would report empty at a perfectly normal level. Only the
     full end is estimated, and only because people fill to the line.
     """
-    from whiskerless.devices.litter_robot_4.models import litter_level_percent_from_mm
 
     learned = Learned(low=440, high=465)
     # Anchored at 90% like the manual reference, so the emptiest seen reads as a
@@ -354,7 +355,6 @@ def test_a_lower_reading_is_not_floor_confirmation() -> None:
 
 def test_provisional_percent_maps_the_typical_band() -> None:
     """Display-only estimate for an uncalibrated unit: clamped to the band."""
-    from whiskerless.devices.litter_robot_4.calibration import hopper_percent_provisional
 
     assert hopper_percent_provisional(84) == 75
     assert hopper_percent_provisional(66) == 0

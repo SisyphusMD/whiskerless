@@ -110,18 +110,26 @@ src = ["src", "tests", "custom_components"]
 "custom_components/**" = "py313"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PTH", "BLE",
-          # PLW catches module-global mutation, which is how robot_profiles.py used to hand
-          # migration results to the CLI. PLC0415 is deliberately NOT enabled: the lazy
-          # imports for optional heavy dependencies are an architectural choice.
-          "PLW"]
+select = [
+    # Kept identical to the sibling on purpose: a rule enabled in one project and not the other
+    # makes a `# noqa` that is correct here an RUF100 error there — which is exactly why the shared
+    # packaging/check-glibc-floor.py refuses to carry one and asks each consumer to exempt it.
+    "E4", "E7", "E9", "F",   # pyflakes + the default pycodestyle subset
+    "I",                     # import sorting
+    "ASYNC", "B", "BLE", "C4", "FLY", "ISC", "PERF", "PIE", "PTH", "RET", "RUF", "SIM", "UP",
+    "PLC", "PLE", "PLW",     # pylint conventions/errors/warnings (not the noisy PLR refactor set)
+]
 ignore = [
-    "E501",                       # long protocol comments/tables are allowed
+    "E501",                       # long protocol comments/tables are allowed (E5 is not selected; kept for parity)
     "ASYNC109",                   # a `timeout` param that wraps asyncio.timeout is a fine API
     "RUF001", "RUF002", "RUF003", # typographic en-dashes in prose/ranges are intentional
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# Vendored from project-standard. Shared files carry no project-specific noqa codes (a code the
+# sibling does not enable would fail RUF100 there), so the exemption lives with the rule set that
+# needs it. The lazy PyInstaller import is deliberate: it is a release-build dependency only.
+"packaging/check-glibc-floor.py" = ["PLC0415"]
 # The CLI is a short-lived process; blocking input()/path reads in async handlers
 # are acceptable rather than worth an executor hop.
 "src/whiskerless/cli.py" = ["ASYNC230", "ASYNC240", "ASYNC250"]

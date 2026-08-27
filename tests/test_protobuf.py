@@ -9,7 +9,9 @@ from whiskerless.ble.protobuf import (
     _read_varint,
     _tag,
     encode_varint,
+    field_message,
     field_string,
+    field_varint,
     iter_fields,
 )
 
@@ -54,7 +56,6 @@ def test_parse_status_reads_field2() -> None:
 def test_parse_device_id_roundtrip() -> None:
     mac = bytes.fromhex("b48a0a8ac928")
     # Build a DEVICE_ID_RESPONSE: msg=2, arm 11 { field1 (bytes) = mac }.
-    from whiskerless.ble.protobuf import field_message, field_varint
 
     inner = bytes([0x0A, len(mac)]) + mac  # field 1, LEN
     response = field_varint(1, 2) + field_message(11, inner)

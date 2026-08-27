@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
+from whiskerless import pki
 from whiskerless.cli import (
     _build_setting,
     _parse_bool,
@@ -33,6 +34,7 @@ from whiskerless.devices.litter_robot_4.protocol import (
     StateMessage,
 )
 from whiskerless.exceptions import WhiskerlessConnectionError, WhiskerlessError
+from whiskerless.robot_profiles import Broker, RobotProfileStore
 from whiskerless.safety import Hazard, assert_sendable, classify_code
 
 BASE = ["--serial", "LR4C000001"]
@@ -41,7 +43,6 @@ BASE = ["--serial", "LR4C000001"]
 @pytest.fixture(autouse=True)
 def _a_broker_to_talk_to() -> None:
     """The store carries the broker now, so every command needs one on file."""
-    from whiskerless.robot_profiles import Broker, RobotProfileStore
 
     RobotProfileStore.from_env().save_broker(Broker(host="192.0.2.10"))
 
@@ -432,8 +433,6 @@ def _prov_args(tmp_path: Any) -> list[str]:
     to restart before a robot can use them, and a robot in pairing mode is off the
     network for all of it.
     """
-    from whiskerless import pki
-    from whiskerless.robot_profiles import RobotProfileStore
 
     store = RobotProfileStore.from_env()
     # A real authority, key included: since 0.2.0 every provision issues the robot

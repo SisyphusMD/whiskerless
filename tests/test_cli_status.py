@@ -248,7 +248,6 @@ def test_calibrate_refuses_a_reading_the_robot_is_not_making(
 def test_calibrate_needs_somewhere_to_keep_it(capsys: pytest.CaptureFixture[str]) -> None:
     """A broker to reach, but nothing saved for this robot, so there is no profile
     to write the measurement into."""
-    from whiskerless.robot_profiles import Broker, RobotProfileStore
 
     RobotProfileStore.from_env().save_broker(Broker(host="192.0.2.10"))
     assert main(["calibrate", "full", "--serial", SERIAL]) == 1

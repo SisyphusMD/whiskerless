@@ -7,11 +7,15 @@ and the ones that would fail silently at TLS handshake time if they broke.
 
 from __future__ import annotations
 
+import datetime
 import ipaddress
 from pathlib import Path
 
 import pytest
 from cryptography import x509
+from cryptography import x509 as _x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID
 
 from whiskerless import pki
@@ -188,11 +192,7 @@ def test_something_that_is_not_a_certificate_says_so() -> None:
 
 def test_a_certificate_without_a_common_name_reads_as_none(ca: pki.KeyPair) -> None:
     """Nothing whiskerless issues is nameless, but a CA someone brings might be."""
-    import datetime
 
-    from cryptography import x509 as _x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     now = datetime.datetime.now(datetime.UTC)
@@ -224,8 +224,6 @@ def test_a_missing_file_is_explained_rather_than_traced(tmp_path: Path) -> None:
 
 def test_a_non_rsa_ca_is_refused(tmp_path: Path) -> None:
     """Everything here is RSA because that is what the robot is known to take."""
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import ed25519
 
     key = ed25519.Ed25519PrivateKey.generate()
     ca = pki.generate_ca()
@@ -244,8 +242,6 @@ def test_a_non_rsa_ca_is_refused(tmp_path: Path) -> None:
 def test_check_pair_refuses_a_non_rsa_key(ca: pki.KeyPair) -> None:
     """A separate guard from the one in issuing: this is the path a user's own
     supplied pair takes."""
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import ed25519
 
     key = ed25519.Ed25519PrivateKey.generate()
     bad = pki.KeyPair(
@@ -273,8 +269,6 @@ def test_unreadable_pem_is_explained_not_traced(ca: pki.KeyPair, broken: str) ->
 def test_an_encrypted_private_key_says_so(ca: pki.KeyPair) -> None:
     """cryptography raises TypeError for a key that needs a password, which is not
     a shape `main()` catches — and "decrypt it first" is the actionable answer."""
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     locked = key.private_bytes(
@@ -291,8 +285,6 @@ def test_a_non_rsa_authority_cannot_vouch_for_anything(ca: pki.KeyPair) -> None:
     whatever is on disk — including a CA somebody generated elsewhere on a curve.
     It answers "no" rather than raising into a command that was only asking a
     question."""
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import ed25519
 
     key = ed25519.Ed25519PrivateKey.generate()
     now = __import__("datetime").datetime.now(__import__("datetime").UTC)
@@ -311,7 +303,6 @@ def test_a_non_rsa_authority_cannot_vouch_for_anything(ca: pki.KeyPair) -> None:
 
 
 def test_reading_a_certificate_that_is_not_there_names_the_file(tmp_path: Path) -> None:
-    from whiskerless.exceptions import WhiskerlessError
 
     with pytest.raises(WhiskerlessError, match="could not read"):
         pki.read_cert(tmp_path / "absent.crt")

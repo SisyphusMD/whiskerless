@@ -86,5 +86,4 @@ def scrub(text: str, home: Path | None = None) -> str:
     # _HOST_LABELLED, which stops at the first colon and would leave the rest of the address.
     text = _IPV6.sub("<redacted-address>", text)
     text = _HOST_LABELLED.sub(r"\1<redacted-address>", text)
-    text = _CN.sub(r"\1<redacted-identity>", text)
-    return text
+    return _CN.sub(r"\1<redacted-identity>", text)

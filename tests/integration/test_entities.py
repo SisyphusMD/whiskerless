@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import custom_components.whiskerless.coordinator as coord
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -55,7 +56,6 @@ async def test_the_clean_cycle_button_sends_a_panel_press(
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
-    import custom_components.whiskerless.coordinator as coord
 
     sent: list[str] = []
     original = coord.build_command_payload
@@ -94,7 +94,6 @@ async def test_an_unacknowledged_press_is_never_resent(
     """
     robot = await setup_integration(hass, mock_config_entry, state_payload)
 
-    import custom_components.whiskerless.coordinator as coord
 
     sent: list[str] = []
     original = coord.build_command_payload

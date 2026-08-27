@@ -21,7 +21,6 @@ def test_debug_records_are_scrubbed_before_they_are_formatted(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The filter is the guarantee — scrub() being correct means nothing if records bypass it."""
-    from whiskerless.cli import _ScrubbingFilter
 
     logger = logging.getLogger("whiskerless.test-scrub")
     logger.addFilter(_ScrubbingFilter(_HOME))

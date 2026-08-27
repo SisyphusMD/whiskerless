@@ -24,11 +24,12 @@ from contextlib import aclosing, suppress
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import aiomqtt
+from cryptography import x509
 
-from . import __version__, backup, diagnostics, installs, pki, update_check
+from . import __version__, backup, ble, diagnostics, installs, pki, update_check
 from .ble.messages import WifiNetwork as DiscoveredNetwork
 from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
@@ -61,9 +62,6 @@ from .robot_profiles import (
     Serial,
     looks_like_a_robot_serial,
 )
-
-if TYPE_CHECKING:  # cryptography is imported lazily; this is for annotations only
-    from cryptography import x509
 from .safety import classify_code
 
 log = logging.getLogger("whiskerless")
@@ -744,7 +742,6 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
 
 
 async def _cmd_provision(args: argparse.Namespace) -> int:
-    from . import ble
 
     store = _store(args)
     # Kept for the non-interactive path below, which defaults the SSID from it.
@@ -1179,7 +1176,6 @@ def _check_supplied_identity(
     alone accepts `--robot-cert ca.crt --robot-key ca.key` and writes the signing
     key of the whole fleet into a litter box.
     """
-    from cryptography import x509
 
     cert = _load_certificate(pair.cert_pem)
     try:
@@ -1267,7 +1263,6 @@ def _names_host(pem: str, host: str) -> bool:
     certificate that names some other broker — or nothing at all — and the failure
     lands at the robot as a verification error naming none of this.
     """
-    from cryptography import x509
 
     cert = _load_certificate(pem)
     try:
@@ -1311,7 +1306,6 @@ def _dns_name_matches(pattern: str, host: str) -> bool:
 
 def _load_certificate(pem: str) -> x509.Certificate:
     """Parse a PEM certificate, as a one-line error rather than a traceback."""
-    from cryptography import x509
 
     try:
         return x509.load_pem_x509_certificate(pem.encode())
@@ -1756,7 +1750,6 @@ def _check_ca_cert(cert_pem: str) -> None:
     server certificate" mistake and an expired authority are exactly as fatal
     when somebody else does the signing.
     """
-    from cryptography import x509
 
     cert = _load_certificate(cert_pem)
     try:

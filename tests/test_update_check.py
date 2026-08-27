@@ -124,7 +124,6 @@ def test_a_failed_check_still_costs_only_one_attempt_a_day(
 
     def _fail() -> None:
         calls.append(1)
-        return None
 
     monkeypatch.setattr(update_check, "_fetch_latest", _fail)
     update_check.check(tmp_path)

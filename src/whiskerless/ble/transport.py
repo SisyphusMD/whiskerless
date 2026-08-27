@@ -72,7 +72,10 @@ async def translated(action: str) -> AsyncIterator[None]:
 
 def _require_bleak() -> Any:
     try:
-        import bleak
+
+        # import would make this module unimportable for anyone who installed without it.
+        # Deferred, and verified so: bleak is the [ble] extra.
+        import bleak  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise ProvisioningError(
             "BLE provisioning needs the 'ble' extra: pip install 'whiskerless[ble]'"

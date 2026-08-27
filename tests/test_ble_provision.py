@@ -18,13 +18,27 @@ from unittest.mock import patch
 
 import pytest
 
+from whiskerless import pki
 from whiskerless.ble import messages as m
-from whiskerless.ble.protobuf import read_fields
+from whiskerless.ble import provision as prov
+from whiskerless.ble.messages import PROV_SERVICE_UUID
+from whiskerless.ble.protobuf import (
+    WIRE_LEN,
+    _tag,
+    encode_varint,
+    field_message,
+    field_string,
+    field_varint,
+    read_fields,
+)
 from whiskerless.ble.provision import (
+    CERT_CHUNK,
+    SCAN_PAGE,
     ProvisioningConfig,
     _format_mac,
     provision_robot,
     read_device_mac,
+    scan_networks,
 )
 from whiskerless.ble.transport import USER_DESC_UUID
 from whiskerless.exceptions import ProvisioningError
@@ -62,7 +76,6 @@ class FakeRobot:
     mtu_size = 200
 
     def __init__(self, *, service_uuid: str | None = None, endpoints: list[str] | None = None):
-        from whiskerless.ble.messages import PROV_SERVICE_UUID
 
         names = endpoints if endpoints is not None else [m.EP_MQTT, m.EP_WHISKER, m.EP_PROV_CONFIG]
         self._chars = {i: FakeChar(name, i) for i, name in enumerate(names)}
@@ -301,8 +314,6 @@ async def test_a_whisker_endpoint_complaint_is_logged_not_fatal() -> None:
 def test_scan_results_fold_a_sign_extended_rssi() -> None:
     """RSSI is an int32 sign-extended into a varint, so -51 arrives as 2**64-51.
     Reported raw it is a signal strength of eighteen quintillion dBm."""
-    from whiskerless.ble import messages as m
-    from whiskerless.ble.protobuf import field_message, field_string, field_varint
 
     entry = field_string(1, "MyIoT") + field_varint(2, 6) + field_varint(3, (1 << 64) - 51)
     payload = field_message(15, field_message(1, entry))
@@ -313,8 +324,6 @@ def test_scan_results_fold_a_sign_extended_rssi() -> None:
 def test_scan_results_drop_entries_with_no_usable_name() -> None:
     """A hidden network cannot be picked from a list by name, and the SSID field
     is raw bytes that need not be valid UTF-8."""
-    from whiskerless.ble import messages as m
-    from whiskerless.ble.protobuf import field_message, field_string, field_varint
 
     good = field_string(1, "MyIoT") + field_varint(3, (1 << 64) - 40)
     hidden = field_string(1, "") + field_varint(3, (1 << 64) - 50)
@@ -332,7 +341,6 @@ class _ScanTransport:
         self.pages: list[tuple[int, int]] = []
 
     async def request(self, endpoint: str, payload: bytes) -> bytes:
-        from whiskerless.ble.protobuf import field_message, field_string, field_varint, read_fields
 
         fields = read_fields(payload)
         if 12 in fields:                                   # CmdScanStatus
@@ -359,7 +367,6 @@ class _ScanTransport:
 
 
 async def test_the_scan_is_paged_and_sorted_strongest_first() -> None:
-    from whiskerless.ble.provision import SCAN_PAGE, scan_networks
 
     transport = _ScanTransport([("far", -80), ("near", -35), ("mid", -60), ("x", -70), ("y", -75)])
     found = await scan_networks(transport)  # type: ignore[arg-type]
@@ -381,7 +388,6 @@ async def test_the_last_page_never_reads_past_the_end() -> None:
 
     class Strict(_ScanTransport):
         async def request(self, endpoint: str, payload: bytes) -> bytes:
-            from whiskerless.ble.protobuf import read_fields
 
             fields = read_fields(payload)
             if 14 in fields:
@@ -395,7 +401,6 @@ async def test_the_last_page_never_reads_past_the_end() -> None:
                     )
             return await super().request(endpoint, payload)
 
-    from whiskerless.ble.provision import scan_networks
 
     # 30, exactly the count that killed a real provision: 30 % 4 == 2.
     transport = Strict([(f"net{i:02d}", -40 - i) for i in range(30)])
@@ -408,7 +413,6 @@ async def test_the_last_page_never_reads_past_the_end() -> None:
 async def test_a_mesh_network_appears_once_at_its_strongest() -> None:
     """One SSID per access point would list the same name six times, which is not
     a choice anyone can make."""
-    from whiskerless.ble.provision import scan_networks
 
     transport = _ScanTransport([("Mesh", -70), ("Mesh", -41), ("Other", -60), ("Mesh", -85)])
     found = await scan_networks(transport)  # type: ignore[arg-type]
@@ -416,8 +420,6 @@ async def test_a_mesh_network_appears_once_at_its_strongest() -> None:
 
 
 async def test_a_scan_that_never_finishes_gives_up() -> None:
-    from whiskerless.ble import provision as prov
-    from whiskerless.exceptions import ProvisioningError
 
     transport = _ScanTransport([("MyIoT", -40)], finish_after=10_000)
     with patch.object(prov, "SCAN_TIMEOUT", 0.0), pytest.raises(ProvisioningError, match="did not finish"):
@@ -443,7 +445,6 @@ def test_a_reply_that_is_not_a_scan_result_reads_as_empty(payload: bytes) -> Non
 
 
 def test_scan_results_skip_an_ssid_that_is_not_utf8() -> None:
-    from whiskerless.ble.protobuf import WIRE_LEN, _tag, encode_varint, field_message
 
     bad = _tag(1, WIRE_LEN) + encode_varint(2) + b"\xff\xfe"
     assert m.parse_scan_results(field_message(15, field_message(1, bad))) == []
@@ -451,7 +452,6 @@ def test_scan_results_skip_an_ssid_that_is_not_utf8() -> None:
 
 def test_scan_status_without_a_count_still_reads() -> None:
     """proto3 omits a zero result_count, and a finished-but-empty scan is real."""
-    from whiskerless.ble.protobuf import field_message, field_varint
 
     payload = field_message(13, field_varint(1, 1))
     assert m.parse_scan_status(payload) == (True, 0)
@@ -460,7 +460,6 @@ def test_scan_status_without_a_count_still_reads() -> None:
 async def test_the_scan_is_polled_until_the_robot_says_it_finished() -> None:
     """The first status almost always says "still scanning" — the poll loop is
     the normal path, not an edge case."""
-    from whiskerless.ble.provision import scan_networks
 
     transport = _ScanTransport([("MyIoT", -42)], finish_after=3)
     found = await scan_networks(transport)  # type: ignore[arg-type]
@@ -471,7 +470,6 @@ async def test_the_scan_is_polled_until_the_robot_says_it_finished() -> None:
 def test_an_unknown_failure_reason_is_reported_without_a_name() -> None:
     """The enum has two members; firmware is free to invent a third, and an
     unrecognised number must not take the whole status decode down."""
-    from whiskerless.ble.protobuf import field_message, field_varint
 
     payload = field_message(11, field_message(11, b"") if False else field_varint(10, 99))
     status = m.parse_wifi_status(payload)
@@ -482,7 +480,6 @@ def test_an_unknown_failure_reason_is_reported_without_a_name() -> None:
 
 def test_scan_results_skip_an_entry_that_is_not_a_message() -> None:
     """A varint where a sub-message belongs is malformed, not fatal."""
-    from whiskerless.ble.protobuf import field_message, field_varint
 
     assert m.parse_scan_results(field_message(15, field_varint(1, 7))) == []
 
@@ -490,7 +487,6 @@ def test_scan_results_skip_an_entry_that_is_not_a_message() -> None:
 def test_scan_results_skip_an_explicitly_empty_ssid() -> None:
     """proto3 omits an empty string, but a peer may still send the field with a
     zero length — a network with no name cannot be offered in a list."""
-    from whiskerless.ble.protobuf import WIRE_LEN, _tag, encode_varint, field_message
 
     empty = _tag(1, WIRE_LEN) + encode_varint(0)
     assert m.parse_scan_results(field_message(15, field_message(1, empty))) == []
@@ -575,7 +571,6 @@ async def test_a_dry_run_does_not_drive_the_network_scan() -> None:
 def test_an_open_network_is_not_shown_with_a_lock() -> None:
     """Auth mode 0 IS open, and proto3 omits a zero default — so an absent auth
     field means an open network, not an unknown one."""
-    from whiskerless.ble.protobuf import field_message, field_string, field_varint
 
     open_ap = field_string(1, "Cafe") + field_varint(3, (1 << 64) - 55)
     wpa = field_string(1, "Home") + field_varint(3, (1 << 64) - 45) + field_varint(5, 3)
@@ -596,7 +591,6 @@ def test_an_ssid_with_terminal_escapes_is_escaped_for_display() -> None:
 async def test_a_scan_that_stalls_on_the_blocking_start_is_bounded() -> None:
     """wifi_scan_start blocks until the sweep finishes, so the timeout has to
     cover it — deadlining only the poll loop leaves a stalled read unbounded."""
-    from whiskerless.ble import provision as prov
 
     class _Stalls:
         async def request(self, endpoint: str, payload: bytes) -> bytes:
@@ -611,7 +605,6 @@ async def test_certificates_are_chunked_the_way_the_app_chunks_them() -> None:
     """A flat 100 bytes, not MTU-derived. That is the size Whisker's own client
     has exercised against this firmware on every unit it ever shipped; ours
     reached 460 and worked here, which is a much smaller sample."""
-    from whiskerless.ble.provision import CERT_CHUNK
 
     robot = FakeRobot()
     with _bleak(robot):
@@ -660,7 +653,6 @@ def _cert_writes(robot: FakeRobot) -> list[tuple[int, int]]:
 async def test_the_robot_gets_our_identity_in_the_apps_order() -> None:
     """CA, then certificate, then key, then one apply — copied from a decoded
     onboarding rather than invented."""
-    from whiskerless import pki
 
     identity = pki.issue_client(pki.generate_ca(), "LR4C123456")
     robot = FakeRobot()
@@ -703,7 +695,6 @@ def test_half_an_identity_is_refused_before_anything_is_written() -> None:
 def test_a_mismatched_identity_is_refused_before_anything_is_written() -> None:
     """Both present is not the same as both belonging together, and the only cure
     for writing a mismatched pair is another trip to the robot with a laptop."""
-    from whiskerless import pki
 
     ca = pki.generate_ca()
     one, other = pki.issue_client(ca, "LR4C123456"), pki.issue_client(ca, "LR4C999999")
