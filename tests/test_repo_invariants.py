@@ -306,8 +306,8 @@ def test_both_formulae_carry_the_same_resource_closure() -> None:
 
 
 def test_both_formulae_install_the_same_way() -> None:
-    """The install body carries the macOS build fix; applying it to one formula
-    only leaves the other producing a binary dyld refuses to load."""
+    """Only one formula is exercised by any given CI run, so a change to one
+    install body and not the other ships untested on the channel nobody ran."""
     bodies = [_between(_formula(str(p)), "def install", "\n  end") for p in FORMULAE]
     assert bodies[0] == bodies[1], "install bodies drifted between the two formulae"
 
@@ -351,8 +351,8 @@ def test_the_man_page_is_installed_by_the_packages() -> None:
 # Three files have to say "four platforms" at once — the build matrix, the merge
 # that refuses a short set, and the wait that counts manifests off the release.
 # Nothing fails when they drift: the release publishes, and whoever is on the
-# platform that lost its bottle quietly compiles cryptography for several
-# minutes, which is the entire cost bottles were added to remove.
+# platform that lost its bottle quietly builds the formula from source, which is
+# the entire cost bottles were added to remove.
 BOTTLES_WORKFLOW = REPO / ".github" / "workflows" / "bottles.yml"
 
 
@@ -1980,3 +1980,29 @@ def test_release_creation_waits_for_pypi() -> None:
         f"releases runs after {needs}, so the GitHub release can precede the PyPI upload and HACS "
         "will offer an update that resolves to a version PyPI does not have yet"
     )
+
+
+def test_cryptography_is_a_dependency_and_not_a_resource() -> None:
+    """Resources are built from sdist, and this one's sdist is a Rust extension.
+
+    Listing it cost ~21 minutes per platform per release and pulled rust and llvm in purely as
+    build tooling. Homebrew bottles it for every platform this formula targets, so `depends_on`
+    hands users a prebuilt copy instead. Two ways this silently regresses: regenerating the
+    resource block without the exclusion in homebrew-resources.py puts it back, and marking the
+    dependency `=> :build` drops it from the walk that writes homebrew_deps.pth — which is what
+    makes it importable at all. The second is the nastier one, because the formula still installs
+    cleanly and then dies on `ModuleNotFoundError: cryptography` at first run.
+    """
+    for path in FORMULAE:
+        text = _formula(str(path))
+        resources = _between(text, "BEGIN RESOURCES", "END RESOURCES")
+        assert 'resource "cryptography"' not in resources, (
+            f"{path} builds cryptography from sdist again; it is supplied by depends_on"
+        )
+        declared = [ln.strip() for ln in text.splitlines() if ln.strip().startswith("depends_on")]
+        line = next((ln for ln in declared if '"cryptography"' in ln), None)
+        assert line is not None, f"{path} neither builds nor depends on cryptography"
+        assert ":build" not in line, (
+            f"{path} declares cryptography as a build dep ({line!r}); virtualenv_create prunes "
+            "build deps from homebrew_deps.pth, so the module never reaches the venv"
+        )

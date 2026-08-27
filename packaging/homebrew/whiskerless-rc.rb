@@ -21,17 +21,17 @@ REPLACE_BOTTLE_BLOCK
   # matches the interpreter the .pkg/.deb bundles freeze; bump by hand with each CPython minor —
   # no Renovate manager covers this formula.
   depends_on "python@3.14"
-  # cryptography's sdist is a Rust extension, and `virtualenv_install_with_resources` builds every
-  # resource from source — so the toolchain has to be here or the install dies on the first
-  # resource. It is the price of certificates being core function (the robot cannot send a
-  # username or password, so nothing else authenticates it); `brew install` compiles for minutes
-  # rather than seconds because of it. cffi needs libffi, which Homebrew's python already pulls.
   depends_on "openssl@3"
-  # pkgconf is NOT implied by rust: `rust` is build-only, so superenv prunes its
-  # recursive dependencies and the pkg-config binary never reaches PATH — while
-  # cryptography's openssl-sys crate uses it to find openssl@3.
-  depends_on "pkgconf" => :build
-  depends_on "rust" => :build
+  # Certificates are core function (the robot cannot send a username or password, so nothing else
+  # authenticates it), but this does NOT have to be a resource. As a resource it is built from its
+  # sdist like every other one, and its sdist is a Rust extension: ~21 minutes per platform per
+  # release, plus rust and llvm poured purely as build tooling, plus a workaround for the stripped
+  # Mach-O that dyld then refuses. Homebrew bottles cryptography for every platform this formula
+  # targets, so that compile is one somebody else has already done and users pour it in seconds.
+  # `:no_linkage` because nothing here links against it — the venv imports it, via the
+  # homebrew_deps.pth that virtualenv_create writes for every non-build dependency. It must
+  # therefore NOT become a `=> :build` dep, which that walk prunes.
+  depends_on "cryptography" => :no_linkage
 
   # Same `whiskerless` binary as the stable formula, so the two cannot coexist.
   conflicts_with "whiskerless", because: "both install the same whiskerless binary"
@@ -51,10 +51,6 @@ REPLACE_BOTTLE_BLOCK
   resource "cffi" do
     url "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz"
     sha256 "dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be"
-  end
-  resource "cryptography" do
-    url "https://files.pythonhosted.org/packages/de/41/6cbdcf9142d00fe82836fbb51e503e58088575cf7a0fe1dbff6695bf0840/cryptography-50.0.0.tar.gz"
-    sha256 "eeac2acb5a20ed25e0ad6d1df9891a520b78b404266b6d11778f25d5d691a6c9"
   end
   resource "paho-mqtt" do
     url "https://files.pythonhosted.org/packages/39/15/0a6214e76d4d32e7f663b109cf71fb22561c2be0f701d67f93950cd40542/paho_mqtt-2.1.0.tar.gz"
@@ -92,12 +88,6 @@ REPLACE_BOTTLE_BLOCK
 
 
   def install
-    # Do NOT let cargo strip the extension. cryptography's release profile
-    # strips symbols, and the resulting Mach-O is one dyld refuses outright
-    # ("mis-aligned LINKEDIT string pool") — the formula then installs cleanly
-    # and every command dies on import. Upstream's own wheel is unstripped and
-    # twice the size, which is the tell. Linux never sees this.
-    ENV["CARGO_PROFILE_RELEASE_STRIP"] = "none" if OS.mac?
     virtualenv_install_with_resources
   end
 
