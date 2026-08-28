@@ -376,8 +376,8 @@ def _enable_detected_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry
 #: keeps the buttons they have been using.
 _NOW_ENABLED_BY_DEFAULT: tuple[tuple[str, str], ...] = (
     ("button", "refresh"),
-    # The signal is the field that explains a dropout, and a user debugging one has no
-    # reason to suspect a disabled diagnostic entity holds the answer.
+    # Ruling the link in or out is the first question asked of any wireless device, and a
+    # user debugging one has no reason to suspect a disabled diagnostic entity holds it.
     ("sensor", "wifi_rssi"),
 )
 
