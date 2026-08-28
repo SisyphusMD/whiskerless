@@ -120,10 +120,12 @@ select = [
     "PLC", "PLE", "PLW",     # pylint conventions/errors/warnings (not the noisy PLR refactor set)
 ]
 ignore = [
-    "E501",                       # long protocol comments/tables are allowed (E5 is not selected; kept for parity)
     "ASYNC109",                   # a `timeout` param that wraps asyncio.timeout is a fine API
-    "RUF001", "RUF002", "RUF003", # typographic en-dashes in prose/ranges are intentional
 ]
+
+# Naming the two characters keeps RUF001-3 live for every other confusable — a Cyrillic lookalike
+# in a string is a real bug that a blanket ignore of those rules would hide.
+allowed-confusables = ["–", "×"]  # EN DASH in prose/ranges, MULTIPLICATION SIGN in ratios
 
 [tool.ruff.lint.per-file-ignores]
 # Vendored from project-standard. Shared files carry no project-specific noqa codes (a code the
