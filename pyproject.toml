@@ -120,7 +120,6 @@ select = [
     "PLC", "PLE", "PLW",     # pylint conventions/errors/warnings (not the noisy PLR refactor set)
 ]
 ignore = [
-    "E501",                       # long protocol comments/tables are allowed (E5 is not selected; kept for parity)
     "ASYNC109",                   # a `timeout` param that wraps asyncio.timeout is a fine API
     "RUF001", "RUF002", "RUF003", # typographic en-dashes in prose/ranges are intentional
 ]
