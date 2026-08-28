@@ -566,6 +566,160 @@ def test_reprovisioning_keeps_the_metadata_it_never_asked_for(
     assert saved.display_name == "Upstairs"
 
 
+def test_reprovisioning_offers_the_saved_robots_instead_of_asking_for_a_serial(
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Entering pairing mode wipes the robot's WiFi, so this prompt is reached mid-outage
+    by someone who should not have to recall a serial the store already holds."""
+    _prepared(store)
+    seed(store, serial="LR4C123456", name="Upstairs")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+        patch("sys.stdin.isatty", return_value=True),
+        # "1" picks the saved robot; the serial prompt must never be reached. Everything
+        # after the pick is supplied as flags so this test turns on the picker alone.
+        patch("whiskerless.cli._prompt", side_effect=["1"]),
+    ):
+        assert main([
+            "provision", "--wifi-ssid", "home", "--wifi-pass", "secret", "--yes",
+        ]) == 0
+    out = capsys.readouterr().out
+    assert "found 1 saved robot(s)" in out
+    assert "re-provisioning Upstairs (LR4C123456)" in out
+
+
+def _answers(*first: str):
+    """Answer the prompts under test, then press enter at everything after.
+
+    Provision asks more questions than any one test cares about — the closing "name this
+    robot?" for one — and a fixed list turns an unrelated new prompt into StopIteration
+    inside a coroutine, which surfaces as an unreadable RuntimeError rather than a
+    failed assertion.
+    """
+    answers = list(first)
+
+    def answer(_prompt_text: str = "") -> str:
+        return answers.pop(0) if answers else ""
+
+    return answer
+
+
+def test_the_first_ever_robot_is_asked_for_by_serial_with_no_list(
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing saved means nothing to offer, and a list of one option would be noise."""
+    _prepared(store)
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+        patch("sys.stdin.isatty", return_value=True),
+        # `_ask` reads with raw input(), not `_prompt`, so the serial is supplied there.
+        patch("builtins.input", side_effect=_answers("LR4C123456")),
+    ):
+        assert main([
+            "provision", "--wifi-ssid", "h", "--wifi-pass", "s", "--yes",
+        ]) == 0
+    assert "saved robot(s)" not in capsys.readouterr().out
+
+
+def test_choosing_a_new_robot_falls_through_to_typing_a_serial(
+    store: RobotProfileStore, tmp_path: Path
+) -> None:
+    """The list must not trap someone into re-provisioning; adding a robot is why the
+    last entry exists."""
+    _prepared(store)
+    seed(store, serial="LR4C123456", name="Upstairs")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+        patch("sys.stdin.isatty", return_value=True),
+        # "2" is the NEW-robot entry with one saved robot; the serial then goes to `_ask`.
+        patch("whiskerless.cli._prompt", side_effect=_answers("2")),
+        patch("builtins.input", side_effect=_answers("LR4C654321")),
+    ):
+        assert main([
+            "provision", "--wifi-ssid", "h", "--wifi-pass", "s", "--yes",
+        ]) == 0
+    assert store.load("LR4C654321").serial.value == "LR4C654321"
+
+
+def test_a_mistyped_choice_asks_for_a_serial_rather_than_ending_the_run(
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A fat-fingered digit should cost one prompt, not the whole provision — the serial
+    prompt validates whatever is typed next anyway."""
+    _prepared(store)
+    seed(store, serial="LR4C123456", name="Upstairs")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("whiskerless.cli._prompt", side_effect=_answers("9")),
+        patch("builtins.input", side_effect=_answers("LR4C654321")),
+    ):
+        assert main([
+            "provision", "--wifi-ssid", "h", "--wifi-pass", "s", "--yes",
+        ]) == 0
+    assert "not a choice: 9" in capsys.readouterr().err
+
+
+def test_an_empty_serial_flag_is_rejected_rather_than_opening_the_picker(
+    store: RobotProfileStore, tmp_path: Path
+) -> None:
+    """`--serial "$SERIAL"` with the variable unset is explicit input, not an omission.
+    Treating it as one would provision a saved robot the caller never named."""
+    _prepared(store)
+    seed(store, serial="LR4C123456", name="Upstairs")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+        patch("sys.stdin.isatty", return_value=True),
+        # The point is not merely that the run fails — it is that the picker is never
+        # consulted. Asserting only on the exit code passes against the bug, because a
+        # picker that reads unpatched stdin fails the run for an unrelated reason.
+        patch("whiskerless.cli._pick_robot_to_provision") as picker,
+    ):
+        assert main([
+            "provision", "--serial", "", "--wifi-ssid", "h", "--wifi-pass", "s", "--yes",
+        ]) != 0
+    picker.assert_not_called()
+
+
+def test_provisioning_without_a_terminal_still_asks_for_the_serial(
+    store: RobotProfileStore, tmp_path: Path
+) -> None:
+    """The list is a convenience for a person. A script must keep the behaviour it had:
+    no prompt it cannot answer, and no silent pick of a robot it did not name."""
+    _prepared(store)
+    seed(store, serial="LR4C123456", name="Upstairs")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA)
+    with (
+        patch("whiskerless.ble.scan", _fake_scan),
+        patch("whiskerless.ble.read_device_mac", _fake_mac),
+        patch("whiskerless.ble.provision_robot", _fake_provision(success=True)),
+        patch("sys.stdin.isatty", return_value=False),
+    ):
+        # No --serial and no terminal: this must fail rather than adopt the saved robot.
+        assert main(["provision", "--wifi-ssid", "home", "--wifi-pass", "s", "--yes"]) != 0
+
+
 def test_provisioning_saves_a_profile_that_later_commands_find(
     store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
