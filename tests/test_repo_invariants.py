@@ -2130,3 +2130,47 @@ def test_the_readme_keeps_its_untested_platforms_honest() -> None:
         f"the build enforces a glibc floor of {floor} (packaging/glibc-floor.txt) but the README "
         "does not say so; one of the two has moved without the other"
     )
+
+def test_bottles_reach_the_nas_but_stay_out_of_the_quorum() -> None:
+    """Mirroring and reconciling are different questions, and the answers differ.
+
+    The NAS is meant to be a complete copy, so it carries the bottles. Reconcile must NOT compare
+    them: a bottle's gzip header holds its build timestamp, so a rebuilt one differs legitimately
+    and a byte-quorum would call a healthy release a conflict. Both halves are asserted because
+    collapsing them is the tempting mistake in either direction — dropping the bridge to "match
+    reconcile", or adding them to reconcile to "match the bridge".
+
+    Also pinned: the bottle bridge must not be folded into nas-bridge. That job is ordered ahead of
+    reconcile and prune-rcs, while bottles arrive about thirteen minutes later, so waiting for them
+    there would hold two jobs that read none of them.
+    """
+    publish = yaml.safe_load((REPO / ".forgejo" / "workflows" / "publish.yml").read_text(encoding="utf-8"))
+    roles = (REPO / "packaging" / "asset-roles.sh").read_text(encoding="utf-8")
+
+    assert "nas-bottles" in publish["jobs"], (
+        "nothing copies the bottles to the NAS any more, so it is no longer a complete mirror"
+    )
+    bottles_job = publish["jobs"]["nas-bottles"]
+    needs = bottles_job["needs"] if isinstance(bottles_job["needs"], list) else [bottles_job["needs"]]
+    assert "homebrew-bottles" in needs, (
+        f"the bottle bridge runs after {needs}, which does not guarantee the bottles exist yet"
+    )
+    assert "forgejo.nas.bryantserver.com" in yaml.dump(bottles_job), (
+        "the bottle bridge no longer targets the NAS"
+    )
+
+    bridge = yaml.dump(publish["jobs"]["nas-bridge"])
+    assert ".bottle.tar.gz" not in bridge, (
+        "nas-bridge now waits for bottles, which holds reconcile and prune-rcs behind a build "
+        "whose output neither of them reads"
+    )
+    # Scoped to the IGNORED array, not the file. A glob moved from _IGNORED_ASSETS into
+    # _ASSET_ROLES is still "in the file" while meaning the exact opposite — it would put bottles
+    # into the quorum, which is the regression this exists to catch.
+    ignored = re.search(r"_IGNORED_ASSETS=\((.*?)\)", roles, re.S)
+    assert ignored, "the ignored-asset array is gone from asset-roles.sh"
+    for glob in ("*.bottle.tar.gz", "*.bottle.json"):
+        assert glob in ignored.group(1), (
+            f"{glob} is no longer ignored by reconcile; a rebuilt bottle differs by its gzip "
+            "timestamp, so the quorum would report a conflict for a healthy release"
+        )

@@ -31,7 +31,10 @@ _ASSET_ROLES=(
   'SHA256SUMS-aarch64'
 )
 
-# Homebrew bottles are NOT reconciled, and that is deliberate rather than an oversight.
+# Homebrew bottles are NOT reconciled, and that is deliberate rather than an oversight. Note the
+# narrow claim: not reconciled, which is not the same as not mirrored. The NAS carries a complete
+# copy via the nas-bottles job — copying is not comparing, and the objection below is only to
+# comparing.
 #
 # Reconcile's whole model is a content quorum over immutable bytes: two registries agreeing proves
 # what the third should serve. A bottle is not reproducible — its gzip header carries the build
