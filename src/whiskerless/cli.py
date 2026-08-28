@@ -159,6 +159,46 @@ def _pick_saved_robot(store: RobotProfileStore) -> RobotProfile | None:
     return known[int(answer) - 1]
 
 
+def _pick_robot_to_provision(store: RobotProfileStore) -> str | None:
+    """Offer the saved robots, plus a NEW one, before asking anyone to type a serial.
+
+    Re-provisioning is not the rare case it looks like: entering pairing mode wipes the
+    robot's saved WiFi and only a completed provision restores it, so this prompt is
+    reached most often mid-outage, by someone who is least able to recall a serial. The
+    store already knows it.
+
+    Returns the chosen serial, or None to fall through to typing one — which is both the
+    "new robot" answer and the non-interactive path, so a script keeps behaving exactly
+    as it did. Mirrors the sibling's resume-or-start-fresh list in `dreame-valetudo`.
+
+    One saved robot is enough to offer: `_pick_saved_robot` requires two because it is
+    disambiguating, and with one there is nothing ambiguous. Here the list is a way to
+    avoid typing, so the single-robot case is the one that benefits most.
+    """
+    if not sys.stdin.isatty():
+        return None
+    known = store.list_robot_profiles()
+    if not known:
+        return None
+    print(f"found {len(known)} saved robot(s):")
+    for index, profile in enumerate(known, 1):
+        label = f" — {profile.serial.value}" if profile.display_name != profile.serial.value else ""
+        print(f"  {index}) {profile.display_name}{label}")
+    fresh = len(known) + 1
+    print(f"  {fresh}) a NEW robot — type its serial")
+    answer = _prompt(f"re-provision which robot, or {fresh} for a new one [1-{fresh}]: ").strip()
+    if answer == str(fresh):
+        return None
+    if answer.isdigit() and 1 <= int(answer) <= len(known):
+        chosen = known[int(answer) - 1]
+        print(f"re-provisioning {chosen.display_name} ({chosen.serial.value})")
+        return chosen.serial.value
+    # Not a choice. Falling through to the serial prompt rather than dying keeps a
+    # fat-fingered digit from costing the whole run, and that prompt validates anyway.
+    print(f"not a choice: {answer or '<nothing>'} — type a serial instead", file=sys.stderr)
+    return None
+
+
 def _profile(args: argparse.Namespace) -> RobotProfile:
     """Which robot to act on. Everything else about the connection is the store's.
 
@@ -760,7 +800,10 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     serial = _ask(
         "robot serial (the unhyphenated LR4C… line on the label, e.g. LR4C123456 — "
         "NOT the LR4-…-US model number): ",
-        args.serial,
+        # `is None`, not truthiness: `--serial ""` (an unset shell variable) is explicit
+        # input and must still be rejected by check_serial, not quietly redirected into
+        # the picker. Passing --serial at all skips the list, as documented.
+        _pick_robot_to_provision(store) if args.serial is None else args.serial,
         ble.ProvisioningConfig.check_serial,
     )
     # The broker is asked ONCE, on the first robot, and remembered for the store.
