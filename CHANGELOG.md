@@ -58,6 +58,9 @@ much of the hopper work.
 
 ### Changed
 
+- `provision` offers your saved robots by number before asking for a serial, so
+  re-provisioning does not mean recalling one. Typing a serial is still how a new robot
+  is added, and passing `--serial` skips the list entirely.
 - The Refresh button is on by default, on existing installs too.
 - The Wi-Fi signal sensor is on by default, on existing installs too. It was previously
   hidden as a disabled diagnostic entity.
