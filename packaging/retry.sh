@@ -3,6 +3,10 @@
 #
 #   retry.sh <attempts> <command> [args...]
 #
+# Shared rather than per-consumer because build-bottles.sh calls it: a vendored script may not
+# depend on a file the standard neither ships nor locks, or the lock stops describing what it
+# takes to run.
+#
 # For the release steps that reach a network service on every invocation and take the whole release
 # down when it does not answer. `codesign` and `productsign` each request a trusted timestamp from
 # Apple, and `notarytool` uploads the package. A missing timestamp fails with "A timestamp was

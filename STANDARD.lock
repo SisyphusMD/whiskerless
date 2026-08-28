@@ -3,7 +3,7 @@
     ".editorconfig": "27f0a420340998f882c86c46436e722cf924be3d81e96d23ddca9a182f24175c",
     ".github/PULL_REQUEST_TEMPLATE.md": "8582cf583c3af1f61aa9e2f5214616e66b151470a9b61e211f4b03d257b57da6",
     "packaging/bottle-block.py": "f177e14d16ec56bdae29b2f6f07bc5df186b2e1fc303bb40e3f2b290446c0cc6",
-    "packaging/build-bottles.sh": "9992c104126e42336643f1e02c158d6f1ab71e7f8c67acaa6f783c047d20f66f",
+    "packaging/build-bottles.sh": "4e493e6c13fb30cffba1225cd44092e9cb13bf893cbd2a0003c3487e1c6398f5",
     "packaging/changelog-section.sh": "acacfbeca5807ef8e886e7692e5c75c5e60348e0d3f90303cf080eddef59b301",
     "packaging/check-doc-links.py": "44c9b053672d2b2c73379205490ba9ff61f06b48c3acc85de9c1a2057d27038d",
     "packaging/check-gitignore-base.py": "2a7a5e2f770d8879c43a32f8d9901eb54f0ebe6f3107a0b17318fed1b5563141",
@@ -26,6 +26,7 @@
     "packaging/reconcile-releases.sh": "d41f41546138327a028420544cf59951609698f21b92175b38c1b797c2b9ba0e",
     "packaging/release-common.sh": "767a7e7484f3e7f1289ff87c60a461ca374c2364b064ea37523f614bc8f744f3",
     "packaging/render-formula.sh": "688b6838aedf4d87ab66d166a4eee0c7c88e505fa8dac06d74e782ed74638ae9",
+    "packaging/retry.sh": "ab6b80e9509d8c07fb983d91c8f7ec5e3be3dad3ab032a5e5fae9ce7d36f479b",
     "packaging/revendor-standard.sh": "32c93eeea1a08fdea43149456d6a1efde8834a721b2e98c9d7a1004fd454036a",
     "packaging/shellcheck-all.sh": "14c87d497082a8982044c61c09207845b010e8a5a6f5eecca657cc4c68677c5d",
     "packaging/sisyphusmd-signing-key.asc": "739991cf1057257f55168c9e898f219d46134e86df804f3136205e5f3a5f2c54",
@@ -37,7 +38,7 @@
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "2c3a63fcebe0a07dd99811a9eac45954ae994c3e",
+  "source_commit": "d3d3e01f6b501d6c5347544b233dc99de1b6b7e3",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.20"
+  "source_tag": "v0.1.21"
 }

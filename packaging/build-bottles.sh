@@ -75,7 +75,9 @@ export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1
 # Reproduced in that image both ways. homebrew-smoke.Dockerfile has always done
 # this; the bottle build had not, and that is the whole of why its Linux legs
 # failed while the self-updating macOS runners passed.
-brew update --quiet
+# Retried: this is a git fetch of homebrew-core, and HOMEBREW_CURL_RETRIES governs curl only,
+# so a transient here aborts the platform with nothing to catch it.
+sh "$here/retry.sh" 5 brew update --quiet
 # `brew tap-new`/`brew bottle` are developer commands and shell out to git for a
 # commit; a runner has no identity configured and the command dies on it.
 # Exported, not written to a config file. `brew bottle` commits inside the TAP
@@ -93,7 +95,8 @@ export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 # Tapped from Forgejo, the primary. The GitHub copy is a push mirror and can lag
 # a tap update by a poll interval — long enough to bottle the previous version.
 if ! brew tap | grep -qx "$TAP"; then
-  brew tap "$TAP" "https://forgejo.bryantserver.com/${OWNER}/homebrew-tap.git"
+  # A clone over the network, for the same reason as the update above.
+  sh "$here/retry.sh" 5 brew tap "$TAP" "https://forgejo.bryantserver.com/${OWNER}/homebrew-tap.git"
 fi
 tapdir="$(brew --repo "$TAP")"
 
