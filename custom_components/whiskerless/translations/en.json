@@ -177,6 +177,9 @@
     "no_response": {
       "message": "The Litter-Robot did not respond to a state request."
     },
+    "no_response_last_rssi": {
+      "message": "The Litter-Robot did not respond to a state request. Its last reported Wi-Fi signal was {rssi} dBm."
+    },
     "command_failed": {
       "message": "Failed to send the command to the Litter-Robot: {error}."
     },

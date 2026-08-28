@@ -400,8 +400,19 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 async with asyncio.timeout(_STATE_TIMEOUT):
                     await self._state_event.wait()
             except TimeoutError as err:
+                # The dominant cause of a missed heartbeat is a marginal WiFi link, and
+                # the robot's own last-reported RSSI is the only evidence of that which
+                # survives the robot going silent. Naming it here means the log line
+                # says why, rather than leaving the next reader to correlate by hand.
+                rssi = self._robot.wifi_rssi if self._robot is not None else None
+                if rssi is None:
+                    raise UpdateFailed(
+                        translation_domain=DOMAIN, translation_key="no_response"
+                    ) from err
                 raise UpdateFailed(
-                    translation_domain=DOMAIN, translation_key="no_response"
+                    translation_domain=DOMAIN,
+                    translation_key="no_response_last_rssi",
+                    translation_placeholders={"rssi": str(rssi)},
                 ) from err
             assert self._robot is not None
             return self._build_data(self._robot)

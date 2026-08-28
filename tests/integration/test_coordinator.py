@@ -28,6 +28,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from whiskerless import WhiskerlessError
@@ -134,6 +135,36 @@ async def test_a_robot_that_answers_nothing_marks_the_entry_unavailable(
 
     assert coordinator.last_update_success is False
     assert hass.states.get(WAIT_TIME).state == STATE_UNAVAILABLE
+
+
+async def test_a_missed_heartbeat_names_the_signal_that_most_often_explains_it(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """A marginal link is the usual cause, and the robot's last RSSI is the only
+    evidence of it left once the robot has gone quiet."""
+    await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is False
+    assert "-54" in str(coordinator.last_exception)
+
+
+async def test_a_robot_silent_from_the_start_reports_no_signal_it_never_learned(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """With no snapshot yet there is no RSSI to name, and the message must fall back
+    rather than interpolate a placeholder it cannot fill."""
+    await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+    coordinator._robot = None
+
+    with pytest.raises(UpdateFailed) as err:
+        await coordinator._async_update_data()
+
+    assert "dBm" not in str(err.value)
 
 
 async def test_setup_waits_for_a_broker_instead_of_failing(
