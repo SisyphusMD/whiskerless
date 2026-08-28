@@ -179,6 +179,54 @@ async def test_an_entity_that_became_default_on_is_enabled_on_upgrade(
     assert entry.disabled_by is None
 
 
+async def test_an_existing_install_gets_the_wifi_signal_it_was_never_shown(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The sensor shipped disabled, so the field that explains a dropout was invisible
+    exactly on the installs that had been dropping out. Flipping the default only
+    reaches new registrations; existing entries need the explicit promotion."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_wifi_rssi",
+        config_entry=mock_config_entry,
+        disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    entity_id = registry.async_get_entity_id("sensor", "whiskerless", f"{MOCK_SERIAL}_wifi_rssi")
+    assert entity_id is not None
+    entry = registry.async_get(entity_id)
+    assert entry is not None
+    assert entry.disabled_by is None
+
+
+async def test_a_hand_disabled_wifi_signal_stays_off(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Promotion must not override a person who turned this one off deliberately."""
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor",
+        "whiskerless",
+        f"{MOCK_SERIAL}_wifi_rssi",
+        config_entry=mock_config_entry,
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+
+    await setup_integration(hass, mock_config_entry, state_payload)
+
+    entity_id = registry.async_get_entity_id("sensor", "whiskerless", f"{MOCK_SERIAL}_wifi_rssi")
+    assert entity_id is not None
+    entry = registry.async_get(entity_id)
+    assert entry is not None
+    assert entry.disabled_by is er.RegistryEntryDisabler.USER
+
+
 async def test_a_hand_disabled_entity_is_left_alone(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:

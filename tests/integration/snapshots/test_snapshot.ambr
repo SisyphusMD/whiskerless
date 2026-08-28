@@ -1677,7 +1677,7 @@
     'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
-    'disabled_by': <RegistryEntryDisabler.INTEGRATION: 'integration'>,
+    'disabled_by': None,
     'domain': 'sensor',
     'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
     'entity_id': 'sensor.litter_robot_4_wi_fi_signal',
@@ -1701,6 +1701,22 @@
     'translation_key': 'wifi_rssi',
     'unique_id': 'LR4C000001_wifi_rssi',
     'unit_of_measurement': 'dBm',
+  })
+# ---
+# name: test_the_entity_surface[sensor.litter_robot_4_wi_fi_signal-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'device_class': 'signal_strength',
+      'friendly_name': 'Litter-Robot 4 Wi-Fi signal',
+      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      'unit_of_measurement': 'dBm',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.litter_robot_4_wi_fi_signal',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '-54',
   })
 # ---
 # name: test_the_entity_surface[switch.litter_robot_4_control_lock-entry]
