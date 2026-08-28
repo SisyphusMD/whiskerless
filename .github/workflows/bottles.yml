@@ -84,9 +84,6 @@ jobs:
           persist-credentials: false
       - name: Build the bottles (macOS — the runner's own Homebrew)
         if: ${{ runner.os == 'macOS' }}
-        # Same ghcr.io exposure as the Linux leg below; see the note there.
-        env:
-          HOMEBREW_CURL_RETRIES: 8
         run: bash packaging/build-bottles.sh "$TAG" "$GITHUB_WORKSPACE/bottles"
       - name: Build the bottles (Linux — the pinned linuxbrew image)
         # Not the runner's Homebrew: GitHub documents no Homebrew on the arm64
@@ -102,12 +99,17 @@ jobs:
           mkdir -p bottles && chmod 777 bottles
           # renovate: datasource=docker depName=homebrew/brew
           IMAGE="homebrew/brew:latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd"
-          # brew pulls this formula's dependency closure from ghcr.io, and a single blob that fails
-          # to download aborts the whole platform — which then strands the tap's second pass waiting
-          # for a manifest that will never arrive. The formula smoke has always set this; the bottle
-          # build had not. Passed with -e so it reaches the brew INSIDE the container, not just the
-          # runner's shell.
-          docker run --rm -e TAG -e HOMEBREW_CURL_RETRIES=8 \
+          # No HOMEBREW_CURL_RETRIES here, and that is a measured choice rather than an oversight.
+          # Raising it to 8 made every platform in one run sit for over an hour without finishing a
+          # single bottle, against about fourteen minutes for the whole run without it: the count
+          # multiplies the wait whenever ghcr is broadly slow, which is exactly when it gets used.
+          # The failure it would guard — one dependency blob that stays unavailable past Homebrew's
+          # own three tries — costs a single platform, and `gh run rerun <id> --failed` rebuilds just
+          # that job (a workflow_dispatch would redo all four; it takes only a tag). A rare
+          # seven-minute rerun of one platform beats a routine hour across every platform.
+          # (The formula smoke does set 8, paired with the pull-through mirror whose entries go
+          # quiet while they sync. There is no mirror here, so that number does not transfer.)
+          docker run --rm -e TAG \
             -v "$PWD:/repo:ro" -v "$PWD/bottles:/out" "$IMAGE" \
             bash -lc 'bash /repo/packaging/build-bottles.sh "$TAG" /out'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
