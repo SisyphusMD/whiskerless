@@ -26,6 +26,9 @@ marker, and #64 read as open for four days after it shipped.
 - ~~**#85**~~ / ~~**#86**~~ — closed: the picker, the announcements, `rename`, and
   `--serial` taking a name all landed together.
 - **#88** — sweep the command surface, verified from telemetry rather than by eye.
+- ~~**#21**~~ — answered: the recurring dropout is a marginal, flapping WiFi link on the
+  downstairs robot, not a firmware or integration fault. The RSSI sensor ships enabled now
+  and the timeout message names the last-known signal.
 - ~~**#87**~~ — closed: the README prose is impersonal in both repos (whiskerless 13 hits to 3,
   dreame to 0). The three survivors are quoted CLI menu labels in the USER's voice and one passage
   quoting them, all kept on purpose.
@@ -49,7 +52,7 @@ marker, and #64 read as open for four days after it shipped.
 Assistant over its own Bluetooth stack, with an external issuer so the CA signing key stays out of HA).
 
 **Waiting on something outside the repo:** #13 (empty half — costs a litter refill)
-and #14 (the same press), #19 (Brent), #21 (needs the dropout to recur), #22 (the
+and #14 (the same press), #19 (Brent), #22 (the
 sleep/wake *write* path is still untested live, though its original premise is void),
 #23 (a narrated visit), #65 (upstream HACS).
 
@@ -524,8 +527,8 @@ espFirmware, since espFirmware alone does not identify a robot's behaviour.
 
 The capture stays up for weeks rather than a single day, because several open
 questions can only be answered by a rare event landing inside a capture window
-(#16 hopper flap, #21 daily state-request dropout, #15 more clean cycles for
-`0x3C`/`0x66`).
+(#16 hopper flap, #15 more clean cycles for `0x3C`/`0x66`). It earned its keep on
+2026-08-28: the capture is what answered #21.
 
 Loki retention is 720h (30 days), so the useful window is a rolling month —
 findings must be written into `docs/devices/litter-robot-4/capture-notebook.md`
@@ -536,7 +539,7 @@ Service and a CiliumNetworkPolicy pair in the homeassistant namespace. When
 #15/#16/#21 close, delete `apps/homeassistant/app/lr4-capture` and revert the
 additive mosquitto Service port and ingress rule.
 
-### #21 — Investigate the recurring "did not respond to a state request" dropout — *blocked: waiting for it to fire again*
+### #21 — Investigate the recurring "did not respond to a state request" dropout — **ANSWERED 2026-08-28: a marginal, flapping WiFi link on the downstairs robot**
 
 Negative result 2026-08-10 over a clean 8h25m window (one pod, 0 restarts): 277
 state requests (`0x02A00000`), 277 answered within 30s. Reply latency median
@@ -546,6 +549,35 @@ messages; the largest gap was 303s, which is the 5-minute heartbeat itself.
 The dropout does not reproduce under ordinary conditions and is not a steady
 background rate. Next time it fires, grab the wall-clock time and correlate
 against the capture rather than trying to provoke it.
+
+**It fired 2026-08-28 and the correlation is decisive.** The downstairs robot
+stopped publishing at 11:32:10Z; the coordinator logged the timeout five
+minutes later. Its `wifiRssi` over the preceding 24h never once beat -60 dBm, sat at -80
+or worse for 53.9% of samples, and — the telling part — spent **0%** of samples in the
+-70..-80 band. A bimodal distribution with an empty middle is not distance falloff; it is
+a client alternating between two access points. The regimes are clean 13-21 minute blocks:
+
+    good 09:42->10:03   BAD 10:03->10:24   good 10:25->10:39
+    BAD  10:39->10:58   good 10:59->11:18  BAD 11:19->11:32 (went silent here)
+
+The upstairs robot, on the same broker, integration and firmware, holds -48 dBm and is
+unaffected. Ten days of recorder history separate the two cleanly: downstairs averages
+**65.3 minutes** per outage (max 430.9), upstairs **2.0 minutes** (max 39.6) across more
+than twice as many outages. Upstairs blips and a pushed state restores it in seconds;
+downstairs goes quiet for as long as the bad window lasts.
+
+So the dropout is environmental, not a firmware or integration defect. The integration
+behaves correctly throughout: it stays loaded and subscribed (no `SETUP_RETRY` in 24h of
+logs), retries on its heartbeat, and `_handle_message` restores availability on the first
+pushed state. **Nothing here is a code bug**, which is why the fix is on the WiFi side —
+an AP nearer the dining room, or pinning that robot to the stronger one.
+
+What the code could do, and now does, is *say* this. The `wifi_rssi` sensor shipped
+`entity_registry_enabled_default=False`, so the one field that explains ten days of
+dropouts was invisible unless a user went looking for a disabled diagnostic entity; it is
+enabled now. And the timeout message names the last-known RSSI, so the next occurrence
+reads "did not respond ... last reported Wi-Fi signal was -83 dBm" rather than sending the
+next reader back to a packet capture to work out what this entry took two weeks to learn.
 
 ### #22 — Verify the panel sleep/wake write path live — *premise corrected 2026-08-16: the panel cannot set a TIME at all*
 
@@ -1202,8 +1234,6 @@ documented in the README and is genuinely fine.
 
 - **#19** — needs Brent to answer what differs between two LR4s whose main-board
   firmware differs.
-- **#21** — the state-request dropout has to recur inside a capture window
-  before there is anything to look at.
 - **#65** — not a task at all: HACS ships the fix or it does not. Re-check when
   they release, and change nothing here meanwhile.
 
