@@ -182,9 +182,9 @@ async def test_an_entity_that_became_default_on_is_enabled_on_upgrade(
 async def test_an_existing_install_gets_the_wifi_signal_it_was_never_shown(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
-    """The sensor shipped disabled, so the field that explains a dropout was invisible
-    exactly on the installs that had been dropping out. Flipping the default only
-    reaches new registrations; existing entries need the explicit promotion."""
+    """The sensor shipped disabled, so the first field anyone reaches for when a wireless
+    device misbehaves was invisible on exactly the installs debugging one. Flipping the
+    default only reaches new registrations; existing entries need the explicit promotion."""
     mock_config_entry.add_to_hass(hass)
     registry = er.async_get(hass)
     registry.async_get_or_create(

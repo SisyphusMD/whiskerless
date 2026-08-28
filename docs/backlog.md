@@ -26,9 +26,9 @@ marker, and #64 read as open for four days after it shipped.
 - ~~**#85**~~ / ~~**#86**~~ — closed: the picker, the announcements, `rename`, and
   `--serial` taking a name all landed together.
 - **#88** — sweep the command surface, verified from telemetry rather than by eye.
-- ~~**#21**~~ — answered: the recurring dropout is a marginal, flapping WiFi link on the
-  downstairs robot, not a firmware or integration fault. The RSSI sensor ships enabled now
-  and the timeout message names the last-known signal.
+- ~~**#21**~~ — answered: the robot's own MQTT client wedges — two TLS handshakes abort and it
+  stops retrying, while staying pingable. Not WiFi coverage and not an integration fault;
+  `wifiRssi` looked implicated and was not. Recovery is a power cycle.
 - ~~**#87**~~ — closed: the README prose is impersonal in both repos (whiskerless 13 hits to 3,
   dreame to 0). The three survivors are quoted CLI menu labels in the USER's voice and one passage
   quoting them, all kept on purpose.
@@ -49,7 +49,8 @@ marker, and #64 read as open for four days after it shipped.
 
 **Design conversations, not code yet:** #43 (replacing the app's notifications),
 #44 (firmware updates, which collide with a safety invariant), #89 (provisioning from Home
-Assistant over its own Bluetooth stack, with an external issuer so the CA signing key stays out of HA).
+Assistant over its own Bluetooth stack, with an external issuer so the CA signing key stays out of HA),
+#90 (telling a robot that has left the broker apart from one that is merely not answering).
 
 **Waiting on something outside the repo:** #13 (empty half — costs a litter refill)
 and #14 (the same press), #19 (Brent), #22 (the
@@ -539,7 +540,7 @@ Service and a CiliumNetworkPolicy pair in the homeassistant namespace. When
 #15/#16/#21 close, delete `apps/homeassistant/app/lr4-capture` and revert the
 additive mosquitto Service port and ingress rule.
 
-### #21 — Investigate the recurring "did not respond to a state request" dropout — **ANSWERED 2026-08-28: a marginal, flapping WiFi link on the downstairs robot**
+### #21 — Investigate the recurring "did not respond to a state request" dropout — **ANSWERED 2026-08-28: the robot's MQTT client wedges; the network is fine**
 
 Negative result 2026-08-10 over a clean 8h25m window (one pod, 0 restarts): 277
 state requests (`0x02A00000`), 277 answered within 30s. Reply latency median
@@ -550,34 +551,52 @@ The dropout does not reproduce under ordinary conditions and is not a steady
 background rate. Next time it fires, grab the wall-clock time and correlate
 against the capture rather than trying to provoke it.
 
-**It fired 2026-08-28 and the correlation is decisive.** The downstairs robot
-stopped publishing at 11:32:10Z; the coordinator logged the timeout five
-minutes later. Its `wifiRssi` over the preceding 24h never once beat -60 dBm, sat at -80
-or worse for 53.9% of samples, and — the telling part — spent **0%** of samples in the
--70..-80 band. A bimodal distribution with an empty middle is not distance falloff; it is
-a client alternating between two access points. The regimes are clean 13-21 minute blocks:
+**It fired 2026-08-28.** The downstairs robot stopped publishing at 11:32:10Z (04:32 local).
+The broker log — timestamps below in **local time**, which is what mosquitto records — says
+exactly what happened:
 
-    good 09:42->10:03   BAD 10:03->10:24   good 10:25->10:39
-    BAD  10:39->10:58   good 10:59->11:18  BAD 11:19->11:32 (went silent here)
+    04:33:47  Client <serial> has exceeded timeout, disconnecting.
+    04:34:34  New connection from <robot>:58089 on port 8883
+    04:34:34  OpenSSL Error[0]: error:0A000126:SSL routines::unexpected eof while reading
+    04:34:34  Client <unknown> disconnected: Protocol error.
+    04:36:42  New connection from <robot>:58090 on port 8883
+    04:36:42  OpenSSL Error[0]: ...unexpected eof while reading
+              (no further connection attempt for the next ten hours)
 
-The upstairs robot, on the same broker, integration and firmware, holds -48 dBm and is
-unaffected. Ten days of recorder history separate the two cleanly: downstairs averages
-**65.3 minutes** per outage (max 430.9), upstairs **2.0 minutes** (max 39.6) across more
-than twice as many outages. Upstairs blips and a pushed state restores it in seconds;
-downstairs goes quiet for as long as the bad window lasts.
+Mosquitto dropped the session on keepalive timeout, the robot retried twice, both retries
+aborted **mid-TLS-handshake**, and its client then stopped trying altogether. Throughout, the
+robot answered ICMP with 0% loss: powered, associated, routable, and reachable. Only its MQTT
+client was dead. A config-entry reload does not help — the robot never reaches the broker.
+Recovery is a power cycle of the robot.
 
-So the dropout is environmental, not a firmware or integration defect. The integration
-behaves correctly throughout: it stays loaded and subscribed (no `SETUP_RETRY` in 24h of
-logs), retries on its heartbeat, and `_handle_message` restores availability on the first
-pushed state. **Nothing here is a code bug**, which is why the fix is on the WiFi side —
-an AP nearer the dining room, or pinning that robot to the stronger one.
+It is robot-side, not broker-side: the other robot completed a TLS handshake against the same
+broker three hours later and kept cycling normally, and the broker certificate is valid into
+2036 and was not rotated that day. Both robots reconnect on a ~15-20 minute cycle as a matter
+of course (27 and 10 times respectively over the day), always logged as "already connected,
+closing old connection" — the firmware opens a new session without closing the old one. That
+is normal for these units; what is not normal is a handshake that aborts and a client that
+then gives up permanently.
 
-What the code could do, and now does, is *say* this. The `wifi_rssi` sensor shipped
-`entity_registry_enabled_default=False`, so the one field that explains ten days of
-dropouts was invisible unless a user went looking for a disabled diagnostic entity; it is
-enabled now. And the timeout message names the last-known RSSI, so the next occurrence
-reads "did not respond ... last reported Wi-Fi signal was -83 dBm" rather than sending the
-next reader back to a packet capture to work out what this entry took two weeks to learn.
+**`wifiRssi` did not explain this incident, and reading it as though it did cost this entry a
+wrong answer for several hours.** The value is bimodal on *both* robots — two tight clusters
+about 20 dB apart with nothing between them (downstairs ~-64 / ~-84, upstairs ~-49 / ~-72) —
+and the cluster changes when the robot reopens its MQTT session. That is consistent with the
+robot resampling on reconnect, and with two access points; it is not by itself evidence that
+the field is wrong, and the `0xA1` protocol notes and the shipped signal sensor both treat it
+as real. What it is *not* is a diagnosis. Two tests rule it out as the cause here:
+inter-message cadence is identical in both clusters (median 3.0s, max ~302s in each), so the
+link carried traffic equally well at either number, and the robot with the worse numbers is
+not the one that drops out more often.
+
+The lesson for the next reader is narrower than "ignore this field": a low RSSI is a
+correlation, and the cluster structure means a single sample says less than it appears to.
+Establish whether the link is actually degrading — cadence, loss, retries — before concluding
+from the number alone.
+
+So the dropout is a firmware fault in the robot's network stack, not a WiFi coverage problem
+and not an integration defect. The integration behaves correctly throughout: it stays loaded
+and subscribed (no `SETUP_RETRY` in a full day of logs), retries on its heartbeat, and
+`_handle_message` restores availability on the first pushed state.
 
 ### #22 — Verify the panel sleep/wake write path live — *premise corrected 2026-08-16: the panel cannot set a TIME at all*
 
@@ -2044,3 +2063,28 @@ built around, so the design has to come first.
 **Not a dreame-valetudo item.** It has no Home Assistant surface at all, which
 `project-standard/VARIANCE.md` already records as the one channel whiskerless has and it does not.
 
+
+### #90 — Tell "the robot is not on the broker" apart from "the robot is not answering" — **discuss**
+
+#21 surfaced this. Both conditions render identically as `unavailable`, and they need opposite
+responses: a robot that has stopped answering state requests may come back on its own, while a
+robot whose MQTT client has wedged will not — it needs a power cycle, and no amount of waiting
+or reloading the config entry changes that. On 2026-08-28 the second case looked exactly like
+the first for ten hours.
+
+The distinction is visible to the broker but not, today, to us. Two directions worth weighing:
+
+- **A last-will topic.** If the robot registers an LWT, the broker announces the disconnect and
+  the integration learns the difference for free. Whether LR4 firmware supports one is unknown
+  and has to be checked against a real unit before any of this is designed around it.
+- **Infer it — but only weakly.** Telemetry is push and arrives every few seconds, so
+  *continuing* traffic while a heartbeat goes unanswered does prove the robot is still on the
+  broker. The converse does not hold: a connected robot that stops publishing looks exactly
+  like one whose session has dropped, so total silence cannot establish that it is off-broker
+  or that a power cycle is required. Any wording built on silence alone has to stay hedged,
+  which is why the LWT question decides whether this is worth doing at all.
+
+The user-facing half matters more than the mechanism: the point is to say "this robot has gone
+off the broker and will not return by itself" rather than a bare `unavailable`, so nobody spends
+a morning on packet captures again. Do not design the wording around one incident's specifics —
+confirm the LWT question first, since it decides which of the two shapes is even available.

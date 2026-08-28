@@ -137,11 +137,11 @@ async def test_a_robot_that_answers_nothing_marks_the_entry_unavailable(
     assert hass.states.get(WAIT_TIME).state == STATE_UNAVAILABLE
 
 
-async def test_a_missed_heartbeat_names_the_signal_that_most_often_explains_it(
+async def test_a_missed_heartbeat_carries_the_last_known_signal(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
 ) -> None:
-    """A marginal link is the usual cause, and the robot's last RSSI is the only
-    evidence of it left once the robot has gone quiet."""
+    """Context for whoever reads the log: the last RSSI the robot reported before it
+    went quiet. A hint, not a diagnosis — see backlog #21."""
     await setup_integration(hass, mock_config_entry, state_payload)
     coordinator = mock_config_entry.runtime_data
 
