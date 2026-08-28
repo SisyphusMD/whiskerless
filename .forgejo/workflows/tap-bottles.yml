@@ -122,3 +122,30 @@ jobs:
           git add Formula/
           git commit -m "whiskerless ${TAG#v} bottles" || { echo "the tap already matches"; exit 0; }
           git -c "$AUTH" push
+      - name: Refresh the NAS copy of those bottles
+        # A rebuild replaces the bottles on the public Forgejo release with different bytes, and the
+        # NAS copy made at tag time is then stale. publish.yml's nas-bottles job cannot help: it is
+        # tag-triggered and a rebuild emits no tag. So the repair has to happen here, beside the tap
+        # refresh, for the same reason this workflow exists at all — the pairing is not automatic
+        # and its absence is silent. `replace` because that is exactly what a rebuild produces.
+        run: |
+          set -euo pipefail
+          chmod +x packaging/fetch-release-assets.sh packaging/forgejo-release.sh
+          select='.assets[]? | select(
+                    (.name | endswith(".bottle.tar.gz"))
+                    or (.name | endswith(".bottle.json"))
+                  ) | .browser_download_url'
+          case "$TAG" in
+            *-rc.*) expected=8 ;;
+            *)      expected=16 ;;
+          esac
+          packaging/fetch-release-assets.sh "$TAG" "$expected" "$select" > fetched.txt
+          mapfile -t fetched < fetched.txt
+          [ "${#fetched[@]}" -gt 0 ] || { echo "::error::no bottles to refresh on the NAS"; exit 1; }
+          # `#v` like every other caller: changelog-section.sh takes the version, not the tag.
+          bash packaging/changelog-section.sh "${TAG#v}" > notes.md
+          REL_REPLACE_POLICY=replace \
+          packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
+            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$TAG" notes.md "${fetched[@]}"
+        env:
+          TAG: ${{ inputs.tag }}

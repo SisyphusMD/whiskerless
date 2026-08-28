@@ -93,7 +93,10 @@ and bridges.
 5. **Forgejo `publish.yml` `nas-bridge` job**: the NAS is internal, so no GitHub
    runner can reach it. This waits for everything GitHub built — the two `.pkg`
    and the four arm64 files — on the public Forgejo release, then **copies them to
-   the internal NAS** release. Bottles are deliberately not among them.
+   the internal NAS** release. Bottles are not among them **here** — they arrive later, and waiting would hold reconcile
+   and prune-rcs behind a build neither reads. The `nas-bottles` job copies them once they
+   land, so the NAS still ends up a complete mirror; what bottles stay out of is reconcile's
+   byte-quorum, which is a different question (see `packaging/asset-roles.sh`).
 6. **GitHub `bottles.yml`** (mirrored tag): builds the four **Homebrew bottles**
    and appends them, with their manifests, to the GitHub + public-Forgejo
    releases.

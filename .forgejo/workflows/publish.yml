@@ -454,8 +454,10 @@ jobs:
           #   2 .pkg (arm64 + x86_64) + arm64 binary + arm64 .deb + aarch64 .rpm + its checksums
           #
           # Named by suffix rather than by a substring like `arm64`, which would also match the
-          # Homebrew bottles bottles.yml appends to this same release. Those are kept off the NAS
-          # on purpose — reconcile excludes them too, because a bottle is not reproducible.
+          # Homebrew bottles bottles.yml appends to this same release. Those are NOT kept off the
+          # NAS — the nas-bottles job carries them — but they must not be picked up HERE: they land
+          # about thirteen minutes later, and waiting would hold reconcile and prune-rcs, which are
+          # ordered after this job and read none of them.
           select='.assets[]? | select(
                     (.name | endswith(".pkg"))
                     or (.name | endswith("-linux-arm64"))
@@ -481,6 +483,63 @@ jobs:
             "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${fetched[@]}"
           if [ "$partial" = true ]; then
             echo "::error::the NAS release is incomplete for $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+  nas-bottles:
+    name: Bridge the bottles → NAS
+    # A SEPARATE job rather than widening nas-bridge, because the two wait on different things.
+    # nas-bridge needs only `releases` and finishes in about a minute; the bottles are appended to
+    # this same release asynchronously by bottles.yml on GitHub, thirteen minutes or so later.
+    # Teaching the bridge to wait for them would hold reconcile — which is ordered after it — and
+    # prune-rcs behind the bottle build, for assets neither of them reads. This runs after the
+    # bottle block instead, in parallel with the install matrix, so it costs nothing on the path.
+    #
+    # Bottles are bridged but still NOT reconciled, and those are different questions. Reconcile
+    # compares bytes across registries, and a bottle's gzip header carries its build timestamp, so
+    # a rebuilt one differs legitimately and the quorum would call a healthy release a conflict.
+    # Copying is not comparing: the NAS can hold a complete copy without joining that quorum, and
+    # their integrity is already pinned by the sha256 the tap's `bottle do` block records.
+    needs: [guard, homebrew-bottles]
+    if: ${{ !cancelled() && needs.guard.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Copy the bottles and their manifests to the NAS release
+        run: |
+          set -euo pipefail
+          chmod +x packaging/fetch-release-assets.sh packaging/forgejo-release.sh
+          # Both halves: the archives users pour, and the .json manifests that record which sha256
+          # belongs to which platform. A NAS holding archives it cannot describe is not a mirror.
+          select='.assets[]? | select(
+                    (.name | endswith(".bottle.tar.gz"))
+                    or (.name | endswith(".bottle.json"))
+                  ) | .browser_download_url'
+          # Same split the bottle wait above makes, doubled: a candidate bottles one formula, a
+          # release bottles both, and this selects each archive AND its manifest. A fixed 8 would
+          # call a stable release complete on half its bottles — and this job runs even when
+          # homebrew-bottles went red, so a partial set is a state it can actually observe.
+          case "$GITHUB_REF_NAME" in
+            *-rc.*) expected=8 ;;
+            *)      expected=16 ;;
+          esac
+          partial=false
+          packaging/fetch-release-assets.sh "$GITHUB_REF_NAME" "$expected" "$select" > fetched.txt \
+            || partial=true
+          mapfile -t fetched < fetched.txt
+          [ "${#fetched[@]}" -gt 0 ] || { echo "::error::no bottles arrived to bridge"; exit 1; }
+          bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
+          # `replace`, matching bottles.yml, and for the same reason the quorum excludes these: a
+          # rebuilt bottle has a new gzip timestamp, so a re-dispatch legitimately produces
+          # different bytes under the same name. The immutable default would reject them and leave
+          # the NAS holding the superseded copy — refusing the repair this job exists to perform.
+          REL_REPLACE_POLICY=replace \
+          packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
+            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${fetched[@]}"
+          if [ "$partial" = true ]; then
+            echo "::error::the NAS is missing bottles for $GITHUB_REF_NAME"
             exit 1
           fi
 
