@@ -374,7 +374,12 @@ def _enable_detected_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry
 #: would re-enable on every startup the very entities the platform now hides.
 #: Nothing demotes them either — an install where someone already calibrated
 #: keeps the buttons they have been using.
-_NOW_ENABLED_BY_DEFAULT: tuple[tuple[str, str], ...] = (("button", "refresh"),)
+_NOW_ENABLED_BY_DEFAULT: tuple[tuple[str, str], ...] = (
+    ("button", "refresh"),
+    # The signal is the field that explains a dropout, and a user debugging one has no
+    # reason to suspect a disabled diagnostic entity holds the answer.
+    ("sensor", "wifi_rssi"),
+)
 
 
 def _promote_newly_default_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None:

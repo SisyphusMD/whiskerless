@@ -116,7 +116,6 @@ SENSORS: tuple[WhiskerlessSensorEntityDescription, ...] = (
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
         value_fn=lambda robot: robot.wifi_rssi,
     ),
     WhiskerlessSensorEntityDescription(
