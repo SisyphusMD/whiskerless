@@ -59,6 +59,10 @@ much of the hopper work.
 ### Changed
 
 - The Refresh button is on by default, on existing installs too.
+- The Wi-Fi signal sensor is on by default, on existing installs too. It was previously
+  hidden as a disabled diagnostic entity.
+- A missed heartbeat now names the robot's last reported Wi-Fi signal alongside the
+  timeout, as context rather than a verdict.
 - Manual calibration buttons ship disabled, because the robot calibrates itself.
 
 ## [0.1.3] - 2026-07-02
