@@ -15,6 +15,8 @@ much of the hopper work.
 ### Breaking changes
 
 - Broker usernames and passwords are gone. Authentication is by certificate, or anonymous if you pick it.
+- `send --allow-motor` is gone. The hazard class it unlocked was empty, so it never permitted
+  anything; a script still passing it now fails with an unrecognised-argument error.
 - Every robot gets its own certificate, with no way to opt out.
 - whiskerless must be able to sign unless you use `setup --auth supplied` or `--auth anonymous`. See **Upgrading from 0.1.3**.
 - One broker per store. `--host` and `--ca` moved onto `setup`; point `WHISKERLESS_HOME` at a second store.
@@ -41,6 +43,8 @@ much of the hopper work.
 - A once-a-day update check that names the right upgrade command for how you installed.
 - A documented list of the systems release packages are tested on, so "supported" means something checkable rather than implied.
 - The published `.rpm` is now installed and run on the oldest maintained Fedora as well as the current one.
+- `whiskerless status` — the robot's derived state in one view: litter level, drawer,
+  hopper, the last cat visit and the values behind them.
 
 ### Fixed
 
