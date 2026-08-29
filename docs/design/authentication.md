@@ -221,7 +221,9 @@ in a file manager. Matches the sibling dreame-valetudo project.
 ├── ca/ca.crt  ca.key    the authority; the key never leaves this machine
 ├── client/              this machine's identity to the broker
 ├── broker/              server.crt + server.key — copy to your broker
-└── robots/<serial>/profile.json
+└── robots/<serial>/
+    ├── profile.json
+    └── client/           the robot's own identity — cert AND private key
 ```
 
 ### One broker per store
@@ -284,12 +286,19 @@ the CA's files cannot live in it.
 | the CA | generated once, reused forever | `ca/` — the one thing that must be backed up |
 | broker server cert | regenerate freely | `broker/` — an artifact for the user |
 | this machine's client cert | minted once, reused | `client/` — we use it on every command |
-| a robot's client cert | minted per provision | **never** |
+| a robot's client cert | minted per provision | `robots/<serial>/client/` |
 
-A robot's certificate is written to the robot and forgotten. Nothing needs a
-second copy: the robot holds it, the broker verifies it against the CA, and a
-replacement is one re-provision away. Keeping one would be another place for a
-private key to leak from and no place it could be used.
+A robot's certificate is written to the robot AND kept here. It used to be
+dropped after the write. Two things need the copy. The broker identifies a robot
+by the certificate it presents, so the stored pair is what keeps a restored store
+talking to the same robot under the same identity and ACL rather than a new one.
+And under `--auth supplied` the store cannot sign at all: an identity it discards
+is one nothing can recreate, because the issuer is somewhere else.
+
+The cost is real and worth stating plainly: this is private key material at rest,
+0600 inside a 0700 directory, and it is included in backups. An unencrypted copy
+of the store is a copy of every robot's identity. `reissue` replaces a pair
+believed compromised without losing the profile; `forget` deletes it.
 
 This machine's certificate is the opposite case and is kept, because *we* are the
 one using it. Minting per run would cost an RSA keygen on every command and fill

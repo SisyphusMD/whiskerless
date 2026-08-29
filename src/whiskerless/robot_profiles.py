@@ -249,8 +249,9 @@ class RobotProfile:
     litter_full_mm: int | None = None
     litter_empty_mm: int | None = None
     # The serial number of the client certificate last issued to this robot. Not
-    # secret, and the only trace kept of it — the certificate itself lives on the
-    # robot alone. Nothing reads this today; it exists so a revocation list can be
+    # secret. Names the certificate CURRENTLY issued: a reissue overwrites it, so it is
+    # the last one handed out rather than a history. Nothing reads this today; it exists
+    # so a revocation list can be
     # built later by somebody who did not plan for one, which is the situation
     # everybody is in when they suddenly want one.
     cert_serial: str | None = None
@@ -893,7 +894,7 @@ class RobotProfileStore:
     def forget_issued_certificates(self) -> None:
         """Forget which certificate each robot was given, for a CA replacement.
 
-        `cert_serial` is the only trace kept of a robot's identity, and it is what
+        `cert_serial` names the certificate currently issued — a reissue replaces it — and it is what
         distinguishes a robot holding one of ours from a robot still on its
         factory certificate. Replacing the authority invalidates every one of them
         at once — so leaving the serials behind would report robots as current
