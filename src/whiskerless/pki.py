@@ -15,10 +15,11 @@ Three kinds of certificate come out of here, and they have different lifetimes:
   told to trust. Regenerated freely: it is bound to a broker address, not to a
   robot, and nothing has to be re-provisioned when it changes.
 * **A robot's client certificate** — minted at provisioning time, written to the
-  robot, and then forgotten. Nothing keeps a copy, because nothing needs one: the
-  robot holds it, the broker verifies it against the CA, and a replacement is one
-  re-provision away. A stored copy would be a second place for a private key to
-  leak from and no place it could be used.
+  robot, and kept at ``robots/<serial>/client/``. The broker identifies a robot by
+  the certificate it presents, so the stored pair is what keeps a restored store
+  talking to the same robot under the same identity; and under ``--auth supplied``
+  the store cannot sign, so a discarded identity is one nothing can recreate. The
+  copy is private key material at rest and travels in backups.
 
 RSA-2048 throughout, matching what the Whisker app writes and what the robot's
 mbedTLS is known to accept. Not a preference — the app's own device key is
@@ -311,7 +312,8 @@ def read_cert(cert_path: Path) -> str:
 def issued_serial(pair: KeyPair) -> str:
     """The certificate's serial number, hex, for recording what was issued.
 
-    Not secret, and the only trace kept of a robot's client certificate. Nothing
+    Not secret. Names the certificate CURRENTLY issued to a robot — a reissue replaces
+    it, so this is the last one handed out, not a history. Nothing
     reads it today; it exists so that a certificate revocation list can be built
     later by someone who did not plan for one, which is the situation everybody
     is in when they suddenly want one.

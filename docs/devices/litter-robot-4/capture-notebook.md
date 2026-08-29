@@ -482,7 +482,7 @@ a decode problem. The globe **does** have a moulded fill line, which the docs ha
 stopped claiming for want of evidence; the filter has no date tab, mark or indicator
 of any kind, and no register reports its state.
 
-**The device id read returns a MAC**, `b4:8a:0a:8a:c9:28` — not the serial. That
+**The device id read returns a MAC**, `b4:8a:0a:xx:xx:xx` — not the serial. That
 closes #52 as answered-and-not-viable: `--serial` can never be auto-filled from it.
 The dry run also enumerated the live endpoint surface for #51 — `mqtt-config`,
 `proto-ver`, `prov-config`, `prov-scan`, `prov-session`, `whisker-config` — with
