@@ -46,15 +46,23 @@ git -c "http.extraheader=Authorization: Basic ${AUTH_B64}" push --atomic origin 
 # and reconcile heals a lagging one downstream. What this buys is that the tag is confirmed
 # present — or its absence is named here, next to its cause, instead of surfacing 10 minutes
 # later as an unexplained timeout in the job that waits for it.
+mirror_ref_json="${TMPDIR:-/tmp}/mirror-ref-$$.json"
+want_obj=$(git rev-parse "refs/tags/${tag}")
 mirror_has_tag() {
   [ -n "${PROJECT_REPO_SLUG:-}" ] || return 2   # nothing to check against
-  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+  code=$(curl -sS -o "$mirror_ref_json" -w '%{http_code}' --max-time 30 \
     "https://api.github.com/repos/${PROJECT_REPO_SLUG}/git/ref/tags/${tag}" 2>/dev/null) || return 2
   case "$code" in
-    200) return 0 ;;   # arrived
+    200) : ;;
     404) return 1 ;;   # definitively not there yet
     *)   return 2 ;;   # rate limited or unreachable: unknown, NOT success
   esac
+  got=$(jq -r '.object.sha // empty' "$mirror_ref_json")
+  [ -n "$got" ] || return 2
+  # Existence is not propagation. A tag name can be reused after a partial prune, so a stale
+  # same-named ref would answer 200 while still pointing at the previous object - and every job
+  # that waits for this tag on the mirror would run against the wrong commit.
+  [ "$got" = "$want_obj" ]
 }
 
 # One mutating request, then read-only polling. Repeating the POST would re-trigger a sync that

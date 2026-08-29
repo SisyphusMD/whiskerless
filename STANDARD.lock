@@ -22,7 +22,7 @@
     "packaging/promote-changelog.sh": "c70413841343bad7417417ee6335e39edba4d4f809e334eec221534f7f64fe05",
     "packaging/prune-rcs.sh": "55d52c9aed3888c242fff269828655a047775bcdc33cbef99a94714041aa8aaa",
     "packaging/publish-registry.sh": "0b79b9976f3a2b77c0ad59153806ab33f734ab10e3c4bd5e1fdaea15bf97d76e",
-    "packaging/push-tag.sh": "6c96c7e59160ce3a562ba3d0dfafaf8a6b992bf6bb5156911a2cd82912340dd0",
+    "packaging/push-tag.sh": "b2933b87a75d4e2a22d8844d2303dc4152c805ddee6b040f4ee3994c69d18b42",
     "packaging/reconcile-releases.sh": "d41f41546138327a028420544cf59951609698f21b92175b38c1b797c2b9ba0e",
     "packaging/release-common.sh": "767a7e7484f3e7f1289ff87c60a461ca374c2364b064ea37523f614bc8f744f3",
     "packaging/render-formula.sh": "688b6838aedf4d87ab66d166a4eee0c7c88e505fa8dac06d74e782ed74638ae9",
@@ -38,7 +38,7 @@
     "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "eef1843246c45c9fade0c20c0200325994779824",
+  "source_commit": "41ecf6edb48bf8b29bdd6e3d852cd76e47681cc4",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.22"
+  "source_tag": "v0.1.23"
 }

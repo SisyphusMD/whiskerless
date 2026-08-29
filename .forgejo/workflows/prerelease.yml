@@ -375,12 +375,52 @@ jobs:
 
       - name: Force the push-mirrors to propagate the tag now (GitHub + NAS)
         env:
+          TAG: ${{ needs.gate.outputs.tag }}
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
         run: |
           set -euo pipefail
           # Best-effort: sync-on-commit propagates tag pushes immediately in practice, and this
           # endpoint needs more than the PAT's write:repository scope (403 otherwise). Warn-only so
           # a scope refusal never fails a release whose tag already fanned out.
-          curl -fsS -X POST -H "Authorization: token ${TOKEN}" \
-            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/push_mirrors-sync" \
+          curl -fsS --max-time 30 -X POST -H "Authorization: token ${TOKEN}" \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/push_mirrors-sync" >/dev/null 2>&1 \
             || echo "::warning::push_mirrors-sync refused (PAT scope); relying on sync_on_commit"
+          # The sync request is unverifiable on its own, so read the mirror back. Unauthenticated and
+          # against a slug the runner supplies, which keeps this out of reach of the checkout the
+          # surrounding step is careful not to trust. Only the GET is repeated: a POST that timed out
+          # may still have applied, and repeating it would re-trigger a sync already in flight.
+          ref_json="${RUNNER_TEMP:-/tmp}/mirror-ref.json"
+          want=$(git rev-parse "refs/tags/${TAG}")
+          mirror_has_tag() {
+            code=$(curl -sS -o "$ref_json" -w '%{http_code}' --max-time 30 \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>/dev/null) || return 2
+            case "$code" in
+              200) : ;;
+              404) return 1 ;;
+              *)   return 2 ;;   # rate limited or unreachable: unknown, NOT success
+            esac
+            got=$(jq -r '.object.sha // empty' "$ref_json")
+            [ -n "$got" ] || return 2
+            # Existence is not propagation. An rc number is derived from the source tags alone, so a
+            # same-named tag left behind by a partial prune would answer 200 while still pointing at the
+            # previous object - and the jobs waiting on the mirror would run against the wrong commit.
+            [ "$got" = "$want" ]
+          }
+          for attempt in 1 2 3; do
+            sleep $(( attempt * 20 ))
+            # Captured before any other command runs: `$?` read after an `if` is the status of the IF,
+            # not of the probe, so the unknown branch would never fire.
+            mirror_has_tag && status=0 || status=$?
+            if [ "$status" = 0 ]; then
+              echo "tag ${TAG} confirmed on the mirror"
+              break
+            fi
+            if [ "$status" = 2 ]; then
+              echo "::warning::could not determine whether ${TAG} reached the mirror (check unavailable)"
+              break
+            fi
+            echo "::warning::${TAG} not on the mirror yet (attempt ${attempt}/3)"
+            [ "$attempt" = 3 ] && echo "::warning::${TAG} never reached the mirror. The tag is on the source \
+          of truth, but any job waiting for it there will time out; re-run push_mirrors-sync with an \
+          admin-scoped token, or wait for the mirror interval"
+          done
