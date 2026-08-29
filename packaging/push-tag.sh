@@ -16,6 +16,15 @@ tag="${1:?usage: push-tag.sh <tag> <token> <branch-ref>}"
 token="${2:?usage: push-tag.sh <tag> <token> <branch-ref>}"
 branch_ref="${3:?usage: push-tag.sh <tag> <token> <branch-ref>}"
 
+# Sourced for PROJECT_REPO_SLUG, which the mirror check below needs. Optional on purpose: this
+# script's own job is pushing the tag, and a project without the file should still be able to
+# do that — the check degrades to "unknown" rather than failing the push.
+here="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$here/project.env" ]; then
+  # shellcheck source=/dev/null
+  . "$here/project.env"
+fi
+
 [ "$(git cat-file -t "refs/tags/$tag")" = tag ]
 [ "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse HEAD)" ]
 test -z "$(git status --porcelain)"
@@ -24,6 +33,52 @@ AUTH_B64=$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')
 git -c "http.extraheader=Authorization: Basic ${AUTH_B64}" push --atomic origin \
   "HEAD:${branch_ref}" "$tag"
 
-curl -fsS -X POST -H "Authorization: token ${token}" \
-  "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/push_mirrors-sync" \
+# Fire the sync, then verify the OUTCOME on the mirror itself.
+#
+# Two things make the obvious version useless. `push_mirrors-sync` answers 403 to the
+# repo-scoped token this script is given — that is why the call has always been best-effort —
+# so a retry loop keyed on its result never runs. And Forgejo's own `last_error` is empty
+# while a sync is still in flight, so an empty value proves nothing about an attempt just
+# triggered. What is checkable without any extra scope is whether the tag actually arrived:
+# the GitHub mirror is public, so an unauthenticated ref lookup answers it directly.
+#
+# Warn-only by design. A release whose refs already fanned out must not be failed by a mirror,
+# and reconcile heals a lagging one downstream. What this buys is that the tag is confirmed
+# present — or its absence is named here, next to its cause, instead of surfacing 10 minutes
+# later as an unexplained timeout in the job that waits for it.
+mirror_has_tag() {
+  [ -n "${PROJECT_REPO_SLUG:-}" ] || return 2   # nothing to check against
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+    "https://api.github.com/repos/${PROJECT_REPO_SLUG}/git/ref/tags/${tag}" 2>/dev/null) || return 2
+  case "$code" in
+    200) return 0 ;;   # arrived
+    404) return 1 ;;   # definitively not there yet
+    *)   return 2 ;;   # rate limited or unreachable: unknown, NOT success
+  esac
+}
+
+# One mutating request, then read-only polling. Repeating the POST would re-trigger a sync that
+# may already be in flight, and a timed-out request can still have been applied; the retry that
+# is safe to repeat is the GET.
+curl -fsS --max-time 30 -X POST -H "Authorization: token ${token}" \
+  "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/push_mirrors-sync" >/dev/null 2>&1 \
   || echo "::warning::push_mirrors-sync refused (PAT scope); relying on sync_on_commit"
+
+for attempt in 1 2 3; do
+  sleep $(( attempt * 20 ))
+  # Captured before any other command runs: `$?` after an `if` is the status of the IF, not of
+  # the probe, so reading it there always sees 0 and the unknown branch never fires.
+  mirror_has_tag && status=0 || status=$?
+  if [ "$status" = 0 ]; then
+    echo "tag ${tag} confirmed on the mirror"
+    break
+  fi
+  if [ "$status" = 2 ]; then
+    echo "::warning::could not determine whether ${tag} reached the mirror (check unavailable)"
+    break
+  fi
+  echo "::warning::${tag} not on the mirror yet (attempt ${attempt}/3)"
+  [ "$attempt" = 3 ] && echo "::warning::${tag} never reached the mirror. The release continues, \
+but any job waiting for this tag there will time out; re-run push_mirrors-sync with an \
+admin-scoped token, or wait for the mirror interval"
+done
