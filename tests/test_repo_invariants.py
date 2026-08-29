@@ -193,13 +193,29 @@ _SERIAL = re.compile(r"\bLR[0-9][A-Z]?[0-9]{6}\b", re.IGNORECASE)
 #: Six groups is a hardware address. An IPv6 address in two-digit groups is eight, so runs
 #: that long are skipped. A seven-group run is a six-group address with one hex-looking
 #: character stuck to its front, so its windows are still examined.
-_HEX_RUN = re.compile(
-    r"[0-9A-F]{2}(?P<sep>[:-])(?:[0-9A-F]{2}(?P=sep))*[0-9A-F]{2}", re.IGNORECASE
-)
-#: `bytes.fromhex` accepts whitespace between byte pairs, so the literal is captured loosely
-#: and the spacing removed before it is judged; anchoring on the packed spelling alone misses
-#: `fromhex("aa bb cc dd ee ff")`, which is the same six bytes.
+#: Maximal runs per separator, then judged by shape. Six two-digit groups is an address;
+#: seven is a label glued to one (`id:`, or the trailing letters of `mac:`) and is ambiguous
+#: about which end, so both readings are offered and the allowlist decides; eight or more is
+#: a byte sequence or an IPv6 address. Matching a fixed six groups instead would read the
+#: tail of `2001:db8:12:34:56:78:9a:bc` as hardware and the head of `01-02-...-08` as well.
+_RUN_COLON = re.compile(r"[0-9A-F]{1,4}(?::[0-9A-F]{1,4})+", re.IGNORECASE)
+_RUN_HYPHEN = re.compile(r"[0-9A-F]{1,4}(?:-[0-9A-F]{1,4})+", re.IGNORECASE)
+#: Cisco-style dotted notation: exactly three four-digit groups, never part of a longer run.
+_RUN_DOT = re.compile(r"[0-9A-F]{4}(?:\.[0-9A-F]{4})+", re.IGNORECASE)
 _FROMHEX = re.compile(r"fromhex\(\s*[\"']([0-9A-F\s]+)[\"']\s*\)", re.IGNORECASE)
+
+
+def _addresses_in(run: str, sep: str) -> list[str]:
+    groups = run.split(sep)
+    if len(groups) == 6 and all(len(g) == 2 for g in groups):
+        return [":".join(groups)]
+    if len(groups) == 7:
+        return [
+            ":".join(groups[i : i + 6])
+            for i in range(2)
+            if all(len(g) == 2 for g in groups[i : i + 6])
+        ]
+    return []
 #: Obviously-invented fixture addresses. An explicit allowlist rather than a loose pattern,
 #: so adding one stays a decision somebody makes on purpose.
 EXAMPLE_MACS = frozenset(
@@ -229,14 +245,16 @@ def _macs_in(text: str) -> list[str]:
     """
     allowed = {_canon(m) for m in EXAMPLE_MACS}
     found: list[str] = []
-    for run in _HEX_RUN.finditer(text):
-        groups = re.split(r"[:-]", run.group(0))
-        if not 6 <= len(groups) <= 7:
-            continue
-        windows = [":".join(groups[i : i + 6]) for i in range(len(groups) - 5)]
-        if any(_canon(w) in allowed for w in windows):
-            continue
-        found.extend(windows)
+    allowed = {_canon(m) for m in EXAMPLE_MACS}
+    for rx, sep in ((_RUN_COLON, ":"), (_RUN_HYPHEN, "-")):
+        for run in rx.finditer(text):
+            readings = _addresses_in(run.group(0), sep)
+            if readings and not any(_canon(r) in allowed for r in readings):
+                found.extend(readings)
+    for run in _RUN_DOT.finditer(text):
+        groups = run.group(0).split(".")
+        if len(groups) == 3:
+            found.append("".join(groups))
     for literal in _FROMHEX.findall(text):
         packed = re.sub(r"\s+", "", literal)
         if len(packed) == 12:
