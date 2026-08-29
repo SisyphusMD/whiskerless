@@ -313,7 +313,24 @@ jobs:
           git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
           git add Formula/
           git commit -m "whiskerless ${GITHUB_REF_NAME#v}" || { echo "no change to publish"; exit 0; }
-          git -c "$AUTH" push
+          # Three jobs across BOTH sibling repositories write this one tap, and a concurrency
+          # group is scoped to a single repository - so `tap-write` cannot serialise the sibling,
+          # and its release landing between this clone and this push rejects it as non-fast-forward.
+          # Each project renders only its own formula file, so replaying this commit on the new tip
+          # is the correct resolution rather than a merge.
+          pushed=
+          for attempt in 1 2 3 4 5; do
+            if git -c "$AUTH" push; then pushed=1; break; fi
+            echo "::warning::tap moved under this push; replaying on the new tip (attempt ${attempt}/5)"
+            git -c "$AUTH" fetch origin main
+            git rebase origin/main || {
+              git rebase --abort || true
+              echo "::error::tap rebase conflicted; another writer touched the same formula"
+              exit 1
+            }
+            sleep $(( attempt * 5 ))
+          done
+          [ -n "$pushed" ] || { echo "::error::could not push the tap after 5 attempts"; exit 1; }
 
   homebrew-bottles:
     name: Add the bottle block to the tap (second pass)
@@ -425,7 +442,24 @@ jobs:
           git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
           git add Formula/
           git commit -m "whiskerless ${GITHUB_REF_NAME#v} bottles" || { echo "no change to publish"; exit 0; }
-          git -c "$AUTH" push
+          # Three jobs across BOTH sibling repositories write this one tap, and a concurrency
+          # group is scoped to a single repository - so `tap-write` cannot serialise the sibling,
+          # and its release landing between this clone and this push rejects it as non-fast-forward.
+          # Each project renders only its own formula file, so replaying this commit on the new tip
+          # is the correct resolution rather than a merge.
+          pushed=
+          for attempt in 1 2 3 4 5; do
+            if git -c "$AUTH" push; then pushed=1; break; fi
+            echo "::warning::tap moved under this push; replaying on the new tip (attempt ${attempt}/5)"
+            git -c "$AUTH" fetch origin main
+            git rebase origin/main || {
+              git rebase --abort || true
+              echo "::error::tap rebase conflicted; another writer touched the same formula"
+              exit 1
+            }
+            sleep $(( attempt * 5 ))
+          done
+          [ -n "$pushed" ] || { echo "::error::could not push the tap after 5 attempts"; exit 1; }
 
   nas-bridge:
     name: Bridge the GitHub-built assets → NAS
