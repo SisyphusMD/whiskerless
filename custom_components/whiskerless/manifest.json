@@ -10,6 +10,6 @@
   "issue_tracker": "https://github.com/SisyphusMD/whiskerless/issues",
   "loggers": ["whiskerless"],
   "mqtt": ["prod/LR4/+/state", "prod/LR4/+/activity"],
-  "requirements": ["whiskerless==0.1.3"],
-  "version": "0.1.3"
+  "requirements": ["whiskerless==0.2.0-rc.66"],
+  "version": "0.2.0-rc.66"
 }
