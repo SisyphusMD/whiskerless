@@ -407,10 +407,10 @@ join — the broker and the CA are already settled.
 
 > **whiskerless sets up the certificates for you.** The robot cannot send a
 > username or a password — it was built for AWS IoT, which authenticates by
-> certificate — so certificates are the only authentication it has. The first
-> `provision` on a machine offers to create a certificate authority, your
-> broker's server certificate, and an identity for this machine. Press enter and
-> it is done; it then prints the three files your broker needs:
+> certificate — so certificates are the only authentication it has. Running
+> `whiskerless setup` on a machine creates a certificate authority, your broker's
+> server certificate, and an identity for this machine, then prints the three files
+> your broker needs:
 >
 > ```
 >   ~/whiskerless/ca/ca.crt          →  cafile
