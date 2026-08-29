@@ -774,7 +774,7 @@ declared enum members, and no sweep is needed because the enums are already know
 
 ### #52 — Use the device-id read to verify (or supply) the serial — **CLOSED 2026-08-16: answered, not viable**
 
-**Answered 2026-08-16: the read returns a MAC** (`b4:8a:0a:8a:c9:28`), not the
+**Answered 2026-08-16: the read returns a MAC** (`b4:8a:0a:xx:xx:xx`), not the
 serial. Both halves of this task rested on it being the serial, so both are dead —
 there is nothing to verify `--serial` against and nothing to auto-fill it from.
 The docs contradiction is settled in the same stroke: the provisioning README said

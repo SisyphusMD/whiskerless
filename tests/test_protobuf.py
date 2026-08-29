@@ -54,7 +54,7 @@ def test_parse_status_reads_field2() -> None:
 
 
 def test_parse_device_id_roundtrip() -> None:
-    mac = bytes.fromhex("b48a0a8ac928")
+    mac = bytes.fromhex("aabbccddeeff")
     # Build a DEVICE_ID_RESPONSE: msg=2, arm 11 { field1 (bytes) = mac }.
 
     inner = bytes([0x0A, len(mac)]) + mac  # field 1, LEN

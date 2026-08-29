@@ -903,7 +903,7 @@ def _fake_provision(*, success: bool) -> Any:
         if chooser is not None and config is not None and not config.wifi_ssid:
             config.wifi_ssid, config.wifi_pass = await chooser([])  # type: ignore[operator]
         confirm = kwargs.get("confirm")
-        if confirm is not None and config is not None and not confirm(config, "30:c9:22:27:1d:34"):  # type: ignore[operator]
+        if confirm is not None and config is not None and not confirm(config, "AA:BB:CC:DD:EE:03"):  # type: ignore[operator]
             return ProvisioningResult(
                 success=False, message="aborted before anything was written"
             )

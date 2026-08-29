@@ -183,6 +183,65 @@ EXAMPLE_NETWORKS = frozenset(
 # designator would wave through a real `LR4D…` from somebody else's robot — and
 # the whole point is to catch the serial nobody thought to look for.
 _SERIAL = re.compile(r"\bLR[0-9][A-Z]?[0-9]{6}\b", re.IGNORECASE)
+
+#: A MAC identifies a unit as durably as its serial — `diagnostics.py` says so, and the
+#: `--debug` scrubber redacts one. Matched as a maximal run of hex-pair groups and judged
+#: by LENGTH rather than with lookarounds: lookarounds forbidding a neighbouring colon also
+#: reject a real address sitting next to prose (`mac:b4:...`, or a trailing `...:28: more`),
+#: and a guard that silently matches nothing is worse than no guard.
+#:
+#: Six groups is a hardware address. An IPv6 address in two-digit groups is eight, so runs
+#: that long are skipped. A seven-group run is a six-group address with one hex-looking
+#: character stuck to its front, so its windows are still examined.
+_HEX_RUN = re.compile(
+    r"[0-9A-F]{2}(?P<sep>[:-])(?:[0-9A-F]{2}(?P=sep))*[0-9A-F]{2}", re.IGNORECASE
+)
+#: `bytes.fromhex` accepts whitespace between byte pairs, so the literal is captured loosely
+#: and the spacing removed before it is judged; anchoring on the packed spelling alone misses
+#: `fromhex("aa bb cc dd ee ff")`, which is the same six bytes.
+_FROMHEX = re.compile(r"fromhex\(\s*[\"']([0-9A-F\s]+)[\"']\s*\)", re.IGNORECASE)
+#: Obviously-invented fixture addresses. An explicit allowlist rather than a loose pattern,
+#: so adding one stays a decision somebody makes on purpose.
+EXAMPLE_MACS = frozenset(
+    {
+        "aabbccddeeff",
+        "aabbccddee01",
+        "aabbccddee02",
+        "aabbccddee03",
+        "001a2b3c4d5e",  # the scrubber's own fixture: it exists to be found and redacted
+    }
+)
+
+
+def _canon(mac: str) -> str:
+    """Compare addresses by their bytes, not their punctuation."""
+    return re.sub(r"[:-]", "", mac).lower()
+
+
+def _macs_in(text: str) -> list[str]:
+    """Addresses worth judging, one entry per run rather than per window.
+
+    A seven-group run yields two six-group windows and only one is the address: a label
+    ending in hex-looking letters, written flush against an address, contributes a leading
+    pair of its own. Reporting every window would fail the gate on an APPROVED fixture, so
+    a run whose windows include an allowed address is taken to be that address and nothing
+    else. (Spelling the bogus window out here would itself trip this test.)
+    """
+    allowed = {_canon(m) for m in EXAMPLE_MACS}
+    found: list[str] = []
+    for run in _HEX_RUN.finditer(text):
+        groups = re.split(r"[:-]", run.group(0))
+        if not 6 <= len(groups) <= 7:
+            continue
+        windows = [":".join(groups[i : i + 6]) for i in range(len(groups) - 5)]
+        if any(_canon(w) in allowed for w in windows):
+            continue
+        found.extend(windows)
+    for literal in _FROMHEX.findall(text):
+        packed = re.sub(r"\s+", "", literal)
+        if len(packed) == 12:
+            found.append(packed)
+    return found
 #: Every syntactic form an SSID is written in here — `wifi_ssid=`, `ssid=`,
 #: `"ssid":` and the CLI flag. Free prose is not checkable; these are.
 #: A QUOTED value in every case, including after the flag: unquoted prose such as
@@ -228,6 +287,26 @@ def test_no_real_robot_serial_is_committed() -> None:
     assert not strays, (
         "a serial that is not a documented example is in the tree — if it is real, it "
         f"must not be committed; if it is a new example, add it to EXAMPLE_SERIALS: {sorted(strays)}"
+    )
+
+
+def test_no_real_robot_mac_is_committed() -> None:
+    """A hardware address in the tree is device identity, the same as a serial.
+
+    The serial guard was added after one reached a published artifact; a MAC reached two
+    shipped docs and a test fixture afterwards, because nothing checked for one. Masked
+    forms (`b4:8a:0a:xx:xx:xx`) do not match and are how to write one down.
+    """
+    allowed = {_canon(m) for m in EXAMPLE_MACS}
+    strays = {
+        f"{path.relative_to(REPO)}: {found}"
+        for path, text in TRACKED
+        for found in _macs_in(text)
+        if _canon(found) not in allowed
+    }
+    assert not strays, (
+        "a hardware address is in the tree — if it is real it must not be committed; mask "
+        f"the host half (aa:bb:cc:xx:xx:xx) or add it to EXAMPLE_MACS: {sorted(strays)}"
     )
 
 

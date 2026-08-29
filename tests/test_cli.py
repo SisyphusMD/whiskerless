@@ -409,7 +409,7 @@ def _ble(robots: list[Any], *, result: Any = None, mac: str | None = "aa:bb") ->
         # would make every prompt test pass without a prompt.
         confirm = _k.get("confirm")
         config = _a[1] if len(_a) > 1 else None
-        if confirm is not None and config is not None and not confirm(config, "30:c9:22:27:1d:34"):
+        if confirm is not None and config is not None and not confirm(config, "AA:BB:CC:DD:EE:03"):
             return SimpleNamespace(
                 success=False, message="aborted before anything was written", steps=[]
             )
