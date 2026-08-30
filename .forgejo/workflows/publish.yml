@@ -51,6 +51,34 @@ jobs:
           rel_validate_tag "${GITHUB_REF_NAME}"
           echo "publishing ${GITHUB_REF_NAME}"
 
+      - name: Refuse a tag that has already published
+        # Scoped to `push`: a dispatch is the documented way to FINISH a partial publish, and every
+        # helper it runs is idempotent, so a dispatch must never be refused for this reason.
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          # A tag push for a tag that already has a release is a RE-pushed tag. Rewriting history
+          # moves every tag at once and each move re-enters this workflow, so one rewrite queues one
+          # of these runs per tag. Republishing cannot succeed - release assets are immutable - and
+          # without this the run spends twenty minutes building to reach a refusal knowable in
+          # seconds.
+          #
+          # Read from the mirror, unauthenticated: it needs no secret in a job that deliberately
+          # checks out without credentials, and the release reaches GitHub in the same step that
+          # creates it on the source of truth.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" 2>/dev/null) || code=000
+          case "$code" in
+            404) echo "no release for ${GITHUB_REF_NAME} yet" ;;
+            200)
+              echo "::error::${GITHUB_REF_NAME} already has a published release, so this push is a re-pushed tag rather than a new release, and its assets are immutable. To finish or repair a partial publish, dispatch this workflow with the tag as the ref." >&2
+              exit 1
+              ;;
+            # Unknown must not block. A rate-limited probe refusing a legitimate release is worse
+            # than a wasted build, and the immutable-asset refusal downstream is still the backstop.
+            *) echo "::warning::could not determine whether ${GITHUB_REF_NAME} is already published (HTTP ${code})" ;;
+          esac
+
   pypi:
     name: Publish to PyPI
     needs: guard
