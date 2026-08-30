@@ -359,4 +359,8 @@ jobs:
         env:
           TAG: ${{ needs.gate.outputs.tag }}
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+          # Read-only, and separate from the write credential above: the helper's mirror probe
+          # refuses to call GitHub unauthenticated, whose 60-per-hour-per-IP ceiling every runner
+          # shares. Checked before the push, so a missing one cannot leave the tag pushed.
+          GH_REPO_READ_PAT: ${{ secrets.GH_REPO_READ_PAT }}
         run: bash packaging/push-tag.sh "$TAG" "$TOKEN" "${{ github.ref_name }}"

@@ -25,6 +25,14 @@ if [ -f "$here/project.env" ]; then
   . "$here/project.env"
 fi
 
+# Checked BEFORE the push, with the other preconditions. Asserting it after `git push`
+# would publish the commit and tag and only then refuse, leaving the ref pushed and the job
+# failed - the one outcome this script exists to avoid.
+# Only when there is a mirror to check. Without project.env there is no slug, mirror_has_tag
+# returns "unknown" without ever reaching GitHub, and demanding a token there would turn the
+# documented degrade-to-unknown mode above into a refusal to push at all.
+[ -z "${PROJECT_REPO_SLUG:-}" ] || \
+  : "${GH_REPO_READ_PAT:?a read-only GitHub token is required: the mirror probe must not run unauthenticated, whose 60-requests-per-hour-per-IP ceiling every runner shares}"
 [ "$(git cat-file -t "refs/tags/$tag")" = tag ]
 [ "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse HEAD)" ]
 test -z "$(git status --porcelain)"
@@ -40,17 +48,22 @@ git -c "http.extraheader=Authorization: Basic ${AUTH_B64}" push --atomic origin 
 # so a retry loop keyed on its result never runs. And Forgejo's own `last_error` is empty
 # while a sync is still in flight, so an empty value proves nothing about an attempt just
 # triggered. What is checkable without any extra scope is whether the tag actually arrived:
-# the GitHub mirror is public, so an unauthenticated ref lookup answers it directly.
+# a ref lookup on the mirror answers it directly, and a read-only token needs no scopes there.
 #
 # Warn-only by design. A release whose refs already fanned out must not be failed by a mirror,
 # and reconcile heals a lagging one downstream. What this buys is that the tag is confirmed
 # present — or its absence is named here, next to its cause, instead of surfacing 10 minutes
 # later as an unexplained timeout in the job that waits for it.
+#
+# The read is authenticated. Unauthenticated github.com allows 60 requests an hour per IP and
+# every runner shares one, so a bare probe answers 403 rather than answering, and a check that
+# cannot decide is indistinguishable from one that was never run.
 mirror_ref_json="${TMPDIR:-/tmp}/mirror-ref-$$.json"
 want_obj=$(git rev-parse "refs/tags/${tag}")
 mirror_has_tag() {
   [ -n "${PROJECT_REPO_SLUG:-}" ] || return 2   # nothing to check against
   code=$(curl -sS -o "$mirror_ref_json" -w '%{http_code}' --max-time 30 \
+    -H "Authorization: Bearer ${GH_REPO_READ_PAT}" \
     "https://api.github.com/repos/${PROJECT_REPO_SLUG}/git/ref/tags/${tag}" 2>/dev/null) || return 2
   case "$code" in
     200) : ;;

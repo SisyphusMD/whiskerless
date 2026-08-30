@@ -345,8 +345,13 @@ jobs:
         env:
           TAG: ${{ needs.gate.outputs.tag }}
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+          GH_READ: ${{ secrets.GH_REPO_READ_PAT }}
         run: |
           set -euo pipefail
+          # Asserted here, before anything is pushed: the mirror confirmation two steps down
+          # refuses to probe GitHub unauthenticated, and discovering that after the push would
+          # leave the tag published and the run failed.
+          : "${GH_READ:?a read-only GitHub token is required to confirm the mirror}"
           # Only the tag is pushed. The rc commit is reachable from it and from nothing else.
           #
           # Kept inline rather than calling packaging/push-tag.sh: unlike release.yml's tag job
@@ -376,6 +381,7 @@ jobs:
       - name: Force the push-mirrors to propagate the tag now (GitHub + NAS)
         env:
           TAG: ${{ needs.gate.outputs.tag }}
+          GH_READ: ${{ secrets.GH_REPO_READ_PAT }}
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
         run: |
           set -euo pipefail
@@ -392,7 +398,11 @@ jobs:
           ref_json="${RUNNER_TEMP:-/tmp}/mirror-ref.json"
           want=$(git rev-parse "refs/tags/${TAG}")
           mirror_has_tag() {
+            # Always authenticated: unauthenticated github.com allows 60 requests an hour per IP,
+            # which every runner and mirror probe shares, so the unauthenticated path answered 403
+            # rather than answering. The token is validated in the push step, before any mutation.
             code=$(curl -sS -o "$ref_json" -w '%{http_code}' --max-time 30 \
+              -H "Authorization: Bearer ${GH_READ}" \
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>/dev/null) || return 2
             case "$code" in
               200) : ;;

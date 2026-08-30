@@ -20,7 +20,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 . "$here/project.env"
 
-token="$1"; tag="$2"; notes_file="$3"; shift 3
+token="${1:?a GitHub token is required; this must never call GitHub unauthenticated}"
+tag="$2"; notes_file="$3"; shift 3
 repo="${PROJECT_REPO_SLUG:?project.env must set PROJECT_REPO_SLUG}"
 api="https://api.github.com/repos/$repo"
 auth=(-H "Authorization: Bearer $token" -H "Accept: application/vnd.github+json")

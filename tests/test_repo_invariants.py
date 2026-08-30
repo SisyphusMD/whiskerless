@@ -1674,9 +1674,10 @@ def test_ci_is_not_green_until_native_macos_agrees() -> None:
       mirrored workflow runs on branch pushes, so no run can ever exist for that sha - the gate
       would poll to its timeout and fail every prerelease. Either this repository's CI does not
       trigger on tags at all, or the gate excludes them.
-    - It must hold no WRITE credential. Reading public run conclusions needs a scopeless token;
-      going without one shares a 60-request hour with everything else leaving this network,
-      including the sibling's copy of this gate, which turns a fine commit into a timeout.
+    - It must hold no WRITE credential. Reading public run conclusions needs only a scopeless
+      read token, which check-mirror-ci.sh now requires: without one the gate shares a
+      60-request hour with everything else leaving this network, including the sibling's copy
+      of this gate, and turns a fine commit into a timeout.
     - Checkout must not persist credentials, or the repository token sits in git config while a
       script from a PR-controlled ref runs beside it.
     """
@@ -1690,6 +1691,7 @@ def test_ci_is_not_green_until_native_macos_agrees() -> None:
     job = rest[: end.start()] if end else rest
 
     assert "check-mirror-ci.sh" in job, "the macos gate does not consult the mirror"
+    assert "MIRROR_CI_TOKEN" in job, "the gate does not hand the mirror poll a read token"
     assert ".github/workflows/ci-macos.yml" in job, "the gate names no macOS workflow to wait on"
     assert '["pull_request"]["head"]["sha"]' in job, (
         "the gate does not resolve the PR head, so it can qualify the wrong commit"
@@ -1715,6 +1717,24 @@ def test_ci_is_not_green_until_native_macos_agrees() -> None:
             "wait for a mirrored run that cannot exist and fail"
         )
 
+
+
+def test_native_macos_status_poll_stays_within_the_shared_public_api_budget() -> None:
+    """The mirror poll's cadence has to match the quota it actually spends.
+
+    Two Forgejo runners share one public egress IP, and both projects run this same gate against
+    it. The poll is authenticated, so the ceiling is 5,000 requests an hour rather than the 60 an
+    unauthenticated caller gets; a 2400s deadline polled every 30s is 80 requests per gate, under
+    2% of that. An optional token would not fail when the budget is gone - it would answer 403,
+    which this gate reads as "could not ask" and waits out, turning other traffic into a timeout.
+    """
+    bridge = (REPO / "packaging" / "check-mirror-ci.sh").read_text()
+
+    assert "MIRROR_CI_TIMEOUT:-2400" in bridge
+    assert "MIRROR_CI_INTERVAL:-30" in bridge
+    assert "MIRROR_CI_TOKEN:?" in bridge, "the mirror poll can still run unauthenticated"
+    # A throttled response is a statement about the quota, not about the commit.
+    assert "403|429)" in bridge
 
 def test_the_bottle_wait_outlasts_a_slow_publish() -> None:
     """`build-bottles.sh` waits for publish.yml's first tap pass, and the budget is the whole

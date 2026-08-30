@@ -58,13 +58,14 @@ and bridges.
    waiting on. Split out, each commit's verdict stands on its own and survives
    whatever lands after it, so pushing during a release is safe again.
 
-   **Add `GH_REPO_READ_PAT` if the gate starts timing out.** Unauthenticated GitHub
-   allows 60 API requests an hour *per IP*, shared with everything else leaving
-   this network — exhaust it and the gate polls uselessly and then fails a
-   release that was never broken (seen 2026-08-17). A token with **no scopes at
-   all** lifts that to 5,000/hour on a public repo. It is optional: absent, the
-   gate still works, just slowly, and it distinguishes "rate-limited" from "not
-   green" in its failure message so nobody debugs the wrong thing.
+   **`GH_REPO_READ_PAT` is required.** Unauthenticated GitHub allows 60 API requests
+   an hour *per IP*, shared with everything else leaving this network — exhaust it and
+   a poll answers 403 rather than answering, so a gate built on it stops deciding
+   anything while still reporting success. A token with **no scopes at all** lifts that
+   to 5,000/hour on a public repo, so requiring it costs nothing the read-only design
+   was protecting. Every GitHub call in the release path now refuses to run without a
+   credential; `tests/release/release-scripts.sh` and the standard's own
+   `test-github-auth.sh` hold that line.
 
    It **waits** rather than failing
    fast, because the push-mirror is asynchronous — a release dispatched moments
@@ -365,7 +366,7 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `CLUSTER_FORGEJO_REPO_WRITE_PAT` | Forgejo PAT, repo write (push the release commit/tag + create/append the Forgejo release). You already use this on `archiver`. |
 | `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release + receive the bridged `.pkg`). |
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write **and Actions: read & write** (Forgejo creates the GitHub release with it, and dispatches the macOS/arm64 install matrix with it — dispatch is an Actions permission, not a Contents one, and without it the dispatch 403s while the release itself still publishes). Same PAT used as the GitHub push-mirror password, so grant the extra permission by editing the token rather than regenerating it. |
-| `GH_REPO_READ_PAT` | **Optional.** GitHub PAT with **no scopes** — read-only public data, used solely by `mirror-gate` to escape the 60-request/hour unauthenticated limit. Absent, the gate still works and just polls slowly. |
+| `GH_REPO_READ_PAT` | **Required.** GitHub PAT with **no scopes** — read-only public data. Used by the mirror gate, the republish guard, the tag's mirror confirmation and the install-matrix wait, all of which refuse to call GitHub unauthenticated: 60 requests/hour per IP is shared with everything else leaving this network. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`), named `whiskerless-forgejo-ci` and **scoped to this project**, not the account — a token that can publish to every project the account owns has no business on a self-hosted runner. PyPI accepts OIDC only from GitHub Actions, GitLab.com, Google Cloud and ActiveState, so a token is the only option that keeps publishing on Forgejo; see the rejection rationale in project-standard's VARIANCE.md. |
 | `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. Held at the **org** level, not on this repo. |
 | `CLUSTER_FORGEJO_REGISTRY_PUSH_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. Held at the **org** level and shared with the sister repos' container pushes — one scope covers every package type. Needed because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with a 403 rather than anything obvious. |
