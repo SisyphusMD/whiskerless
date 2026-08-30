@@ -14,10 +14,11 @@
 # and a reworded one would match no runs at all — which this reads as "not delivered yet" and turns
 # into a timeout blaming the mirror. The path survives renaming the workflow's `name:`.
 #
-# Unauthenticated by default: the gate job holds no WRITE credential by design (only the tag job is
-# handed one), and the mirror is public. Set MIRROR_CI_TOKEN to a read-only GitHub token to raise
-# the limit from 60/hour to 5,000. It needs no scopes at all for a public repository, so it stays
-# far away from the write credential this job deliberately does not hold.
+# MIRROR_CI_TOKEN is REQUIRED. Unauthenticated github.com allows 60 requests an hour per IP and
+# every runner and mirror probe shares one, so the unauthenticated path answered 403 rather than
+# answering the question. Requiring it costs nothing that mattered: the token is read-only and
+# needs no scopes at all for a public repository, so it is not the WRITE credential this job
+# still deliberately does not hold.
 #
 # Waits rather than failing fast, because the push-mirror is asynchronous: a release dispatched
 # moments after a push will find no run at all for a while.
@@ -32,17 +33,12 @@ workflow="${2:?usage: check-mirror-ci.sh <sha> <workflow-file>}"
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid commit SHA: $sha" >&2; exit 2; }
 repo="${MIRROR_REPO:-$PROJECT_REPO_SLUG}"
 timeout="${MIRROR_CI_TIMEOUT:-2400}"
-# Sized to the limit that actually applies. 300s keeps an UNAUTHENTICATED caller under 60
-# requests/hour, which is the constraint when no token is set. Callers in the release path do set
-# MIRROR_CI_TOKEN, lifting the ceiling to 5,000/hour — and against that, 300s is not throttling,
-# it is rounding: the verdict is only ever noticed at the next boundary, so a run finishing at
-# 23:54 is reported at 23:56 and the release waits out the difference. 30s costs ~120 requests an
-# hour, under 3% of the authenticated quota.
-if [ -n "${MIRROR_CI_TOKEN:-}" ]; then
-  poll_interval="${MIRROR_CI_INTERVAL:-30}"
-else
-  poll_interval="${MIRROR_CI_INTERVAL:-300}"
-fi
+# Sized to the authenticated ceiling of 5,000/hour, which is the only one that now applies.
+# 30s costs ~120 requests an hour, under 3% of that quota, and a slower interval would only add
+# rounding: the verdict is noticed at the next boundary, so a run finishing at 23:54 read every
+# 300s is reported at 23:56 and the release waits out the difference for nothing.
+: "${MIRROR_CI_TOKEN:?a read-only GitHub token is required; this must never poll GitHub unauthenticated}"
+poll_interval="${MIRROR_CI_INTERVAL:-30}"
 interval="$poll_interval"
 
 # event=push, not every run for the sha. A pull_request run for the same commit is evidence about
@@ -60,8 +56,7 @@ trap 'rm -f "$runs_json" "$headers"' EXIT
 
 while :; do
   fetched=false
-  auth=()
-  [ -n "${MIRROR_CI_TOKEN:-}" ] && auth=(-H "Authorization: Bearer ${MIRROR_CI_TOKEN}")
+  auth=(-H "Authorization: Bearer ${MIRROR_CI_TOKEN}")
   code="$(curl -sS -o "$runs_json" -D "$headers" -w '%{http_code}' \
     -H 'Accept: application/vnd.github+json' \
     -H 'X-GitHub-Api-Version: 2022-11-28' "${auth[@]}" "$api" || echo 000)"
@@ -99,7 +94,7 @@ while :; do
       # through would spend the whole timeout and then blame the run — sending
       # somebody to read CI logs when the answer is a dead credential.
       echo "::error::GitHub rejected the credential (401). MIRROR_CI_TOKEN is expired, revoked or malformed." >&2
-      echo "Fix or remove the token — unset, this check still works unauthenticated, just slowly." >&2
+      echo "Rotate MIRROR_CI_TOKEN. Removing it is not an option: an unauthenticated poll gets 60 requests an hour per IP, shared by every runner, so it answers 403 instead of answering." >&2
       exit 1
       ;;
     *) echo "  GitHub returned ${code} — retrying" ;;
@@ -165,7 +160,7 @@ PY
       # Do not let a rate limit masquerade as a broken build: the difference
       # decides whether somebody goes looking at their code or at their quota.
       echo "::error::gave up waiting for '${workflow}' on ${repo}@${sha:0:12} — GitHub rate-limited ${throttled} of the polls, so this is NOT a verdict on the commit" >&2
-      echo "Set MIRROR_CI_TOKEN to a read-only GitHub token (no scopes needed for a public repo) to raise the limit from 60/hour to 5,000." >&2
+      echo "MIRROR_CI_TOKEN is already required, so this is the AUTHENTICATED 5,000/hour quota, not the 60/hour one: something else is spending it against the same token or IP." >&2
       exit 1
     fi
     echo "::error::timed out waiting for '${workflow}' on ${repo}@${sha:0:12}" >&2

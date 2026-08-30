@@ -66,6 +66,17 @@ canon() { printf '%s' "${1//\~/.}"; }
 
 _AWK_CANON='function canon(s) { gsub(/~/, ".", s); return s }'
 
+# The credential each registry expects. Downloads use it too: an asset URL is a request to that
+# host like any other, and on GitHub an unauthenticated one draws on the 60-per-hour-per-IP budget
+# every runner shares rather than the 5,000 this token has.
+registry_auth() {
+  case "$1" in
+    cluster) printf 'Authorization: token %s' "${CLUSTER_TOKEN:-}" ;;
+    github)  printf 'Authorization: Bearer %s' "${GH_TOKEN:?a GitHub token is required}" ;;
+    nas)     printf 'Authorization: token %s' "${NAS_TOKEN:-}" ;;
+  esac
+}
+
 asset_url() {
   local metadata="$1" wanted="$2"
   awk -F '|' -v wanted="$wanted" "$_AWK_CANON"'
@@ -207,7 +218,7 @@ for tag in $(git tag -l 'v*.*.*' --sort=-v:refname); do
   remote_assets "https://$CLUSTER_HOST/api/v1/repos/$REPO/releases" \
     "token ${CLUSTER_TOKEN:-}" "$tag" > "$cluster_metadata"
   remote_assets "https://api.github.com/repos/$REPO/releases" \
-    "Bearer ${GH_TOKEN:-}" "$tag" > "$github_metadata"
+    "Bearer ${GH_TOKEN:?a GitHub token is required; this must never call GitHub unauthenticated}" "$tag" > "$github_metadata"
   remote_assets "https://$NAS_HOST/api/v1/repos/$REPO/releases" \
     "token ${NAS_TOKEN:-}" "$tag" > "$nas_metadata"
 
@@ -248,7 +259,7 @@ for tag in $(git tag -l 'v*.*.*' --sort=-v:refname); do
         echo "::warning::reconcile: $tag $name resolves to $count assets on $registry"
       elif [ -z "$url" ]; then
         echo "::warning::reconcile: $tag $name has no download URL on $registry"
-      elif ! curl -fsSL "${REL_DOWNLOAD[@]}" -o "$path" "$url"; then
+      elif ! curl -fsSL "${REL_DOWNLOAD[@]}" -H "$(registry_auth "$registry")" -o "$path" "$url"; then
         echo "::warning::reconcile: could not download $tag $name from $registry"
         rm -f "$path"
       else
@@ -305,7 +316,7 @@ for tag in $(git tag -l 'v*.*.*' --sort=-v:refname); do
     bash "$here/forgejo-release.sh" "$NAS_HOST" "${NAS_TOKEN:-}" "$tag" "$notes" \
     || fail=$((fail + 1))
   reconcile_registry github GitHub \
-    bash "$here/github-release.sh" "${GH_TOKEN:-}" "$tag" "$notes" \
+    bash "$here/github-release.sh" "${GH_TOKEN:?}" "$tag" "$notes" \
     || fail=$((fail + 1))
   echo "::endgroup::"
   rm -rf "$dir"

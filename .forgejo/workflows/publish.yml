@@ -55,6 +55,8 @@ jobs:
         # Scoped to `push`: a dispatch is the documented way to FINISH a partial publish, and every
         # helper it runs is idempotent, so a dispatch must never be refused for this reason.
         if: ${{ github.event_name == 'push' }}
+        env:
+          GH_READ: ${{ secrets.GH_REPO_READ_PAT }}
         run: |
           set -euo pipefail
           # A tag push for a tag that already has a release is a RE-pushed tag. Rewriting history
@@ -63,21 +65,49 @@ jobs:
           # without this the run spends twenty minutes building to reach a refusal knowable in
           # seconds.
           #
-          # Read from the mirror, unauthenticated: it needs no secret in a job that deliberately
-          # checks out without credentials, and the release reaches GitHub in the same step that
-          # creates it on the source of truth.
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" 2>/dev/null) || code=000
-          case "$code" in
-            404) echo "no release for ${GITHUB_REF_NAME} yet" ;;
-            200)
-              echo "::error::${GITHUB_REF_NAME} already has a published release, so this push is a re-pushed tag rather than a new release, and its assets are immutable. To finish or repair a partial publish, dispatch this workflow with the tag as the ref." >&2
-              exit 1
-              ;;
-            # Unknown must not block. A rate-limited probe refusing a legitimate release is worse
-            # than a wasted build, and the immutable-asset refusal downstream is still the backstop.
-            *) echo "::warning::could not determine whether ${GITHUB_REF_NAME} is already published (HTTP ${code})" ;;
-          esac
+          # BOTH publication targets, because a publish that died between them leaves the tag released
+          # on one and not the other. Asking only the source of truth would answer 404 for exactly that
+          # case and let a rewritten tag through, which then writes new bytes to Forgejo and the NAS
+          # before GitHub refuses its immutable assets — the inconsistency this guard exists to prevent.
+          # Asserted before the loop, not per-target: the mirror probe must never go out bare, and
+          # a 403 from an exhausted public quota reads as "unknown" here, which would let a tag whose
+          # partial release exists only on GitHub straight through. The per-target conditional below
+          # stays because ONE target is this forge, which needs no token at all.
+          : "${GH_READ:?a read-only GitHub token is required to check the mirror}"
+          published_on=""
+          for target in \
+            "the source of truth|${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}|" \
+            "the mirror|https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}|${GH_READ}"
+          do
+            where=${target%%|*}; rest=${target#*|}; url=${rest%%|*}; tok=${rest#*|}
+            auth=()
+            [ -n "$tok" ] && auth=(-H "Authorization: Bearer $tok")
+            code=000
+            for attempt in 1 2 3; do
+              code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${auth[@]}" "$url" 2>/dev/null) || code=000
+              case "$code" in 200|404) break ;; esac
+              echo "::warning::$where answered ${code} for ${GITHUB_REF_NAME} (attempt ${attempt}/3)"
+              sleep $(( attempt * 10 ))
+            done
+            case "$code" in
+              404) ;;
+              200) published_on="$where"; break ;;
+              # Fail CLOSED. This guard exists to stop a re-pushed tag writing new bytes to the hosts
+              # that lack its release while the one that has it refuses them, and a probe that cannot
+              # answer is exactly when that happens. With a mandatory token the budget is 5,000/hour,
+              # so an unanswerable probe is an anomaly rather than routine — and the escape is already
+              # here: this step only runs on `push`, so a dispatch with the tag as the ref bypasses it.
+              *)
+                echo "::error::could not determine whether ${GITHUB_REF_NAME} is already published on ${where} (HTTP ${code}). Refusing rather than risk publishing over a partial release. If this tag is genuinely new, dispatch this workflow with the tag as the ref." >&2
+                exit 1
+                ;;
+            esac
+          done
+          if [ -n "$published_on" ]; then
+            echo "::error::${GITHUB_REF_NAME} already has a published release on ${published_on}, so this push is a re-pushed tag rather than a new release, and its assets are immutable. To finish or repair a partial publish, dispatch this workflow with the tag as the ref." >&2
+            exit 1
+          fi
+          echo "no release for ${GITHUB_REF_NAME} on either target"
 
   pypi:
     name: Publish to PyPI

@@ -74,8 +74,16 @@ run_case() { # run_case <case> <timeout>
   rm -f "$TMP/state"
   PATH="$TMP:$PATH" FAKE_CURL_STATE="$TMP/state" FAKE_CURL_CASE="$1" \
     MIRROR_REPO=example/repo MIRROR_CI_TIMEOUT="$2" MIRROR_CI_INTERVAL=1 \
+    MIRROR_CI_TOKEN="${TOKEN_OVERRIDE-stub-read-token}" \
     bash "$ROOT/packaging/check-mirror-ci.sh" "$SHA" "$WORKFLOW"
 }
+
+# The token is mandatory: an unauthenticated poll gets 60 requests an hour per IP, shared by
+# every runner, so the fallback answered 403 instead of answering the question.
+if TOKEN_OVERRIDE="" run_case pass 5 >/dev/null 2>&1; then
+  echo "check-mirror-ci polled GitHub with no MIRROR_CI_TOKEN" >&2
+  exit 1
+fi
 
 refuses() { # refuses <case> <timeout> <description>
   if run_case "$1" "$2" >/dev/null 2>&1; then
@@ -112,6 +120,7 @@ bad_args() { # bad_args <description> <expected-message> <args...>
   local output
   output="$(PATH="$TMP:$PATH" FAKE_CURL_STATE="$TMP/state" FAKE_CURL_CASE=pass \
     MIRROR_REPO=example/repo MIRROR_CI_TIMEOUT=2 MIRROR_CI_INTERVAL=1 \
+    MIRROR_CI_TOKEN=stub-read-token \
     bash "$ROOT/packaging/check-mirror-ci.sh" "$@" 2>&1)" && {
       echo "check-mirror-ci accepted $what" >&2
       exit 1

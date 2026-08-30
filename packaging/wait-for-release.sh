@@ -134,10 +134,11 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
 #
 # Checked only after the local roles pass, which keeps it off the polling hot path: a handful of
 # calls on a healthy release, and repeated only while a repair is genuinely in flight. That rate is
-# fine unauthenticated; a token is used when one is present.
+# REQUIRED: unauthenticated github.com allows 60 requests an hour per IP and every runner
+# shares one, so an unauthenticated poll answers 403 instead of answering.
 github_ready() {
-  local auth=() names code body
-  [ -n "${GITHUB_ASSET_TOKEN:-}" ] && auth=(-H "Authorization: Bearer ${GITHUB_ASSET_TOKEN}")
+  local auth names code body
+  auth=(-H "Authorization: Bearer ${GITHUB_ASSET_TOKEN}")
   body="$(mktemp)"
   code="$(curl -sS -o "$body" -w '%{http_code}' --max-time 60 "${auth[@]}" \
     -H 'Accept: application/vnd.github+json' \
@@ -162,14 +163,9 @@ github_ready() {
 }
 
 # Spaced on its own cadence, not the loop's. Unauthenticated GitHub allows 60 requests an hour and
-# the loop polls far faster than that, so a repair that takes a while would burn the quota and turn
-# a slow release into a failed one — the same constraint check-mirror-ci.sh sizes its interval to. A
-# token lifts it to 5,000/hour, so use the fast cadence only when one is present.
-if [ -n "${GITHUB_ASSET_TOKEN:-}" ]; then
-  GH_INTERVAL="${GH_WAIT_INTERVAL:-20}"
-else
-  GH_INTERVAL="${GH_WAIT_INTERVAL:-60}"
-fi
+# Sized to the authenticated ceiling of 5,000/hour, the only one that now applies.
+: "${GITHUB_ASSET_TOKEN:?a GitHub token is required; this must never poll GitHub unauthenticated}"
+GH_INTERVAL="${GH_WAIT_INTERVAL:-20}"
 # Named, not just counted. A silent poll that ends in "never became installable" says nothing
   # about WHICH artifact never arrived, and that is the one fact needed to tell a slow bottle from
   # a broken .pkg.

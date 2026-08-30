@@ -14,10 +14,11 @@
 # is not a thing to promote to stable, and noticing that should not depend on
 # somebody remembering to open the right tab.
 #
-# Reads only, holds no write credential, and takes the same optional read token as
-# check-mirror-ci.sh: unauthenticated GitHub allows 60 requests an hour per IP,
-# shared with everything else leaving this network, and a rate-limited gate that
-# cannot tell "red" from "could not ask" would block a good release.
+# Reads only and holds no write credential, but GH_REPO_READ_PAT is required, as it is for
+# check-mirror-ci.sh. Unauthenticated GitHub allows 60 requests an hour per IP, shared with
+# everything else leaving this network, and a gate that cannot tell "red" from "could not ask"
+# is worse than no gate. A read-only token needs no scopes for a public repository, so requiring
+# it costs nothing this job was protecting.
 set -euo pipefail
 
 VERSION="${1:?usage: $0 <version>}"
@@ -30,7 +31,10 @@ API="https://api.github.com/repos/$REPO"
 FORGE="https://forgejo.bryantserver.com"
 
 auth=(-H "Accept: application/vnd.github+json")
-[ -z "${GH_REPO_READ_PAT:-}" ] || auth+=(-H "Authorization: Bearer $GH_REPO_READ_PAT")
+# Required, never optional. Falling back to an unauthenticated call buys a 60/hour ceiling
+# shared by every runner, so the probe starts answering 403 instead of answering.
+: "${GH_REPO_READ_PAT:?a read-only GitHub token is required}"
+auth+=(-H "Authorization: Bearer $GH_REPO_READ_PAT")
 
 get() {  # get <url> — fails loudly rather than letting an error read as "no runs"
   curl --max-time 30 --retry 3 --retry-connrefused --retry-max-time 120 -sSf "${auth[@]}" "$1"
