@@ -21,6 +21,12 @@ name: Retry infrastructure failures
 # above it. So: retry only when every failed step belongs to a phase the runner
 # owns. A failing test can never be attributed to `Set up job`, which is what
 # keeps this from becoming a way to launder flaky tests into green builds.
+#
+# The one exception is a step of ours that the runner's NETWORK failed (observed,
+# run 35055059591: `brew test` could not resolve rubygems.org). The discriminator
+# reads that step's own log lines and retries only on an exact resolver-failure
+# spelling naming a host CI is known to reach — the rules and their refusals live
+# in the vendored script.
 on:
   workflow_run:
     # EVERY GitHub workflow in this repository, asserted by a repo invariant test. A runner fault
@@ -70,15 +76,20 @@ jobs:
           # LATEST attempt, so once a retry has happened it reports the retry's
           # green jobs and this triage sees nothing to explain.
           gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs" > jobs.json
-          # The attempt-specific endpoint, not `/jobs`: that one returns the LATEST attempt, so
-          # once a retry has happened it reports the retry's green jobs and this triage sees
-          # nothing to explain.
-          #
+          # One log per FAILED job, so the discriminator can read the failed step's own lines.
+          # `--allow-escape-sequences` is not optional: build logs carry ANSI colour, and without
+          # it `gh api` refuses to write the body at all. A log that cannot be fetched is removed
+          # rather than left empty, which makes that job's failure count as ours — the safe side.
+          mkdir -p logs
+          for job in $(jq -r '.jobs[] | select(.conclusion == "failure") | .id' jobs.json); do
+            gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$job/logs" > "logs/$job.log" \
+              || rm -f "logs/$job.log"
+          done
           # The discriminator itself lives in packaging/triage-infra-failure.py, vendored from
           # project-standard and shared with the sibling project — none of that reasoning is
           # specific to this repository, and it is tested there against the cases that must REFUSE
           # to retry.
-          python3 packaging/triage-infra-failure.py jobs.json >> "$GITHUB_OUTPUT"
+          python3 packaging/triage-infra-failure.py jobs.json logs >> "$GITHUB_OUTPUT"
       - name: Re-run the failed jobs
         if: steps.triage.outputs.infra == 'true'
         env:
@@ -107,7 +118,7 @@ jobs:
             echo '```'
             echo
             if [ "$INFRA" = "true" ]; then
-              echo "Runner-phase failure only — re-ran the failed jobs once."
+              echo "Runner fault only (its setup phase, or its resolver) — re-ran the failed jobs once."
               echo "If the retry also fails, it is not transient and stays red."
             else
               echo "One of our own steps failed. Left red deliberately; this is a real failure."
