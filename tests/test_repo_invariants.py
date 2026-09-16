@@ -1165,6 +1165,25 @@ def _module_names(path: Path) -> set[str]:
     return set()
 
 
+def test_the_infra_triage_is_the_shared_one() -> None:
+    """The discriminator is subtle enough that two copies would drift into two policies — and the
+    dangerous direction of drift is the generous one, which launders flaky tests into green builds
+    with nobody noticing because the build is green."""
+    retry = (REPO / ".github" / "workflows" / "retry-infra-failures.yml").read_text(encoding="utf-8")
+    assert "packaging/triage-infra-failure.py" in retry
+    assert (REPO / "packaging" / "triage-infra-failure.py").exists()
+    # The attempt-specific endpoint: plain /jobs returns the LATEST attempt, so after a retry it
+    # reports the retry's green jobs and the triage sees nothing to explain.
+    assert "attempts/$ATTEMPT/jobs" in retry
+    # One log per failed job, fetched with escapes allowed: build logs carry ANSI colour and
+    # `gh api` refuses to write such a body without the flag. Losing it would not fail the
+    # workflow — every log fetch would fail, every failure would count as ours, and the
+    # resolver-failure retry class would silently stop existing.
+    assert "--allow-escape-sequences" in retry
+    assert "/logs" in retry
+    assert "triage-infra-failure.py jobs.json logs" in retry
+
+
 def test_the_infra_retry_watches_every_github_workflow() -> None:
     """A runner fault is not selective about which workflow it lands on, so a partial watch list is
     just an undetected flake somewhere else. This started at three of seven — missing the bottle
