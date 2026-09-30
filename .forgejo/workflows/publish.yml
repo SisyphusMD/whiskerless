@@ -177,7 +177,15 @@ jobs:
           # BuildKit has its own registry client and does not inherit dockerd's mirror.
           buildkitd-config-inline: |
             [registry."docker.io"]
-              mirrors = ["dockerhub-mirror.nas.bryantserver.com"]
+              mirrors = ["image-mirror.nas.bryantserver.com/docker.io"]
+            [registry."ghcr.io"]
+              mirrors = ["image-mirror.nas.bryantserver.com/ghcr.io"]
+            [registry."quay.io"]
+              mirrors = ["image-mirror.nas.bryantserver.com/quay.io"]
+            [registry."registry.k8s.io"]
+              mirrors = ["image-mirror.nas.bryantserver.com/registry.k8s.io"]
+            [registry."public.ecr.aws"]
+              mirrors = ["image-mirror.nas.bryantserver.com/public.ecr.aws"]
       - name: Build the amd64 binary, .deb and .rpm (native — nothing is emulated here)
         id: build
         env:

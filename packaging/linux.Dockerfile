@@ -40,6 +40,8 @@ RUN attempt=1; \
  && make install \
  && test "$(/opt/whiskerless-python/bin/python3 -c 'import platform; print(platform.python_version())')" \
       = "$PYTHON_VERSION"
+# CI points this at the NAS artifact cache; the default keeps the image buildable anywhere.
+ARG PIP_INDEX_URL=https://pypi.org/simple/
 RUN python3 -m pip install --quiet "pyinstaller==${PYINSTALLER}"
 WORKDIR /w
 COPY . /w

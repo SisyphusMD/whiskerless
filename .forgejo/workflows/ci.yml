@@ -270,7 +270,15 @@ jobs:
           # BuildKit has its own registry client and does not inherit dockerd's mirror.
           buildkitd-config-inline: |
             [registry."docker.io"]
-              mirrors = ["dockerhub-mirror.nas.bryantserver.com"]
+              mirrors = ["image-mirror.nas.bryantserver.com/docker.io"]
+            [registry."ghcr.io"]
+              mirrors = ["image-mirror.nas.bryantserver.com/ghcr.io"]
+            [registry."quay.io"]
+              mirrors = ["image-mirror.nas.bryantserver.com/quay.io"]
+            [registry."registry.k8s.io"]
+              mirrors = ["image-mirror.nas.bryantserver.com/registry.k8s.io"]
+            [registry."public.ecr.aws"]
+              mirrors = ["image-mirror.nas.bryantserver.com/public.ecr.aws"]
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         id: setup_python_build_1
         continue-on-error: true
@@ -294,6 +302,7 @@ jobs:
             --build-arg PYTHON_VERSION="$PYTHON_VERSION" \
             --build-arg PYTHON_SHA256="$PYTHON_SHA256" \
             --build-arg PYINSTALLER="$PYINSTALLER" \
+            --build-arg PIP_INDEX_URL=https://artifacts.nas.bryantserver.com/pypi.org/simple/ \
             -f packaging/linux.Dockerfile --target export --output type=local,dest=out .
           rm -rf dist && mkdir dist
           cp out/whiskerless dist/whiskerless
