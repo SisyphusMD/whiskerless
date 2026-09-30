@@ -77,6 +77,7 @@ docker buildx build --platform "linux/$arch" \
   --build-arg PYTHON_SHA256="$PYTHON_SHA256" \
   --build-arg PYINSTALLER="$PYINSTALLER" \
   ${PIP_INDEX_URL:+--build-arg "PIP_INDEX_URL=$PIP_INDEX_URL"} \
+  ${DNF_MIRROR:+--build-arg "DNF_MIRROR=$DNF_MIRROR"} \
   -f packaging/linux.Dockerfile --target export --output "type=local,dest=out-$ARCH" .
 
 # nfpm.yaml reads ./dist/whiskerless; the raw release asset carries the version and arch in its

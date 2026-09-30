@@ -303,6 +303,7 @@ jobs:
             --build-arg PYTHON_SHA256="$PYTHON_SHA256" \
             --build-arg PYINSTALLER="$PYINSTALLER" \
             --build-arg PIP_INDEX_URL=https://artifacts.nas.bryantserver.com/pypi.org/simple/ \
+            --build-arg DNF_MIRROR=https://artifacts.nas.bryantserver.com \
             -f packaging/linux.Dockerfile --target export --output type=local,dest=out .
           rm -rf dist && mkdir dist
           cp out/whiskerless dist/whiskerless

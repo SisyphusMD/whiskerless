@@ -18,7 +18,16 @@ ARG PYTHON_SHA256
 ENV PATH="/opt/whiskerless-python/bin:${PATH}" \
     LD_LIBRARY_PATH="/opt/whiskerless-python/lib" \
     PIP_ROOT_USER_ACTION=ignore
-RUN dnf install -y -q make zlib-devel openssl-devel bzip2-devel libffi-devel xz-devel \
+# CI points dnf at the NAS artifact cache; empty keeps the image's own mirrorlists. This stage
+# is discarded after export, so the repo files need no restoring.
+ARG DNF_MIRROR=
+RUN if [ -n "$DNF_MIRROR" ]; then \
+      sed -i -e 's|^mirrorlist=|#mirrorlist=|' \
+        -e "s|^# *baseurl=https://repo.almalinux.org|baseurl=${DNF_MIRROR}/repo.almalinux.org|" /etc/yum.repos.d/almalinux*.repo \
+   && sed -i -e 's|^metalink=|#metalink=|' \
+        -e "s|^#baseurl=https://download.example/pub/epel|baseurl=${DNF_MIRROR}/dl.fedoraproject.org/pub/epel|" /etc/yum.repos.d/epel*.repo; \
+    fi \
+ && dnf install -y -q make zlib-devel openssl-devel bzip2-devel libffi-devel xz-devel \
       sqlite-devel readline-devel ncurses-devel \
  && dnf clean all
 # Retried in the shell rather than with curl --retry, for the reason packaging/fetch.sh gives:
