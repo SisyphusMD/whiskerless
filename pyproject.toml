@@ -60,7 +60,7 @@ ble = ["bleak>=0.22.0"]
 # is unusable downstream.
 dev = [
     # renovate: datasource=pypi depName=mypy
-    "mypy==2.3.1",
+    "mypy==2.4.0",
     # renovate: datasource=pypi depName=pytest
     "pytest==9.1.1",
     # renovate: datasource=pypi depName=pytest-asyncio
