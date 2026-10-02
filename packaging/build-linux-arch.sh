@@ -20,8 +20,8 @@ cd "$(dirname "$here")"
 arch="${1:?usage: build-linux-arch.sh <amd64|arm64> <tag>}"
 tag="${2:?missing tag}"
 case "$arch" in
-  amd64) rpmarch=x86_64; suffix=x86_64; builder="$MANYLINUX_AMD64" ;;
-  arm64) rpmarch=aarch64; suffix=arm64;  builder="$MANYLINUX_ARM64" ;;
+  amd64) rpmarch=x86_64; suffix=x86_64 ;;
+  arm64) rpmarch=aarch64; suffix=arm64 ;;
   *) echo "unknown architecture: $arch" >&2; exit 2 ;;
 esac
 
@@ -72,7 +72,7 @@ nfpm_pkg() { # nfpm_pkg <deb|rpm> <output-filename>
 
 rm -rf "out-$ARCH"
 docker buildx build --platform "linux/$arch" \
-  --build-arg PYTHON_BUILD_IMAGE="$builder" \
+  --build-arg PYTHON_BUILD_IMAGE="$MANYLINUX" \
   --build-arg PYTHON_VERSION="$PYTHON_VERSION" \
   --build-arg PYTHON_SHA256="$PYTHON_SHA256" \
   --build-arg PYINSTALLER="$PYINSTALLER" \

@@ -1553,44 +1553,39 @@ def test_ci_supersedes_itself_and_publishing_never_does() -> None:
     )
 
 
-def test_dependencies_that_move_together_are_reviewed_together() -> None:
-    """The two manylinux builders are one upstream release under two names.
+def test_both_arches_build_from_one_manylinux_pin() -> None:
+    """Both arches build from ONE pin of the multi-arch manylinux image.
 
-    They move to the same dated tag together, so reviewing them apart shows half the change - and a
-    toolchain skew BETWEEN the arches is exactly the risk their hand-review exists to catch. It also
-    doubles the rebase churn, since merging either rebases the other open PR and restarts its checks.
+    Quay publishes the per-arch images minutes apart and assembles the multi-arch index only once
+    every arch exists. Pinned per arch, a Renovate run between the two publishes opened a bump with
+    the arches on different builder releases - a toolchain skew across one release, which grouping
+    could not prevent because a group's size counts updates without comparing their targets. One
+    pin cannot disagree with itself, and buildx's --platform picks each arch out of it.
 
     The versioning regex belongs with it: without one, `latest` is offered as an upgrade over a
     dated tag, and the reviewer loses the version they need to judge the bump at all.
     """
+    pins = (REPO / "packaging" / "release-pins.env").read_text()
+    assert not re.search(r"manylinux_2_28_[a-z0-9]+[:\s]", pins), "a per-arch manylinux pin is back"
+    assert re.findall(r"depName=(quay\.io/pypa/manylinux\S*)", pins) == ["quay.io/pypa/manylinux_2_28"]
+    assert re.search(r'^MANYLINUX="quay\.io/pypa/manylinux_2_28:[^"@]+@sha256:[0-9a-f]{64}"$', pins, re.M)
+
+    build = (REPO / "packaging" / "build-linux-arch.sh").read_text()
+    assert 'PYTHON_BUILD_IMAGE="$MANYLINUX"' in build
+    assert '--platform "linux/$arch"' in build, "nothing selects the arch out of the multi-arch pin"
+
     config = json.loads((REPO / ".renovaterc.json").read_text())
-    arches = {
-        "quay.io/pypa/manylinux_2_28_x86_64",
-        "quay.io/pypa/manylinux_2_28_aarch64",
-    }
-    grouped = [
-        rule for rule in config.get("packageRules", [])
-        if rule.get("groupName") and arches <= set(rule.get("matchDepNames") or [])
+    rules = [
+        rule for rule in config["packageRules"]
+        if any("manylinux" in name for name in rule.get("matchDepNames", []))
     ]
-    assert grouped, "the manylinux arches are not grouped, so they arrive as separate reviews"
-    assert len(grouped) == 1, f"more than one rule groups them: {[r['groupName'] for r in grouped]}"
-    assert "regex:" in str(grouped[0].get("versioning", "")), (
+    assert all(
+        name == "quay.io/pypa/manylinux_2_28"
+        for rule in rules for name in rule["matchDepNames"] if "manylinux" in name
+    ), "a Renovate rule still names a per-arch manylinux image, which no pin uses any more"
+    assert any("regex:" in str(rule.get("versioning", "")) for rule in rules), (
         "without a dated-tag versioning scheme, `latest` is offered as an upgrade over a dated tag"
     )
-    # Grouping alone does not stop a lone arch arriving: Renovate opens a branch as soon as ONE
-    # update in the group exists, so whichever arch Quay published first would be reviewed by
-    # itself - the exact skew the grouping is for.
-    assert grouped[0].get("minimumGroupSize", 1) >= len(arches), (
-        f"a branch can open with fewer than both arches: {grouped[0].get('minimumGroupSize')}"
-    )
-
-    # And the group size still only COUNTS updates; it does not compare their targets. If the pins
-    # already lag a release and Quay publishes the next tag for one arch first, both arches have an
-    # update and the branch opens with mismatched targets. Renovate cannot express "same tag", so
-    # the pins themselves are what proves it: whatever lands, the two must agree.
-    tags = re.findall(r"manylinux_2_28_(?:x86_64|aarch64):([0-9.]+-\d+)@sha256:", (REPO / "packaging" / "release-pins.env").read_text())
-    assert len(tags) == 2, f"expected both manylinux pins, found {len(tags)}"
-    assert tags[0] == tags[1], f"the two arches are pinned to different builder releases: {tags}"
 
 def test_homebrew_bottles_come_from_the_mirror_where_it_is_reachable() -> None:
     """Homebrew fetches bottles with its own HTTPS client, so neither dockerd's registry mirror nor

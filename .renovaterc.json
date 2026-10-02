@@ -82,8 +82,7 @@
         "pyinstaller",
         "python",
         "python/cpython",
-        "quay.io/pypa/manylinux_2_28_aarch64",
-        "quay.io/pypa/manylinux_2_28_x86_64",
+        "quay.io/pypa/manylinux_2_28",
         "debian-13-current"
       ],
       "automerge": false,
@@ -96,17 +95,14 @@
       ]
     },
     {
-      "description": "Grouped because the two arches are one upstream release and move to the same dated tag together: reviewing them apart shows the reviewer half the change, and a toolchain skew BETWEEN the arches is itself the risk the hand-review above exists to catch. Splitting them also doubles the rebase churn, since merging either one rebases the other open PR and restarts its checks. The regex versioning confines candidates to upstream's dated tags, so `latest` is never offered as an update. A branch opens only when BOTH arches have an update: Renovate's default group size of one would otherwise let whichever arch Quay published first arrive on its own, which is the single-arch review and the toolchain skew this grouping exists to prevent. The cost is that an update to one arch alone waits for the other, which is a publishing lag of hours because upstream cuts both from one release, not a state that persists.",
+      "description": "The regex versioning confines candidates to upstream's dated tags, so `latest` is never offered as an update. One multi-arch dependency, not one per arch: Quay publishes the per-arch images minutes apart and assembles quay.io/pypa/manylinux_2_28 only once every arch exists, so a bump always moves both arches to the same dated tag. Per-arch pins could not promise that even grouped: a group's minimumGroupSize counts updates without comparing their targets, so a Renovate run between the two publishes opened a branch with the arches on different releases.",
       "matchDatasources": [
         "docker"
       ],
       "matchDepNames": [
-        "quay.io/pypa/manylinux_2_28_x86_64",
-        "quay.io/pypa/manylinux_2_28_aarch64"
+        "quay.io/pypa/manylinux_2_28"
       ],
-      "groupName": "manylinux builders",
-      "versioning": "regex:^(?<major>\\d{4})\\.(?<minor>\\d{2})\\.(?<patch>\\d{2})-(?<build>\\d+)$",
-      "minimumGroupSize": 2
+      "versioning": "regex:^(?<major>\\d{4})\\.(?<minor>\\d{2})\\.(?<patch>\\d{2})-(?<build>\\d+)$"
     },
     {
       "description": "bleak is the BLE transport provisioning speaks to the robot over. CI proves only that the code around it behaves: tests/test_ble_transport.py fakes the bleak boundary outright, and no runner has a Bluetooth radio, so scanning, pairing, GATT writes and the esp-idf protocomm exchange are never executed against the real library. Green CI therefore says nothing about the path that re-points a robot onto a new broker, so a bump is read by a human. Same reason dreame-valetudo holds pyusb \u2014 see its .renovaterc.json.",

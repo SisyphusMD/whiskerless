@@ -298,7 +298,7 @@ jobs:
           # natively on GitHub at release time.
           rm -rf out
           docker buildx build --platform linux/amd64 \
-            --build-arg PYTHON_BUILD_IMAGE="$MANYLINUX_AMD64" \
+            --build-arg PYTHON_BUILD_IMAGE="$MANYLINUX" \
             --build-arg PYTHON_VERSION="$PYTHON_VERSION" \
             --build-arg PYTHON_SHA256="$PYTHON_SHA256" \
             --build-arg PYINSTALLER="$PYINSTALLER" \
