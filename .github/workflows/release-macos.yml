@@ -60,7 +60,7 @@ jobs:
           # dependency that has already cost this project a release — and nothing would report it.
           # Renovate holds both under the same depName, so they bump in one PR.
           # renovate: datasource=pypi depName=pyinstaller
-          python -m pip install pyinstaller==6.22.2
+          python -m pip install pyinstaller==6.22.3
           python -m pip install ".[ble]"
           pyinstaller --onefile --name whiskerless \
             --collect-all bleak --collect-all aiomqtt packaging/launcher.py
