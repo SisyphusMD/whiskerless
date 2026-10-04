@@ -42,7 +42,7 @@ ARG GH_PV
 # leg cannot forget it. This is not laundering a flaky test, it is making a network fetch survive
 # the network; a package that genuinely does not install still fails.
 # renovate: datasource=docker depName=debian-13-current packageName=debian
-FROM debian:13-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS deb-base
+FROM debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS deb-base
 COPY packaging/retry.sh /retry
 RUN set -eux; \
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
@@ -233,7 +233,7 @@ FROM scratch AS deb-file-ubuntu-floor-result
 COPY --from=deb-file-ubuntu-floor /passed /passed
 
 # renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
-FROM ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78 AS deb-file-ubuntu
+FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS deb-file-ubuntu
 COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
@@ -428,7 +428,7 @@ COPY --from=pip /passed /passed
 # on Leap 16 can still fail on 15.6, and nothing else here would notice. Both stages below are
 # identical apart from the base image. The sibling project runs the same pair, under the same names.
 # renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
-FROM opensuse/leap:16.0@sha256:f239b4819f4dd322d99509f1b5b14f2107bf23857f9ccd3c14333f0928a2bcc6 AS zypper
+FROM opensuse/leap:16.0@sha256:7f3aeccb6a613c0fc1690d3d3e5eb493fd477ee4587de20640017fc36d72f9b0 AS zypper
 COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_RPM FORGE
 RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
