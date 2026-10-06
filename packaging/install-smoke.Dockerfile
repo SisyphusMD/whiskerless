@@ -199,7 +199,7 @@ COPY --from=deb-file-github /passed /passed
 # fail on the oldest release the glibc floor claims, and nothing noticed. Digests are the ones
 # dreame-valetudo pins, deliberately: both projects then qualify against identical snapshots.
 # renovate: datasource=docker depName=debian-12-compat packageName=debian
-FROM debian:12-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS deb-file-floor
+FROM debian:12-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS deb-file-floor
 COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_DEB
 COPY packaging/installed-smoke.sh /smoke.sh
