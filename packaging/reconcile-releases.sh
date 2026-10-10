@@ -36,7 +36,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 : "${PROJECT_REPO_SLUG:?project.env must define PROJECT_REPO_SLUG}"
 REPO="$PROJECT_REPO_SLUG"
 CLUSTER_HOST="forgejo.bryantserver.com"
-NAS_HOST="forgejo.nas.bryantserver.com"
+NAS_HOST="forgejo.lan.bryantserver.com"
 # Stands in for a registry copy whose bytes could not be established. It can never equal a SHA-256,
 # so such a copy neither joins a quorum nor is mistaken for a missing asset that may be filled.
 UNVERIFIED="unverified"

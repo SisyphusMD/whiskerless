@@ -89,15 +89,15 @@ jobs:
           # BuildKit has its own registry client and does not inherit dockerd's mirror.
           buildkitd-config-inline: |
             [registry."docker.io"]
-              mirrors = ["image-mirror.nas.bryantserver.com/docker.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/docker.io"]
             [registry."ghcr.io"]
-              mirrors = ["image-mirror.nas.bryantserver.com/ghcr.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/ghcr.io"]
             [registry."quay.io"]
-              mirrors = ["image-mirror.nas.bryantserver.com/quay.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/quay.io"]
             [registry."registry.k8s.io"]
-              mirrors = ["image-mirror.nas.bryantserver.com/registry.k8s.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/registry.k8s.io"]
             [registry."public.ecr.aws"]
-              mirrors = ["image-mirror.nas.bryantserver.com/public.ecr.aws"]
+              mirrors = ["image-mirror.lan.bryantserver.com/public.ecr.aws"]
       - name: Install every Linux channel and smoke each one
         env:
           VERSION: ${{ needs.wait.outputs.version }}
@@ -107,7 +107,7 @@ jobs:
           # Self-hosted only: the hosted runners are not on this network. Homebrew keeps the
           # /v2/homebrew/core path and rewrites only scheme and host, so the registry serves
           # that namespace at its root specifically for this.
-          BREW_MIRROR: "https://image-mirror.nas.bryantserver.com"
+          BREW_MIRROR: "https://image-mirror.lan.bryantserver.com"
         # The channel list lives in the script, not here, so the amd64 and arm64 halves of this
         # matrix cannot drift apart across two forges.
         run: bash packaging/install-matrix-arch.sh amd64 ${{ matrix.shard }} 2

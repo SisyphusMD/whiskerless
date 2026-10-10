@@ -18,7 +18,7 @@ set -u
 printf 'curl %s\n' "$*" >> "$STUB_CALLS"
 printf 'curl %s\n' "$*" >> "$STUB_HISTORY"
 case "$*" in
-  *forgejo.nas.bryantserver.com*) registry=nas ;;
+  *forgejo.lan.bryantserver.com*) registry=nas ;;
   *github.com*) registry=github ;;
   *) registry=cluster ;;
 esac

@@ -36,7 +36,7 @@ jobs:
           persist-credentials: false
       - name: Warm every dependency bottle
         env:
-          BREW_MIRROR: https://image-mirror.nas.bryantserver.com
+          BREW_MIRROR: https://image-mirror.lan.bryantserver.com
           FORGE: ${{ github.server_url }}
         # NO_FALLBACK is what makes this job meaningful. The smoke jobs keep the fallback to
         # ghcr.io on purpose, so a mirror miss there costs latency rather than a red build - but

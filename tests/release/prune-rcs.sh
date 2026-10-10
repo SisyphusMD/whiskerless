@@ -61,7 +61,7 @@ done
 
 case "$url" in
   *api.github.com*)   reg=github ;;
-  *forgejo.nas.*)     reg=nas ;;
+  *forgejo.lan.*)     reg=nas ;;
   *)                  reg=cluster ;;
 esac
 
@@ -310,7 +310,7 @@ grep -Eq 'git/refs/tags/v1\.0\.0$' "$STATE/delete-order" && fail "deleted the ST
 
 # Release before tag, per registry. A tag removed first strands the release as an untagged draft that
 # keeps listing under an empty tag_name, which the rc-shaped enumeration can never rediscover.
-for reg in api.github.com forgejo.nas forgejo.bryantserver; do
+for reg in api.github.com forgejo.lan forgejo.bryantserver; do
   rel="$(grep -n "$reg" "$STATE/delete-order" | grep -E '/releases/11[a-z]+$' | head -1 | cut -d: -f1 || true)"
   ref="$(grep -n "$reg" "$STATE/delete-order" | grep -E '/git/refs/tags/v1\.0\.0-rc\.1$' | head -1 | cut -d: -f1 || true)"
   [ -n "$rel" ] && [ -n "$ref" ] || fail "$reg: expected both a release and a tag-ref DELETE"
@@ -321,7 +321,7 @@ done
 _db='/api/v1/repos/[^/]+/[^/]+/tags/v1\.0\.0-rc\.1$'
 grep -Eq "forgejo\.bryantserver\.com$_db" "$STATE/delete-order" \
   || fail "the cluster Forgejo tag DB row was never cleared"
-grep -Eq "forgejo\.nas\.bryantserver\.com$_db" "$STATE/delete-order" \
+grep -Eq "forgejo\.lan\.bryantserver\.com$_db" "$STATE/delete-order" \
   || fail "the NAS Forgejo tag DB row was never cleared"
 grep -Eq 'api\.github\.com/repos/[^/]+/[^/]+/tags/v1\.0\.0-rc\.1$' "$STATE/delete-order" \
   && fail "issued the Forgejo-only tag DB delete against GitHub"

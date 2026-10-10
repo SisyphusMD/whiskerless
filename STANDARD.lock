@@ -20,10 +20,10 @@
     "packaging/glibc-floor.txt": "19665c22e6e4f27b0b855ba2bf5873d4619ee970fcb76bcc4fc1f25384e7cea9",
     "packaging/next-version.sh": "56c3a240d250e26bc09c7b7a4af4f2946e5f3ec454d43bd438c046c6572f44f8",
     "packaging/promote-changelog.sh": "c70413841343bad7417417ee6335e39edba4d4f809e334eec221534f7f64fe05",
-    "packaging/prune-rcs.sh": "55d52c9aed3888c242fff269828655a047775bcdc33cbef99a94714041aa8aaa",
+    "packaging/prune-rcs.sh": "23176b21914e2e871a11da1a38616e0d8cd9370c07c68e0ccc792df8a349d637",
     "packaging/publish-registry.sh": "0b79b9976f3a2b77c0ad59153806ab33f734ab10e3c4bd5e1fdaea15bf97d76e",
     "packaging/push-tag.sh": "fa306e9a2586098f9918d97b7823ea43619f042e533ea8228740e122f07484b4",
-    "packaging/reconcile-releases.sh": "41b1bb74053ee8e0cd88da487dbd92a3c21029794ffedac43c77cdb2bda55dc6",
+    "packaging/reconcile-releases.sh": "d2be84ae17f9da94605d5cc48bfac396f4fbc3eb0f35a577b464ff69c663694b",
     "packaging/release-common.sh": "767a7e7484f3e7f1289ff87c60a461ca374c2364b064ea37523f614bc8f744f3",
     "packaging/render-formula.sh": "688b6838aedf4d87ab66d166a4eee0c7c88e505fa8dac06d74e782ed74638ae9",
     "packaging/retry.sh": "ab6b80e9509d8c07fb983d91c8f7ec5e3be3dad3ab032a5e5fae9ce7d36f479b",
@@ -35,10 +35,10 @@
     "packaging/update-tap.sh": "365e6a46b674add182b3113bb5e949babf1931145ff1f8af19381be08e236971",
     "packaging/wait-for-pypi.sh": "00e3b723203d1522be3050066d5752932962299b748fa37f3ecafe4f1f5aa000",
     "tests/release/mirror-ci.sh": "0d6c23a3eae8ebe7d3350ab5efadff65b379c39d2717873516c1d7fde09e47e8",
-    "tests/release/prune-rcs.sh": "c07166f92aa23940e0eba130502135606e1b882a698e6f56f61d4252ed7784d5",
+    "tests/release/prune-rcs.sh": "3a17fca631469abff3565775307429865ce13f77a42e657a01218f2a8ab6a682",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "dab862c176dde52e8ffdc003b6dda8485a6ba381",
+  "source_commit": "b1b90da22fd014b720bc00658eaa6b250c356847",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.25"
+  "source_tag": "v0.1.27"
 }

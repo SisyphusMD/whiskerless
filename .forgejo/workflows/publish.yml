@@ -177,21 +177,21 @@ jobs:
           # BuildKit has its own registry client and does not inherit dockerd's mirror.
           buildkitd-config-inline: |
             [registry."docker.io"]
-              mirrors = ["image-mirror.nas.bryantserver.com/docker.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/docker.io"]
             [registry."ghcr.io"]
-              mirrors = ["image-mirror.nas.bryantserver.com/ghcr.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/ghcr.io"]
             [registry."quay.io"]
-              mirrors = ["image-mirror.nas.bryantserver.com/quay.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/quay.io"]
             [registry."registry.k8s.io"]
-              mirrors = ["image-mirror.nas.bryantserver.com/registry.k8s.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/registry.k8s.io"]
             [registry."public.ecr.aws"]
-              mirrors = ["image-mirror.nas.bryantserver.com/public.ecr.aws"]
+              mirrors = ["image-mirror.lan.bryantserver.com/public.ecr.aws"]
       - name: Build the amd64 binary, .deb and .rpm (native — nothing is emulated here)
         id: build
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           # The manylinux builder's dnf installs, through the NAS artifact cache.
-          DNF_MIRROR: https://artifacts.nas.bryantserver.com
+          DNF_MIRROR: https://artifacts.lan.bryantserver.com
         run: |
           set -euo pipefail
           # The build-time pins live in packaging/release-pins.env and the script sources them
@@ -262,9 +262,9 @@ jobs:
           packaging/forgejo-release.sh forgejo.bryantserver.com \
             "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${ASSETS[@]}" \
             || failed="$failed forgejo.bryantserver.com"
-          packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
+          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
             "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${ASSETS[@]}" \
-            || failed="$failed forgejo.nas.bryantserver.com"
+            || failed="$failed forgejo.lan.bryantserver.com"
           packaging/github-release.sh \
             "${{ secrets.GH_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${ASSETS[@]}" \
             || failed="$failed github.com"
@@ -358,7 +358,7 @@ jobs:
           mkdir -p formula-smoke-dist
           cp "$work"/dist/whiskerless-*.tar.gz formula-smoke-dist/
           docker buildx build --build-arg TEST_TAG="$GITHUB_REF_NAME" \
-            --build-arg BREW_MIRROR="https://image-mirror.nas.bryantserver.com" \
+            --build-arg BREW_MIRROR="https://image-mirror.lan.bryantserver.com" \
             -f packaging/homebrew-smoke.Dockerfile --target result \
             --output "type=local,dest=homebrew-smoke-result" .
           test -f homebrew-smoke-result/homebrew-smoke-passed
@@ -581,7 +581,7 @@ jobs:
           mapfile -t fetched < fetched.txt
           [ "${#fetched[@]}" -gt 0 ] || { echo "::error::nothing arrived to bridge to the NAS"; exit 1; }
           bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
-          packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
+          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
             "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${fetched[@]}"
           if [ "$partial" = true ]; then
             echo "::error::the NAS release is incomplete for $GITHUB_REF_NAME"
@@ -638,7 +638,7 @@ jobs:
           # different bytes under the same name. The immutable default would reject them and leave
           # the NAS holding the superseded copy — refusing the repair this job exists to perform.
           REL_REPLACE_POLICY=replace \
-          packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
+          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
             "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${fetched[@]}"
           if [ "$partial" = true ]; then
             echo "::error::the NAS is missing bottles for $GITHUB_REF_NAME"

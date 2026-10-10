@@ -162,7 +162,7 @@ jobs:
           # `#v` like every other caller: changelog-section.sh takes the version, not the tag.
           bash packaging/changelog-section.sh "${TAG#v}" > notes.md
           REL_REPLACE_POLICY=replace \
-          packaging/forgejo-release.sh forgejo.nas.bryantserver.com \
+          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
             "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$TAG" notes.md "${fetched[@]}"
         env:
           TAG: ${{ inputs.tag }}

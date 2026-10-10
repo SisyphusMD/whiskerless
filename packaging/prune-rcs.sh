@@ -112,7 +112,7 @@ stop() {  # stop <what-went-wrong>
 
 REPO="$PROJECT_REPO_SLUG"
 CLUSTER_HOST="forgejo.bryantserver.com"
-NAS_HOST="forgejo.nas.bryantserver.com"
+NAS_HOST="forgejo.lan.bryantserver.com"
 REGISTRIES=(cluster nas github)
 
 # The apt/dnf package name. Derived from the slug rather than configured: a second source of truth

@@ -2286,7 +2286,7 @@ def test_bottles_reach_the_nas_but_stay_out_of_the_quorum() -> None:
     assert "homebrew-bottles" in needs, (
         f"the bottle bridge runs after {needs}, which does not guarantee the bottles exist yet"
     )
-    assert "forgejo.nas.bryantserver.com" in yaml.dump(bottles_job), (
+    assert "forgejo.lan.bryantserver.com" in yaml.dump(bottles_job), (
         "the bottle bridge no longer targets the NAS"
     )
 
