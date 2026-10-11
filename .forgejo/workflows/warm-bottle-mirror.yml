@@ -57,10 +57,25 @@ jobs:
             homebrew/brew:latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd \
             bash -c '
               set -euo pipefail
+              # Homebrew fetches Portable Ruby by blob digest, but zot syncs on demand only when a
+              # manifest is requested, so a version the mirror has never served 404s under
+              # NO_FALLBACK and `brew update` fails. Requesting the index of that version and each platform
+              # manifest in it pulls the blobs, after which the update can run.
+              warm_portable_ruby() {
+                v="$(cat "$(brew --repository)/Library/Homebrew/vendor/portable-ruby-version")"
+                base="$HOMEBREW_ARTIFACT_DOMAIN/v2/homebrew/core/portable-ruby/manifests"
+                idx="$(curl -fsS --max-time 60 -H "Authorization: Bearer $HOMEBREW_DOCKER_REGISTRY_TOKEN" \
+                  -H "Accept: application/vnd.oci.image.index.v1+json" "$base/$v")"
+                for d in $(printf "%s" "$idx" | grep -o "sha256:[0-9a-f]\{64\}" | sort -u); do
+                  curl -fsS --max-time 120 -o /dev/null -H "Authorization: Bearer $HOMEBREW_DOCKER_REGISTRY_TOKEN" \
+                    -H "Accept: application/vnd.oci.image.manifest.v1+json" "$base/$d" || true
+                done
+                echo "warmed portable-ruby $v on the mirror"
+              }
               # Fail fast rather than spend the whole closure discovering it one bottle at a time.
               curl -fsS --max-time 30 "$HOMEBREW_ARTIFACT_DOMAIN/v2/" >/dev/null
-              brew update --quiet >/dev/null 2>&1
-              brew tap sisyphusmd/tap "'"$FORGE"'/SisyphusMD/homebrew-tap.git" >/dev/null 2>&1
+              brew update --quiet >/dev/null 2>&1 || { warm_portable_ruby; brew update --quiet; }
+              brew tap sisyphusmd/tap "'"$FORGE"'/SisyphusMD/homebrew-tap.git" >/dev/null
               # Same trust step the install smoke performs: without it, reading a third-party
               # formula exits non-zero even when it printed the formula perfectly well.
               if brew commands 2>/dev/null | tr " " "\n" | grep -qx trust; then
