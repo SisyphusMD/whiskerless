@@ -57,8 +57,13 @@ and #14 (the same press), #19 (Brent), #22 (the
 sleep/wake *write* path is still untested live, though its original premise is void),
 #23 (a narrated visit), #65 (upstream HACS).
 
-**Nothing here gates the 0.2.0 release.** #71 was the last one and closed
-2026-08-19.
+**Nothing in this list gates the 0.2.0 release** — but the release is not ungated.
+`docs/HARDWARE-TESTING.md` holds the acceptance criteria, and the hardware half is
+unmet: `v0.2.0-rc.34` (2026-08-19, #71) is the last build proved against a robot, and
+18 commits have touched `src/` or `custom_components/` since. The saved-robot picker
+in `provision` (2026-08-28) and the resolve-before-confirm reorder on `power`,
+`wifi-toggle`, `empty-cycle` and `clean-cycle` are both on the write path and have
+never run on hardware. A qualification run against the promotion RC closes this.
 
 ---
 
