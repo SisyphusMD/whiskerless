@@ -47,7 +47,7 @@ jobs:
           # The packageRule in .renovaterc.json disables that built-in owner for this file, leaving
           # the tag dep below as the only one. Same arrangement as the sibling project.
           # renovate: datasource=github-tags depName=python/cpython versioning=pep440
-          python-version: "3.14.7"   # exact interpreter frozen into the bundle
+          python-version: "3.14.8"   # exact interpreter frozen into the bundle
       - name: Build the binary
         env:
           # Belt to the floor image's braces: the SDK will happily link against a newer minimum if
