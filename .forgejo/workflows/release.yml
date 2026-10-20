@@ -319,7 +319,8 @@ jobs:
             < <(bash packaging/next-version.sh "$BUMP")
           [ "$version" = "$QUALIFIED_VERSION" ] && [ "$tag" = "$QUALIFIED_TAG" ] \
             || { echo "::error::qualified release intent changed between runners"; exit 1; }
-          ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null
+          ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null \
+            || { echo "::error::Tag $tag exists"; exit 1; }
           DEPS=$(bash packaging/dependency-bumps.sh "$previous")
           export DEPS
           bash packaging/promote-changelog.sh "$version" "$QUALIFIED_DATE"

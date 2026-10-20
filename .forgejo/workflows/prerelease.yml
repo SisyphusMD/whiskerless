@@ -311,7 +311,8 @@ jobs:
             < <(bash packaging/next-version.sh "$BUMP" --rc)
           [ "$version" = "$QUALIFIED_VERSION" ] && [ "$tag" = "$QUALIFIED_TAG" ] \
             || { echo "::error::qualified prerelease intent changed between runners"; exit 1; }
-          ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null
+          ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null \
+            || { echo "::error::Tag $tag exists"; exit 1; }
           python3 packaging/stamp-version.py "$version"
           python3 packaging/stamp-version.py "$version" --check
           printf '%s\n' custom_components/whiskerless/manifest.json pyproject.toml \
