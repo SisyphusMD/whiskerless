@@ -38,7 +38,7 @@
     "tests/release/prune-rcs.sh": "3a17fca631469abff3565775307429865ce13f77a42e657a01218f2a8ab6a682",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "b1b90da22fd014b720bc00658eaa6b250c356847",
+  "source_commit": "3bd62dc8cfa83c5631eea5d2340a3dfc2f250dee",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.27"
+  "source_tag": "v0.1.28"
 }
