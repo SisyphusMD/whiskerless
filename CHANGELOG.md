@@ -75,6 +75,8 @@ much of the hopper work.
 - A missed heartbeat now names the robot's last reported Wi-Fi signal alongside the
   timeout, as context rather than a verdict.
 - Manual calibration buttons ship disabled, because the robot calibrates itself.
+- Install, upgrade and removal steps cover Home Assistant 2026.11's Marketplace, which
+  replaces HACS and takes over an existing HACS install of Whiskerless on its own.
 - `send` now refuses any write to register `0x2D`, even with `--allow-dangerous`. An
   outside protocol reference identifies it as the main board's factory reset.
 

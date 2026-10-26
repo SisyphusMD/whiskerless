@@ -45,7 +45,21 @@ supported. Firmware caveats and the per-opcode differences are in
 > certificate. Move HA to the authenticated listener before hardening, or leave
 > 8883 anonymous.
 
-## Install via HACS
+## Install via HACS or the Marketplace
+
+Home Assistant 2026.11 replaced HACS with the built-in **Marketplace**. It takes over
+an existing HACS install on first start, including Whiskerless, so nothing needs
+re-adding after the upgrade.
+
+**Home Assistant 2026.11 or later:**
+
+1. In the **Marketplace**, add `https://github.com/SisyphusMD/whiskerless` from a
+   link, as an **Integration**. Whiskerless is not in the catalog yet, so this
+   needs Home Assistant's GitHub connection. Updates for a repository added this way
+   are checked every 48 hours, and only while that connection is set up.
+2. Install **Whiskerless**, then **restart Home Assistant**.
+
+**Earlier versions:**
 
 1. In Home Assistant, open **HACS** → the **⋮** menu → **Custom repositories**.
 2. Add `https://github.com/SisyphusMD/whiskerless` with category **Integration**.
@@ -55,7 +69,9 @@ supported. Firmware caveats and the per-opcode differences are in
 
 Before a release ships, a candidate goes out as a GitHub *prerelease* so it can be
 run on real hardware first. It never becomes "latest", so you only get one on
-purpose: in HACS open Whiskerless → **⋮** → **Redownload** → enable **Show beta
+purpose. In the Marketplace, turn on the repository's **Pre-release** switch; to go
+back, turn it off, install the newest stable version from the repository's menu, and
+restart. In HACS (before 2026.11), open Whiskerless → **⋮** → **Redownload** → enable **Show beta
 versions**, and pick the `-rc.N` build. Turn the toggle back off to return to
 stable releases. That only hides prereleases from the picker, so to actually go
 back, **Redownload** again, choose the newest stable version, and restart Home
@@ -333,7 +349,8 @@ stays until you change it back:
 1. **Settings → Devices & Services → Whiskerless**, then the **⋮** on the robot's
    entry → **Delete**. That removes the device and all of its entities. Repeat
    per robot if you added several.
-2. To remove the code as well, uninstall **Whiskerless** in **HACS** and restart
+2. To remove the code as well, uninstall **Whiskerless** in the **Marketplace**
+   (**HACS** before 2026.11) and restart
    Home Assistant.
 
 Two things worth knowing:

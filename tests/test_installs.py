@@ -142,7 +142,7 @@ def test_the_home_assistant_integration_is_reported_but_never_removed(
     _mk(tmp_path, f"{layout}/custom_components/whiskerless")
     i = next(i for i in _found(tmp_path) if i.kind == "Home Assistant integration")
     assert i.removal == []
-    assert "HACS" in i.note
+    assert "Marketplace" in i.note and "HACS" in i.note
 
 
 def test_brew_and_pkg_together_are_both_reported(tmp_path: Path) -> None:

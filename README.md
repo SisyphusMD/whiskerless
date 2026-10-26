@@ -202,7 +202,11 @@ The `.deb` and `.rpm` need glibc 2.28 or newer.
 
 ### Home Assistant (HACS)
 
-1. HACS → ⋮ → **Custom repositories** → add `https://github.com/SisyphusMD/whiskerless` as an **Integration**.
+1. Add `https://github.com/SisyphusMD/whiskerless` as an **Integration**:
+   - **Home Assistant 2026.11 or later**: add it in the **Marketplace** from a link.
+     Whiskerless is not in the Marketplace catalog yet, so this needs Home Assistant's
+     GitHub connection.
+   - **Earlier versions**: HACS → ⋮ → **Custom repositories**.
 2. Install **Whiskerless**, restart Home Assistant.
 3. Make sure Home Assistant's **MQTT integration** is connected to your broker.
 4. Provision each robot onto that broker (below). It then **appears on its own**
@@ -552,7 +556,10 @@ from the factory.
 
 ## Upgrading
 
-- **Home Assistant**: HACS shows the update; install it and restart HA. The
+- **Home Assistant**: the update appears under Settings → Updates (HACS before
+  2026.11); install it and restart HA. A repository added to the Marketplace from a
+  link is checked every 48 hours, and only while the GitHub connection is set up.
+  An install made through HACS carries over to the Marketplace on its own. The
   integration pins the exact library version it was released with, so the pair
   always upgrades together.
 - **Homebrew**: `brew upgrade whiskerless`.
@@ -576,9 +583,12 @@ hardware:
   stable release lands, the rc formula is re-pointed at it, so staying on
   `whiskerless-rc` converges to stable by itself; to switch channels explicitly,
   `brew uninstall whiskerless-rc && brew install sisyphusmd/tap/whiskerless`.
-- **HACS**: in the integration's page, ⋮ → **Redownload** and enable showing
-  beta versions to pick a candidate; redownload again without it to go back to
-  stable.
+- **Marketplace (Home Assistant 2026.11+)**: turn on the repository's
+  **Pre-release** switch to be offered candidates. To go back to stable, turn it off
+  and install the newest stable version from the repository's menu.
+- **HACS (earlier versions)**: in the integration's page, ⋮ → **Redownload** and
+  enable showing beta versions to pick a candidate; redownload again without it to
+  go back to stable.
 - **Releases page**: candidates are marked *pre-release* and never "latest".
 
 ## Uninstalling
@@ -598,11 +608,11 @@ with what you think you have.
 
 Two things it will not do for you:
 
-- **Home Assistant**: reported, never removed. HACS owns the integration's
-  lifecycle and deleting the folder behind its back leaves a config entry
-  pointing at nothing. Settings → Devices & Services → Whiskerless → ⋮ →
-  **Delete** (per robot), then uninstall Whiskerless in HACS and restart. Full
-  walkthrough in
+- **Home Assistant**: reported, never removed. HACS (the Marketplace from
+  2026.11) owns the integration's lifecycle, and deleting the folder behind its
+  back leaves a config entry pointing at nothing. Settings → Devices & Services →
+  Whiskerless → ⋮ → **Delete** (per robot), then uninstall Whiskerless in the
+  Marketplace or HACS and restart. Full walkthrough in
   [docs/setup/home-assistant.md](docs/setup/home-assistant.md#removing-the-integration).
 - **A raw binary you downloaded**: delete the file — nothing else was placed, so
   there is nothing to detect.

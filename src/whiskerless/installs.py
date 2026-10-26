@@ -187,7 +187,7 @@ def find_installs(env: Mapping[str, str], root: Path = Path("/")) -> list[Instal
         if component.is_dir():
             found.append(Install(
                 "Home Assistant integration", component, [],
-                "remove it through HACS, then delete the integration from Settings → Devices "
+                "remove it through the Marketplace (HACS before HA 2026.11), then delete the integration from Settings → Devices "
                 "& services — a CLI cannot do this safely"))
 
     checkout = Path(__file__).resolve().parent.parent.parent
