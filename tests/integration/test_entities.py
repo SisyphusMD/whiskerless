@@ -193,3 +193,35 @@ async def test_the_drawer_level_claims_nothing_when_the_flag_is_absent(
     state = hass.states.get("sensor.litter_robot_4_waste_drawer_level")
     assert state is not None
     assert "level_provisional" not in state.attributes
+
+
+@pytest.mark.parametrize(
+    ("status", "counter", "expected_status", "expected_lockout"),
+    [
+        (4, 3, "drawer_full_lockout", "on"),
+        (4, 2, "ready", "off"),
+        # A Reset from ready buys one cycle; the cycle shows as itself, and only
+        # the idle that follows reads as the lockout again.
+        (10, 4, "clean_cycle", "on"),
+    ],
+)
+async def test_a_full_drawer_lockout_does_not_read_as_ready(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+    status: int,
+    counter: int,
+    expected_status: str,
+    expected_lockout: str,
+) -> None:
+    """The robot reports ready through the whole lockout while it ignores every
+    cat, so a status that echoed it said idle and fine for days of no cleaning."""
+    payload = json.loads(state_payload)
+    payload.update({"robotStatus": status, "isDFIFull": 1, "DFIFullCounter": counter})
+    await setup_integration(hass, mock_config_entry, json.dumps(payload))
+
+    status_state = hass.states.get("sensor.litter_robot_4_status")
+    lockout = hass.states.get("binary_sensor.litter_robot_4_drawer_full_lockout")
+    assert status_state is not None and lockout is not None
+    assert status_state.state == expected_status
+    assert lockout.state == expected_lockout

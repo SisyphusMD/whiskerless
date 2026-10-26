@@ -57,6 +57,12 @@ BINARY_SENSORS: tuple[WhiskerlessBinarySensorEntityDescription, ...] = (
         value_fn=lambda robot: robot.is_dfi_full,
     ),
     WhiskerlessBinarySensorEntityDescription(
+        key="drawer_full_lockout",
+        translation_key="drawer_full_lockout",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_fn=lambda robot: robot.drawer_full_lockout,
+    ),
+    WhiskerlessBinarySensorEntityDescription(
         key="bonnet_removed",
         translation_key="bonnet_removed",
         device_class=BinarySensorDeviceClass.PROBLEM,

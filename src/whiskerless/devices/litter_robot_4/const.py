@@ -258,6 +258,13 @@ WEEKDAY_SLEEP_ALL_DAYS = 0x7F
 # halved again, suspect another 408-style partial reading before this divisor.
 CAT_WEIGHT_DIVISOR = 100
 
+# DFI_FULL_COUNTER (0x45) value at which the robot stops cycling. From here it
+# ignores cats and refuses a manual cycle until Reset, while robotStatus keeps
+# reading ready: a 30-day capture held 13 such stretches on one robot, about 270
+# hours with the clean odometer frozen and cats on the scale throughout. A Reset
+# from ready buys one cycle, whose drawer reading restores the count plus one.
+DRAWER_FULL_LOCKOUT_COUNT = 3
+
 
 # PANEL_BUTTON (0x01) values, as emitted by the robot on a physical press and
 # accepted back as a synthesised one. Structure (proven by an owner-narrated

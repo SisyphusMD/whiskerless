@@ -34,7 +34,8 @@
           "powering_down": "Powering down",
           "off": "Off",
           "changing_filter": "Changing filter",
-          "power_up_cycle": "Power-up cycle"
+          "power_up_cycle": "Power-up cycle",
+          "drawer_full_lockout": "Stopped: drawer full"
         }
       },
       "litter_level": {
@@ -86,6 +87,9 @@
       },
       "drawer_full": {
         "name": "Waste drawer full"
+      },
+      "drawer_full_lockout": {
+        "name": "Drawer full lockout"
       },
       "excess_weight": {
         "name": "Excess weight"

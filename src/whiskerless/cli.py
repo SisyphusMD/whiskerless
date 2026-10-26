@@ -544,6 +544,9 @@ async def _cmd_status(args: argparse.Namespace) -> int:
         # cannot be read past.
         ("waste drawer", _drawer_level(robot)),
         ("drawer full", robot.is_dfi_full),
+        # Only printed when true: status still reads ready, so this row is the
+        # one place a robot that has stopped cleaning says so.
+        ("drawer lockout", "the robot will not cycle until Reset is pressed" if robot.drawer_full_lockout else None),
         ("cat present", robot.cat_detected),
         ("weight on the scale", robot.scale_loaded),
         ("bonnet removed", robot.is_bonnet_removed),

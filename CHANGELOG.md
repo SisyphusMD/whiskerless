@@ -45,6 +45,10 @@ much of the hopper work.
 - The published `.rpm` is now installed and run on the oldest maintained Fedora as well as the current one.
 - `whiskerless status` — the robot's derived state in one view: litter level, drawer,
   hopper, the last cat visit and the values behind them.
+- A full drawer that has stopped the robot is now visible. After three cycles on a full
+  drawer the robot ignores cats until Reset while still reporting ready; the new
+  `binary_sensor.…_drawer_full_lockout` turns on, Status reads "Stopped: drawer full", and
+  `whiskerless status` says so.
 
 ### Fixed
 

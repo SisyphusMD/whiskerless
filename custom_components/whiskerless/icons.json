@@ -45,6 +45,9 @@
       "drawer_full": {
         "default": "mdi:delete-alert"
       },
+      "drawer_full_lockout": {
+        "default": "mdi:delete-off"
+      },
       "bonnet_removed": {
         "default": "mdi:alert-circle"
       },

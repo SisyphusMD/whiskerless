@@ -463,3 +463,21 @@ def test_calibrate_can_repair_a_calibration_that_cannot_be_a_scale(
     assert stored.litter_full_mm == 430
     assert stored.litter_empty_mm is None, "starting over means starting over"
     assert "could not be a scale, so it was cleared" in capsys.readouterr().out
+
+
+def test_status_says_when_a_full_drawer_has_stopped_the_robot(
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """robotStatus reads ready through the lockout, so without this row a robot
+    that has stopped cleaning looks idle and fine."""
+    FakeLink.document = {**IDLE, "isDFIFull": 1, "DFIFullCounter": 3}
+    assert main(["status", "--serial", SERIAL]) == 0
+    assert "will not cycle until Reset" in capsys.readouterr().out
+
+
+def test_status_is_silent_about_lockout_while_the_robot_still_cycles(
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    FakeLink.document = {**IDLE, "isDFIFull": 1, "DFIFullCounter": 2}
+    assert main(["status", "--serial", SERIAL]) == 0
+    assert "drawer lockout" not in capsys.readouterr().out

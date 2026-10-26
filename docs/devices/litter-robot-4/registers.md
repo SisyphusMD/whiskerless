@@ -97,6 +97,8 @@ was.
 | `0x42` | DFINumberOfCycles | drawer cycles. Emptying alone does not move it. A Reset press zeroed it and the next cycle counted as 1 — once, on 1.1.75, **with the full flag already set**, which is the path `commands.md` describes; a Reset on a not-full drawer is untested, as is 1.4.4 | HIGH |
 | `0x43` | DFILevelPercent | waste drawer % full | PROVEN |
 | `0x44` / `0x4B` | isDFIFull / isDFIPartialFull | drawer full / partial | HIGH |
+| `0x45` | DFIFullCounter | cycles run since the drawer went full, +1 per cycle. **At 3 the robot stops**: it ignores cats and refuses manual cycles until Reset, while robotStatus keeps reading ready. 30-day capture to 2026-10-26: 13 stretches on one robot, about 270 h, clean odometer frozen in every one with cats on the scale. A Reset from ready clears it but buys one cycle, whose drawer reading restores the count plus one (8 of 8). Shipped as `drawer_full_lockout` | PROVEN (1.1.75) |
+| `0x46` | DFITriggerCount | `0x42` (cycles since reset) captured at the moment the drawer went full, not a count of its own: 126, 72, 80 and 133 matched exactly | PROVEN (1.1.75) |
 | `0x47` | litterLevel | litter distance in mm | PROVEN |
 | `0x4D` | globeMotorRetractFaultStatus | fault enum | HIGH |
 | `0x4E` | robotCycleStatus | `1` = idle, then `2`→`3`→`4`→`5`→`1` — see enum | PROVEN |
@@ -333,7 +335,10 @@ still exist, because the stock ESP firmware decides what reaches MQTT.
 - **Drawer-full lockout.** `0x44` sets after three consecutive `0x43` readings over 80%,
   each later cycle increments `0x45`, and at 3 the robot stops detecting cats and refuses
   manual cycles until Reset. Reset clears `0x44` and `0x42` only from Ready, and both come
-  back if the drawer was not actually emptied.
+  back if the drawer was not actually emptied. *Our 30-day capture confirms the lockout at 3
+  and the Ready-only clear (17 of 17, and 0 of 4 mid-cycle), but not the trigger: one full
+  flag came after about 45 straight readings over 80%, another on a reading of 76. See the
+  `0x45` row.*
 - **Litter level `0x47`:** 480 is empty and 435 or less full. Our uncalibrated default puts
   full at 440 and reaches 0% at 500, so their empty point is 20 mm higher than ours.
 - **Auto thresholds:** night light auto turns on below ambient 20 and off above 70, and the

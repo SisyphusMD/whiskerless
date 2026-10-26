@@ -52,6 +52,7 @@ STATUS_OPTIONS = [
     "powering_up",
     "powering_down",
     "off",
+    "drawer_full_lockout",
 ]
 
 
@@ -82,6 +83,10 @@ def _drawer_attrs(robot: LitterRobot4State) -> dict[str, Any] | None:
 
 
 def _status(robot: LitterRobot4State) -> StateType:
+    # The robot keeps reporting ready through a drawer-full lockout, which reads
+    # as idle and fine while it ignores every cat until someone presses Reset.
+    if robot.robot_status == "ready" and robot.drawer_full_lockout:
+        return "drawer_full_lockout"
     return robot.robot_status if robot.robot_status in STATUS_OPTIONS else None
 
 

@@ -123,6 +123,17 @@ class LitterRobot4State:
 
     raw: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def drawer_full_lockout(self) -> bool | None:
+        """Whether a full drawer has stopped the robot until someone presses Reset.
+
+        robotStatus says ready the whole time, so nothing else in the state
+        document shows a robot that has quietly stopped cleaning.
+        """
+        if self.dfi_full_counter is None:
+            return None
+        return self.dfi_full_counter >= const.DRAWER_FULL_LOCKOUT_COUNT
+
     @classmethod
     def from_state_doc(cls, raw: dict[str, Any]) -> LitterRobot4State:
         """Decode a raw ``…/state`` document into a normalized snapshot."""

@@ -478,3 +478,23 @@ def test_dfi_reset_pending_decodes_from_the_field_the_robot_sends() -> None:
     # Absent is not pending: a firmware that omits it must not have every reading
     # it makes labelled unmeasured.
     assert LitterRobot4State.from_state_doc({"DFILevelPercent": 14}).is_dfi_reset_pending is None
+
+
+@pytest.mark.parametrize(
+    ("doc", "expected"),
+    [
+        ({"isDFIFull": 1, "DFIFullCounter": 3}, True),
+        ({"isDFIFull": 1, "DFIFullCounter": 7}, True),
+        # Full but still cycling: the robot keeps going for two more cycles.
+        ({"isDFIFull": 1, "DFIFullCounter": 2}, False),
+        ({"isDFIFull": 0, "DFIFullCounter": 0}, False),
+        # A document that drops the flag still carries the count, and the count
+        # alone decides: it only climbs while the drawer is full.
+        ({"DFIFullCounter": 4}, True),
+        ({"isDFIFull": 1}, None),
+    ],
+)
+def test_drawer_full_lockout_follows_the_full_counter(
+    doc: dict[str, int], expected: bool | None
+) -> None:
+    assert LitterRobot4State.from_state_doc(doc).drawer_full_lockout is expected
