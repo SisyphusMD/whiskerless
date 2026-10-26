@@ -57,19 +57,23 @@ jobs:
             homebrew/brew:latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd \
             bash -c '
               set -euo pipefail
-              # Homebrew fetches Portable Ruby by blob digest, but zot syncs on demand only when a
-              # manifest is requested, so a version the mirror has never served 404s under
-              # NO_FALLBACK and `brew update` fails. Requesting the index of that version and each platform
-              # manifest in it pulls the blobs, after which the update can run.
-              warm_portable_ruby() {
-                v="$(cat "$(brew --repository)/Library/Homebrew/vendor/portable-ruby-version")"
-                base="$HOMEBREW_ARTIFACT_DOMAIN/v2/homebrew/core/portable-ruby/manifests"
+              # Homebrew downloads a bottle by blob digest without ever requesting its manifest
+              # (true of every bottle since Homebrew 7, and always of Portable Ruby), but zot syncs
+              # on demand only when a manifest is requested, so a blob the mirror has never served
+              # 404s under NO_FALLBACK. Requesting the index and each platform manifest in it pulls
+              # the blobs, after which the download succeeds.
+              warm_index() {
+                base="${1%/manifests/*}/manifests"
                 idx="$(curl -fsS --max-time 60 -H "Authorization: Bearer $HOMEBREW_DOCKER_REGISTRY_TOKEN" \
-                  -H "Accept: application/vnd.oci.image.index.v1+json" "$base/$v")"
+                  -H "Accept: application/vnd.oci.image.index.v1+json" "$1")" || return 0
                 for d in $(printf "%s" "$idx" | grep -o "sha256:[0-9a-f]\{64\}" | sort -u); do
                   curl -fsS --max-time 120 -o /dev/null -H "Authorization: Bearer $HOMEBREW_DOCKER_REGISTRY_TOKEN" \
                     -H "Accept: application/vnd.oci.image.manifest.v1+json" "$base/$d" || true
                 done
+              }
+              warm_portable_ruby() {
+                v="$(cat "$(brew --repository)/Library/Homebrew/vendor/portable-ruby-version")"
+                warm_index "$HOMEBREW_ARTIFACT_DOMAIN/v2/homebrew/core/portable-ruby/manifests/$v"
                 echo "warmed portable-ruby $v on the mirror"
               }
               # Fail fast rather than spend the whole closure discovering it one bottle at a time.
@@ -91,6 +95,12 @@ jobs:
               echo "warming the closure of $formula"
               deps=$(brew deps --include-build --formula "$formula")
               echo "closure: $(printf "%s" "$deps" | wc -w) formulae"
+              # The manifest URL Homebrew itself derives for each bottle, so the tag rules (rebuild suffix, `@`
+              # and `+` in names) stay with Homebrew. `brew ruby` drops non-HOMEBREW_ variables.
+              urls=$(HOMEBREW_WARM_DEPS="$deps" brew ruby -e "ENV.fetch(%q(HOMEBREW_WARM_DEPS)).split.each { |n| r = Formula[n].bottle&.github_packages_manifest_resource; puts r.url if r }" 2>/dev/null)
+              for u in $urls; do
+                warm_index "${u/https:\/\/ghcr.io/$HOMEBREW_ARTIFACT_DOMAIN}"
+              done
               warmed=0; missed=""
               for d in $deps; do
                 if brew fetch --formula --quiet "$d" >/dev/null 2>&1; then
