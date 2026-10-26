@@ -34,7 +34,7 @@ jobs:
     name: Build + publish arm64 ${{ inputs.tag || github.ref_name }}
     # Forgejo reads .github/workflows too, and has no arm64 runner — it would queue forever.
     if: ${{ github.server_url == 'https://github.com' }}
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     # The signing key is reachable only from this job. Each forge holds the signing material for
     # what it builds — the Apple identity for the .pkg lives here on the same principle.
     environment:
