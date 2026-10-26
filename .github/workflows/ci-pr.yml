@@ -13,23 +13,49 @@ concurrency:
 
 jobs:
   library:
-    name: Lint, type-check, test (library, ${{ matrix.python-version }})
+    name: Lint, type-check, test (library, current)
     # Forgejo Actions also reads .github/workflows; without this the same jobs
     # would run twice there (server_url is the Forgejo instance URL on Forgejo).
     if: ${{ github.server_url == 'https://github.com' }}
+    # macOS is not here: it gets ci-macos.yml, which tests the oldest and newest macOS on both
+    # architectures rather than whatever `macos-latest` happens to be today.
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # macOS is not here: it gets ci-macos.yml, which tests the oldest and
-        # newest macOS on both architectures rather than whatever
-        # `macos-latest` happens to be today.
-        python-version: ["3.11.0", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.15.1"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,ble]"
+      - name: Ruff
+        run: ruff check src custom_components tests packaging
+      - name: Mypy (library, strict)
+        run: mypy
+      - name: Pytest (library)
+        # BLE is faked at the bleak boundary rather than skipped, so the whole
+        # library is held to one floor. safety.py is gated separately at 100%
+        # because it is the chokepoint every send funnels through.
+        run: >-
+          pytest -q --cov=whiskerless --cov-report=term-missing
+          --cov-config=pyproject.toml --cov-fail-under=99
+      - name: Coverage gate (safety chokepoint)
+        run: coverage report --include='*/safety.py' --fail-under=100
+
+  library-floor:
+    # The pyproject floor, as its own job rather than a matrix leg: Renovate reads a literal
+    # `python-version` and never a matrix value. Same split as ci.yml.
+    name: Lint, type-check, test (library, 3.11 floor)
+    # Forgejo Actions also reads .github/workflows; without this the same jobs
+    # would run twice there (server_url is the Forgejo instance URL on Forgejo).
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11.0"
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -56,7 +82,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.15"
+          python-version: "3.15.1"
       - name: Shellcheck
         # The release path is shell scripts that only run during a release, so
         # a mistake in one surfaces while cutting it rather than in review. ruff
@@ -125,7 +151,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.13"
+          python-version: "3.13.18"
       - name: Install
         run: |
           python -m pip install --upgrade pip

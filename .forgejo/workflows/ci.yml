@@ -18,20 +18,13 @@ concurrency:
 
 jobs:
   quality:
-    name: Lint, type-check, test (library, ${{ matrix.python-version }})
+    name: Lint, type-check, test (library, current)
     # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
     # forks too, so without this a fork's PR would run its own code — and reach this
     # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
     # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Both ends of the supported range: 3.11 is the floor pyproject
-        # advertises, and running only the newest interpreter let 3.12-only
-        # syntax reach the library unnoticed.
-        python-version: ["3.11.0", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Retried in-step: a transient versions-manifest fetch failure took all five CI
@@ -45,11 +38,62 @@ jobs:
         id: setup_python_1
         continue-on-error: true
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.15.1"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_1.outcome != 'success'
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.15.1"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,ble]"
+      - name: Ruff
+        # Every tracked .py, matching the sibling. Naming directories meant scripts/ was
+        # linted by nobody — a file is covered because it is in the repo, not because
+        # someone remembered to add its directory here.
+        run: ruff check $(git ls-files '*.py' | tr '\n' ' ')
+      - name: Mypy (library, strict)
+        run: mypy
+      - name: Pytest (library)
+        # BLE is faked at the bleak boundary rather than skipped, so the whole
+        # library is held to one floor. safety.py is gated separately at 100%
+        # because it is the chokepoint every send funnels through.
+        run: >-
+          pytest -q --cov=whiskerless --cov-report=term-missing
+          --cov-config=pyproject.toml --cov-fail-under=99
+      - name: Coverage gate (safety chokepoint)
+        run: coverage report --include='*/safety.py' --fail-under=100
+
+  quality-floor:
+    # Both ends of the supported range: 3.11.0 is the floor pyproject advertises, and running only
+    # the newest interpreter let 3.12-only syntax reach the library unnoticed. Two jobs rather than
+    # a matrix because Renovate reads a literal `python-version` and never a matrix value: the
+    # newest leg sat at 3.14 while every other job here had moved to 3.15.
+    name: Lint, type-check, test (library, 3.11 floor)
+    # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
+    # forks too, so without this a fork's PR would run its own code — and reach this
+    # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
+    # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Retried in-step: a transient versions-manifest fetch failure took all five CI
+      # jobs down together on 2026-08-17, and Forgejo exposes no rerun endpoint, so
+      # recovery has to happen inside the job. The guard is `!= 'success'`, not
+      # `== 'failure'`: if a runner ever leaves `outcome` unset, an equality test would
+      # silently skip the retry AND `continue-on-error` would have swallowed the first
+      # failure, letting later steps run against whatever interpreter happened to be
+      # present. This way an unknown outcome retries, and a failed retry fails the job.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: setup_python_1
+        continue-on-error: true
+        with:
+          python-version: "3.11.0"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.setup_python_1.outcome != 'success'
+        with:
+          python-version: "3.11.0"
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -92,11 +136,11 @@ jobs:
         id: setup_python_2
         continue-on-error: true
         with:
-          python-version: "3.15"
+          python-version: "3.15.1"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_2.outcome != 'success'
         with:
-          python-version: "3.15"
+          python-version: "3.15.1"
       - name: Shellcheck
         # The release path is shell scripts that only run during a release, so
         # a mistake in one surfaces while cutting it rather than in review. ruff
@@ -210,11 +254,11 @@ jobs:
         id: setup_python_4
         continue-on-error: true
         with:
-          python-version: "3.13"
+          python-version: "3.13.18"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_4.outcome != 'success'
         with:
-          python-version: "3.13"
+          python-version: "3.13.18"
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -283,11 +327,11 @@ jobs:
         id: setup_python_build_1
         continue-on-error: true
         with:
-          python-version: "3.15"
+          python-version: "3.15.1"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_build_1.outcome != 'success'
         with:
-          python-version: "3.15"
+          python-version: "3.15.1"
       - name: Freeze the bundle and package it (the release-time dependencies)
         run: |
           set -euo pipefail
@@ -382,7 +426,7 @@ jobs:
   macos:
     # By the time the Linux suites finish, the mirrored macOS workflow normally has too. This keeps
     # the shared public GitHub API budget and the self-hosted runner slot out of a needless poll.
-    needs: [quality, hygiene, dependency-floors, homeassistant, build]
+    needs: [quality, quality-floor, hygiene, dependency-floors, homeassistant, build]
     # GitHub's mirror runs the same commit on native arm64 and Intel hosts. Waiting by exact head
     # SHA prevents a newer green branch run from qualifying an older pull request revision.
     #

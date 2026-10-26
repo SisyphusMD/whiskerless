@@ -873,3 +873,24 @@ def test_every_annotation_names_a_datasource_its_manager_will_bind() -> None:
             if datasource not in reachable:
                 inert.append(f"{path}: datasource={datasource} depName={dep}")
     assert not inert, f"annotated with a datasource no manager reading that file binds: {inert}"
+
+
+def test_every_setup_python_pins_an_exact_interpreter() -> None:
+    """A floating `3.15` takes each new patch the day actions/python-versions publishes it, so main
+    can go red with no commit and two jobs can test different interpreters while reading alike. A
+    matrix value is worse: Renovate's github-actions manager never reads one, which is how the
+    whiskerless library matrix stayed on 3.14 after every other job had moved to 3.15."""
+    workflows = [
+        *sorted((_ROOT / ".forgejo" / "workflows").glob("*.y*ml")),
+        *sorted((_ROOT / ".github" / "workflows").glob("*.y*ml")),
+    ]
+    loose = []
+    for path in workflows:
+        for job_name, job in (yaml.safe_load(path.read_text()).get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                if not str(step.get("uses", "")).startswith("actions/setup-python@"):
+                    continue
+                version = str((step.get("with") or {}).get("python-version", ""))
+                if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+                    loose.append(f"{path.name} {job_name}: {version!r}")
+    assert not loose, loose

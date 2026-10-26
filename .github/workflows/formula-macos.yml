@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.15"
+          python-version: "3.15.1"
       - name: Build an sdist from a pristine export
         # Same reason publish.yml exports rather than building in place: hatchling
         # sweeps untracked files, and a stray virtualenv turns a 700 KB sdist into
