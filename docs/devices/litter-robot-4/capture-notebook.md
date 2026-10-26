@@ -70,6 +70,62 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 
 ## Sessions
 
+### 2026-09-26→10-26, 30 days — the drawer-full lockout, and the outside reference tested
+
+Loki keeps 720 hours, so this is the whole window it still holds: 2026-08-25→09-26 has aged
+out for good, and the counts from earlier passes cannot be extended. 3,818,352 lines from 18
+capture pods → 159,988 records (8 truncated state documents, 16 orphan lines at pod starts).
+Robot 1: 32,942 state, 45,864 activity, 34,440 commands. Robot 2: 15,885 / 14,371 / 16,486.
+Every command in the window was `0x02A00000`, so no `0x01` event below came from us. That does not make each one a
+person at the panel: the 2026-08-11 session recorded `0x010201` with nobody at the machine. "Press" below means a
+`0x01` event with no matching command.
+Raw pulls, scripts and the full report stayed outside the repo.
+
+- **The drawer-full lockout cost robot 1 about 11 of the 30 days.** 13 stretches with
+  `DFIFullCounter` ≥ 3, about 270 h: the clean odometer froze in every one, about 580 documents
+  show `catDetect` 3 with no robotStatus 25 or 7, and robotStatus read 4 throughout. Robot 2
+  sat locked for 115.9 h until a Reset at 10-01 07:01. A Reset from ready buys one cycle, whose
+  drawer reading restores `0x42`, sets `0x44` and puts `0x45` at the old count plus one (8 of 8).
+  Reset clears only from ready: 17 of 17, and 0 of 4 pressed mid-cycle. Shipped as
+  `drawer_full_lockout` (`registers.md`, `0x45`).
+- **`0x46` is the cycle count at the moment of full**, not a count: it equalled `0x42` each
+  time (126, 72, 80; robot 2 133). `DFILevelPercent` goes past 100 (102–113) only while full.
+- **The outside reference's full trigger does not reproduce.** Its "three readings over 80%"
+  failed both ways: about 45 straight readings over 80% before one set, and one set at 76.
+- **One stuck pause, 10.4 h** (robot 1, 10-21 21:30 → 10-22 07:55): robotStatus 10 with cycle
+  status and state 4 and `catDetect` 2 throughout, right after a Reset plus Cycle at counter 7
+  with the drawer at 105%. The only pause over an hour among 350.
+- **Activity `0x37` decodes as events**, high nibble the sensor and low bit detected/clear.
+  Reverse test, every `catDetect` bit change against an event of the same sense within
+  −5/+1 s: scale 2,451/2,511 (robot 1) and 117/124 (robot 2), curtain 1,490/1,818 and
+  673/686. Robot 1's curtain repeats the same sense 29% of the time, flicker or several
+  beams. `0x0100` marks the resume after a cat-interrupt pause (with `0x4F0194` 293 of 316).
+  `0x1021` (×8) always sits beside `catDetect` 2 and is still unexplained.
+- **`0x33` is sent at every new MQTT session and is always `0x22`**: 341/341 and 159/159,
+  0–7 s after the broker logs the connection. Never seen in 52,143 readings: `0x30`,
+  `0x10`–`0x15`, `0x2D`, `0x05`, `0x80`–`0x96`; `isDebugModeActive` was 0 throughout.
+- **robotStatus:** state documents carry only 4, 5, 7, 10 and 25. 6 precedes 7 (285/287,
+  124/124), and 7 follows 25 and precedes 10 (293/295), which fits our countdown reading
+  better than the reference's "cat detected". 11, 12, 23, 24, 1, 2, 3, 13 and 14 never occur.
+- **An accepted Reset has a signature:** `0x0B` = 105 with a fault-typed `0x350000`, on 13 of
+  18 presses from ready and 0 of 19 elsewhere. All 13 fault-typed messages are these, so a
+  fault-typed `0x350000` is not a cleared globe fault.
+- **No reboots and no firmware change** (`odometerPowerCycles` 69 and 22, ESP 1.1.75 both).
+  **One #21-style dropout healed itself:** robot 1, 10-05 23:51 → 10-06 01:19, the 08-28 broker
+  signature, but it reconnected mid-cycle with no power cycle and kept cycling meanwhile
+  (`DFINumberOfCycles` 62→66). **Mains loss** (10-10 17:50→18:16, 10-26 10:49→11:45) opens with
+  `0x070001`, `0x5000xx`, `0x380000`, then MQTT is silent until power returns, `0x330022`
+  first. No reboot either time.
+- **Hopper, robot 1:** it now dispenses (464 `0x0C` readings), and its fill gauge reads 73–81
+  normally and 58–62 empty. It ran empty three times (09-28, 10-14, 10-25, the last still
+  empty). Its readings straddle `HOPPER_FILL_EMPTY_MAX` = 72 (71 versus 73) and never pass 81
+  after a refill, so the gauge span looks per robot (#68).
+- **Robot 2's visit registers:** `0x6F` follows the scale's span within ±3 s in 41 of 45, the
+  curtain's in only 23, which pins it to the scale. The `0xB9` threshold narrows to 16–21.
+- **About 0.5% of state documents drop exactly one field** (robot 1 159, robot 2 72; which
+  field varies), and one case is short in both Loki and `kubectl logs`, so it is the robot.
+  Decoders must tolerate any missing field.
+
 ### 2026-08-19→25, 5d07h — seventh pass, and an active sweep that retracts the register-file gap
 
 1,065,899 Loki lines → 47,655 records, 0 malformed → 17,359 deduped readings over

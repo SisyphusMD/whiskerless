@@ -551,6 +551,11 @@ additive mosquitto Service port and ingress rule.
 
 ### #21 — Investigate the recurring "did not respond to a state request" dropout — **ANSWERED 2026-08-28: the robot's MQTT client wedges; the network is fine**
 
+**2026-10-26, 30-day capture: recovery does not always need a power cycle.** Robot 1 dropped
+at 10-05 23:51 with the same broker signature as 08-28 and reconnected by itself at 01:19,
+mid-cycle, still cycling while off the broker. It is the only dropout in the 30 days. See the
+capture notebook's 2026-09-26→10-26 section. #90 should not promise "will not return by itself".
+
 Negative result 2026-08-10 over a clean 8h25m window (one pod, 0 restarts): 277
 state requests (`0x02A00000`), 277 answered within 30s. Reply latency median
 2.0s, p90 5.0s, max 11.0s. Zero gaps over 6 minutes between consecutive state
@@ -859,6 +864,11 @@ offline: a typo becomes the client-id and both topic segments, and the robot tha
 never answers looks identical to one that is merely asleep.
 
 ### #68 — The hopper gauge under-reports
+
+**2026-10-26, 30-day capture:** robot 1 now dispenses and its gauge reads 73–81 normally and
+58–62 when empty, never above 81 even after a refill. Its readings straddle
+`HOPPER_FILL_EMPTY_MAX` = 72 (71 against 73), so the bands from the 1.4.4 robot do not fit it.
+The span looks per robot, which argues for a learned floor and ceiling over fixed bands.
 
 Ground truth 2026-08-16: a hopper photographed **mostly full** was published as roughly
 **half**. The waste drawer (78 % reported, ~78 % observed) and the globe litter level
@@ -2096,6 +2106,12 @@ built around, so the design has to come first.
 
 
 ### #90 — Tell "the robot is not on the broker" apart from "the robot is not answering" — **discuss**
+
+**2026-10-26, 30-day capture: power loss has a signature.** Both mains losses opened with
+`0x070001`, `0x5000xx` and `0x380000` seconds before MQTT went silent, and `0x330022` was the
+first message back. A last word of `0x070001` lets the integration say "on battery" instead
+of a bare `unavailable`. The one wedge in the window healed itself (#21), so the wording must
+not claim a power cycle is required.
 
 #21 surfaced this. Both conditions render identically as `unavailable`, and they need opposite
 responses: a robot that has stopped answering state requests may come back on its own, while a

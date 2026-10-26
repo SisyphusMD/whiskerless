@@ -331,9 +331,10 @@ STATUS_ANNUNCIATIONS: dict[int, str] = {
     20: "cycle_running",
     22: "ready",
     102: "night_light_changed",   # fires with IS_NIGHT_LIGHT_LED_ON transitions
-    # 105 was labeled "fires on a Reset press". It has now failed to appear across
-    # NINE Reset presses on two robots, in 230 annunciator readings. Whatever
-    # raises it, a Reset press alone does not.
+    # Fires when a Reset is ACCEPTED, which is only from ready: 13 of 18 presses
+    # from ready raised it, together with a fault-typed 0x350000, and 0 of 19
+    # pressed mid-cycle or mid-countdown did (30-day capture to 2026-10-26). The
+    # nine earlier misses were presses the robot ignored.
     105: "reset_tare",
 }
 
