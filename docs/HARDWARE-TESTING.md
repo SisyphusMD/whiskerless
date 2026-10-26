@@ -41,8 +41,8 @@ Two buttons remove the robot from the network, not one. `power` can leave it off
 `wifi-toggle` (Connect) silences it within 0.8s. **Silence is indistinguishable from "did
 nothing"**, so neither can be scored from telemetry alone.
 
-`NEVER_SEND_OPCODES` — `0xA3`, `0xA4`, `0xAC`, `0xAD` — are refused unconditionally and are not a
-bench subject. Nothing in a campaign may be designed to reach them.
+`NEVER_SEND_OPCODES` — `0xA3`, `0xA4`, `0xAC`, `0xAD` — and `NEVER_SEND_REGISTERS` (`0x2D`,
+factory reset) are refused unconditionally and are not a bench subject. Nothing in a campaign may be designed to reach them.
 
 **Pairing mode is destructive to connectivity.** Entering it wipes the robot's saved WiFi, and only
 a **completed** provision restores it; nothing about it expires when the button is released. Every

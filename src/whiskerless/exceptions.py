@@ -16,8 +16,9 @@ class NeverSendError(SafetyError):
 
     This is unconditional — there is no flag that lets it through. The opcodes
     in :data:`whiskerless.safety.NEVER_SEND_OPCODES` can corrupt the main-board
-    flash or the globe-motor controller, so the library refuses to put them on
-    the wire at all.
+    flash or the globe-motor controller, and the registers in
+    :data:`whiskerless.safety.NEVER_SEND_REGISTERS` factory-reset it, so the
+    library refuses to put them on the wire at all.
     """
 
 

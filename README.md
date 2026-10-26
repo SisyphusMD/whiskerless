@@ -626,7 +626,8 @@ or, in the worst case, brick a control board. So it guards every send:
 
 - **Four opcodes are refused unconditionally** (`0xA3`, `0xA4`, `0xAC`, `0xAD` —
   reset / main-board-OTA orchestrator, globe-motor OTA, flash erase, hardware reset).
-  No flag lets them through.
+  No flag lets them through. Neither does a write to register `0x2D`, which an outside
+  protocol reference identifies as the main board's factory reset.
 - **The destructive panel combos are refused too** — factory reset, plug pull and
   onboarding mode are all one write away from the clean cycle, so `0x01` is
   whitelisted by *value*, not opened as a register.

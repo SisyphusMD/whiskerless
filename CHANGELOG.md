@@ -71,6 +71,8 @@ much of the hopper work.
 - A missed heartbeat now names the robot's last reported Wi-Fi signal alongside the
   timeout, as context rather than a verdict.
 - Manual calibration buttons ship disabled, because the robot calibrates itself.
+- `send` now refuses any write to register `0x2D`, even with `--allow-dangerous`. An
+  outside protocol reference identifies it as the main board's factory reset.
 
 ## [0.1.3] - 2026-07-02
 

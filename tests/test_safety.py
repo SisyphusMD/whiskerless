@@ -23,6 +23,9 @@ from whiskerless.safety import Hazard, assert_sendable, classify_code
         ("0x02AC0000", Hazard.NEVER),      # MB flash
         ("0x02A40001", Hazard.NEVER),      # globe-motor OTA
         ("0x02AD0000", Hazard.NEVER),      # hardware reset
+        ("0x022D0001", Hazard.NEVER),      # PIC factory reset (UART reference)
+        ("0x022D0000", Hazard.NEVER),      # refused at any value, not just 1
+        ("0x012D0000", Hazard.SAFE),       # reading it is still a read
         ("0x02300001", Hazard.DANGEROUS),  # power candidate (control band)
         ("0x02A70003", Hazard.DANGEROUS),  # report macro with non-zero jump index
         ("0x00120000", Hazard.NOOP),       # type nibble not 1/2
@@ -32,7 +35,9 @@ def test_classify(code: str, hazard: Hazard) -> None:
     assert classify_code(code) == hazard
 
 
-@pytest.mark.parametrize("code", ["0x02A30000", "0x02AC0000", "0x02A40001", "0x02AD0000"])
+@pytest.mark.parametrize(
+    "code", ["0x02A30000", "0x02AC0000", "0x02A40001", "0x02AD0000", "0x022D0001"]
+)
 def test_never_send_is_unconditional(code: str) -> None:
     # No combination of flags lets a brick/reset-class command through.
     with pytest.raises(NeverSendError):

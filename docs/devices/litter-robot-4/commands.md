@@ -157,7 +157,9 @@ whiskerless classifies every command before it can reach the wire
   (main-board flash), `0xAD` (hardware reset). No flag lets these through. This is a
   cost decision rather than a proof — see
   [reverse-engineering.md](../../reverse-engineering.md); there is nothing to gain by
-  sending any of them, and a plausible flash or OTA on the other side.
+  sending any of them, and a plausible flash or OTA on the other side. Register `0x2D`
+  is refused the same way at any value: the esphome-litter-robot UART reference names
+  it the main board's factory reset, and that claim is reason enough without a trial.
 - **Dangerous (override required):** any untraced opcode, control-band register, or
   calibration register — and two known panel presses, `0x02010101` (Power) and
   `0x02011001` (Connect/WiFi). Anything unrecognised defaults to "refuse unless you

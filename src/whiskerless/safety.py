@@ -44,6 +44,12 @@ from .exceptions import DangerousCommandError, NeverSendError, ProtocolError
 #: See the module docstring: this set is refused on cost, not on proof.
 NEVER_SEND_OPCODES: frozenset[int] = frozenset({0xA3, 0xA4, 0xAC, 0xAD})
 
+#: Plain registers refused at any value. `0x2D` is the PIC factory reset according
+#: to a reference written by sniffing the ESP-PIC UART directly (the
+#: esphome-litter-robot project), never tried here. A reset wipes every setting on
+#: the robot and gains nothing, so the claim alone is enough to refuse it.
+NEVER_SEND_REGISTERS: frozenset[int] = frozenset({0x2D})
+
 #: `0x01` carries panel button presses and accepts writes — writing the code the
 #: robot emits for a button synthesises that press. Live-proven on ESP 1.1.75,
 #: three trials, each echoing the register back with the documented signature.
@@ -173,7 +179,7 @@ def classify(ctype: CommandType, register: int, value: int) -> Hazard:
         return Hazard.SAFE  # type-1 read builds a GET frame — structurally read-only
 
     # type-2: macro dispatch or generic register write.
-    if register in NEVER_SEND_OPCODES:
+    if register in NEVER_SEND_OPCODES or register in NEVER_SEND_REGISTERS:
         return Hazard.NEVER
     if register == PANEL_BUTTON_REGISTER:
         # By value: the same register runs the globe, acknowledges an alarm, or
