@@ -5,8 +5,10 @@
 # would have to re-derive if they moved. Whisker's control-panel article is the
 # button matrix in docs/devices/litter-robot-4/control-panel.md; the brands
 # announcement is why the integration ships its own images instead of PRing
-# home-assistant/brands. A rotted URL there leaves a claim with no way back to
-# its evidence.
+# home-assistant/brands. The esphome-litter-robot UART reference is the only
+# source for the 0x2D factory-reset refusal and the unverified register names in
+# docs/devices/litter-robot-4/registers.md. A rotted URL there leaves a claim with
+# no way back to its evidence.
 #
 # NOT a link checker for every URL in the repo: badges, package indexes and
 # GitHub issue links come and go, and failing CI on someone else's outage buys
@@ -17,6 +19,7 @@ set -euo pipefail
 URLS=(
   "https://www.litter-robot.com/support/article/litter-robot-4-control-panel-button-functions/"
   "https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api"
+  "https://codeberg.org/Joseph-DiGiovanni/esphome-litter-robot/src/branch/main/docs/Litter%20Robot%204/UART%20Reference.md"
 )
 
 fail=0

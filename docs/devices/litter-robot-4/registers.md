@@ -88,7 +88,7 @@ was.
 | `0x32` | sleepStatus | `1` inside the panel sleep window, `0` outside. **PROVEN by hand 2026-08-16 on BOTH robots**: holding Cycle (the panel's own sleep chord, `0x0202`) drove `0x320001` within a second on each, and a second hold drove `0x320000` — 31 minutes clear of the scheduled boundary, so it is following the sleep state and not the clock. Five nights of ten-for-ten schedule matches could never have separated those two. | PROVEN |
 | `0x34` | robotStatus **on the state doc only** | On the ACTIVITY stream this register is overloaded: 67 of 208 emissions are not enum members — `0x02C0` is the clean-delay tick and `0x_064`/`0x_065` are pre-cycle markers. It also never carries `25`, though 140 state documents do. Decoding activity `0x34` through the enum yields `unknown_704` for a third of it | PROVEN (field) / see note (activity) |
 | `0x35` | globe motor fault | **The state field does not mirror it.** A live fault (`0x350001` ×3, cleared 50 min later by `0x350000`) arrived only on the activity stream, in messages whose envelope is `type: "fault"`, while `globeMotorFaultStatus` read 0 in all 1198 of that robot's state documents — six of them sampled mid-fault. Read the activity stream, not the field | PROVEN (activity) / CONTRADICTED (field) |
-| `0x37` | catDetect | **a two-bit field, not a boolean** — bit 0 = time-of-flight sight line, bit 1 = load cell. `1` an arm in the beam, `2` an inert weight on the pan, `3` a cat, `0` idle; both bits driven independently in one narrated session. Activity carries 16/17/32/33 (the low bit tracking bit 0), plus 256, and 512/1024 on bonnet open/close | PROVEN |
+| `0x37` | catDetect | **a two-bit field, not a boolean** — bit 0 = time-of-flight sight line, bit 1 = load cell. `1` an arm in the beam, `2` an inert weight on the pan, `3` a cat, `0` idle; both bits driven independently in one narrated session. Activity uses a **different encoding**: an event, not the field. Per the esphome-litter-robot reference the high nibble names the sensor (`0x1_` curtain, `0x2_` scale) and the low bit says detected or clear, so `0x11` is "curtain detected" and `0x20` "scale clear". That fits every cell of the capture notebook's `0x37` match table, including the `0x10` row the old "low bit tracks bit 0" reading could not explain (curtain clear while something is still on the scale reads `catDetect` 2). Also seen: 256, 512/1024 on bonnet open/close, and an unexplained `0x1021` | PROVEN (state field) / their decode, fits our data (activity) |
 | `0x39` | USBFaultStatus | 0/1/2 | HIGH |
 | `0x3A` | isBonnetRemoved | bonnet interlock — `1` on lift, `0` on reseat, in lockstep with `robotStatus 5` on both robots | PROVEN |
 | `0x3B` | isNightLightLEDOn | LED state | HIGH |
@@ -104,7 +104,7 @@ was.
 | `0x56` | drawer bay | fires when a drawer MOVES, in either direction. A seat-only asymmetry held for 5 seats and 5 removals on one robot and broke on the first test of the other, which emitted the same code for a pull and a seat. Neither the value nor the presence of a message carries direction | PROVEN (movement) / direction NOT recoverable |
 | `0x57` | hopper subsystem | activity-only, and **not usable as a link state** — positives fire on a robot with the hopper physically detached, and `-15` fires for a drawer pull as well as a full detach. Reattach emits no distinct code. Negatives seen: `-15`, `-17`, `-30`, `-31`, none reliably reproducible | LOW |
 | `0x58–0x5A` | ToF1/2/3 | distance sources | PROVEN |
-| `0x6F` | visit duration (probable) | Equals the weight-on-scale span to within ±3 s in **9 of 9** emissions — the ninth exact: `0x6F0029` = 41 against a 41 s `0x37` `0x11`→`0x10` span on 2026-08-15 — and is omitted on all 4 visits whose span is under 15 s. **`0x6F` and `0xBC` do co-emit**, on one robot in the same second (2026-08-15T23:29:43Z: `0x6F` 41, `0xBC` 10), which retires the earlier note that they had never appeared together. They are not rival decodes of one quantity: the shipped reading of `0xBC` is seconds of *settled* weight, and 10 s of settled weight inside a 41 s occupancy is consistent with both. `0xB9` arrived as `1` in the same second, matching its own `<19 → 1` rule. Still do not swap either decode | INFERRED |
+| `0x6F` | visit duration (probable) | Equals the weight-on-scale span to within ±3 s in **9 of 9** emissions — the ninth exact: `0x6F0029` = 41 against a 41 s `0x37` `0x11`→`0x10` span on 2026-08-15 (under the activity decode above that span is the **curtain**, not the scale, which cleared one second later with `0x20`; both fit the ±3 s) — and is omitted on all 4 visits whose span is under 15 s. **`0x6F` and `0xBC` do co-emit**, on one robot in the same second (2026-08-15T23:29:43Z: `0x6F` 41, `0xBC` 10), which retires the earlier note that they had never appeared together. They are not rival decodes of one quantity: the shipped reading of `0xBC` is seconds of *settled* weight, and 10 s of settled weight inside a 41 s occupancy is consistent with both. `0xB9` arrived as `1` in the same second, matching its own `<19 → 1` rule. Still do not swap either decode | INFERRED |
 | `0xB9` | visit-close gate (robot 2 only) | Cited elsewhere in this file as having a `<19 → 1` rule, with **no row defining it until now** — the rule was inherited, not measured. What is measured: of 41 seconds carrying both `0xB9` and `0xBC` (2026-08-15→19), the rule holds **41 of 41** — forty at `0xB9 = 1` with `0xBC` in 0–15, and the single `0xB9 = 2` with `0xBC` = 15699. That confirms the DIRECTION and not the number: with one sample above the cut, any threshold between 16 and 15699 fits — and **that sample is Reset-adjacent** (9 seconds after a Reset press, alongside an out-of-range `0x6F` = 24608), so it may be a re-tare artifact rather than a genuine high reading. Treat the upper branch as untested. `0xBC` leads `0xB9` by 1–2 s, so per-second correlation drops half the pairs | OBSERVED |
 | `0x09` | catWeight | raw / **100** = lb (telemetry) — see the enum note | MED |
 
@@ -266,7 +266,8 @@ different state fields, so it stays unassigned rather than guessed.
 
 `0x0B` (22/102 — the marker byte seen constantly in activity), `0x10`–`0x15`,
 `0x2C`, `0x2F`, `0x30`, `0x33`, `0x48`–`0x4A` (the three drawer lasers), `0x50`–`0x55`,
-`0x5E`, `0x64`, `0x73`–`0x77`, `0x7B`.
+`0x5E`, `0x64`, `0x73`–`0x77`, `0x7B`. An outside reference names several of these;
+see [below](#named-by-the-esphome-litter-robot-uart-reference-not-tested-here).
 
 `0x10`–`0x12` **changed value between passes**, so they are live counters rather than
 configuration. `0x50` read 129 during a power-source switch and 146 later, and it is
@@ -299,6 +300,71 @@ A further 33 answer but read zero, which says nothing about their meaning.
 nothing: both were later caught emitting on the activity stream during a clean cycle,
 where they carry values that repeat cycle to cycle — see the
 [capture notebook](capture-notebook.md).
+
+### Named by the esphome-litter-robot UART reference (not tested here)
+
+The [esphome-litter-robot](https://codeberg.org/Joseph-DiGiovanni/esphome-litter-robot)
+project replaces the robot's ESP32 firmware and documents the ESP-PIC serial link from
+the inside ([UART Reference](https://codeberg.org/Joseph-DiGiovanni/esphome-litter-robot/src/branch/main/docs/Litter%20Robot%204/UART%20Reference.md),
+read 2026-10-26). It uses the
+same register numbers we use, which is consistent with what the ESP firmware shows:
+it forwards `0x02RRVVVV` as a 7-byte frame (direction, op, register, value hi/lo,
+checksum, `0xFF`) at 256000 baud. Its names fill several gaps above. Every one is
+**their claim, not PROVEN here**. A register that never shows up in our captures can
+still exist, because the stock ESP firmware decides what reaches MQTT.
+
+| Register | Their reading | Bearing on this map |
+|---|---|---|
+| `0x0F`–`0x15` | RTC in **local** time: day-of-week (0=Sunday), hour, minute, second, day, month, two-digit year | explains why `0x10`–`0x12` changed between passes |
+| `0x30` | heartbeat: the PIC writes `0x63` every 5 s and flashes Connect white if the ESP does not acknowledge it | was unidentified |
+| `0x33` | WiFi state: `0x00` off, `0x11` pairing, `0x21` connecting, `0x22` connected, `0x23` error | was unidentified |
+| `0x2D` | **factory reset** when written `0x0001`; the PIC does not acknowledge it, it echoes the write back and reboots | refused at any value (`NEVER_SEND_REGISTERS`) |
+| `0x05` | debug mode, which they call a boolean (`const.py` has it as a 64800-tick countdown once armed): while on, the PIC emits `0x80`–`0x96` every second, including `0x84` ambient light (0–100), `0x89` **live scale weight in signed tenths of a pound**, and `0x8B`–`0x8D` mirroring the curtain lasers | the stray settings-bank entry above; whether stock ESP forwards `0x80`+ to MQTT is untested (backlog #91) |
+| `0x34` | doubles as a command: writing `0x000A` starts a clean cycle, `0x000B` empties, `0x000C` enters filter replacement | would reopen the filter wizard (backlog #81); writes stay DANGEROUS |
+| `0x69` | calibrated litter level, the raw distance the hopper logic uses | new |
+| `0x76` | "CAL flag", the first register the ESP reads at boot | new, meaning unknown to them too |
+| `0x79`, `0x7A`, `0x7E`, `0x7F` | indexed identity: board revision and device IDs, hardware/BOM/suite/revision, where the low value byte is the index | a plain read returns only index 0, which is why `0x7E` reading 5 identified nothing |
+
+**Behaviour they describe that we had not recorded** (also their claims):
+
+- **Panel lockout (`0x17`) also blocks synthesised presses.** With the keypad locked, a
+  written `0x02010201` would be ignored like a finger on the panel, so our clean cycle and
+  reset would silently do nothing (backlog #92).
+- **Drawer-full lockout.** `0x44` sets after three consecutive `0x43` readings over 80%,
+  each later cycle increments `0x45`, and at 3 the robot stops detecting cats and refuses
+  manual cycles until Reset. Reset clears `0x44` and `0x42` only from Ready, and both come
+  back if the drawer was not actually emptied.
+- **Litter level `0x47`:** 480 is empty and 435 or less full. Our uncalibrated default puts
+  full at 440 and reaches 0% at 500, so their empty point is 20 mm higher than ours.
+- **Auto thresholds:** night light auto turns on below ambient 20 and off above 70, and the
+  two packed `0x0E` brightness values switch at the same two points.
+- **Sleep schedule bulk writes:** write `0x1D` = 0, then the times, then the mask, so the
+  schedule never fires against a half-written set.
+- **robotStatus values we have never captured:** `0x0B` (11) emptying, `0x0C` (12) motion
+  in the drawer, `0x17` (23) starting calibration, `0x18` (24) calibration in progress.
+
+**Where they disagree with us,** and ours has live evidence behind it:
+
+- **robotStatus `1`:** they call it "powered off" and `3` "powering off", but our
+  2026-08-16 down-stroke emitted `1` *before* `3`, which that naming cannot explain. Ours
+  stays `powering_down` for both.
+- **robotStatus `7`:** they call it "cat detected" (with `6` always just before it). Ours
+  labels it `cat_sensor_timing` and notes it follows the scale, holding for 2h15m with an
+  inert weight on it. Both readings fit "the scale says something is there", so this is a
+  naming difference more than a contradiction. Our state-doc `25` = cat detected never
+  appears on their list or on our activity stream.
+- **USB power:** they name `0x04` "isUSBPowerOn" from log strings. We proved `0x38`
+  carries that field and that it actually means mains present.
+
+`0x33` also lines up with something we saw: both our robots read `34` there, which is
+`0x22`, "connected", in their table.
+
+What they do **not** have: our panel sleep findings. They list `0x1B`/`0x1C` as
+unexplained 21:00/06:00 defaults and `0x1A` as untested, where
+[above](#the-panel-sleep-bank-is-not-a-plain-settings-bank) they are proven read-only
+mirrors of `0x1D` and today's weekday pair. Their account of the panel button register
+(`0x01`, low byte `0x02` meaning a long press) agrees with ours, and it does not claim a
+written long press works.
 
 ### What the sweep cannot tell you
 

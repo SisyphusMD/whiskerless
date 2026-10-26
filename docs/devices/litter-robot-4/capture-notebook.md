@@ -989,6 +989,11 @@ So "bit 0 clear means the cat is leaving" is true of the `0x20` group and false 
 `0x10` group, which is the reverse of the previous reading being a property of bit 0 at
 all. A fifth value, `0x371021`, appeared twice.
 
+*(2026-10-26: the esphome-litter-robot UART reference reads activity `0x37` as an event,
+high nibble the sensor (`0x1_` curtain, `0x2_` scale) and low bit detected or clear. That
+explains all four rows, the failing `0x10` row included: the curtain clears while
+something is still on the scale. See `registers.md`.)*
+
 Even where it holds this is weaker than "tracks the cat": bit 0 was set through the 2h15m
 run where `catDetect` read `2` with an empty globe, so it follows the same sensor
 `catDetect` does rather than an animal.

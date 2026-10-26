@@ -32,6 +32,16 @@ opcodes inherited from the cloud verb map must be confirmed live before they're
 trusted. Check your firmware version with the version report (`0x02AE0000`, or the
 integration's *Refresh* + version sensors).
 
+## Hardware revisions
+
+Everything here was proven on PIC-based main boards. Per the esphome-litter-robot
+project, units built after February 2026, with serials starting **`LR4S`**, use a
+main-board revision with an STM microcontroller in place of the PIC18F47Q43. That
+project says the same UART register protocol runs on both. Nothing in this repo has
+been tested on an `LR4S` unit, so treat every PROVEN in these docs as PIC-only until
+someone confirms it there. The ESP firmware build is what decides the MQTT surface, so
+check it with the version report as above.
+
 ## Weekday schedule
 
 The 14 registers `0x1E–0x2B` hold the per-weekday sleep/wake schedule as
@@ -57,7 +67,7 @@ correct the mapping.
 | reset waste drawer | **solved** — it is what a Reset press does when the full flag is set; not a separate command. The old "the pending-flag register is read-only, so this is impossible" note was solving the wrong problem: you write the button, not `0x41` |
 | `emptyCycle` | **captured, write untested** — a physical Empty press emits `0x010801`, so `0x02010801` is the code to write. Shipped as a disabled-by-default button; nobody has sent it yet |
 | `powerOn` / `powerOff` | **PROVEN 2026-08-16** — `0x02010101` written to a live robot powered it off, emitting `0x010101`; the physical press that restored it emitted the same code again. It TOGGLES. Still shipped disabled and behind `allow_dangerous`, because a robot powered off this way has left the network and only someone at the machine can bring it back |
-| filter-change wizard | **unreachable** — the panel chord is a *long* press, and the write path declines press type `02` |
+| filter-change wizard | **unreachable through `0x01`**: the panel chord is a *long* press, and the write path declines press type `02`. A different route, writing `0x34` = `0x000C`, comes from an outside reference and is untested (backlog #81) |
 | waste-drawer position | **unsolved** — `0x56` says a drawer moved and nothing more. The seat-only asymmetry that briefly looked like direction broke on 2026-08-16, when one robot emitted the *same* code for a pull and a seat. Neither the value nor the presence of a message carries direction, and absolute position is not readable at all. See the [register map](registers.md#the-drawer-bay-0x56-reports-that-the-drawer-moved-and-nothing-else) |
 
 Static analysis never recovered these because it was looking in the wrong place: the

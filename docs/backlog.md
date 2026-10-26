@@ -35,7 +35,11 @@ marker, and #64 read as open for four days after it shipped.
 - **#82** — hidden-SSID joining is asserted in a comment and has never been tested on
   hardware.
 - **#81** — "Replace Filter" is the only Whisker-app control with no equivalent here,
-  and whether it is even remotely reachable is unresolved.
+  and whether it is even remotely reachable is unresolved. A one-send bench trial of
+  `0x0234000C` is written up there.
+- **#91** — debug mode (`0x05`) may stream a live scale reading every second; one
+  bench trial settles whether stock ESP forwards it.
+- **#92** — panel lockout may silently swallow our clean cycle and reset presses.
 - ~~**#51**~~ — closed: the firmware's own descriptor tables enumerate every message
   type and none is a read.
 - **#15** / **#20** — the rolling capture: keep analysing, and retire the pod when
@@ -1481,6 +1485,28 @@ Outcome 3 would close this and vindicate the current documentation. Outcomes 1 o
 mean `commands.md` is wrong that the function is unreachable, and the fix is to
 classify whatever is found in `safety.py` before anything sends it.
 
+**2026-10-26: a fourth candidate, named by an outside source.** The
+esphome-litter-robot UART reference (see `registers.md`, "Named by the
+esphome-litter-robot UART reference") says `0x34`, the robotStatus register, also
+takes commands: `0x000A` clean cycle, `0x000B` empty, `0x000C` filter replacement.
+Ours already knows that `0x0E` is the filter-replacement status (the enum's `14`), so
+the claim fits. It is a write to a register that has a handler, not a hold, so the
+"do not re-test hold synthesis" rule does not cover it. Their writes go straight onto
+the UART. Ours go through the stock ESP firmware, which may refuse a `0x34` write before
+the PIC ever sees it, so the trial is a real test of our path and not a repeat of theirs.
+
+The trial: one robot, empty globe of cats, bonnet on, capture running. Send
+`whiskerless send 0x0234000C --allow-dangerous` (unrecognised writes are DANGEROUS, and
+this stays DANGEROUS until it is proven). Watch for robotStatus `14` on the state doc and
+the globe moving to the filter position, then press Reset at the panel to finish the
+wizard. If `0x000C` does nothing, try `0x0234000A` once for comparison. A clean cycle
+there means the path works and the filter value is the problem. Nothing there either
+is **inconclusive**: it cannot tell the ESP dropping the write from the PIC ignoring it,
+from a firmware difference, or from the reference being wrong. Record it that way and
+fall back to the cloud capture above; only UART evidence would pin the cause. A
+pass means classifying the value in `safety.py`, a `commands.py` builder and an HA
+button, in that order.
+
 **Not a gap:** per-cat weights (Arya/Nahla in the app). An activity CSV exported the
 same day lists only unattributed per-visit weights, so cat identity is cloud-side
 inference over the raw figure the robot reports. Nothing local can reproduce it, and
@@ -2093,3 +2119,53 @@ The user-facing half matters more than the mechanism: the point is to say "this 
 off the broker and will not return by itself" rather than a bare `unavailable`, so nobody spends
 a morning on packet captures again. Do not design the wording around one incident's specifics —
 confirm the LWT question first, since it decides which of the two shapes is even available.
+
+## Added 2026-10-26
+
+### #91 — Does debug mode (`0x05`) give us a live scale over MQTT? — **open**
+
+The esphome-litter-robot UART reference says that with `0x05` set, the PIC emits
+`0x80`–`0x96` once a second, among them `0x89`, the live scale reading in signed tenths
+of a pound (it tares itself back to 0 a few seconds after going negative), `0x84`
+ambient light, and `0x8B`–`0x8D` mirroring the curtain lasers. Today we only get a
+weight at the end of a visit (`0x09`). A per-second scale would make calibration and
+the leftover-weight work much easier to check.
+
+`0x05` is already in the safe settings bank, but no write to it has been recorded, so
+this is its first test too. Their reference was written from the UART side, and the
+stock ESP firmware decides what reaches MQTT. It may drop the `0x80` block as noise,
+the way it already drops the `0x30` heartbeat from its own logs.
+
+The trial: capture running, write `0x02050001`, read it back, then put a known weight in
+the globe and take it out. Then write `0x02050000` and confirm the burst stops. Outcomes:
+
+- **`0x80`+ arrives on `activity`.** Decode `0x89` against the known weight, check the
+  decipound scale, then decide whether to ship it. That needs a design call first,
+  because a stream every second is a lot of traffic to leave switched on.
+- **Nothing arrives.** This is **inconclusive**, not proof that stock ESP filters the
+  block. The read-back separates one case: if `0x05` reads back `0`, the write was
+  refused. Expect a large number rather than `1`, since `const.py` already records `0x05`
+  as a 64800-tick countdown once armed, which contradicts the reference's "boolean" and is
+  itself worth confirming (64800 s is 18 hours). If it reads non-zero and still nothing arrives, the ESP filtering it, the PIC
+  firmware lacking the feature, and the reference being wrong all fit, and only a UART
+  capture tells them apart. Record what was seen and park this; do not close it as filtered.
+
+Either way, record what `0x05` does in `registers.md`, since today it is the one entry
+in the settings bank with no row there.
+
+**Not a dreame-valetudo item.** It is an LR4 register.
+
+### #92 — Does panel lockout silently swallow our clean cycle and reset? — **open**
+
+The esphome-litter-robot UART reference says panel lockout (`0x17`) makes the robot ignore
+panel input, synthesised presses included. If that is true, a user who turns on our
+`keypad_lockout` switch gets a Clean cycle and a Reset button that report success and do
+nothing, because both are written `0x01` presses.
+
+The trial: lockout on, send `whiskerless clean-cycle`, watch for robotStatus `10`; then
+lockout off and confirm the same command cycles. If the press is swallowed, decide between
+refusing the command up front with a clear error while lockout is on, and lifting lockout
+for the press and restoring it. Refusing is simpler and does not quietly undo a setting the
+user chose. Either way the HA buttons should say why, not just log.
+
+**Not a dreame-valetudo item.** It is LR4 panel behaviour.
