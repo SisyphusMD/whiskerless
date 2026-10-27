@@ -58,7 +58,16 @@ clone=$!
 # A shell watchdog rather than coreutils `timeout`, which a default macOS install does not have.
 # The low-speed settings above only catch a transfer that crawls; a server feeding bytes just fast
 # enough to look alive would otherwise hold this open forever.
-( sleep "$deadline"; kill -TERM "$clone" 2>/dev/null || true ) &
+# The sleep runs as the subshell's own child, so killing the subshell alone would orphan it, and an
+# orphaned sleep keeps this script's stdout open: whatever reads the output (a pipe, Renovate's
+# post-upgrade capture) then waits out the whole deadline after the vendor has finished. The trap
+# takes the sleep down with it, and the redirect means nothing in here can hold the pipe anyway.
+(
+  trap 'kill "$nap" 2>/dev/null; exit 0' TERM
+  sleep "$deadline" & nap=$!
+  wait "$nap"
+  kill -TERM "$clone" 2>/dev/null || true
+) >/dev/null 2>&1 &
 watchdog=$!
 
 rc=0
