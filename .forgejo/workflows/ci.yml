@@ -355,6 +355,9 @@ jobs:
           # packaging — so it is not in the tree and nfpm fails on a missing file without this.
           # -n so the gzip header carries no timestamp: the package stays byte-reproducible.
           gzip -9 -n -c packaging/whiskerless.1 > packaging/whiskerless.1.gz
+          # The floor nfpm.yaml declares as the libc dependency, from the file the build enforces.
+          export GLIBC_FLOOR
+          GLIBC_FLOOR=$(cat packaging/glibc-floor.txt)
           # A throwaway version: this proves nfpm.yaml still describes a buildable package, not
           # that any particular release is correct. Unsigned, so no key is needed.
           #
@@ -366,7 +369,7 @@ jobs:
           trap 'test -z "$cid" || docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           package() { # package <deb|rpm>
             local fmt="$1"
-            cid=$(docker create -e ARCH=amd64 -e VERSION=0.0.0-rc.1 -w /w "$NFPM" \
+            cid=$(docker create -e ARCH=amd64 -e VERSION=0.0.0-rc.1 -e GLIBC_FLOOR -w /w "$NFPM" \
               package -p "$fmt" -f packaging/nfpm.yaml -t "/w/ci.$fmt")
             docker cp . "$cid":/w >/dev/null
             docker start -a "$cid"

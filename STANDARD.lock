@@ -16,7 +16,7 @@
     "packaging/fetch-release-assets.sh": "7ea0d08b74e777db0deac090b8f59da4a5dd0a6d3b4a1935202aaf83432d728b",
     "packaging/forgejo-release.sh": "dc5e96e22d9f4de7750353fc2fc7610341c99ff7be3160eeea32f9017c81114c",
     "packaging/github-release.sh": "bee5b8da3b1cb5129c1812f4d6211b9b370f63e818e45fcc61ef0b5fb6a7b355",
-    "packaging/gitignore.base": "f87bec1f6d1ec56ea3678d45920689ac26c7c3a737316a22570121dadac9a9ac",
+    "packaging/gitignore.base": "2d17dc175dd28d22fc2912ce4d5afecee080fdba369f3d6c7be3cdd72f9b798e",
     "packaging/glibc-floor.txt": "19665c22e6e4f27b0b855ba2bf5873d4619ee970fcb76bcc4fc1f25384e7cea9",
     "packaging/macos-scope.sh": "52e9b6510370c71c316f0774a064f74a5fb1de597db51a0c95af0854e1d386d5",
     "packaging/next-version.sh": "56c3a240d250e26bc09c7b7a4af4f2946e5f3ec454d43bd438c046c6572f44f8",
@@ -35,12 +35,13 @@
     "packaging/triage-infra-failure.py": "655252e8b8b9310431f0806f405737c95ac4c921d2617ed8715c7e2681c066ec",
     "packaging/update-tap.sh": "6c947de2a9cd2ee3826258ce61df5699f9230d3a2f7ab06984719770e04885e7",
     "packaging/wait-for-pypi.sh": "00e3b723203d1522be3050066d5752932962299b748fa37f3ecafe4f1f5aa000",
+    "packaging/wait-for-release.sh": "7cc811571a042d22420b020c63b099a25e2ca37fd9250c4d2da6f87b99cc14fa",
     "tests/release/macos-scope.sh": "66a55370a34b258b8ecef872603fcf87168c4b284c12cbc15de4e2ff8d79cac3",
     "tests/release/mirror-ci.sh": "0d6c23a3eae8ebe7d3350ab5efadff65b379c39d2717873516c1d7fde09e47e8",
     "tests/release/prune-rcs.sh": "3a17fca631469abff3565775307429865ce13f77a42e657a01218f2a8ab6a682",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "76e97a4f8aec0c3728d13f01cedf5a578b54937c",
+  "source_commit": "cd9b951b7b1aec161db247113155c5150eb619c2",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.30"
+  "source_tag": "v0.1.31"
 }

@@ -257,21 +257,21 @@ jobs:
           # after it its release, and the tag-wait poll in each helper means a
           # dead host burns ten minutes before the next one is even tried.
           # Failures are collected and re-raised at the end, so the job still
-          # goes red.
-          failed=""
+          # goes red; the helpers name the host in their own errors.
+          #
+          # Cluster, then GitHub, then the NAS, in the sibling's order and failure spelling, so the
+          # one publish step reads the same in both repositories.
+          fail=0
           packaging/forgejo-release.sh forgejo.bryantserver.com \
             "${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${ASSETS[@]}" \
-            || failed="$failed forgejo.bryantserver.com"
-          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
-            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${ASSETS[@]}" \
-            || failed="$failed forgejo.lan.bryantserver.com"
+            || fail=1
           packaging/github-release.sh \
             "${{ secrets.GH_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${ASSETS[@]}" \
-            || failed="$failed github.com"
-          if [ -n "$failed" ]; then
-            echo "::error::release publishing failed for:$failed"
-            exit 1
-          fi
+            || fail=1
+          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
+            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${ASSETS[@]}" \
+            || fail=1
+          exit "$fail"
   registry:
     name: Publish .deb/.rpm into the apt/dnf repositories
     needs: [guard, releases]
@@ -649,8 +649,12 @@ jobs:
     name: Reconcile releases across registries (heal history)
     # `always()`: this exists precisely for the case where publishing to one of the three
     # registries failed, so gating it on those jobs SUCCEEDING would disable it in the only
-    # situation it is for. It is warn-only for the same reason — a reconcile problem must not
-    # make an otherwise valid release disappear, and the next release retries every tag.
+    # situation it is for. A conflict the script cannot decide is reported for a human rather than
+    # overwritten, and the next release retries every tag. That heal is warn-only by design
+    # (reconcile-releases.sh exits 0), so one unhealable historical tag cannot block every future
+    # prune. What turns the job red is this tag's two GitHub-qualified .pkgs never arriving, and
+    # prune-rcs, which needs this job, then keeps the candidates rather than sweeping against a
+    # short release.
     #
     # But it is ORDERED after nas-bridge, which is not the same as gated on it. Reconcile heals a
     # registry from a two-registry content quorum, and the assets GitHub builds — the .pkg and,
@@ -665,7 +669,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # all tags needed for the reconcile loop
-      - name: Reconcile every tag across all three registries
+      - name: Require the current release's GitHub-built .pkgs, then reconcile every tag
         # A remote filename or byte count is not evidence that an artifact is intact. This downloads
         # each recognised asset, accepts bytes only when at least two registries agree on the
         # SHA-256, and fills that content into any registry MISSING it. A registry already serving
@@ -680,8 +684,34 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
         run: |
           set -uo pipefail
+          API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
+          # Both native GitHub build legs install and exercise their signed package before the
+          # publish job can place it here. Their presence is therefore the cross-forge qualification
+          # gate, not merely an asset-availability convenience.
+          fail=0
+          qualified=false
+          # A wall clock, and every request bounded: an API that accepts and then stalls would
+          # otherwise hold this runner far past the 30 minutes the error below promises.
+          deadline=$(( $(date +%s) + 1800 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            qualified=$(curl -sf --connect-timeout 10 --max-time 30 "$API/releases/tags/$GITHUB_REF_NAME" | jq -r '
+              [.assets[]?.name] as $names |
+              # By SUFFIX, not exact name: .pkg filenames carry the version, and this gate must
+              # not have to know how the version is spelled to recognise the arch it qualifies.
+              ($names | any(endswith("-macos-arm64.pkg"))) and
+              ($names | any(endswith("-macos-x86_64.pkg")))
+            ' 2>/dev/null || echo false)
+            [ "$qualified" = true ] && break
+            sleep 10
+          done
+          [ "$qualified" = true ] || {
+            echo "::error::current tag's two GitHub-qualified .pkgs were not published within 30m"
+            fail=1
+          }
           chmod +x packaging/reconcile-releases.sh packaging/forgejo-release.sh packaging/github-release.sh
-          bash packaging/reconcile-releases.sh
+          # Exits 0 on a conflict it reports; this catches only the script itself breaking.
+          bash packaging/reconcile-releases.sh || fail=1
+          exit "$fail"
 
   install-matrix:
     name: Hand the finished release to both install matrices

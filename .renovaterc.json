@@ -141,7 +141,10 @@
         "python/cpython"
       ],
       "extractVersion": "^v(?<version>.+)$",
-      "minimumReleaseAge": "3 days"
+      "minimumReleaseAge": "3 days",
+      "prBodyNotes": [
+        "`PYTHON_SHA256` in `packaging/release-pins.env` is refreshed automatically from the bumped version: `packaging/refresh-pins.sh` hashes the `Python-<version>.tar.xz` the Linux build compiles, as a postUpgradeTask on this branch."
+      ]
     },
     {
       "description": "setup-python resolves a version through actions/python-versions' versions-manifest.json, which that repo merges over an hour AFTER publishing the GitHub release Renovate reads. A bump raised inside that gap installs nothing: every python job on both forges dies at setup with 'version not found', which reads as a broken PR rather than an upstream artifact that has not landed yet. Hold each bump until the manifest is certain to list it.",

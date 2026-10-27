@@ -41,10 +41,15 @@ packaging/whiskerless.1.gz
 # directory that packaging/ recreates from scratch, so a copy in the tree is always stale.
 build/
 /out/
+/out-*/
 /dist/
 /formula-smoke-dist/
 /homebrew-smoke-result/
 /package-smoke-*/
+# The raw release binary build-linux-arch.sh copies to the root under its asset name, and the release
+# notes publish.yml renders there.
+/whiskerless-*-linux-*
+/notes.md
 
 # Shared base (packaging/gitignore.base). Signing material matters here specifically: this project
 # signs and notarises a macOS .pkg, so an Apple certificate and an App Store Connect key are exactly

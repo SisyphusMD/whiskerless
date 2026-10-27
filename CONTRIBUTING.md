@@ -11,7 +11,7 @@ cd whiskerless
 python -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev,ble]'
 
-ruff check src custom_components tests packaging   # lint
+ruff check $(git ls-files '*.py' | tr '\n' ' ')   # lint, exactly as CI runs it
 mypy                               # strict typing (the library)
 pytest                             # tests
 ```

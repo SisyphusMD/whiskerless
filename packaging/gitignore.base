@@ -42,3 +42,13 @@ htmlcov/
 *.pkg
 *.tar
 *.tar.gz
+
+# Release and smoke outputs the shared release machinery writes at the repository root: buildx
+# --output destinations (out/ for CI, out-<arch>/ for a release leg, package-smoke-<fmt>-<arch>/,
+# homebrew-smoke-result/) and the release notes publish.yml renders before uploading them. Each is
+# recreated from scratch on every run, so a copy in the tree is always stale.
+/out/
+/out-*/
+/package-smoke-*/
+/homebrew-smoke-result/
+/notes.md

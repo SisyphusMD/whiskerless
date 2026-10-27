@@ -105,6 +105,10 @@ line-length = 100
 # at py311 it rejects the integration's `type` aliases as invalid syntax.
 target-version = "py311"
 src = ["src", "tests", "custom_components"]
+# A lint exclusion lives here, never in a workflow. Every workflow runs the same
+# `ruff check $(git ls-files '*.py' | tr '\n' ' ')`, in both projects, and ruff honours an exclude
+# for a file named on the command line only under force-exclude.
+force-exclude = true
 
 [tool.ruff.per-file-target-version]
 "custom_components/**" = "py313"

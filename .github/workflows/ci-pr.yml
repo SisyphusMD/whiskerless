@@ -30,7 +30,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,ble]"
       - name: Ruff
-        run: ruff check src custom_components tests packaging
+        # Every tracked .py, the same discovery ci.yml uses. A directory list here linted a pull
+        # request less than main gets linted: conftest.py and scripts/ escaped it entirely.
+        run: ruff check $(git ls-files '*.py' | tr '\n' ' ')
       - name: Mypy (library, strict)
         run: mypy
       - name: Pytest (library)
@@ -61,7 +63,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,ble]"
       - name: Ruff
-        run: ruff check src custom_components tests packaging
+        # Every tracked .py, the same discovery ci.yml uses. A directory list here linted a pull
+        # request less than main gets linted: conftest.py and scripts/ escaped it entirely.
+        run: ruff check $(git ls-files '*.py' | tr '\n' ' ')
       - name: Mypy (library, strict)
         run: mypy
       - name: Pytest (library)

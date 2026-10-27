@@ -4,8 +4,10 @@
 # so these packages deliberately declare NO dependency on a system Python. That
 # is the whole point of shipping them: the audience is someone re-provisioning a
 # robot from a laptop who does not have, and should not need, a Python install.
+# The one thing a frozen binary still takes from the host is libc, so that is the
+# one dependency declared below.
 #
-# ARCH and VERSION come from the workflow; nfpm expands ${...} from the
+# ARCH, VERSION and GLIBC_FLOOR come from the caller; nfpm expands ${...} from the
 # environment at build time.
 name: whiskerless
 arch: ${ARCH}
@@ -24,6 +26,14 @@ description: |
 vendor: SisyphusMD
 homepage: https://github.com/SisyphusMD/whiskerless
 license: MIT
+
+# A host below the floor gets a package-manager refusal at install time instead of a binary that
+# dies on its first symbol lookup. check-glibc-floor.py (run inside linux.Dockerfile) proves no ELF
+# in the frozen artifact needs a newer glibc than packaging/glibc-floor.txt, and that same file is
+# what the build exports as GLIBC_FLOOR — so the declared floor and the enforced one cannot drift.
+depends:
+  - libc6 (>= ${GLIBC_FLOOR})
+
 contents:
   - src: ./dist/whiskerless
     dst: /usr/bin/whiskerless
@@ -48,6 +58,12 @@ contents:
     dst: /usr/share/doc/whiskerless/README.md
     file_info:
       mode: 0644
+
+# rpm names glibc differently from Debian's libc6, and the comparison is spelled without parentheses.
+overrides:
+  rpm:
+    depends:
+      - glibc >= ${GLIBC_FLOOR}
 
 # GPG signing. The key is RSA 4096 with no expiry and no passphrase — matching
 # what every major third-party repo ships (Docker, PostgreSQL and NodeSource all

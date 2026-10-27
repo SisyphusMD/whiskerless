@@ -589,6 +589,24 @@ hardware:
 - **HACS (earlier versions)**: in the integration's page, ⋮ → **Redownload** and
   enable showing beta versions to pick a candidate; redownload again without it to
   go back to stable.
+- **apt / dnf repository**: `testing` in place of `stable` for apt, or
+  `sisyphusmd-testing.repo` in place of `sisyphusmd.repo` for dnf, as described under
+  [The provisioning CLI](#the-provisioning-cli). A stable release sorts after its
+  own candidates, so switching back is an ordinary upgrade once it lands.
+- **A downloaded `.deb`**: `sudo dpkg -i ./whiskerless_<candidate>_<arch>.deb`
+  installs whatever the file holds, in either direction, so the same command
+  with the stable file takes you back.
+- **A downloaded `.rpm`**: install the candidate with your package manager.
+  Returning to a lower stable build is an explicit downgrade:
+
+  ```bash
+  sudo dnf install ./whiskerless-<candidate>.<arch>.rpm                # the candidate
+  sudo dnf downgrade ./whiskerless-<version>.<arch>.rpm                # Fedora/RHEL: return to stable
+  sudo zypper install --oldpackage ./whiskerless-<version>.<arch>.rpm  # openSUSE: return to stable
+  ```
+
+  `<candidate>` is the version as the file you downloaded spells it (for example
+  `0.3.0~rc.1`).
 - **Releases page**: candidates are marked *pre-release* and never "latest".
 
 ## Uninstalling
@@ -620,7 +638,8 @@ Two things it will not do for you:
 If you would rather do it by hand: `brew uninstall whiskerless` (or
 `whiskerless-rc`); `sudo rm /usr/local/bin/whiskerless` and
 `sudo pkgutil --forget com.sisyphusmd.whiskerless` for the `.pkg`;
-`sudo apt remove whiskerless` or `sudo dnf remove whiskerless`;
+`sudo apt remove whiskerless` or `sudo dnf remove whiskerless` (`sudo zypper rm whiskerless`
+on openSUSE);
 `pipx uninstall whiskerless` or `uv tool uninstall whiskerless`.
 
 Your certificate authority and saved robots stay in `~/whiskerless`; delete that

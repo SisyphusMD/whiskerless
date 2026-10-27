@@ -39,7 +39,9 @@ esac
 raw="${tag#v}"
 VERSION="${raw/-rc./~rc.}"
 ARCH="$arch"
-export VERSION ARCH
+# nfpm.yaml declares the libc floor from this, and linux.Dockerfile enforces it from the same file.
+GLIBC_FLOOR="$(cat packaging/glibc-floor.txt)"
+export VERSION ARCH GLIBC_FLOOR
 
 # Written outside the build context: `docker cp .` sends the whole workspace, so a key sitting in
 # the repo tree would be one stray `git add` from being committed.
@@ -59,7 +61,7 @@ gzip -9 -n -c packaging/whiskerless.1 > packaging/whiskerless.1.gz
 
 nfpm_pkg() { # nfpm_pkg <deb|rpm> <output-filename>
   local fmt="$1" name="$2" cid
-  cid=$(docker create -e ARCH -e VERSION \
+  cid=$(docker create -e ARCH -e VERSION -e GLIBC_FLOOR \
     -e NFPM_SIGNING_KEY_FILE=/signing-key.asc -w /w "$NFPM" \
     package -p "$fmt" -f packaging/nfpm.yaml -t "/w/$name")
   CIDS="$CIDS $cid"

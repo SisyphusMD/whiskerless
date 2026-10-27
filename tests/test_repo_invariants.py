@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -370,7 +371,7 @@ def test_the_readme_network_picker_uses_only_example_names() -> None:
 # Both halves of this have already shipped broken: the resource closure went stale
 # in both when cryptography became a dependency, and the macOS build fix had to be
 # applied to each by hand. Nothing checked either.
-FORMULAE = [Path("packaging/homebrew/whiskerless.rb"), Path("packaging/homebrew/whiskerless-rc.rb")]
+FORMULAE = [REPO / "packaging" / "homebrew" / name for name in ("whiskerless.rb", "whiskerless-rc.rb")]
 
 
 def _formula(name: str) -> str:
@@ -476,9 +477,11 @@ def test_the_merge_demands_exactly_as_many_bottles_as_the_matrix_builds() -> Non
     """`--expect-tags` is what turns a missing platform from silent into fatal;
     it is only true while it matches the matrix."""
     tap = (REPO / "packaging" / "update-tap.sh").read_text(encoding="utf-8")
-    demanded = re.search(r"--expect-tags (\d+)", tap)
+    demanded = re.findall(r"--expect-tags (\d+)", tap)
     assert demanded, "update-tap.sh no longer demands a bottle count"
-    assert int(demanded.group(1)) == len(_bottle_matrix())
+    # Every mention, the explaining comment included: a comment left at the old count is how
+    # the next reader puts the old count back.
+    assert {int(n) for n in demanded} == {len(_bottle_matrix())}, demanded
 
 
 def test_the_publish_wait_counts_both_formulae_on_a_stable_tag() -> None:
@@ -597,17 +600,94 @@ def test_the_wait_is_one_definition_used_by_both_matrices() -> None:
     """A stable release carries both formulae's bottles. Pooling them makes the
     checksum comparison unsatisfiable, and the wait spends its whole deadline
     before failing a release that was fine. Two COPIES of this would drift, and
-    the drift shows up as one forge passing a half-published release."""
+    the drift shows up as one forge passing a half-published release.
+
+    The script is vendored from project-standard, so everything project-specific
+    comes from project.env and asset-roles.sh; this pins that both callers use it
+    the same way and that the derivation lands on formulae this repository ships."""
     for path in (INSTALL_MATRIX, INSTALL_MATRIX_LINUX):
-        assert "packaging/wait-for-release.sh" in path.read_text(encoding="utf-8"), (
-            f"{path.name} grew its own copy of the wait"
+        text = path.read_text(encoding="utf-8")
+        # The whole line: a caller passing anything else is no longer running the same wait.
+        assert re.search(r'^\s+bash packaging/wait-for-release\.sh "\$TAG"$', text, re.M), (
+            f"{path.name} grew its own copy of the wait, or calls it differently"
+        )
+        # The one convention every consumer reads: a base URL with its scheme. The script refuses a
+        # bare host, so a caller spelling it the other way fails at the wait rather than at a 404.
+        assert re.search(r"^\s+FORGE: https://[^\s/]+$", text, re.M), (
+            f"{path.name} does not set FORGE to a base URL"
         )
     wait = (REPO / "packaging" / "wait-for-release.sh").read_text(encoding="utf-8")
-    assert re.search(r"\*-rc\.\*\)\s*FORMULA=whiskerless-rc", wait), "rc tags lost their formula"
-    assert re.search(r"\*\)\s*FORMULA=whiskerless\b", wait), "stable tags lost their formula"
+    assert 'PKG="${PROJECT_REPO_SLUG#*/}"' in wait, "the formula name is no longer the repo's"
+    assert re.search(r'\*-rc\.\*\)\s*FORMULA="\$PKG-rc"', wait), "rc tags lost their formula"
+    assert re.search(r'\*\)\s*FORMULA="\$PKG"', wait), "stable tags lost their formula"
+    assert '"$FORGE/$PROJECT_TAP_SLUG/raw/branch/main/Formula/$FORMULA.rb"' in wait, (
+        "the tap is no longer read from project.env"
+    )
+    env = (REPO / "packaging" / "project.env").read_text(encoding="utf-8")
+    slug = re.search(r'^PROJECT_REPO_SLUG="([^"]+)"', env, re.M)
+    assert slug, "project.env no longer defines PROJECT_REPO_SLUG"
+    assert re.search(r'^PROJECT_TAP_SLUG="[^"/]+/[^"/]+"', env, re.M), (
+        "project.env no longer defines PROJECT_TAP_SLUG"
+    )
+    pkg = slug.group(1).split("/", 1)[1]
+    assert pkg not in wait, f"the shared wait names {pkg!r}; it must stay project-agnostic"
+    for formula in (pkg, f"{pkg}-rc"):
+        assert (REPO / "packaging" / "homebrew" / f"{formula}.rb").is_file(), (
+            f"the wait derives the formula {formula!r}, which this repository does not ship"
+        )
     assert 'select(.formula.name == $f)' in wait, (
         "the wait pools every manifest again — it can never balance on a stable tag"
     )
+    # The checksum comparison is the half of "ready" that a version-substring check fakes: a
+    # bottle REBUILD replaces the archives under an unchanged tag, and only the sha256s differ.
+    assert "tap_ready" in wait.split("tap_ready() {", 1)[-1], "tap_ready() is defined but never called"
+    assert ".bottle.tags[].sha256" in wait, "the wait no longer compares the tap against the manifests"
+    # What the wait demands is the role table, not a list of its own. An optional role outside
+    # that table would relax nothing, and its predecessor would be demanded of no release at all.
+    roles = (REPO / "packaging" / "asset-roles.sh").read_text(encoding="utf-8")
+
+    def table(name: str) -> list[str]:
+        found = re.search(rf"^{name}=\((.*?)\)$", roles, re.M | re.S)
+        assert found, f"asset-roles.sh no longer declares {name}"
+        return re.findall(r"^\s*'([^']+)'", found.group(1), re.M)
+
+    required, optional = table("_ASSET_ROLES"), table("_OPTIONAL_ASSET_ROLES")
+    table("_OPTIONAL_ASSET_PREDECESSORS")
+    assert required, "_ASSET_ROLES is empty; the wait would demand nothing but a bottle"
+    assert set(optional) <= set(required), (
+        f"optional roles {sorted(set(optional) - set(required))} are not roles at all"
+    )
+    assert '"${_ASSET_ROLES[@]}"' in wait, "the wait no longer reads the role table"
+
+
+def test_forge_is_spelled_one_way_everywhere() -> None:
+    """FORGE is a base URL with its scheme, in every workflow, script and Dockerfile.
+
+    The two projects once split on it — one passed a URL, the other a bare host that each consumer
+    prefixed with `https://` itself — and a script vendored into both then had to guess which it was
+    given. A consumer that adds the scheme again turns a URL into `https://https://…`."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "packaging", ".forgejo/workflows", ".github/workflows"],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout
+    names = [n for n in listed.split("\0") if n]
+    assert names, "git ls-files found nothing — is this running outside the checkout?"
+    offenders = []
+    for name in names:
+        path = REPO / name
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if re.search(r"://\$\{?FORGE\b", line):
+                offenders.append(f"{name}:{lineno}: prefixes a scheme onto FORGE")
+            value = re.match(r"^\s+FORGE:\s*(.+?)\s*$", line)
+            if value and not re.fullmatch(r"https://[^\s/]+|\$\{\{ github\.server_url \}\}", value.group(1)):
+                offenders.append(f"{name}:{lineno}: FORGE is not a base URL")
+    assert offenders == [], "FORGE spelled the other way:\n  " + "\n  ".join(offenders)
 
 
 # --- one renderer, and it never emits a marker --------------------------------------
@@ -670,15 +750,42 @@ def test_the_renderer_refuses_a_template_it_cannot_fully_render() -> None:
     assert "REPLACE_SOMETHING_NEW" in proc.stderr
 
 
+def _checksum_markers() -> set[str]:
+    # Read out of the templates, never assumed: the two projects spell this marker differently on
+    # purpose (project-standard VARIANCE.md, "The formula's checksum marker"), and a hardcoded
+    # spelling would make this a silent no-op for whichever project does not use it.
+    found = {
+        match
+        for path in FORMULAE
+        for match in re.findall(r'^\s*sha256 "(REPLACE_[A-Z0-9_]+)"', path.read_text(), re.M)
+    }
+    assert found, "no template carries a checksum marker — has the formula's shape changed?"
+    return found
+
+
 def test_nothing_renders_a_formula_behind_the_renderers_back() -> None:
     """A fourth copy of the substitution would reintroduce exactly the drift that
     broke the release gate, so the callers must delegate rather than sed it."""
+    markers = _checksum_markers()
     for caller in RENDER_CALLERS:
         text = caller.read_text(encoding="utf-8")
         assert "render-formula.sh" in text, f"{caller.name} does not use the shared renderer"
-        assert "REPLACE_SDIST_SHA256" not in text, (
-            f"{caller.name} substitutes markers itself instead of delegating"
-        )
+    # Not just the known callers: a copy that grows anywhere else in the release machinery is the
+    # same drift, and the renderer is the one file that may name the marker.
+    candidates = [
+        *(REPO / "packaging").glob("*.sh"),
+        *(REPO / "packaging").glob("*.py"),
+        *(REPO / ".forgejo" / "workflows").glob("*.yml"),
+        *(REPO / ".github" / "workflows").glob("*.yml"),
+    ]
+    for path in candidates:
+        if path == RENDER:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for marker in markers:
+            assert marker not in text, (
+                f"{path.name} substitutes {marker} itself instead of delegating to render-formula.sh"
+            )
 
 
 # --- the dnf config pins our key and only our key ---------------------------------
@@ -697,8 +804,14 @@ FORGEJO_REGISTRY_KEY = "/api/packages/SisyphusMD/rpm/repository.key"
 OUR_KEY = "packaging/sisyphusmd-signing-key.asc"
 
 
-def test_there_are_repo_files_to_check() -> None:
-    assert REPO_FILES
+def test_both_repository_channels_are_shipped() -> None:
+    """Exactly the two channels, by name, not merely "some .repo file exists".
+
+    A non-empty check passed with either file missing, and the missing one is a channel README
+    readers are told to add: dropping `sisyphusmd-testing.repo` strands every candidate tester, and
+    the parametrized checks below would quietly run over one file instead of two.
+    """
+    assert {p.name for p in REPO_FILES} == {"sisyphusmd.repo", "sisyphusmd-testing.repo"}
 
 
 OUR_KEY_URL = (
@@ -1720,6 +1833,22 @@ def test_ci_is_not_green_until_native_macos_agrees() -> None:
     assert "persist-credentials: false" in job, (
         "the gate's checkout leaves the repository token in git config"
     )
+    # The fork guard: a fork's PR must not run this repository's self-hosted job at all.
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in job, (
+        "the macos gate runs for fork pull requests on the self-hosted runner"
+    )
+    # Read from the event payload the runner wrote, not from anything the checkout supplies.
+    assert 'os.environ["GITHUB_EVENT_PATH"]' in job, (
+        "the gate resolves the PR head from somewhere other than the runner's event payload"
+    )
+
+    # The mirrored workflow it waits on covers the floor and current macOS on both architectures,
+    # holds no `permissions:` override, and leaves no credential in git config either.
+    macos = (REPO / ".github" / "workflows" / "ci-macos.yml").read_text()
+    for lane in ("macos-15\n", "macos-15-intel", "macos-26\n", "macos-26-intel"):
+        assert lane in macos, f"ci-macos.yml lost the {lane.strip()} lane"
+    assert "permissions:" not in macos
+    assert "persist-credentials: false" in macos
 
     # Case-insensitive: secret expressions are not required to be shouted, and a
     # `secrets.write_pat` that this missed would be a silently unguarded credential.
@@ -1730,7 +1859,14 @@ def test_ci_is_not_green_until_native_macos_agrees() -> None:
         )
 
     triggers = document.get("on") or document.get(True) or {}
-    tagged = "tags" in (triggers.get("push") or {})
+    # A push filter that names only branches skips tags, and one that names tags runs for them;
+    # one that names neither (a bare `push:`) runs for both, so it counts as tagged too.
+    if isinstance(triggers, dict):
+        push = triggers.get("push", False)
+    else:  # `on: push` or `on: [push, ...]`, both unfiltered
+        push = None if "push" in triggers else False
+    filters = set(push or {}) & {"branches", "branches-ignore", "tags", "tags-ignore"}
+    tagged = push is not False and (not filters or bool(filters & {"tags", "tags-ignore"}))
     if tagged:
         assert "refs/tags/" in str(document["jobs"]["macos"].get("if", "")), (
             "CI runs on tags and the macOS gate does not exclude them, so every prerelease will "
@@ -2323,3 +2459,679 @@ def test_every_bottle_wait_agrees_with_the_matrix() -> None:
         text = (REPO / ".forgejo" / "workflows" / name).read_text(encoding="utf-8")
         found = sorted(int(n) for n in re.findall(r"expected=(\d+) ;;", text))
         assert found == want, (name, found)
+
+
+# --- release-path guards converged from dreame-valetudo ------------------------------
+#
+# Every test below carries the name of its twin in the sibling's tests/python/test_release_config.py,
+# so one grep finds both. They were missing here while the sibling enforced them; a guard in one repo
+# and not the other is how the two drift. Where a clause does not port, the docstring says why, and
+# deliberate differences live in project-standard/VARIANCE.md.
+CI = REPO / ".forgejo" / "workflows" / "ci.yml"
+CI_PR = REPO / ".github" / "workflows" / "ci-pr.yml"
+PUBLISH = REPO / ".forgejo" / "workflows" / "publish.yml"
+PRERELEASE = REPO / ".forgejo" / "workflows" / "prerelease.yml"
+RELEASE_MACOS = REPO / ".github" / "workflows" / "release-macos.yml"
+MACOS_CI = REPO / ".github" / "workflows" / "ci-macos.yml"
+PINS = REPO / "packaging" / "release-pins.env"
+BUILD_ARCH = REPO / "packaging" / "build-linux-arch.sh"
+MATRIX_ARCH = REPO / "packaging" / "install-matrix-arch.sh"
+INSTALL_SMOKE = REPO / "packaging" / "install-smoke.Dockerfile"
+# No datasource tracks these, so nothing bumps them and nothing has to refresh them. Empty here: every
+# `*SHA256` pin this project carries moves with a version. The sibling exempts two.
+STATIC_DIGESTS: tuple[str, ...] = ()
+
+
+def _job(text: str, name: str) -> str:
+    """One top-level job of a workflow, as text, bounded at the next job."""
+    start = text.index(f"\n  {name}:\n") + 1
+    following = re.search(r"\n  [a-zA-Z0-9_-]+:\n", text[start:])
+    return text[start:] if following is None else text[start : start + following.start()]
+
+
+def _renovate() -> dict[str, Any]:
+    return json.loads((REPO / ".renovaterc.json").read_text(encoding="utf-8"))
+
+
+def test_release_write_token_is_confined_to_a_job_that_reproduces_the_gate() -> None:
+    for workflow in (RELEASE_WORKFLOW, PRERELEASE):
+        text = workflow.read_text()
+        gate, tag = _job(text, "gate"), _job(text, "tag")
+
+        # The job that runs third-party lint/test code holds no credential at all, and neither
+        # checkout leaves one behind for a later step to pick up.
+        assert "secrets." not in gate, workflow
+        # EVERY checkout disclaims the credential, rather than a fixed COUNT of them doing so. A count
+        # fails when a credential-free job is added, a test whose actual subject - that none of them
+        # persists a token - had only got stronger.
+        # Not "- uses:": a checkout may be a bare list item or carry its own `name:` above the
+        # `uses:` line, and matching only the first spelling silently found no checkouts at all.
+        blocks = text.split("uses: actions/checkout")
+        assert len(blocks) > 1, f"{workflow}: no checkout at all"
+        for block in blocks[1:]:
+            # Up to the next step in the same job, or the next job.
+            head = re.split(r"\n\s*- (?:name|uses):|\n  \w[\w-]*:", block)[0]
+            assert "persist-credentials: false" in head, (
+                f"{workflow}: a checkout does not disclaim the credential:\n{head[:200]}"
+            )
+        assert "token: ${{ secrets" not in text, workflow
+
+        # The job that does hold the token re-derives the edits on a tree the gate never touched
+        # and refuses to push anything whose bytes the gate did not qualify.
+        assert "ACTUAL_INTENT_SHA256=$(git diff --binary | sha256sum" in tag, workflow
+        assert '[ "$ACTUAL_INTENT_SHA256" = "$QUALIFIED_INTENT_SHA256" ]' in tag, workflow
+        assert tag.index("QUALIFIED_INTENT_SHA256") < tag.index("CLUSTER_FORGEJO_REPO_WRITE_PAT")
+
+        # An annotated tag object: a lightweight ref could be retargeted to another commit later
+        # without leaving a trace of the version it was cut for.
+        assert "git tag -a -m" in tag, workflow
+
+        # Forgejo has no `permissions:` field; it warns and ignores it, so it must never appear.
+        assert "permissions:" not in text, workflow
+
+
+def test_both_release_gates_stamp_every_version_record_including_the_lock() -> None:
+    """Both workflows call the stamper, then verify it, rather than editing any record by hand.
+
+    The variable holding the version differs by step, so the call is matched by shape, not by name.
+    The records are the four CLAUDE.md lists under "Releasing" - pyproject, `__version__`, and the
+    manifest's version and requirement - and this project has no lockfile; were one added, the
+    stamper would have to own it too, which is the "including the lock" half of the sibling's test.
+    """
+    records = (
+        "pyproject.toml",
+        "src/whiskerless/__init__.py",
+        "custom_components/whiskerless/manifest.json",
+    )
+    for workflow in (RELEASE_WORKFLOW, PRERELEASE):
+        text = workflow.read_text()
+        assert re.search(r'stamp-version\.py "\$\w+"\n', text), workflow
+        assert re.search(r'stamp-version\.py "\$\w+" --check', text), workflow
+        assert "uv lock" not in text, workflow
+        # In the intent the gate hashes, in the one the tag job reproduces, and in what it commits:
+        # a record missing from any of them is a stamp that never reaches the tag.
+        intents = re.findall(r"printf '%s\\n' (.*?)\| sort", text, re.S)
+        commits = re.findall(r"git add (.*?)\n\s*git commit", text, re.S)
+        assert len(intents) == 2 and len(commits) == 1, workflow.name
+        for block in (*intents, *commits):
+            for record in records:
+                assert record in block, f"{workflow.name} drops {record} from:\n{block}"
+
+    stamper = (REPO / "packaging" / "stamp-version.py").read_text()
+    for record in records:
+        assert f'Path("{record}")' in stamper, record
+    assert '"version": ' in stamper and '"whiskerless==' in stamper, (
+        "the stamper no longer rewrites both version records in manifest.json"
+    )
+    for lock in ("uv.lock", "poetry.lock", "pdm.lock"):
+        if (REPO / lock).exists():
+            assert f'Path("{lock}")' in stamper, f"{lock} exists and nothing stamps it"
+
+
+def test_release_cutters_serialize_without_sharing_the_tag_publish_queue() -> None:
+    """Stable and rc tag creation share one producer slot, so an rc cannot land after the stable it
+    was a candidate for. The publish half - one group per exact ref, never cancelled - is pinned by
+    test_ci_supersedes_itself_and_publishing_never_does."""
+    for workflow in (RELEASE_WORKFLOW, PRERELEASE):
+        text = workflow.read_text()
+        assert re.search(
+            r"\nconcurrency:\n(?:  #.*\n)+  group: release-cut\n"
+            r"  cancel-in-progress: false\n",
+            text,
+        ), workflow.name
+    publish = yaml.safe_load(PUBLISH.read_text())
+    assert str((publish.get("concurrency") or {}).get("group", "")) != "release-cut", (
+        "publishing must not share the cutters' queue"
+    )
+
+
+def test_stable_release_pushes_commit_and_tag_atomically() -> None:
+    text = RELEASE_WORKFLOW.read_text()
+    step = text[text.index("      - name: Push the commit and tag atomically") :]
+    assert "packaging/push-tag.sh" in step
+    assert '"$TAG" "$TOKEN" "${{ github.ref_name }}"' in step
+
+    script = (REPO / "packaging" / "push-tag.sh").read_text()
+    assert "push --atomic origin" in script
+    assert '"HEAD:${branch_ref}" "$tag"' in script
+    assert '[ "$(git cat-file -t "refs/tags/$tag")" = tag ]' in script
+    assert '[ "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse HEAD)" ]' in script
+    assert 'test -z "$(git status --porcelain)"' in script
+
+    # prerelease.yml is dispatchable from any branch, unlike release.yml's tag job which refuses
+    # non-main dispatches - so it does NOT hand the repo-write PAT to a script whose content would
+    # come from whatever ref was dispatched; its push stays inline. What that inline push must
+    # itself guarantee is pinned by test_workflow_security.py, in both projects.
+    prerelease = PRERELEASE.read_text()
+    prerelease_step = prerelease[prerelease.index("      - name: Push the prerelease tag") :]
+    assert "bash packaging/push-tag.sh" not in prerelease_step
+
+
+def test_every_release_path_gates_coverage_not_just_ci() -> None:
+    """ci.yml runs on a branch; a release is cut from a tag. A non-regression gate that lives only
+    in CI does not constrain what a release is allowed to ship, which is how a coverage regression
+    could ship while every branch build stayed green.
+
+    The integration suite's 99% and its config-flow 100% belong to the release path too, because
+    the integration is what HACS installs from the release.
+    """
+    for workflow in (CI, RELEASE_WORKFLOW, PRERELEASE):
+        text = workflow.read_text()
+        assert "--cov-fail-under=99" in text, workflow
+        # The chokepoint is held at 100 separately: averaged into the package number, a regression
+        # in the one place every send passes through would be invisible.
+        assert "coverage report --include='*/safety.py' --fail-under=100" in text, workflow
+        assert (
+            "pytest tests/integration --cov --cov-report=term-missing --cov-fail-under=99" in text
+        ), workflow
+        assert (
+            "coverage report --include='custom_components/whiskerless/config_flow.py'"
+            " --fail-under=100" in text
+        ), workflow
+
+
+def test_forgejo_buildkit_uses_the_nas_pull_through_cache() -> None:
+    mirror = 'mirrors = ["image-mirror.lan.bryantserver.com/docker.io"]'
+    for workflow in (CI, PUBLISH):
+        text = workflow.read_text()
+        assert "buildkitd-config-inline: |" in text, workflow.name
+        assert mirror in text, workflow.name
+
+    # Shared runner garbage collection owns residue from interrupted jobs. A repository job may
+    # remove artifacts it created, but must not evict unrelated repositories' tagged image cache.
+    assert "docker image prune --all" not in CI.read_text()
+
+
+def test_claimed_python_floor_is_installed_and_fully_tested() -> None:
+    project = (REPO / "pyproject.toml").read_text()
+    floor_job = _job(CI.read_text(), "quality-floor")
+
+    assert 'requires-python = ">=3.11"' in project
+    assert 'python-version: "3.11.0"' in floor_job
+    assert 'pip install -e ".[dev,ble]"' in floor_job
+    assert "--cov-fail-under=99" in floor_job, "the floor job runs less than the full suite"
+
+    # Unscoped by file, unlike the sibling's: 3.11.0 is pinned in ci.yml, ci-pr.yml and the
+    # prerelease floor gate here, and one rule holding all of them is the stronger form.
+    floor_rules = [
+        rule
+        for rule in _renovate()["packageRules"]
+        if rule.get("matchManagers") == ["github-actions"]
+        and rule.get("matchDepNames") == ["python"]
+        and rule.get("matchCurrentValue") == r"/^3\.11\.0$/"
+    ]
+    assert len(floor_rules) == 1
+    assert floor_rules[0]["allowedVersions"] == r"/^3\.11\.0$/"
+
+
+def test_python_version_bumps_wait_for_the_setup_python_manifest() -> None:
+    workflows = sorted((REPO / ".forgejo" / "workflows").glob("*.yml"))
+    workflows += sorted((REPO / ".github" / "workflows").glob("*.yml"))
+    pinned = [w for w in workflows if re.search(r'python-version: "(?!3\.11\.0")', w.read_text())]
+    assert len(pinned) >= 3
+
+    delayed = [
+        rule
+        for rule in _renovate()["packageRules"]
+        if rule.get("matchManagers") == ["github-actions"]
+        and rule.get("matchDepNames") == ["python"]
+        and "minimumReleaseAge" in rule
+    ]
+    assert len(delayed) == 1
+    # Unscoped by file, so it covers every workflow above rather than whichever one broke last.
+    assert "matchFileNames" not in delayed[0]
+    # Days, not hours: actions/python-versions merges the manifest setup-python reads well over an
+    # hour after cutting the release Renovate watches, and nothing bounds that lag to one hour.
+    assert re.fullmatch(r"[1-9]\d* days?", delayed[0]["minimumReleaseAge"])
+
+
+def test_the_cpython_pin_is_proposed_without_its_tag_prefix() -> None:
+    rules = [
+        rule
+        for rule in _renovate()["packageRules"]
+        if rule.get("matchDepNames") == ["python/cpython"] and "extractVersion" in rule
+    ]
+    assert len(rules) == 1
+    # Renovate matches with RE2, which spells a named group `(?<name>)`; Python's re wants `(?P<name>)`.
+    pattern = re.compile(rules[0]["extractVersion"].replace("(?<", "(?P<"))
+    extracted = pattern.match("v3.14.7")
+    assert extracted is not None and extracted.group("version") == "3.14.7"
+
+    # Every consumer writes the bare value, so a `v`-prefixed proposal would break all of them.
+    for path in (CI, MACOS_CI, RELEASE_MACOS, PINS):
+        assert not re.search(r'"v\d+\.\d+\.\d+"', path.read_text()), path.name
+
+
+def test_the_cpython_tag_pin_governs_only_what_ships() -> None:
+    workflows = sorted((REPO / ".forgejo" / "workflows").glob("*.yml"))
+    workflows += sorted((REPO / ".github" / "workflows").glob("*.yml"))
+    # A test-runner `python-version:` belongs to the built-in github-actions manager as dep
+    # `python`, which tracks the actions/python-versions manifest setup-python installs from.
+    # Annotating one with the CPython tag datasource adds a second owner for the same line and
+    # proposes a version the manifest cannot serve for another day or more.
+    for workflow in workflows:
+        if workflow == RELEASE_MACOS:
+            continue
+        assert "depName=python/cpython" not in workflow.read_text(), workflow.name
+
+    # release-macos.yml is the exception: PyInstaller freezes this interpreter into the shipped
+    # .pkg, so it must move with the bundle pin and its reviewed checksum, not on its own.
+    macos = RELEASE_MACOS.read_text()
+    assert "depName=python/cpython" in macos
+    pins = PINS.read_text()
+    assert "depName=python/cpython" in pins
+    bundled = re.search(r'^PYTHON_VERSION="([^"]+)"', pins, re.M)
+    assert bundled is not None
+    assert f'python-version: "{bundled.group(1)}"' in macos
+
+    disabled = [
+        rule
+        for rule in _renovate()["packageRules"]
+        if rule.get("matchManagers") == ["github-actions"]
+        and rule.get("matchDepNames") == ["python"]
+        and rule.get("matchFileNames") == [".github/workflows/release-macos.yml"]
+    ]
+    assert len(disabled) == 1
+    assert disabled[0]["enabled"] is False
+
+
+def test_every_version_bound_digest_is_refreshed_automatically() -> None:
+    """A digest pinned beside a version must be recomputed from it, or the next bump strands it.
+
+    This is the anti-rot half: adding a new digest pin without teaching the refresher about it
+    would quietly reintroduce the hand-editing refresh-pins.sh removed.
+    """
+    task = _renovate()["postUpgradeTasks"]
+    assert any("refresh-pins.sh" in command for command in task["commands"])
+    # Per branch, not per update: several deps can land in one branch and the refresher reads
+    # whatever versions the branch ended up with.
+    assert task["executionMode"] == "branch"
+    assert "packaging/release-pins.env" in task["fileFilters"]
+
+    refresher = (REPO / "packaging" / "refresh-pins.sh").read_text()
+    names = sorted(set(re.findall(r"^\s*(\w*SHA256)=", PINS.read_text(), re.M)))
+    assert names, "no *SHA256 pin found in release-pins.env; this would assert nothing"
+    for name in names:
+        if name in STATIC_DIGESTS:
+            continue
+        assert name in refresher, (
+            f"{name} moves with a version but nothing refreshes it, so its next bump lands "
+            "half-applied and waits for a human"
+        )
+
+
+def test_manylinux_builders_are_pinned_to_dated_tags() -> None:
+    # The digest already freezes the build, so `latest` bought nothing and cost the reader
+    # everything: a bump arrives as a bare hex diff with no version to order or compare, for the
+    # image that defines the shipped glibc ABI. The dated tag makes each bump self-describing, and
+    # the regex versioning keeps `latest` out of the candidates entirely. What proves a bump safe
+    # is packaging/check-glibc-floor.py running inside linux.Dockerfile.
+    rules = [
+        rule for rule in _renovate()["packageRules"]
+        if rule.get("matchDepNames") == ["quay.io/pypa/manylinux_2_28"]
+    ]
+    assert len(rules) == 1
+    assert rules[0]["versioning"].startswith("regex:")
+
+    # Counted, because a test whose loop body never runs passes without checking anything: these
+    # pins used to be inline in the workflows, and scanning the old location would have gone
+    # quietly vacuous the moment they moved.
+    checked = 0
+    for line in PINS.read_text().splitlines():
+        if "quay.io/pypa/manylinux_2_28" in line and "sha256:" in line:
+            assert ":latest@" not in line, f"manylinux pin regressed to latest: {line.strip()}"
+            assert re.search(r":\d{4}\.\d{2}\.\d{2}-\d+@sha256:", line), line.strip()
+            checked += 1
+    assert checked == 1, f"expected one manylinux builder pin in {PINS.name}, found {checked}"
+
+
+def test_ci_and_both_release_gates_use_one_pinned_toolchain() -> None:
+    """The shellcheck wiring half. The literal-version half does not port: this project's workflows
+    install the dev toolchain from pyproject.toml rather than as literals (VARIANCE.md, "Layout and
+    dependencies"), so there is no second copy to compare.
+
+    The topology is the sibling's with the roles moved. Here Forgejo's ci.yml never runs a fork's
+    code (its trusted-ref gate), so it calls the vendored script like both release gates do; fork
+    PRs reach ci-pr.yml on GitHub instead, and that job keeps its wrapper as inline text this
+    repository defines rather than a script read back off a fork's checkout and executed.
+    """
+    for workflow in (CI, RELEASE_WORKFLOW, PRERELEASE):
+        assert "run: bash packaging/shellcheck-all.sh" in workflow.read_text(), workflow.name
+
+    pr = CI_PR.read_text()
+    # Both DISCOVER their inputs rather than enumerating them. A hand-maintained glob left a script
+    # added outside the listed directories unchecked, and the only symptom was silence. The two must
+    # not drift from each other either: a script covered by one and not the other goes unchecked on
+    # whichever path the change happens to take.
+    assert "git ls-files '*.sh'" in pr
+    assert "git ls-files '*.sh'" in (REPO / "packaging" / "shellcheck-all.sh").read_text()
+    assert "packaging/*.sh" not in pr, "back to a hand-maintained list"
+    assert "apt-get install -y shellcheck" not in pr
+    assert '-v "$PWD:' not in pr
+    assert 'docker create -w /work "$SHELLCHECK"' in pr
+    assert 'docker cp . "$cid":/work' in pr
+    # The two copies of the pin are compared by test_the_inline_shellcheck_pin_matches_the_vendored_script.
+
+
+def test_the_registry_publish_runs_but_never_on_a_partial_package_set() -> None:
+    """A repository is not a release page: what lands there is what `apt install` hands people
+    immediately, with no way to tell the set is short.
+
+    Architecture decides the forge, so this job never builds anything. The guard is that it must
+    COLLECT all four packages from the release before publishing any."""
+    registry = _job(PUBLISH.read_text(), "registry")
+    assert "packaging/publish-registry.sh forgejo.bryantserver.com" in registry
+    # A separate token: `write:repository` cannot upload a package to Forgejo's registry.
+    assert "CLUSTER_FORGEJO_REGISTRY_PUSH_PAT" in registry
+    assert "packaging/fetch-release-assets.sh" in registry
+    # Exactly four, and nothing swallowing the failure: matched as the whole command so the
+    # explanatory comment beside it cannot satisfy the check.
+    fetch = re.search(r"^\s*packaging/fetch-release-assets\.sh[^\n]*$", registry, re.M)
+    assert fetch is not None
+    assert fetch.group(0).strip() == 'packaging/fetch-release-assets.sh "$GITHUB_REF_NAME" 4 "$select"'
+
+
+def test_the_tap_updater_refuses_a_bottle_pass_that_produced_no_block() -> None:
+    """Publishing a formula with no block reports success and leaves every user building from
+    source - the exact failure the second pass exists to remove."""
+    text = (REPO / "packaging" / "update-tap.sh").read_text()
+    assert 'if [ -n "$manifests" ] && ! grep -Fq "bottle do" "$out"; then' in text
+
+
+def test_the_bottle_channel_refuses_a_source_build() -> None:
+    """`brew install` succeeding proves nothing on its own - it succeeds by building from source
+    when no bottle matches, which is exactly the failure this channel exists to catch.
+
+    The sibling also bans a dependency-count check, because its count read ordinary `depends_on`
+    formulae that a correct pour installs too. That premise does not hold here: the count reads
+    rust, llvm and pkgconf, none of which this formula depends on, so they appear only when
+    something compiled.
+    """
+    assert 'grep -qi "pouring whiskerless"' in INSTALL_SMOKE.read_text()
+
+
+def test_a_stable_tag_is_installed_from_the_stable_distribution() -> None:
+    """publish-registry.sh puts a candidate in `testing` and a release in BOTH. Testing a stable
+    through `testing` would leave the distribution real users are on unexercised by a matrix that
+    claims to cover every channel."""
+    script = MATRIX_ARCH.read_text()
+    assert "*-rc.*) DIST=testing; REPOFILE=sisyphusmd-testing.repo ;;" in script
+    assert "*)      DIST=stable;  REPOFILE=sisyphusmd.repo ;;" in script
+    # The .repo file has to travel with the distribution, or the rc matrix installs the stable
+    # repository and qualifies the previous release while the testing channel goes untested.
+    assert '--build-arg REPOFILE="$REPOFILE"' in script
+
+
+def test_every_channel_proves_itself_with_an_exported_file() -> None:
+    """buildx caches aggressively, so an exit status can be a cache hit for a build that did
+    nothing. The marker file is the only thing that cannot be.
+
+    Every channel the matrix runs, rather than a floor of nine: a count is satisfied by the
+    channels that already export while a new one quietly does not."""
+    script = MATRIX_ARCH.read_text()
+    assert '[ -f "out/$channel/passed" ]' in script
+    listed = re.search(r"^CHANNELS=\(\n(.*?)^\)$", script, re.M | re.S)
+    assert listed is not None
+    # The destination too: a marker copied anywhere but /passed is one the script never looks for.
+    exported = set(
+        re.findall(r"^COPY --from=([a-z0-9-]+) \S*/passed /passed$", INSTALL_SMOKE.read_text(), re.M)
+    )
+    missing = set(listed.group(1).split()) - exported
+    assert not missing, f"channels that export no marker: {sorted(missing)}"
+
+
+def test_no_forgejo_workflow_repins_pyinstaller_inline() -> None:
+    """The inline-repin clause of the sibling's test_pyinstaller_floats_again_on_both_forgejo_workflows.
+
+    The Linux pin lives in release-pins.env, which both forges' build jobs source - ci.yml too, so
+    what CI compile-checks is what a release builds with. A literal VERSION assignment in either
+    Forgejo workflow would be a second copy, the drift that file prevents; `--build-arg
+    PYINSTALLER="$PYINSTALLER"` is how the sourced value reaches the build and must stay. The rest
+    of the sibling's test does not port: PyInstaller is a held release-only pin here (VARIANCE.md,
+    "Renovate policy"), and macOS/Linux parity is test_the_macos_and_linux_releases_freeze_with_the_same_toolchain.
+    """
+    for workflow in (CI, PUBLISH):
+        assert not re.search(r'PYINSTALLER="\d', workflow.read_text()), workflow.name
+
+
+def test_the_matrix_covers_the_channels_that_had_nothing_proving_them() -> None:
+    """A repository is a URL every subscriber's package manager resolves on every update, and a
+    bottle falls back to a SOURCE BUILD when its checksums are stale - quietly, and green. The raw
+    binary stands in for the sibling's tarball: it is this project's standalone download (VARIANCE.md,
+    "standalone linux binary"). Both architectures running the one list is
+    test_both_architectures_install_test_the_same_channels."""
+    script = MATRIX_ARCH.read_text()
+    for channel in ("apt-repo", "dnf-repo", "bottle-pour", "raw-binary"):
+        assert channel in script, channel
+
+
+def test_native_packages_refuse_hosts_below_their_libc_floor() -> None:
+    """A frozen binary still takes libc from the host. Without a declared floor, a host below it
+    installs the package happily and gets a binary that dies on its first symbol lookup; with one,
+    the package manager refuses up front and says why.
+
+    The sibling also declares tar and the helpers it shells out to; this binary needs nothing else.
+    """
+    text = (REPO / "packaging" / "nfpm.yaml").read_text()
+    deb, rpm = text.split("overrides:\n", 1)
+    floor = (REPO / "packaging" / "glibc-floor.txt").read_text().strip()
+    assert floor == "2.28"
+    assert "libc6 (>= ${GLIBC_FLOOR})" in deb
+    assert "glibc >= ${GLIBC_FLOOR}" in rpm
+
+    # The same file the build enforces is the one the packages declare, so the two cannot drift.
+    dockerfile = (REPO / "packaging" / "linux.Dockerfile").read_text()
+    assert "packaging/check-glibc-floor.py" in dockerfile
+    assert '"$(cat packaging/glibc-floor.txt)"' in dockerfile
+    for source in (CI, BUILD_ARCH):
+        contents = source.read_text()
+        assert re.search(r"export [^\n]*\bGLIBC_FLOOR\b", contents), source.name
+        assert "packaging/glibc-floor.txt" in contents, source.name
+        # Into the nfpm container: it expands ${GLIBC_FLOOR} from its own environment.
+        assert "-e GLIBC_FLOOR" in contents, source.name
+
+
+def test_bundled_python_updates_require_a_matching_source_checksum() -> None:
+    rules = [
+        rule
+        for rule in _renovate()["packageRules"]
+        if rule.get("matchDepNames") == ["python/cpython"]
+        and "prBodyNotes" in rule
+    ]
+
+    assert len(rules) == 1
+    assert "PYTHON_SHA256" in rules[0]["prBodyNotes"][0]
+    # The checksum is what makes the frozen interpreter verifiable, so the refresher has to derive
+    # it from the same version Renovate writes - the .tar.xz the Linux bundle actually compiles.
+    refresher = (REPO / "packaging" / "refresh-pins.sh").read_text()
+    assert "PYTHON_SHA256" in refresher
+    assert "Python-${py_version}.tar.xz" in refresher
+
+
+def test_readme_covers_rpm_candidate_switching_and_manual_removal() -> None:
+    """Assets carry the version, so the copyable instruction has to name a file that will exist.
+
+    `<version>` OR a release number, because stamp-version.py rewrites the README's download names
+    at every stable release, and the release gate runs this suite after stamping. The candidate is
+    spelled `<candidate>` so the stamper leaves it alone: it is never the stable version.
+    """
+    readme = (REPO / "README.md").read_text()
+    version = r"(?:<version>|\d+\.\d+\.\d+)"
+    assert "sudo dnf install ./whiskerless-<candidate>.<arch>.rpm" in readme
+    assert re.search(rf"sudo dnf downgrade \./whiskerless-{version}\.<arch>\.rpm", readme)
+    assert re.search(rf"sudo zypper install --oldpackage \./whiskerless-{version}\.<arch>\.rpm", readme)
+    assert "sudo dnf remove whiskerless" in readme
+
+
+def test_gitignore_covers_release_artifacts_created_in_the_repo() -> None:
+    """The release half of the sibling's test; its device artifacts have no counterpart here.
+
+    `/whiskerless-*-linux-*` is the raw binary build-linux-arch.sh copies to the root under its
+    asset name, the counterpart of the sibling's `/sunxi-fel`.
+    """
+    patterns = set((REPO / ".gitignore").read_text().splitlines())
+    assert {
+        "/out/",
+        "/out-*/",
+        "/homebrew-smoke-result/",
+        "/package-smoke-*/",
+        "/whiskerless-*-linux-*",
+        "/notes.md",
+    } <= patterns
+
+
+def test_every_shipped_python_file_is_linted() -> None:
+    """A new shipped .py must not escape ruff by nobody remembering to add it to a list.
+
+    Every workflow that runs ruff - CI for pushes and fork PRs, and the release and prerelease
+    gates, which once linted a fixed directory list and so let a release through on less than CI
+    held main to - globs the tracked set instead of enumerating it, with the same spelling in both
+    projects. A deliberate exclusion lives in pyproject.toml, where force-exclude makes ruff honour
+    it for files named on the command line, and it may never cover shipped code.
+    """
+    lint = "ruff check $(git ls-files '*.py' | tr '\\n' ' ')"
+    required = {
+        REPO / ".forgejo" / "workflows" / name
+        for name in ("ci.yml", "release.yml", "prerelease.yml")
+    } | {REPO / ".github" / "workflows" / "ci-pr.yml"}
+    workflows = sorted(
+        [*(REPO / ".forgejo" / "workflows").glob("*.yml"), *(REPO / ".github" / "workflows").glob("*.yml")]
+    )
+    linting = set()
+    for workflow in workflows:
+        lines = [
+            line.strip().removeprefix("run: ")
+            for line in workflow.read_text(encoding="utf-8").splitlines()
+            if "ruff check" in line and not line.lstrip().startswith("#")
+        ]
+        if lines:
+            linting.add(workflow)
+        for line in lines:
+            assert line == lint, f"{workflow.name} lints an enumerated or filtered set: {line}"
+    assert required <= linting, (
+        f"no longer runs ruff: {sorted(p.name for p in required - linting)}"
+    )
+
+    ruff = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"]
+    assert ruff.get("force-exclude") is True, (
+        "without force-exclude, a config exclusion is ignored for the files the workflows name"
+    )
+    assert "exclude" not in ruff, "`exclude` replaces ruff's defaults; extend it instead"
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.py"], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout.split()
+    shipped = [f for f in tracked if f.split("/", 1)[0] in {*ruff["src"], "packaging"}]
+    assert shipped, "git ls-files found no shipped Python — is this running outside the checkout?"
+    # Ruff decides what its exclusions mean (they are globs), so ask it rather than re-implementing
+    # the matching: the files it would actually lint, given exactly what the workflows pass it.
+    linted = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--show-files", *tracked],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout
+    seen = {Path(line.strip()).resolve() for line in linted.splitlines() if line.strip()}
+    skipped = [f for f in shipped if (REPO / f).resolve() not in seen]
+    assert not skipped, f"a lint exclusion covers shipped code: {skipped}"
+
+
+def test_reconcile_requires_both_github_qualified_macos_packages() -> None:
+    reconcile = _job(PUBLISH.read_text(), "reconcile")
+
+    assert "fail=0" in reconcile
+    # Per-ARCH, and by suffix because the filenames carry the version. Not a blanket `.pkg`
+    # match: one arch qualifying must never stand in for the other.
+    assert 'any(endswith("-macos-arm64.pkg"))' in reconcile
+    assert 'any(endswith("-macos-x86_64.pkg"))' in reconcile
+    assert 'endswith(".pkg")' not in reconcile
+    assert "current tag's two GitHub-qualified .pkgs were not published" in reconcile
+    assert "fail=1" in reconcile
+    assert "bash packaging/reconcile-releases.sh || fail=1" in reconcile
+    assert 'exit "$fail"' in reconcile
+    assert "::warning::current tag's .pkgs" not in reconcile
+    # The 30 minutes the error promises: a wall clock, and no request that can stall past it.
+    assert "deadline=$(( $(date +%s) + 1800 ))" in reconcile
+    polls = [line for line in reconcile.splitlines() if "curl " in line and "releases/tags" in line]
+    assert polls and all("--max-time" in line and "--connect-timeout" in line for line in polls), polls
+
+
+def test_publish_attempts_every_registry_and_always_runs_repair_jobs() -> None:
+    text = PUBLISH.read_text()
+    releases = _job(text, "releases")
+    step = releases[releases.index("      - name: Create the three releases") :]
+
+    assert "fail=0" in step
+    assert step.count("|| fail=1") == 3
+    assert 'exit "$fail"' in step
+    cluster = step.index("packaging/forgejo-release.sh forgejo.bryantserver.com")
+    github = step.index("packaging/github-release.sh", cluster)
+    nas = step.index("packaging/forgejo-release.sh forgejo.lan.bryantserver.com")
+    assert cluster < github < nas
+
+    # Both conditions OVERRIDE a failed dependency (that is the point of the repair jobs) while
+    # additionally requiring the ref guard to have passed — see test_no_publish_job_outruns_the_ref
+    # _guard for why the bare form was not enough. They differ on CANCELLATION, deliberately:
+    # reconcile only heals releases that already exist, so finishing is still the right move, while
+    # homebrew-tap pushes a formula to the tap and an operator who cancelled a release must not get
+    # one published regardless. Asserted per job rather than as a shared spelling, because that is
+    # the distinction a future edit is most likely to flatten. Read from the parsed `if:`, because
+    # both jobs explain their condition in a comment that would satisfy a text search on its own.
+    jobs = yaml.safe_load(text)["jobs"]
+    for name, override in (("homebrew-tap", "!cancelled()"), ("reconcile", "always()")):
+        condition = str(jobs[name].get("if") or "")
+        assert override in condition, name
+        assert "needs.guard.result == 'success'" in condition, name
+
+
+def test_the_package_smoke_base_is_one_pin_with_the_qualification_image() -> None:
+    """The pre-publish smoke installs on the SAME image the install matrix qualifies against, under
+    one Renovate identity, so the two cannot move on separate schedules.
+
+    The sibling compares against its ci.yml, where its pre-merge distro matrix pins the image; this
+    project has no such matrix, so the qualification image is the install matrix's. Both formats,
+    because the .rpm smoke makes the same claim about Rocky 10.
+    """
+    smoke = (REPO / "packaging" / "package-smoke.Dockerfile").read_text()
+    matrix = INSTALL_SMOKE.read_text()
+    assert "depName=ubuntu-26.04-current packageName=ubuntu" in smoke
+    digest = re.search(r"ubuntu:26\.04@(sha256:[0-9a-f]{64})", smoke)
+    assert digest is not None
+    assert f"ubuntu:26.04@{digest.group(1)}" in matrix
+
+    rpm_smoke = (REPO / "packaging" / "package-smoke-rpm.Dockerfile").read_text()
+    assert "depName=rocky-10-current packageName=rockylinux/rockylinux" in rpm_smoke
+    rpm_digest = re.search(r"rockylinux/rockylinux:10@(sha256:[0-9a-f]{64})", rpm_smoke)
+    assert rpm_digest is not None
+    assert f"rockylinux/rockylinux:10@{rpm_digest.group(1)}" in matrix
+
+    config = _renovate()
+    # The built-in dockerfile manager must not run at all. It reads a plain `ubuntu` where the
+    # annotations declare `ubuntu-26.04-current`, so with both active one file yields two
+    # dependencies under two names, and the allowedVersions rules that hold the floors apply to only
+    # one of them - the floor drifts in a PR of its own that looks entirely reasonable.
+    assert "dockerfile" not in config["enabledManagers"], config["enabledManagers"]
+
+    # Asserted by matching, not by spelling: a manager that reads this file through a directory
+    # glob covers it just as well as one that names it, and naming it was never the point.
+    for name in ("packaging/install-smoke.Dockerfile", "packaging/package-smoke.Dockerfile"):
+        covered = [
+            m
+            for m in config["customManagers"]
+            if any(re.search(pattern.strip("/"), name) for pattern in m.get("managerFilePatterns", []))
+        ]
+        assert covered, f"{name}'s annotated pins need a manager that reads them"
+
+
+def test_the_bottle_leg_installs_the_formula_the_tag_names() -> None:
+    """A stable tag must pour the stable formula, not the candidate one.
+
+    The wait step checks the formula the tag names, so a leg that always installs the rc formula
+    tests a different package than the one it waited for, and a broken stable bottle ships green.
+    """
+    text = (REPO / ".github" / "workflows" / "install-matrix.yml").read_text(encoding="utf-8")
+    brew = [line.strip() for line in text.splitlines()
+            if line.strip().startswith(("brew install", "brew uninstall"))]
+    assert brew, "no brew install/uninstall in the GitHub install matrix"
+    for line in brew:
+        assert '"sisyphusmd/tap/$FORMULA"' in line or '"$FORMULA"' in line, \
+            f"a brew call names its formula literally instead of by tag: {line}"
+    # One choice per step that touches brew: the pour and the cleanup before the PyPI smoke.
+    assert text.count('*-rc.*) FORMULA=') >= 2, "the formula is not chosen from the tag in every step"
