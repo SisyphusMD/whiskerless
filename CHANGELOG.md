@@ -66,6 +66,8 @@ much of the hopper work.
 
 ### Changed
 
+- Homebrew bottles are no longer built for Intel Macs, because Homebrew stopped building
+  Intel bottles itself. On an Intel Mac, install the `.pkg`, or `brew install` builds from source.
 - `provision` offers your saved robots by number before asking for a serial, so
   re-provisioning does not mean recalling one. Typing a serial is still how a new robot
   is added, and passing `--serial` skips the list entirely.

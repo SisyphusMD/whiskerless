@@ -435,15 +435,15 @@ jobs:
         run: |
           set -euo pipefail
           API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
-          # Four platforms. A stable tag bottles BOTH formulae — the stable one
+          # Three platforms. A stable tag bottles BOTH formulae — the stable one
           # and the rc one it re-points at itself — because a bottle's filename
           # embeds the formula name and its keg is rooted at
           # `<formula>/<version>/`, so one cannot be renamed into the other.
           # Without the second set, `brew install whiskerless-rc` after a stable
           # release silently goes back to compiling.
           case "$GITHUB_REF_NAME" in
-            *-rc.*) expected=4 ;;
-            *)      expected=8 ;;
+            *-rc.*) expected=3 ;;
+            *)      expected=6 ;;
           esac
           echo "waiting for $expected bottle manifest(s) and the archives they name"
           # The readiness condition is NOT "the manifests arrived". They are
@@ -620,12 +620,12 @@ jobs:
                     or (.name | endswith(".bottle.json"))
                   ) | .browser_download_url'
           # Same split the bottle wait above makes, doubled: a candidate bottles one formula, a
-          # release bottles both, and this selects each archive AND its manifest. A fixed 8 would
+          # release bottles both, and this selects each archive AND its manifest. A fixed 6 would
           # call a stable release complete on half its bottles — and this job runs even when
           # homebrew-bottles went red, so a partial set is a state it can actually observe.
           case "$GITHUB_REF_NAME" in
-            *-rc.*) expected=8 ;;
-            *)      expected=16 ;;
+            *-rc.*) expected=6 ;;
+            *)      expected=12 ;;
           esac
           partial=false
           packaging/fetch-release-assets.sh "$GITHUB_REF_NAME" "$expected" "$select" > fetched.txt \

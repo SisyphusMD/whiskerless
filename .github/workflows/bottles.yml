@@ -70,10 +70,11 @@ jobs:
           # oldest supported release covers every newer one. macos-15 is that
           # floor and GitHub carries it until August 2027. (macOS 16–25 do not
           # exist; Apple went 15 → 26 → 27, so 15 and 26 are consecutive.)
+          # No Intel macOS leg: Homebrew stopped building Intel bottles in 2026-09, so one of ours
+          # would compile python, openssl, llvm and rust from source on every release. Intel Macs
+          # install the .pkg, or the formula builds from source.
           - os: macos-15
             label: arm64_sequoia
-          - os: macos-15-intel
-            label: sequoia
           - os: ubuntu-24.04
             label: x86_64_linux
           - os: ubuntu-24.04-arm
@@ -105,7 +106,7 @@ jobs:
           # multiplies the wait whenever ghcr is broadly slow, which is exactly when it gets used.
           # The failure it would guard — one dependency blob that stays unavailable past Homebrew's
           # own three tries — costs a single platform, and `gh run rerun <id> --failed` rebuilds just
-          # that job (a workflow_dispatch would redo all four; it takes only a tag). A rare
+          # that job (a workflow_dispatch would redo all three; it takes only a tag). A rare
           # seven-minute rerun of one platform beats a routine hour across every platform.
           # (The formula smoke does set 8, paired with the pull-through mirror whose entries go
           # quiet while they sync. There is no mirror here, so that number does not transfer.)
@@ -123,8 +124,8 @@ jobs:
     name: Append the bottles to the GitHub + Forgejo releases
     needs: build
     # `!cancelled()`, not the default: `needs` alone skips this job the moment ANY
-    # matrix leg fails, which would throw away the three bottles that did build
-    # and force all four platforms to succeed in one run. Publishing what arrived
+    # matrix leg fails, which would throw away the two bottles that did build
+    # and force all three platforms to succeed in one run. Publishing what arrived
     # is what makes dispatching a single failed leg later actually work. A missing
     # platform is still caught where it matters — bottle-block.py refuses to write
     # a block that is not the full set.

@@ -103,6 +103,9 @@ jobs:
           sudo installer -pkg /tmp/w.pkg -target /
           bash packaging/installed-smoke.sh /usr/local/bin/whiskerless "$VERSION"
       - name: The Homebrew bottle — pour it, and prove it was poured
+        # arm64 only: there is no Intel macOS bottle to pour (Homebrew stopped building Intel
+        # bottles in 2026-09), and a source build is exactly what this step exists to refuse.
+        if: matrix.arch == 'arm64'
         env:
           VERSION: ${{ needs.wait.outputs.version }}
         run: |

@@ -156,12 +156,14 @@ render_formula() {
   # Always a file, and never empty: `sed r` on an empty file would swallow the
   # blank line the marker stands in for and glue the block to `license`.
   if [ -n "$manifests" ]; then
-    # --expect-tags 4 is the whole point of a separate pass: a platform whose
+    # --expect-tags 3 is the whole point of a separate pass: a platform whose
     # bottle never arrived is otherwise invisible, and its users quietly go back
-    # to compiling cryptography for several minutes.
+    # to compiling cryptography for several minutes. Three, not four: Homebrew
+    # stopped building Intel macOS bottles in 2026-09, so an Intel bottle of ours
+    # would have to compile its whole dependency closure from source.
     block="$work/${formula}.block"
     python3 "$here/bottle-block.py" --formula "$formula" --version "$pypi_version" \
-      --root-url "$root_url" --expect-tags 4 "$manifests"/*.json > "$block"
+      --root-url "$root_url" --expect-tags 3 "$manifests"/*.json > "$block"
     bash "$here/render-formula.sh" "$here/homebrew/${formula}.rb" "$pypi_version" "$sha" "$block" > "$out"
   else
     bash "$here/render-formula.sh" "$here/homebrew/${formula}.rb" "$pypi_version" "$sha" > "$out"

@@ -71,8 +71,8 @@ jobs:
           esac
           API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
           case "$TAG" in
-            *-rc.*) expected=4 ;;
-            *)      expected=8 ;;
+            *-rc.*) expected=3 ;;
+            *)      expected=6 ;;
           esac
           mkdir -p manifests
           urls=$(curl -sf "$API/releases/tags/$TAG" \
@@ -153,8 +153,8 @@ jobs:
                     or (.name | endswith(".bottle.json"))
                   ) | .browser_download_url'
           case "$TAG" in
-            *-rc.*) expected=8 ;;
-            *)      expected=16 ;;
+            *-rc.*) expected=6 ;;
+            *)      expected=12 ;;
           esac
           packaging/fetch-release-assets.sh "$TAG" "$expected" "$select" > fetched.txt
           mapfile -t fetched < fetched.txt

@@ -447,7 +447,7 @@ def test_the_man_page_is_installed_by_the_packages() -> None:
 
 # --- bottles: the matrix, the formula templates and the expected counts agree ------
 #
-# Three files have to say "four platforms" at once — the build matrix, the merge
+# Three files have to agree on the platform count at once — the build matrix, the merge
 # that refuses a short set, and the wait that counts manifests off the release.
 # Nothing fails when they drift: the release publishes, and whoever is on the
 # platform that lost its bottle quietly builds the formula from source, which is
@@ -469,7 +469,7 @@ def test_every_formula_template_can_receive_a_bottle_block() -> None:
 
 def test_the_bottle_matrix_covers_one_arch_per_platform() -> None:
     labels = sorted(entry["label"] for entry in _bottle_matrix())
-    assert labels == ["arm64_linux", "arm64_sequoia", "sequoia", "x86_64_linux"], labels
+    assert labels == ["arm64_linux", "arm64_sequoia", "x86_64_linux"], labels
 
 
 def test_the_merge_demands_exactly_as_many_bottles_as_the_matrix_builds() -> None:
@@ -2305,3 +2305,15 @@ def test_bottles_reach_the_nas_but_stay_out_of_the_quorum() -> None:
             f"{glob} is no longer ignored by reconcile; a rebuilt bottle differs by its gzip "
             "timestamp, so the quorum would report a conflict for a healthy release"
         )
+
+
+def test_every_bottle_wait_agrees_with_the_matrix() -> None:
+    """publish.yml and the tap-bottles repair path each count bottles twice: the manifests, then
+    archives plus manifests for the NAS. A count left behind when the matrix changes makes the
+    repair path refuse a complete set, which is what dropping the Intel leg nearly did."""
+    platforms = len(_bottle_matrix())
+    want = sorted([platforms, platforms * 2, platforms * 2, platforms * 4])
+    for name in ("publish.yml", "tap-bottles.yml"):
+        text = (REPO / ".forgejo" / "workflows" / name).read_text(encoding="utf-8")
+        found = sorted(int(n) for n in re.findall(r"expected=(\d+) ;;", text))
+        assert found == want, (name, found)

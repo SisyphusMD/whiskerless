@@ -98,7 +98,7 @@ and bridges.
    and prune-rcs behind a build neither reads. The `nas-bottles` job copies them once they
    land, so the NAS still ends up a complete mirror; what bottles stay out of is reconcile's
    byte-quorum, which is a different question (see `packaging/asset-roles.sh`).
-6. **GitHub `bottles.yml`** (mirrored tag): builds the four **Homebrew bottles**
+6. **GitHub `bottles.yml`** (mirrored tag): builds the three **Homebrew bottles**
    and appends them, with their manifests, to the GitHub + public-Forgejo
    releases.
 6. **Forgejo `publish.yml` `homebrew-bottles` job**: waits for those manifests,
@@ -199,13 +199,15 @@ covers the *whole* formula, so it removes `cffi`'s and `pyobjc-core`'s C builds
 too, and because `rust`/`pkgconf` are `=> :build`, a bottled user never installs
 them at all.
 
-**Four platforms, one per arch**: `arm64_sequoia`, `sequoia`, `x86_64_linux`,
-`arm64_linux`. Not one per macOS release — Homebrew pours an older bottle when
+**Three platforms**: `arm64_sequoia`, `x86_64_linux`, `arm64_linux`. No Intel macOS bottle:
+Homebrew stopped building Intel bottles in 2026-09, so ours would compile its whole dependency
+closure from source; Intel Macs install the `.pkg`, or the formula builds from source. Not one per
+macOS release — Homebrew pours an older bottle when
 none matches, verified on a macOS 27 machine pouring `arm64_tahoe` (26) bottles.
 So building the floor (macos-15) covers everything above it. Note macOS 16–25 do
 not exist: Apple went 15 → 26 → 27, so those two are consecutive.
 
-**A stable tag builds eight, not four.** Bottle filenames embed the *formula*
+**A stable tag builds six, not three.** Bottle filenames embed the *formula*
 name and the keg inside is rooted at `<formula>/<version>/`, so a `whiskerless`
 bottle can be neither renamed nor relabelled into a `whiskerless-rc` one. Since a
 stable tag re-points the rc formula at the stable release, that release has to
