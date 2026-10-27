@@ -2185,3 +2185,18 @@ for the press and restoring it. Refusing is simpler and does not quietly undo a 
 user chose. Either way the HA buttons should say why, not just log.
 
 **Not a dreame-valetudo item.** It is LR4 panel behaviour.
+
+### #93 — Stop the `macos` CI job holding a Forgejo runner while it waits on GitHub — **open**
+
+`ci.yml`'s `macos` job does no work of its own: it polls the GitHub mirror for the macOS
+verdict on the same commit, for up to 40 minutes. On 2026-10-26 a push to main rebased every
+Renovate PR in both projects, the GitHub macOS queue backed up, and five of the nine Forgejo
+runners sat in these polls. A tagged release's publish run then waited half an hour for a
+runner, and dreame's arm64 release job timed out waiting for PyPI behind it.
+
+Options: run the wait on a tiny dedicated runner label so it cannot starve real work, or
+drop the job and have the mirror post its verdict back as a commit status the merge gate
+reads. The second removes the poll entirely but needs a GitHub-side token that can write
+to Forgejo.
+
+**Applies to dreame-valetudo too.** Its `ci.yml` has the same job.
