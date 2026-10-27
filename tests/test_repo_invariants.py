@@ -849,9 +849,9 @@ GITHUB_ONLY: dict[tuple[str, str], str] = {
         "it re-runs GitHub workflow runs through the GitHub API — nothing to do elsewhere",
     ("bottles.yml", "*"):
         "two of the three tags need macOS or native arm64 anyway; x86_64_linux is built "
-        "beside them because bottle-block.py refuses a set whose manifests disagree on "
-        "cellar, and one matrix in one run is how that stays true — splitting this one leg "
-        "across forges would mean collecting manifests across them too",
+        "beside them because the append job uploads every leg's bottle and manifest from "
+        "this run's artifacts, which are run-scoped — splitting this one leg across forges "
+        "would mean collecting them across forges too",
     ("release-macos.yml", "publish"):
         "it appends the artifacts the macOS jobs produced IN THE SAME RUN; artifacts are "
         "run-scoped, so on another forge there would be nothing to append",

@@ -76,13 +76,16 @@ Each of these is in the test's exception list, with the same reason recorded the
 - **`retry-infra-failures.yml`** — it re-runs GitHub workflow runs through the
   GitHub API. There is nothing for it to do anywhere else.
 - **`bottles.yml`** — the one genuine judgement call, and the one place the rule
-  is bent. Three of its four tags need macOS or native arm64 anyway. The fourth,
-  `x86_64_linux`, could run on Forgejo, but the four manifests must agree on
-  `cellar` — `bottle-block.py` refuses a set that does not — and one matrix in one
-  run is how that stays true. Splitting that leg across forges would mean
-  collecting manifests across forges too, for one leg's worth of purity.
+  is bent. Two of its three tags need macOS or native arm64 anyway. The third,
+  `x86_64_linux`, could run on Forgejo, but the run's append job uploads every
+  leg's bottle and manifest from the artifacts of that same run, and artifacts are
+  run-scoped. Splitting that leg across forges would mean collecting bottles and
+  manifests across forges too, for one leg's worth of purity.
 - **The coordinating jobs of `install-matrix.yml`** (`wait`, `summary`) — they
   exist to sequence and report the legs that must run on this forge.
+- **The `scope` jobs of `ci-macos.yml` and `formula-macos.yml`** — they run
+  `packaging/macos-scope.sh` to decide whether a Renovate push may skip that run's
+  macOS job, and a job's `needs` cannot reach across forges.
 
 ## Adding a job
 
