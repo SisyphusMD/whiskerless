@@ -162,6 +162,13 @@ def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
     Add a branch condition and it stops being true — a run that skipped the real work on a topic
     branch would stand in for the branch the release is cut from. Enforced here rather than
     remembered, because the gate cannot see the difference.
+
+    The one sanctioned exception is packaging/macos-scope.sh, which lets a renovate/* branch that
+    changes only Linux-side files skip the macOS work and conclude green. That is sound only
+    because no Renovate commit is ever the one released: Forgejo merges with a merge commit, so the
+    SHA that lands on main is new and runs in full. prerelease.yml refuses a Renovate branch
+    outright, which is asserted below; pushing a Renovate commit to main by fast-forward would
+    still bypass it. This test pins the exception to exactly that shape, so it cannot widen.
     """
     lines = _gate_lines()
     assert lines, "no mirror-gated workflows found"
@@ -184,20 +191,52 @@ def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
         # cancel the very run being waited on — leaving that commit with a cancelled-only run set,
         # no verdict, and no way for the gate to read it as anything but not-green. Permanently,
         # for a commit that never failed a test.
+        # A Renovate branch alone is keyed by ref and cancels: a rebase replaces its commit
+        # outright, and that commit is never released (see the docstring).
+        renovate = "startsWith(github.ref, 'refs/heads/renovate/')"
         concurrency = document["concurrency"]
-        assert "github.sha" in concurrency["group"], \
+        prefix = name.removesuffix(".yml").replace("ci-macos", "macos-ci")
+        assert concurrency["group"] == f"{prefix}-${{{{ {renovate} && github.ref || github.sha }}}}", \
             f"{name} is gated on but its concurrency group is not per-commit: {concurrency}"
-        assert concurrency.get("cancel-in-progress") is False, \
-            f"{name} is gated on but cancels its own runs: {concurrency}"
+        assert concurrency.get("cancel-in-progress") == f"${{{{ {renovate} }}}}", \
+            f"{name} is gated on but cancels runs beyond Renovate's: {concurrency}"
+
+        # The only branch logic: one `scope` job running macos-scope.sh, which decides on the ref
+        # itself, and every other job waiting on it. `!= 'false'` rather than `== 'true'`, so a
+        # verdict that never arrived runs the work instead of skipping it.
+        jobs = document["jobs"]
+        assert any(
+            step.get("run", "").strip().startswith('scope="$(bash packaging/macos-scope.sh "$GITHUB_REF")"')
+            for step in jobs["scope"]["steps"]
+        ), f"{name}'s scope job does not decide through packaging/macos-scope.sh"
+        for job_name, job in jobs.items():
+            if job_name == "scope":
+                continue
+            assert job.get("needs") == "scope", f"{name}: {job_name} does not wait for the scope"
+            assert "needs.scope.outputs.macos != 'false'" in str(job.get("if")), \
+                f"{name}: {job_name} does not honour the scope, or skips on a missing verdict"
 
         for condition in _conditions(document):
             assert "github.ref" not in condition and "head_branch" not in condition, \
                 f"{name} gates work on the branch: {condition}"
         # Branch logic inside a script skips the work just as effectively as a step-level `if`.
-        for job in document["jobs"].values():
+        for job in jobs.values():
             for step in job.get("steps") or []:
                 run = step.get("run", "") if isinstance(step, dict) else ""
                 assert "github.ref" not in run, f"{name} branches on the ref inside a run block"
+
+    # The one release path that can start on any branch must not start on a Renovate one, or a
+    # scoped-out run would qualify the commit it tags.
+    prerelease = yaml.safe_load((_ROOT / ".forgejo" / "workflows" / "prerelease.yml").read_text())
+    refusal = [
+        step for step in prerelease["jobs"]["gate"]["steps"]
+        if step.get("name") == "Refuse a Renovate branch"
+    ]
+    assert len(refusal) == 1 and 'case "$GITHUB_REF_NAME" in' in refusal[0]["run"] \
+        and "renovate/*)" in refusal[0]["run"] and "exit 1" in refusal[0]["run"], \
+        "prerelease.yml no longer refuses a Renovate branch, so a scoped-out macOS run can qualify a tag"
+    assert "if" not in refusal[0] and not refusal[0].get("continue-on-error"), \
+        "the Renovate refusal in prerelease.yml can be skipped or swallowed"
 
 
 def test_the_prerelease_tag_push_never_trusts_a_branch_supplied_destination() -> None:

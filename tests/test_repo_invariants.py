@@ -848,7 +848,7 @@ GITHUB_ONLY: dict[tuple[str, str], str] = {
     ("retry-infra-failures.yml", "*"):
         "it re-runs GitHub workflow runs through the GitHub API — nothing to do elsewhere",
     ("bottles.yml", "*"):
-        "three of the four tags need macOS or native arm64 anyway; x86_64_linux is built "
+        "two of the three tags need macOS or native arm64 anyway; x86_64_linux is built "
         "beside them because bottle-block.py refuses a set whose manifests disagree on "
         "cellar, and one matrix in one run is how that stays true — splitting this one leg "
         "across forges would mean collecting manifests across them too",
@@ -859,6 +859,12 @@ GITHUB_ONLY: dict[tuple[str, str], str] = {
         "sequences the macOS and native-arm64 legs that must run on this forge",
     ("install-matrix.yml", "summary"):
         "reports the macOS and native-arm64 legs that must run on this forge",
+    ("ci-macos.yml", "scope"):
+        "decides whether this run's own macOS job may be skipped; a job's `needs` cannot "
+        "reach across forges, so the decision has to run where the job it gates does",
+    ("formula-macos.yml", "scope"):
+        "decides whether this run's own macOS job may be skipped; a job's `needs` cannot "
+        "reach across forges, so the decision has to run where the job it gates does",
     ("release-linux-arm64.yml", "build"):
         "ubuntu-24.04-arm is native arm64, which nothing here has; the alternative is "
         "the emulation this project removed",

@@ -1,11 +1,9 @@
 name: Homebrew formula (macOS)
 
-# Split out of ci-macos.yml on purpose. That workflow cancels superseded runs,
-# which is right for a fast test matrix and WRONG for this: the release gate
-# (`mirror-gate` in the Forgejo release workflows) refuses to tag until this
-# workflow is green on the commit being released, and a cancelled run counts as
-# not-green. Under the shared policy, any push landing during a release cut
-# killed the very run the release was waiting on.
+# The release gate (`mirror-gate` in the Forgejo release workflows) refuses to
+# tag until this workflow is green on the commit being released, and a
+# cancelled run counts as not-green, so a push landing during a release cut must
+# never cancel the run the release is waiting on.
 #
 # So: keyed per COMMIT, and never cancelled. Each commit's verdict stands on its
 # own and survives whatever lands after it.
@@ -19,11 +17,40 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The one exception to per-commit keying is a Renovate branch. Its commits are never released (a merge lands as a new
+# commit on main, which runs in full), and each rebase replaces the previous commit outright, so an
+# older run there only holds a place in a queue that GitHub drains a few macOS jobs at a time.
 concurrency:
-  group: formula-macos-${{ github.sha }}
-  cancel-in-progress: false
+  group: formula-macos-${{ startsWith(github.ref, 'refs/heads/renovate/') && github.ref || github.sha }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/renovate/') }}
 
 jobs:
+  scope:
+    name: Does this push need a Mac
+    # packaging/macos-scope.sh: a Renovate branch that changes only Linux-side files skips the
+    # macOS job below. The run still concludes success, and that is the verdict check-mirror-ci.sh
+    # reads for the PR. main, tags and every other branch always run in full.
+    # Same fork filter as the macOS job: a same-repo PR's commit is already scoped by its push run.
+    if: >-
+      ${{ github.server_url == 'https://github.com'
+      && (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository) }}
+    runs-on: ubuntu-latest
+    outputs:
+      macos: ${{ steps.scope.outputs.macos }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the scope is measured from where the branch left main.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide
+        id: scope
+        # An assignment, so a failing script fails this job instead of writing an empty verdict.
+        run: |
+          scope="$(bash packaging/macos-scope.sh "$GITHUB_REF")"
+          echo "macos=$scope" >> "$GITHUB_OUTPUT"
+
   formula:
     name: Homebrew formula builds and runs (${{ matrix.arch }}, ${{ matrix.tier }})
     # The only other formula check runs inside linuxbrew Docker, so it proves the
@@ -51,8 +78,10 @@ jobs:
     # the moment it arrives. Keeping the PR run instead of the push run is not an option:
     # a prerelease can be dispatched from any branch and the gate would find no
     # event=push run for that commit at all.
+    needs: scope
     if: >-
       ${{ github.server_url == 'https://github.com'
+      && needs.scope.outputs.macos != 'false'
       && (github.event_name != 'pull_request'
       || github.event.pull_request.head.repo.full_name != github.repository) }}
     runs-on: ${{ matrix.os }}

@@ -38,6 +38,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Refuse a Renovate branch
+        # A Renovate branch may skip the macOS workflows (packaging/macos-scope.sh) and still
+        # conclude green, so mirror-gate would read a Mac that never ran as a pass for this commit.
+        run: |
+          case "$GITHUB_REF_NAME" in
+            renovate/*)
+              echo "::error::Not from a Renovate branch ('$GITHUB_REF_NAME'): its macOS runs may have been scoped out. Merge it, then cut from main."
+              exit 1 ;;
+          esac
+
       - name: Shellcheck every shipped and integration script
         run: bash packaging/shellcheck-all.sh
 
