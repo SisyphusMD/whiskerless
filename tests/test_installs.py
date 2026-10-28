@@ -202,6 +202,19 @@ def test_an_editable_install_is_reported_as_more_than_a_checkout(
     assert "pip (editable, this interpreter)" in kinds
 
 
+def test_a_frozen_build_is_not_called_a_pip_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PyInstaller bundles the package's metadata, so a frozen binary passed the editable test and
+    `uninstall` tried to run the binary itself as `-m pip`, failing on every packaged install."""
+    bundle = tmp_path / "_MEI123" / "whiskerless"
+    bundle.mkdir(parents=True)
+    monkeypatch.setattr("whiskerless.installs.__file__", str(bundle / "installs.py"))
+    monkeypatch.setattr("whiskerless.installs._installed_as_editable", lambda: True)
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    assert _found(tmp_path) == []
+
+
 def test_a_bare_clone_on_the_path_is_not_called_an_install(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

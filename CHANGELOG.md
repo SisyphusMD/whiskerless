@@ -6,6 +6,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- `whiskerless uninstall` works from the `.deb`, `.rpm`, `.pkg` and standalone binary. It reported
+  each one as a second, pip install too, then failed trying to remove that. As root it no longer
+  needs `sudo`, which containers and minimal servers often lack.
+
 - Intel Macs are no longer supported: no Intel `.pkg` from this release on. v0.1.3 was the last
   stable release with one.
 

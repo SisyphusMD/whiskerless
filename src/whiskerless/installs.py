@@ -165,9 +165,16 @@ def find_installs(env: Mapping[str, str], root: Path = Path("/")) -> list[Instal
     # — so that one is found from its installed METADATA, which exists wherever pip recorded it.
     # Without this the command reported only a source checkout it will not remove, and deleting
     # the clone by hand leaves the console script and the metadata behind.
+    #
+    # Never from a frozen build. PyInstaller unpacks the package into a temporary directory and
+    # bundles its metadata, so the editable test below passed and every .deb, .rpm, .pkg and raw
+    # binary reported itself as a second, pip install too, then failed `uninstall` by running the
+    # frozen binary as `<binary> -m pip`.
     site = Path(__file__).resolve().parent.parent
     already = [i.marker.resolve() for i in found]
-    fresh = not any(site == home or home in site.parents for home in already)
+    fresh = not getattr(sys, "frozen", False) and not any(
+        site == home or home in site.parents for home in already
+    )
     if site.name in {"site-packages", "dist-packages"} and fresh:
         found.append(Install(
             "pip (this interpreter)", site,

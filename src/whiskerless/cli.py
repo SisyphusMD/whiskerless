@@ -1956,6 +1956,13 @@ async def _cmd_uninstall(args: argparse.Namespace) -> int:
     if not found:
         print("no installs of whiskerless found to remove")
         return 0
+    # Already root, `sudo` is at best redundant and at worst missing: a container or a minimal
+    # server often has no sudo at all, and prefixing it failed every removal there.
+    # getattr: Windows, a documented PyPI target, has no effective UID.
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is not None and geteuid() == 0:
+        found = [replace(i, removal=i.removal[1:]) if i.removal[:1] == ["sudo"] else i
+                 for i in found]
 
     print("found these installs:")
     for i in found:

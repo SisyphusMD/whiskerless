@@ -35,10 +35,15 @@ def _spawner(codes: dict[str, int], calls: list[list[str]]):
     return _spawn
 
 
-def _run(found: list[Install], *, answer: str = "y", codes: dict[str, int] | None = None):
+def _run(
+    found: list[Install], *, answer: str = "y", codes: dict[str, int] | None = None,
+    euid: int = 1000,
+):
     calls: list[list[str]] = []
     with (
         patch("whiskerless.installs.find_installs", return_value=found),
+        # Pinned, because CI containers run as root and the command treats root differently.
+        patch("os.geteuid", return_value=euid),
         patch("builtins.input", return_value=answer),
         patch("asyncio.create_subprocess_exec", _spawner(codes or {}, calls)),
     ):
@@ -110,6 +115,30 @@ def test_the_store_is_named_as_untouched_before_the_question(
 def test_a_root_removal_warns_before_asking(capsys: pytest.CaptureFixture[str]) -> None:
     _run([PKG], answer="n")
     assert "sudo will ask for your password" in capsys.readouterr().out
+
+
+def test_root_runs_the_removal_without_sudo(capsys: pytest.CaptureFixture[str]) -> None:
+    """A container or a minimal server often has no sudo, and as root it is never needed, so a
+    prefixed removal failed there for no reason."""
+    code, calls = _run([PKG], euid=0)
+    assert code == 0
+    assert calls == [["rm", "-f", "/usr/local/bin/whiskerless"]]
+    out = capsys.readouterr().out
+    assert "sudo will ask" not in out
+    assert "      rm -f /usr/local/bin/whiskerless" in out
+
+
+def test_uninstall_works_where_there_is_no_effective_uid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows has no `os.geteuid`, and the native PyPI CLI is documented there."""
+    calls: list[list[str]] = []
+    monkeypatch.delattr("os.geteuid", raising=False)
+    with (
+        patch("whiskerless.installs.find_installs", return_value=[BREW]),
+        patch("builtins.input", return_value="y"),
+        patch("asyncio.create_subprocess_exec", _spawner({}, calls)),
+    ):
+        assert main(["uninstall"]) == 0
+    assert calls == [["brew", "uninstall", "whiskerless"]]
 
 
 def test_a_failed_removal_is_reported_with_the_command_to_run_by_hand(
