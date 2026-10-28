@@ -62,7 +62,7 @@ dev = [
     # renovate: datasource=pypi depName=mypy
     "mypy==2.4.1",
     # renovate: datasource=pypi depName=pytest
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     # renovate: datasource=pypi depName=pytest-asyncio
     "pytest-asyncio==1.4.1",
     # renovate: datasource=pypi depName=pytest-cov
