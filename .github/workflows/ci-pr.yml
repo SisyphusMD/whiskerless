@@ -17,8 +17,8 @@ jobs:
     # Forgejo Actions also reads .github/workflows; without this the same jobs
     # would run twice there (server_url is the Forgejo instance URL on Forgejo).
     if: ${{ github.server_url == 'https://github.com' }}
-    # macOS is not here: it gets ci-macos.yml, which tests the oldest and newest macOS on both
-    # architectures rather than whatever `macos-latest` happens to be today.
+    # macOS is not here: it gets ci-macos.yml, which tests the oldest and newest macOS on
+    # Apple Silicon rather than whatever `macos-latest` happens to be today.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

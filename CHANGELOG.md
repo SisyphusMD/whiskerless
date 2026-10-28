@@ -6,6 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Intel Macs are no longer supported: no Intel `.pkg` from this release on. v0.1.3 was the last
+  stable release with one.
+
 - The Homebrew formula now depends on `python@3.15`, the same Python the `.pkg`, `.deb` and `.rpm`
   bundles carry. It was still on `python@3.14`.
 
@@ -69,8 +72,6 @@ much of the hopper work.
 
 ### Changed
 
-- Homebrew bottles are no longer built for Intel Macs, because Homebrew stopped building
-  Intel bottles itself. On an Intel Mac, install the `.pkg`, or `brew install` builds from source.
 - `provision` offers your saved robots by number before asking for a serial, so
   re-provisioning does not mean recalling one. Typing a serial is still how a new robot
   is added, and passing `--serial` skips the list entirely.

@@ -1808,14 +1808,26 @@ def test_the_formula_is_built_on_every_macos_lane_the_library_is() -> None:
         return {entry["os"] for include in includes for entry in include}
 
     library, formula = lanes("ci-macos.yml"), lanes("formula-macos.yml")
-    # Intel is the one exception: without Intel bottles a lane compiles the whole dependency
-    # closure from source and outruns the job limit, so Intel Macs are covered by the .pkg.
-    apple_silicon = {lane for lane in library if not lane.endswith("-intel")}
-    assert formula == apple_silicon, (
+    assert formula == library, (
         f"the formula is built on {sorted(formula)} while the library is tested on "
-        f"{sorted(apple_silicon)} on Apple Silicon; the difference is where a break reaches a "
+        f"{sorted(library)} on Apple Silicon; the difference is where a break reaches a "
         f"tag unseen"
     )
+
+def test_github_workflows_have_no_intel_runners() -> None:
+    """macOS supports Apple Silicon only, so no job or matrix lane may retain an Intel runner."""
+    for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        for job in document["jobs"].values():
+            runners = job.get("runs-on", [])
+            if isinstance(runners, str):
+                runners = [runners]
+            for runner in runners:
+                assert not str(runner).endswith("-intel"), (workflow.name, runner)
+            includes = ((job.get("strategy") or {}).get("matrix") or {}).get("include") or []
+            for entry in includes:
+                assert not str(entry.get("os", "")).endswith("-intel"), (workflow.name, entry)
+
 
 def test_ci_is_not_green_until_native_macos_agrees() -> None:
     """CI ran the Linux suites and called that a verdict, while macOS ran only on the mirror.
@@ -1865,10 +1877,10 @@ def test_ci_is_not_green_until_native_macos_agrees() -> None:
         "the gate resolves the PR head from somewhere other than the runner's event payload"
     )
 
-    # The mirrored workflow it waits on covers the floor and current macOS on both architectures,
+    # The mirrored workflow it waits on covers the floor and current macOS on Apple Silicon,
     # holds no `permissions:` override, and leaves no credential in git config either.
     macos = (REPO / ".github" / "workflows" / "ci-macos.yml").read_text()
-    for lane in ("macos-15\n", "macos-15-intel", "macos-26\n", "macos-26-intel"):
+    for lane in ("macos-15\n", "macos-26\n"):
         assert lane in macos, f"ci-macos.yml lost the {lane.strip()} lane"
     assert "permissions:" not in macos
     assert "persist-credentials: false" in macos
@@ -2354,9 +2366,8 @@ def test_every_macos_version_the_readme_promises_has_an_install_lane() -> None:
 
     The version parse in the row test above only maps Linux distro names to images, so the macOS
     row could name any release at all and no lane had to exist for it — the same shape of gap that
-    let a promised Fedora floor go untested. Both arches are asserted separately because the row
-    says "Apple Silicon or Intel": a matrix that quietly dropped the Intel runners would still
-    satisfy a check that only looked for the version number.
+    let a promised Fedora floor go untested. Each promised version must have an Apple Silicon
+    install lane, the only supported macOS architecture.
     """
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     matrix = yaml.safe_load(
@@ -2375,12 +2386,11 @@ def test_every_macos_version_the_readme_promises_has_an_install_lane() -> None:
         if str(entry.get("os", "")).startswith("macos-")
     }
     for version in sorted(promised):
-        for label, runner in (("Apple Silicon", f"macos-{version}"),
-                              ("Intel", f"macos-{version}-intel")):
-            assert runner in lanes, (
-                f"README promises macOS {version} on {label}, but the install matrix has no "
-                f"{runner} lane, so nothing installs the shipped artifact there"
-            )
+        runner = f"macos-{version}"
+        assert runner in lanes, (
+            f"README promises macOS {version} on Apple Silicon, but the install matrix has no "
+            f"{runner} lane, so nothing installs the shipped artifact there"
+        )
 
 def test_the_readme_keeps_its_untested_platforms_honest() -> None:
     """Platforms with no version number in the matrix cannot be caught by the version parse.
@@ -2475,7 +2485,7 @@ def test_bottles_reach_the_nas_but_stay_out_of_the_quorum() -> None:
 def test_every_bottle_wait_agrees_with_the_matrix() -> None:
     """publish.yml and the tap-bottles repair path each count bottles twice: the manifests, then
     archives plus manifests for the NAS. A count left behind when the matrix changes makes the
-    repair path refuse a complete set, which is what dropping the Intel leg nearly did."""
+    repair path refuse a complete set, so the counts must track the build matrix."""
     platforms = len(_bottle_matrix())
     want = sorted([platforms, platforms * 2, platforms * 2, platforms * 4])
     for name in ("publish.yml", "tap-bottles.yml"):
@@ -3056,16 +3066,15 @@ def test_every_shipped_python_file_is_linted() -> None:
     assert not skipped, f"a lint exclusion covers shipped code: {skipped}"
 
 
-def test_reconcile_requires_both_github_qualified_macos_packages() -> None:
+def test_reconcile_requires_the_github_qualified_arm64_macos_package() -> None:
     reconcile = _job(PUBLISH.read_text(), "reconcile")
 
     assert "fail=0" in reconcile
-    # Per-ARCH, and by suffix because the filenames carry the version. Not a blanket `.pkg`
-    # match: one arch qualifying must never stand in for the other.
+    # By suffix because the filename carries the version. A blanket `.pkg` match could
+    # qualify an old unsupported architecture instead of the Apple Silicon artifact.
     assert 'any(endswith("-macos-arm64.pkg"))' in reconcile
-    assert 'any(endswith("-macos-x86_64.pkg"))' in reconcile
     assert 'endswith(".pkg")' not in reconcile
-    assert "current tag's two GitHub-qualified .pkgs were not published" in reconcile
+    assert "current tag's GitHub-qualified arm64 .pkg was not published" in reconcile
     assert "fail=1" in reconcile
     assert "bash packaging/reconcile-releases.sh || fail=1" in reconcile
     assert 'exit "$fail"' in reconcile

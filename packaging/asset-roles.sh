@@ -13,6 +13,9 @@ _ASSET_ROLES=(
   'whiskerless-*.x86_64.rpm'
   'whiskerless-*.aarch64.rpm'
   'whiskerless-*-macos-arm64.pkg'
+  # Intel Macs are no longer built for, but stable releases that shipped an Intel .pkg are never
+  # pruned, and this role is what lets reconcile repair a missing copy of one. Newer tags log a
+  # warn-only "no asset matches" for it.
   'whiskerless-*-macos-x86_64.pkg'
   # The standalone binaries carry no extension at all.
   'whiskerless-*-linux-x86_64'

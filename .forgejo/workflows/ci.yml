@@ -430,7 +430,7 @@ jobs:
     # By the time the Linux suites finish, the mirrored macOS workflow normally has too. This keeps
     # the shared public GitHub API budget and the self-hosted runner slot out of a needless poll.
     needs: [quality, quality-floor, hygiene, dependency-floors, homeassistant, build]
-    # GitHub's mirror runs the same commit on native arm64 and Intel hosts. Waiting by exact head
+    # GitHub's mirror runs the same commit on native Apple Silicon hosts. Waiting by exact head
     # SHA prevents a newer green branch run from qualifying an older pull request revision.
     #
     # NOT on a tag. A prerelease stamps a fresh `prerelease:` commit and pushes only the tag, so that

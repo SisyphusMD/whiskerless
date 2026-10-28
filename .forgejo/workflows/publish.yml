@@ -536,7 +536,7 @@ jobs:
     # assets on the public Forgejo release — and that has nothing to do with whether
     # GitHub accepted its copy. rc.27 proved the cost of coupling them: GitHub's release
     # step timed out waiting for a mirrored tag, the job failed, and the NAS was left
-    # permanently short its two .pkg files for a reason entirely unrelated to the NAS.
+    # permanently short its .pkg for a reason entirely unrelated to the NAS.
     if: ${{ !cancelled() && needs.guard.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -553,7 +553,7 @@ jobs:
           # there, because the NAS is internal and no GitHub runner can reach it. That is now
           # two workflows' worth: the notarized .pkg (release-macos.yml) and the whole arm64
           # Linux set (release-linux-arm64.yml, which builds natively rather than emulating).
-          #   2 .pkg (arm64 + x86_64) + arm64 binary + arm64 .deb + aarch64 .rpm + its checksums
+          #   arm64 .pkg + arm64 binary + arm64 .deb + aarch64 .rpm + its checksums
           #
           # Named by suffix rather than by a substring like `arm64`, which would also match the
           # Homebrew bottles bottles.yml appends to this same release. Those are NOT kept off the
@@ -561,7 +561,7 @@ jobs:
           # about thirteen minutes later, and waiting would hold reconcile and prune-rcs, which are
           # ordered after this job and read none of them.
           select='.assets[]? | select(
-                    (.name | endswith(".pkg"))
+                    (.name | endswith("-macos-arm64.pkg"))
                     or (.name | endswith("-linux-arm64"))
                     or (.name | endswith("_arm64.deb"))
                     or (.name | endswith(".aarch64.rpm"))
@@ -576,7 +576,7 @@ jobs:
           # short set would have uploaded quietly and reported success, the exact failure this
           # flag exists to prevent. Redirect to a file so the status is the fetcher's own.
           partial=false
-          packaging/fetch-release-assets.sh "$GITHUB_REF_NAME" 6 "$select" > fetched.txt \
+          packaging/fetch-release-assets.sh "$GITHUB_REF_NAME" 5 "$select" > fetched.txt \
             || partial=true
           mapfile -t fetched < fetched.txt
           [ "${#fetched[@]}" -gt 0 ] || { echo "::error::nothing arrived to bridge to the NAS"; exit 1; }
@@ -652,7 +652,7 @@ jobs:
     # situation it is for. A conflict the script cannot decide is reported for a human rather than
     # overwritten, and the next release retries every tag. That heal is warn-only by design
     # (reconcile-releases.sh exits 0), so one unhealable historical tag cannot block every future
-    # prune. What turns the job red is this tag's two GitHub-qualified .pkgs never arriving, and
+    # prune. What turns the job red is this tag's GitHub-qualified arm64 .pkg never arriving, and
     # prune-rcs, which needs this job, then keeps the candidates rather than sweeping against a
     # short release.
     #
@@ -669,7 +669,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # all tags needed for the reconcile loop
-      - name: Require the current release's GitHub-built .pkgs, then reconcile every tag
+      - name: Require the current release's GitHub-built arm64 .pkg, then reconcile every tag
         # A remote filename or byte count is not evidence that an artifact is intact. This downloads
         # each recognised asset, accepts bytes only when at least two registries agree on the
         # SHA-256, and fills that content into any registry MISSING it. A registry already serving
@@ -685,8 +685,8 @@ jobs:
         run: |
           set -uo pipefail
           API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
-          # Both native GitHub build legs install and exercise their signed package before the
-          # publish job can place it here. Their presence is therefore the cross-forge qualification
+          # The native GitHub build installs and exercises the signed Apple Silicon package
+          # before publishing it here. Its presence is therefore the cross-forge qualification
           # gate, not merely an asset-availability convenience.
           fail=0
           qualified=false
@@ -698,14 +698,13 @@ jobs:
               [.assets[]?.name] as $names |
               # By SUFFIX, not exact name: .pkg filenames carry the version, and this gate must
               # not have to know how the version is spelled to recognise the arch it qualifies.
-              ($names | any(endswith("-macos-arm64.pkg"))) and
-              ($names | any(endswith("-macos-x86_64.pkg")))
+              ($names | any(endswith("-macos-arm64.pkg")))
             ' 2>/dev/null || echo false)
             [ "$qualified" = true ] && break
             sleep 10
           done
           [ "$qualified" = true ] || {
-            echo "::error::current tag's two GitHub-qualified .pkgs were not published within 30m"
+            echo "::error::current tag's GitHub-qualified arm64 .pkg was not published within 30m"
             fail=1
           }
           chmod +x packaging/reconcile-releases.sh packaging/forgejo-release.sh packaging/github-release.sh

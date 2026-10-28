@@ -3,7 +3,7 @@
 # A source install of the Python package into an isolated virtualenv on the user's machine — so
 # there is NO Apple notarization requirement (that applies only to the separate signed .pkg). It is
 # arch-agnostic: the package is pure Python, so a single `brew install` covers macOS (Apple Silicon
-# or Intel) AND Linux (amd64/arm64). Self-contained from the user's side: Homebrew provides
+# only) AND Linux (amd64/arm64). Self-contained from the user's side: Homebrew provides
 # the python@ below + the venv; no user-managed Python. (The .pkg/.deb ship a PyInstaller-frozen bundle
 # instead, for machines without one.)
 #

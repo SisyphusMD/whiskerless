@@ -13,7 +13,7 @@ what `uname -m` prints on the machines people download from most) and carry the
 version, so a file in someone's Downloads identifies its release:
 
     whiskerless-<version>-linux-<arch>        raw Linux binary
-    whiskerless-<version>-macos-<arch>.pkg    signed macOS installer
+    whiskerless-<version>-macos-arm64.pkg     signed macOS installer
     whiskerless_<version>_<arch>.deb          Debian package  (mandated form: amd64/arm64)
     whiskerless-<version>.<arch>.rpm          RPM package     (mandated form: x86_64/aarch64)
 
@@ -92,7 +92,7 @@ and bridges.
    one job that genuinely needs a Mac): builds the **signed + notarized `.pkg`** and
    appends it to the **GitHub** and **public-Forgejo** releases (all it can reach).
 5. **Forgejo `publish.yml` `nas-bridge` job**: the NAS is internal, so no GitHub
-   runner can reach it. This waits for everything GitHub built — the two `.pkg`
+   runner can reach it. This waits for everything GitHub built — the arm64 `.pkg`
    and the four arm64 files — on the public Forgejo release, then **copies them to
    the internal NAS** release. Bottles are not among them **here** — they arrive later, and waiting would hold reconcile
    and prune-rcs behind a build neither reads. The `nas-bottles` job copies them once they
@@ -120,7 +120,7 @@ write the same release in any order.
 | `whiskerless_<v>_arm64.deb` | `release-linux-arm64.yml` | Debian / Ubuntu on arm |
 | `whiskerless-<v>.x86_64.rpm` | `publish.yml` | Fedora / RHEL |
 | `whiskerless-<v>.aarch64.rpm` | `release-linux-arm64.yml` | Fedora / RHEL on arm |
-| `whiskerless-macos-{arm64,x86_64}.pkg` | `release-macos.yml` | macOS, signed + notarized |
+| `whiskerless-macos-arm64.pkg` | `release-macos.yml` | macOS, signed + notarized |
 | `whiskerless{,-rc}-<v>.<platform>.bottle.tar.gz` | `bottles.yml` | Homebrew, poured not compiled |
 | `SHA256SUMS-x86_64` | `publish.yml` | checksums for the amd64 Linux artifacts |
 | `SHA256SUMS-aarch64` | `release-linux-arm64.yml` | checksums for the arm64 Linux artifacts |
@@ -163,8 +163,8 @@ between them. The floor is enforced statically instead, by
 
 `packaging/homebrew/whiskerless.rb` and `whiskerless-rc.rb` are **formulas**, not casks — a source
 install into a virtualenv, matching how `dreame-valetudo` does it in the same tap. That needs no
-Apple notarization (which applies only to the separate `.pkg`) and covers macOS and Linux on both
-architectures from one file. The `-rc` formula is separate so a candidate can be validated through
+Apple notarization (which applies only to the separate `.pkg`) and covers macOS on Apple Silicon and Linux on
+amd64/arm64 from one file. The `-rc` formula is separate so a candidate can be validated through
 the real Homebrew path without the stable formula ever pointing at one.
 
 `publish.yml`'s `homebrew-tap` job renders them per tag via `update-tap.sh` and pushes to
@@ -199,9 +199,8 @@ covers the *whole* formula, so it removes `cffi`'s and `pyobjc-core`'s C builds
 too, and because `rust`/`pkgconf` are `=> :build`, a bottled user never installs
 them at all.
 
-**Three platforms**: `arm64_sequoia`, `x86_64_linux`, `arm64_linux`. No Intel macOS bottle:
-Homebrew stopped building Intel bottles in 2026-09, so ours would compile its whole dependency
-closure from source; Intel Macs install the `.pkg`, or the formula builds from source. Not one per
+**Three platforms**: `arm64_sequoia`, `x86_64_linux`, `arm64_linux`. No Intel macOS bottle: Intel Macs
+are not supported. Not one per
 macOS release — Homebrew pours an older bottle when
 none matches, verified on a macOS 27 machine pouring `arm64_tahoe` (26) bottles.
 So building the floor (macos-15) covers everything above it. Note macOS 16–25 do

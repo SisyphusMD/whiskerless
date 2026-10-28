@@ -70,9 +70,7 @@ jobs:
           # oldest supported release covers every newer one. macos-15 is that
           # floor and GitHub carries it until August 2027. (macOS 16–25 do not
           # exist; Apple went 15 → 26 → 27, so 15 and 26 are consecutive.)
-          # No Intel macOS leg: Homebrew stopped building Intel bottles in 2026-09, so one of ours
-          # would compile python, openssl, llvm and rust from source on every release. Intel Macs
-          # install the .pkg, or the formula builds from source.
+          # No Intel leg: Intel Macs are not supported.
           - os: macos-15
             label: arm64_sequoia
           - os: ubuntu-24.04

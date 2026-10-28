@@ -185,12 +185,14 @@ Older systems might work, but that isn't promised until they are part of this te
 
 | Operating system | Minimum supported version | Also tested on |
 |---|---|---|
-| macOS, Apple Silicon or Intel | macOS 15 | macOS 26 |
+| macOS, Apple Silicon | macOS 15 | macOS 26 |
 | Debian / Raspberry Pi OS | Debian 12 / Raspberry Pi OS Bookworm | Debian 13 |
 | Ubuntu | Ubuntu 22.04 LTS | Ubuntu 26.04 LTS |
 | Fedora | Oldest maintained Fedora (currently 43) | Fedora 44 |
 | RHEL-compatible | RHEL / Rocky Linux 8 | Rocky Linux 10 |
 | openSUSE Leap | Leap 15.6 | Leap 16.0 |
+
+Intel Macs are no longer supported; v0.1.3 was the last stable release with an Intel `.pkg`.
 
 Two rows are covered by inheritance rather than by a lane of their own, which is worth knowing if you are relying on either. **Raspberry Pi OS** is not tested as its own image: Bookworm *is* Debian 12, and the Debian 12 lane runs on arm64 as well as x86_64. **RHEL** is not tested directly either — it needs a subscription and has no public image to install into — so Rocky Linux stands in for it, being a bug-for-bug rebuild of the same release.
 
@@ -228,10 +230,9 @@ brew trust sisyphusmd/tap    # one-time; Homebrew 6+ won't load a third-party ta
 brew install sisyphusmd/tap/whiskerless
 ```
 
-**macOS signed installer** — download the `.pkg` for your chip from the
-[releases](https://github.com/SisyphusMD/whiskerless/releases)
-(`whiskerless-<version>-macos-arm64.pkg` for Apple Silicon, `…-x86_64.pkg` for
-Intel) and double-click. It's signed and **notarized by Apple**, so there's no
+**macOS signed installer** — download `whiskerless-<version>-macos-arm64.pkg` for Apple Silicon
+from the [releases](https://github.com/SisyphusMD/whiskerless/releases) and double-click.
+It's signed and **notarized by Apple**, so there's no
 "unidentified developer" warning. The first time it scans, macOS asks to let
 your terminal use Bluetooth — allow it.
 

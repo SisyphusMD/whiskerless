@@ -74,14 +74,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Floor and current, both architectures. The floor is what the bottles
+        # Floor and current, Apple Silicon only. The floor is what the bottles
         # are built on and what Homebrew falls back to; the current one is what
         # most people are actually running.
         include:
           - {os: macos-15,       arch: arm64}
-          - {os: macos-15-intel, arch: x86_64}
           - {os: macos-26,       arch: arm64}
-          - {os: macos-26-intel, arch: x86_64}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,9 +101,6 @@ jobs:
           sudo installer -pkg /tmp/w.pkg -target /
           bash packaging/installed-smoke.sh /usr/local/bin/whiskerless "$VERSION"
       - name: The Homebrew bottle — pour it, and prove it was poured
-        # arm64 only: there is no Intel macOS bottle to pour (Homebrew stopped building Intel
-        # bottles in 2026-09), and a source build is exactly what this step exists to refuse.
-        if: matrix.arch == 'arm64'
         env:
           VERSION: ${{ needs.wait.outputs.version }}
         run: |

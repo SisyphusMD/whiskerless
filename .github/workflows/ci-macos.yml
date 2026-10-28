@@ -2,11 +2,11 @@ name: CI (macOS)
 
 # Forgejo remains the primary CI authority; its runners are Linux only. This
 # supplies the macOS legs, which matter here because the standalone provisioner
-# ships as a signed .pkg for both architectures and bleak's Bluetooth backend is
+# ships as a signed .pkg for Apple Silicon and bleak's Bluetooth backend is
 # platform-specific — a macOS-only import or CoreBluetooth path bug would
 # otherwise be found by whoever downloaded the .pkg.
 #
-# Both the OLDEST supported macOS and the CURRENT one, on both architectures:
+# Both the OLDEST supported macOS and the CURRENT one, on Apple Silicon:
 # `macos-latest` alone silently tracks whatever GitHub last promoted, which is
 # the opposite of knowing what the floor is.
 on:
@@ -87,12 +87,6 @@ jobs:
             tier: floor
           - os: macos-26
             arch: arm64
-            tier: current
-          - os: macos-15-intel
-            arch: x86_64
-            tier: floor
-          - os: macos-26-intel
-            arch: x86_64
             tier: current
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

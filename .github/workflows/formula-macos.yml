@@ -65,12 +65,7 @@ jobs:
     # the time it tells you. Killing this workflow's duplicate pull_request run paid for the
     # second lane.
     #
-    # No Intel lanes. Homebrew stopped building Intel bottles in 2026-09, so an Intel lane
-    # compiles the formula's whole dependency closure from source; with cryptography's rust
-    # and llvm in it, one lane ran past GitHub's six-hour job limit and held a macOS runner the
-    # whole time. Intel Macs install the .pkg, which release-macos.yml builds and
-    # install-matrix.yml installs on both Intel lanes; install-matrix's brew leg was already
-    # arm64-only for the same reason.
+    # No Intel leg: Intel Macs are not supported.
     # A same-repo PR branch already ran on `push` above, and that is the run the release
     # gate reads (check-mirror-ci.sh queries event=push only), so a pull_request run for
     # the same commit decides nothing the gate will ever look at. Fork PRs never fire

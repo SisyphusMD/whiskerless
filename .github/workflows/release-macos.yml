@@ -32,9 +32,6 @@ jobs:
           # the `current` job below proves it on the newest one before anything is published.
           - os: macos-15
             arch: arm64
-          # x86_64 macOS is being sunset by GitHub (~2027); macos-15-intel is the Intel floor.
-          - os: macos-15-intel
-            arch: x86_64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -139,8 +136,6 @@ jobs:
         include:
           - os: macos-26
             arch: arm64
-          - os: macos-26-intel
-            arch: x86_64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

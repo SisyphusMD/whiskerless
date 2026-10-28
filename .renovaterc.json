@@ -253,8 +253,8 @@
       "matchDatasources": [
         "github-runners"
       ],
-      "matchCurrentValue": "/^(macos-)?15(-intel)?$/",
-      "allowedVersions": "/^(macos-)?15(-intel)?$/"
+      "matchCurrentValue": "/^(macos-)?15$/",
+      "allowedVersions": "/^(macos-)?15$/"
     },
     {
       "description": "Every distro's CURRENT rung moves as one review. The anti-divergence property is already carried by the depName \u2014 one identity means Renovate rewrites every file pinning that image in the same commit \u2014 so what this adds is that the currents are seen TOGETHER. They are one statement about what 'current' means in this repo, and a matrix qualified against four current releases and one stale one is the shape nobody notices in a per-image PR. Matched by suffix rather than by a list, because a list is one more place to forget a new distro.",
