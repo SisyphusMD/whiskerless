@@ -3162,3 +3162,13 @@ def test_the_formula_smoke_refreshes_brew_before_installing() -> None:
     install = script.find("brew install")
     assert update != -1, "test-homebrew-formula.sh never refreshes brew"
     assert update < install, "brew update must run before brew install"
+
+
+def test_the_formula_smoke_unlinks_the_python_org_python_before_installing() -> None:
+    """setup-python's python.org framework owns python3/pip3/idle3 in /usr/local/bin, so on Intel
+    a python@ that brew must link there fails to link and leaves no usable pip behind."""
+    text = (REPO / ".github" / "workflows" / "formula-macos.yml").read_text(encoding="utf-8")
+    unlink = text.find("-lname '*/Library/Frameworks/Python.framework/*'")
+    install = text.find("bash packaging/test-homebrew-formula.sh")
+    assert unlink != -1, "formula-macos.yml never removes the python.org links from the brew prefix"
+    assert unlink < install, "the python.org links must go before the formula installs"
