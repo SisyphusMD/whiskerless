@@ -18,9 +18,9 @@ class WhiskerlessRc < Formula
   sha256 "REPLACE_SDIST_SHA256"
   license "MIT"
 REPLACE_BOTTLE_BLOCK
-  # matches the interpreter the .pkg/.deb bundles freeze; bump by hand with each CPython minor —
-  # no Renovate manager covers this formula.
-  depends_on "python@3.14"
+  # matches the interpreter the .pkg/.deb bundles freeze. No Renovate manager covers this formula,
+  # so packaging/refresh-pins.sh rewrites it from PYTHON_VERSION as a postUpgradeTask.
+  depends_on "python@3.15"
   depends_on "openssl@3"
   # Certificates are core function (the robot cannot send a username or password, so nothing else
   # authenticates it), but this does NOT have to be a resource. As a resource it is built from its

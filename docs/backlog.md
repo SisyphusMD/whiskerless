@@ -230,7 +230,7 @@ Four things settled while scoping it (2026-08-17):
   entire venv, so it removes cryptography's Rust build *and* `cffi`'s and
   `pyobjc-core`'s C builds. `rust` and `pkgconf` are `=> :build`, so bottled
   users never install them — and `llvm` (1.9 GB) is rust's dependency, not ours,
-  so it goes with them. Only `python@3.14` and `openssl@3` remain.
+  so it goes with them. Only the `python@` dependency and `openssl@3` remain.
 - **One bottle per ARCH, not per macOS version.** Homebrew falls back to an
   older bottle when none matches the running OS — verified 2026-08-17 on a
   macOS **27** machine, which poured `arm64_tahoe` (26) bottles for `rust`. So

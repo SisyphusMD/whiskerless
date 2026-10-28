@@ -413,6 +413,21 @@ def test_both_formulae_install_the_same_way() -> None:
     assert bodies[0] == bodies[1], "install bodies drifted between the two formulae"
 
 
+def test_both_formulae_use_the_python_the_bundles_freeze() -> None:
+    """No Renovate manager reads a .rb, so the formula's interpreter stays right only because
+    refresh-pins.sh rewrites it from the pin. Assert they agree, and that no other interpreter
+    literal (a venv path, a second depends_on) is left behind for the rewrite to miss."""
+    pins = (REPO / "packaging" / "release-pins.env").read_text(encoding="utf-8")
+    version = re.search(r'^PYTHON_VERSION="([^"]+)"', pins, re.M)
+    assert version, "PYTHON_VERSION missing from release-pins.env"
+    series = ".".join(version.group(1).split(".")[:2])
+    for p in FORMULAE:
+        text = _formula(str(p))
+        assert f'depends_on "python@{series}"' in text, f"{p.name} is not on python@{series}"
+        stray = set(re.findall(r"python@?(3\.\d+)", text)) - {series}
+        assert not stray, f"{p.name} names Python {sorted(stray)}, not the bundle's {series}"
+
+
 # --- the man page cannot silently fall behind the CLI -----------------------------
 def test_the_man_page_documents_every_subcommand() -> None:
     """A man page is only worth shipping if it is true. Adding a subcommand and

@@ -50,3 +50,17 @@ else
   [ "$(read_pin PYTHON_SHA256)" = "$py_fresh" ] || {
     echo "rewrite did not take effect" >&2; exit 1; }
 fi
+
+# A CPython minor bump changes which Homebrew python the formulae depend on, and the formula is
+# published straight from this tree with no Renovate manager reading it, so it has to move with
+# the pin rather than after it.
+py_series="$(echo "$py_version" | cut -d. -f1,2)"
+for formula in "$here"/homebrew/*.rb; do
+  [ -f "$formula" ] || continue
+  # Every interpreter literal, not just depends_on: a venv path left on the old minor names a
+  # Python the formula no longer installs.
+  sed -E "s/(python@?)3\.[0-9]+/\\1${py_series}/g" "$formula" > "$formula.tmp"
+  if cmp -s "$formula" "$formula.tmp"; then rm "$formula.tmp"; continue; fi
+  mv "$formula.tmp" "$formula"
+  echo "$(basename "$formula") -> python@${py_series}"
+done

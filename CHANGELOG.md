@@ -6,6 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- The Homebrew formula now depends on `python@3.15`, the same Python the `.pkg`, `.deb` and `.rpm`
+  bundles carry. It was still on `python@3.14`.
+
 **The release where the robot stopped being read-only.** Clean cycle and Reset are real
 buttons now, and whiskerless issues the certificates your broker needs.
 

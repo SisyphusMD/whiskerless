@@ -4,7 +4,7 @@
 # there is NO Apple notarization requirement (that applies only to the separate signed .pkg). It is
 # arch-agnostic: the package is pure Python, so a single `brew install` covers macOS (Apple Silicon
 # or Intel) AND Linux (amd64/arm64). Self-contained from the user's side: Homebrew provides
-# python@3.14 + the venv; no user-managed Python. (The .pkg/.deb ship a PyInstaller-frozen bundle
+# the python@ below + the venv; no user-managed Python. (The .pkg/.deb ship a PyInstaller-frozen bundle
 # instead, for machines without one.)
 #
 # The BLE extra is included: `whiskerless provision` is the one command a new user runs, and it is
@@ -23,9 +23,9 @@ class Whiskerless < Formula
   sha256 "REPLACE_SDIST_SHA256"
   license "MIT"
 REPLACE_BOTTLE_BLOCK
-  # matches the interpreter the .pkg/.deb bundles freeze; bump by hand with each CPython minor —
-  # no Renovate manager covers this formula.
-  depends_on "python@3.14"
+  # matches the interpreter the .pkg/.deb bundles freeze. No Renovate manager covers this formula,
+  # so packaging/refresh-pins.sh rewrites it from PYTHON_VERSION as a postUpgradeTask.
+  depends_on "python@3.15"
   depends_on "openssl@3"
   # Certificates are core function (the robot cannot send a username or password, so nothing else
   # authenticates it), but this does NOT have to be a resource. As a resource it is built from its
