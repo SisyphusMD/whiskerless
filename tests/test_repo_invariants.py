@@ -2748,7 +2748,7 @@ def test_the_cpython_tag_pin_governs_only_what_ships() -> None:
         assert "depName=python/cpython" not in workflow.read_text(), workflow.name
 
     # release-macos.yml is the exception: PyInstaller freezes this interpreter into the shipped
-    # .pkg, so it must move with the bundle pin and its reviewed checksum, not on its own.
+    # .pkg, so it must move with the bundle pin and its checksum, not on its own.
     macos = RELEASE_MACOS.read_text()
     assert "depName=python/cpython" in macos
     pins = PINS.read_text()

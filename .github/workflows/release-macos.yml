@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           # NOT a test runner: PyInstaller freezes this exact interpreter into the shipped .pkg, so
-          # it moves with the Linux bundle pin and its reviewed checksum. `depName=python` would
+          # it moves with the Linux bundle pin and its checksum. `depName=python` would
           # collide with Renovate's BUILT-IN github-actions manager, which owns every
           # `python-version:` key and automerges — two owners for one line, one of which could ship
           # a macOS .pkg built on a different Python than the Linux artifacts of the same release.

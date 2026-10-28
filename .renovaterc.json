@@ -77,33 +77,28 @@
       ]
     },
     {
-      "description": "RELEASE-ONLY build pins: nothing in PR CI builds with them. publish.yml runs on a tag, and the install matrix tests artifacts that are already published \u2014 so a minor bump to the packager, the freezer, the manylinux image or the bundled interpreter merges on a green PR that never executed the changed build path, and fails at the next release instead. By then the PyPI upload has already happened, because that job does not wait for the packaging legs. Reviewed by hand, and proven by cutting a release candidate.",
-      "matchDepNames": [
-        "goreleaser/nfpm",
-        "pyinstaller",
-        "python",
-        "python/cpython",
-        "quay.io/pypa/manylinux_2_28",
-        "debian-13-current"
-      ],
-      "automerge": false,
-      "prBodyNotes": [
-        "**CI cannot reach this.** Nothing in a pull request builds with this pin: `publish.yml` runs only on a tag, and the install matrix exercises artifacts that are already published. A green PR here says the code still lints and tests \u2014 it says nothing about whether the release still builds.",
-        "Clear it by cutting a release candidate with the bump in place, then merge."
-      ],
-      "addLabels": [
-        "release-path"
-      ]
-    },
-    {
-      "description": "The regex versioning confines candidates to upstream's dated tags, so `latest` is never offered as an update. One multi-arch dependency, not one per arch: Quay publishes the per-arch images minutes apart and assembles quay.io/pypa/manylinux_2_28 only once every arch exists, so a bump always moves both arches to the same dated tag. Per-arch pins could not promise that even grouped: a group's minimumGroupSize counts updates without comparing their targets, so a Renovate run between the two publishes opened a branch with the arches on different releases.",
+      "description": "These images define the shipped glibc ABI, so a bump stays hand-reviewed whatever the update type \u2014 the blast radius is every Linux package. The embedded-ELF check is NOT the manual part: packaging/check-glibc-floor.py runs inside linux.Dockerfile, which CI builds for x86_64 and publish builds for both arches, so a binary needing a symbol above packaging/glibc-floor.txt fails the build (at PR time for x86_64, at release for aarch64). What the human adds is judgement about the toolchain change itself, which no check encodes. The regex versioning confines candidates to upstream's dated tags, so `latest` is never offered as an update. One multi-arch dependency, not one per arch: Quay publishes the per-arch images minutes apart and assembles quay.io/pypa/manylinux_2_28 only once every arch exists, so a bump always moves both arches to the same dated tag. Per-arch pins could not promise that even grouped: a group's minimumGroupSize counts updates without comparing their targets, so a Renovate run between the two publishes opened a branch with the arches on different releases. The other build pins (nfpm, PyInstaller, the bundled CPython) automerge: the ci.yml build job freezes and packages with them on every PR.",
       "matchDatasources": [
         "docker"
       ],
       "matchDepNames": [
         "quay.io/pypa/manylinux_2_28"
       ],
-      "versioning": "regex:^(?<major>\\d{4})\\.(?<minor>\\d{2})\\.(?<patch>\\d{2})-(?<build>\\d+)$"
+      "versioning": "regex:^(?<major>\\d{4})\\.(?<minor>\\d{2})\\.(?<patch>\\d{2})-(?<build>\\d+)$",
+      "automerge": false,
+      "prBodyNotes": [
+        "Held for hand review: the glibc floor check runs in CI, but no check encodes judgement about the toolchain change itself."
+      ]
+    },
+    {
+      "description": "Debian 13 is the image the release's .deb/.rpm parity check unpacks into (PARITY_IMAGE, build-linux-arch.sh) and the install matrix's current Debian host (install-smoke.Dockerfile). Neither runs on a pull request: the parity check runs only in the release build, and the install matrix tests artifacts after they are published. The PR build job smoke-installs on Ubuntu and Rocky only. Dreame Valetudo automerges this dep because its PR CI runs the same image in its distro package matrix; drop this hold when that matrix is ported here.",
+      "matchDepNames": [
+        "debian-13-current"
+      ],
+      "automerge": false,
+      "prBodyNotes": [
+        "**CI cannot reach this.** No pull-request job runs the Debian 13 image: the parity check runs at release, and the install matrix after publishing. Clear it with a release candidate, then merge."
+      ]
     },
     {
       "description": "bleak is the BLE transport provisioning speaks to the robot over. CI proves only that the code around it behaves: tests/test_ble_transport.py fakes the bleak boundary outright, and no runner has a Bluetooth radio, so scanning, pairing, GATT writes and the esp-idf protocomm exchange are never executed against the real library. Green CI therefore says nothing about the path that re-points a robot onto a new broker, so a bump is read by a human. Same reason dreame-valetudo holds pyusb \u2014 see its .renovaterc.json.",
@@ -123,7 +118,7 @@
       "enabled": false
     },
     {
-      "description": "release-macos.yml's `python-version` is not a test runner: PyInstaller freezes that exact interpreter into the shipped .pkg, so it has to move with PYTHON_VERSION in packaging/release-pins.env and the checksum a human reviews alongside it. The annotation hands the line to the cpython tag dep; disabling the built-in manager here leaves that dep as its only owner rather than an automerging second one that could ship a different Python than the Linux bundles carry.",
+      "description": "release-macos.yml's `python-version` is not a test runner: PyInstaller freezes that exact interpreter into the shipped .pkg, so it has to move with PYTHON_VERSION in packaging/release-pins.env and the checksum refresh-pins.sh regenerates alongside it. The annotation hands the line to the cpython tag dep; disabling the built-in manager here leaves that dep as its only owner rather than an automerging second one that could ship a different Python than the Linux bundles carry.",
       "matchManagers": [
         "github-actions"
       ],
