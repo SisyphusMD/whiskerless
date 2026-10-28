@@ -3150,3 +3150,15 @@ def test_the_bottle_leg_installs_the_formula_the_tag_names() -> None:
             f"a brew call names its formula literally instead of by tag: {line}"
     # One choice per step that touches brew: the pour and the cleanup before the PyPI smoke.
     assert text.count('*-rc.*) FORMULA=') >= 2, "the formula is not chosen from the tag in every step"
+
+
+def test_the_formula_smoke_refreshes_brew_before_installing() -> None:
+    """The smoke runs with HOMEBREW_NO_AUTO_UPDATE, so without one explicit refresh it resolves
+    dependencies from the runner image's metadata, and a python@ newer than the image reads as
+    "No available formula" while real users, whose brew auto-updates, install fine."""
+    text = (REPO / "packaging" / "test-homebrew-formula.sh").read_text(encoding="utf-8")
+    script = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    update = script.find("brew update")
+    install = script.find("brew install")
+    assert update != -1, "test-homebrew-formula.sh never refreshes brew"
+    assert update < install, "brew update must run before brew install"

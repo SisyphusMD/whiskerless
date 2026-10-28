@@ -58,6 +58,10 @@ if ! grep -Fq "file://$sdist" "$tmp/$formula.rb"; then
   exit 1
 fi
 
+# HOMEBREW_NO_AUTO_UPDATE keeps brew from refreshing mid-test, so refresh once here instead. A
+# runner image's formula metadata is as old as the image, and a dependency added to homebrew-core
+# since then reads as "No available formula".
+sh "$here/retry.sh" 5 brew update --quiet
 brew tap-new --no-git "$tap" >/dev/null
 tap_created=true
 cp "$tmp/$formula.rb" "$(brew --repository "$tap")/Formula/$formula.rb"
