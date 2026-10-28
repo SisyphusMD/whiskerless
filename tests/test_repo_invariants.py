@@ -1793,20 +1793,28 @@ def test_the_formula_is_built_on_every_macos_lane_the_library_is() -> None:
     """A formula proven on current arm64 only leaves the two axes that differ to a tag.
 
     Both formulae compile native code on the installing machine - a Rust extension here, a C
-    resource in the sibling - so a break can be specific to Intel or to the macOS floor. The
+    resource in the sibling - so a break can be specific to the macOS floor. The
     bottle build covers those lanes but runs at tag time, and a tag is immutable by the time it
     reports. Whatever set `ci-macos.yml` holds the library to, the formula is held to as well.
     """
     def lanes(name: str) -> set[str]:
         document = yaml.safe_load((REPO / ".github" / "workflows" / name).read_text())
-        job = next(iter(document["jobs"].values()))
-        include = (((job.get("strategy") or {}).get("matrix") or {}).get("include")) or []
-        return {entry["os"] for entry in include} or {job["runs-on"]}
+        # The macOS job, not the first one: both workflows open with a `scope` job on
+        # ubuntu-latest, and comparing that against itself proves nothing.
+        includes = [
+            ((job.get("strategy") or {}).get("matrix") or {}).get("include") or []
+            for job in document["jobs"].values()
+        ]
+        return {entry["os"] for include in includes for entry in include}
 
     library, formula = lanes("ci-macos.yml"), lanes("formula-macos.yml")
-    assert formula == library, (
+    # Intel is the one exception: without Intel bottles a lane compiles the whole dependency
+    # closure from source and outruns the job limit, so Intel Macs are covered by the .pkg.
+    apple_silicon = {lane for lane in library if not lane.endswith("-intel")}
+    assert formula == apple_silicon, (
         f"the formula is built on {sorted(formula)} while the library is tested on "
-        f"{sorted(library)}; the difference is where a break reaches a tag unseen"
+        f"{sorted(apple_silicon)} on Apple Silicon; the difference is where a break reaches a "
+        f"tag unseen"
     )
 
 def test_ci_is_not_green_until_native_macos_agrees() -> None:
@@ -3162,13 +3170,3 @@ def test_the_formula_smoke_refreshes_brew_before_installing() -> None:
     install = script.find("brew install")
     assert update != -1, "test-homebrew-formula.sh never refreshes brew"
     assert update < install, "brew update must run before brew install"
-
-
-def test_the_formula_smoke_unlinks_the_python_org_python_before_installing() -> None:
-    """setup-python's python.org framework owns python3/pip3/idle3 in /usr/local/bin, so on Intel
-    a python@ that brew must link there fails to link and leaves no usable pip behind."""
-    text = (REPO / ".github" / "workflows" / "formula-macos.yml").read_text(encoding="utf-8")
-    unlink = text.find("-lname '*/Library/Frameworks/Python.framework/*'")
-    install = text.find("bash packaging/test-homebrew-formula.sh")
-    assert unlink != -1, "formula-macos.yml never removes the python.org links from the brew prefix"
-    assert unlink < install, "the python.org links must go before the formula installs"

@@ -60,11 +60,17 @@ jobs:
     # refuses. Nothing in CI could see it, because nothing in CI built the formula
     # on a Mac.
     #
-    # The SAME four lanes ci-macos.yml runs. Proving the formula on current arm64 and nowhere
-    # else leaves the two axes that actually differ — the macOS floor, and Intel — to be found
-    # by a tag, and a tag is immutable by the time it tells you. Four lanes of a job that
-    # compiles is not cheap; killing this workflow's duplicate pull_request run paid for half
-    # of it, and the rest buys the only coverage that was missing.
+    # ci-macos.yml's Apple Silicon lanes, floor and current. Proving the formula on current
+    # arm64 alone would leave the macOS floor to be found by a tag, and a tag is immutable by
+    # the time it tells you. Killing this workflow's duplicate pull_request run paid for the
+    # second lane.
+    #
+    # No Intel lanes. Homebrew stopped building Intel bottles in 2026-09, so an Intel lane
+    # compiles the formula's whole dependency closure from source; with cryptography's rust
+    # and llvm in it, one lane ran past GitHub's six-hour job limit and held a macOS runner the
+    # whole time. Intel Macs install the .pkg, which release-macos.yml builds and
+    # install-matrix.yml installs on both Intel lanes; install-matrix's brew leg was already
+    # arm64-only for the same reason.
     # A same-repo PR branch already ran on `push` above, and that is the run the release
     # gate reads (check-mirror-ci.sh queries event=push only), so a pull_request run for
     # the same commit decides nothing the gate will ever look at. Fork PRs never fire
@@ -86,8 +92,8 @@ jobs:
       || github.event.pull_request.head.repo.full_name != github.repository) }}
     runs-on: ${{ matrix.os }}
     strategy:
-      # Never fail-fast: one lane breaking is exactly when the others' verdicts matter most,
-      # because whether the break is Intel-only or floor-only IS the finding.
+      # Never fail-fast: one lane breaking is exactly when the other's verdict matters most,
+      # because whether the break is floor-only IS the finding.
       fail-fast: false
       matrix:
         include:
@@ -96,12 +102,6 @@ jobs:
             tier: floor
           - os: macos-26
             arch: arm64
-            tier: current
-          - os: macos-15-intel
-            arch: x86_64
-            tier: floor
-          - os: macos-26-intel
-            arch: x86_64
             tier: current
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -120,14 +120,6 @@ jobs:
           work="$(mktemp -d)"
           git archive --format=tar HEAD | tar -x -C "$work"
           (cd "$work" && python -m build --sdist --outdir "$GITHUB_WORKSPACE/dist")
-      - name: Unlink the python.org Python from the brew prefix
-        # setup-python installs the python.org framework, which links python3, pip3, idle3
-        # and friends into /usr/local/bin, Homebrew's own prefix on Intel. A python@ that
-        # brew has to link there then fails `brew link`, and every dependency it builds
-        # afterwards dies on `No module named pip.__main__`. Only the symlinks go: the
-        # interpreter setup-python put on PATH lives in the toolcache. The installer writes
-        # relative targets, hence the leading wildcard.
-        run: find "$(brew --prefix)/bin" -maxdepth 1 -type l -lname '*/Library/Frameworks/Python.framework/*' -print -delete
       - name: Install the rendered formula and run it
         # The runner is disposable, which is the condition test-homebrew-formula.sh
         # asks for. It builds cryptography from source — several minutes — which is
