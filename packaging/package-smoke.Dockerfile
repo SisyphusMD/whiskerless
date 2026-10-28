@@ -9,15 +9,15 @@
 # renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
 FROM ubuntu:26.04@sha256:0e73b71479e7bc5f006bca872e25c3cd680dc052a0116f90d63ae363537db0dd AS smoke
 
+# The version the binary was frozen at; installed-smoke.sh checks the binary reports it.
+ARG EXPECT_VERSION
 COPY package-smoke.deb /tmp/package-smoke.deb
+COPY packaging/test-linux-packages.sh /tmp/test-linux-packages.sh
+COPY packaging/installed-smoke.sh /tmp/installed-smoke.sh
 
-RUN set -eux; \
-    ldd --version | head -1; \
-    apt-get update -qq >/dev/null; \
-    apt-get install -y -qq /tmp/package-smoke.deb >/dev/null; \
-    whiskerless --help > /dev/null; \
-    whiskerless send --help > /dev/null; \
-    touch /package-smoke-passed
+RUN test -n "$EXPECT_VERSION" \
+ && /bin/bash /tmp/test-linux-packages.sh --inside-single apt "$EXPECT_VERSION" /tmp/package-smoke.deb \
+ && touch /package-smoke-passed
 
 FROM scratch AS result
 COPY --from=smoke /package-smoke-passed /package-smoke-passed

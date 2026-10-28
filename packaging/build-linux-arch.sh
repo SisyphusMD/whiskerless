@@ -118,6 +118,7 @@ smoke_pkg() { # smoke_pkg <deb|rpm> <package>
   cp "$package" "package-smoke.$fmt"
   rm -rf "$result"
   docker buildx build --platform "linux/$arch" \
+    --build-arg EXPECT_VERSION="$raw" \
     -f "$dockerfile" --target result --output "type=local,dest=$result" .
   test -f "$result/package-smoke-passed"
   # Not left lying around: the release step globs ./*.deb and ./*.rpm, and these arch-neutral

@@ -9,14 +9,15 @@
 # renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
 FROM rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834 AS smoke
 
+# The version the binary was frozen at; installed-smoke.sh checks the binary reports it.
+ARG EXPECT_VERSION
 COPY package-smoke.rpm /tmp/package-smoke.rpm
+COPY packaging/test-linux-packages.sh /tmp/test-linux-packages.sh
+COPY packaging/installed-smoke.sh /tmp/installed-smoke.sh
 
-RUN set -eux; \
-    ldd --version | head -1; \
-    dnf install -y -q /tmp/package-smoke.rpm >/dev/null; \
-    whiskerless --help > /dev/null; \
-    whiskerless send --help > /dev/null; \
-    touch /package-smoke-passed
+RUN test -n "$EXPECT_VERSION" \
+ && /bin/bash /tmp/test-linux-packages.sh --inside-single dnf "$EXPECT_VERSION" /tmp/package-smoke.rpm \
+ && touch /package-smoke-passed
 
 FROM scratch AS result
 COPY --from=smoke /package-smoke-passed /package-smoke-passed

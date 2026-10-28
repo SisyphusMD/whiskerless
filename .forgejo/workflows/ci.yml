@@ -358,8 +358,12 @@ jobs:
           # The floor nfpm.yaml declares as the libc dependency, from the file the build enforces.
           export GLIBC_FLOOR
           GLIBC_FLOOR=$(cat packaging/glibc-floor.txt)
-          # A throwaway version: this proves nfpm.yaml still describes a buildable package, not
-          # that any particular release is correct. Unsigned, so no key is needed.
+          # Two ordered throwaway revisions of the same binary, so the distro matrix below exercises a
+          # real package-manager upgrade rather than a reinstall. They prove nfpm.yaml still
+          # describes a buildable package, not that any particular release is correct. Unsigned,
+          # so no key is needed. Spelled `~rc.N` as build-linux-arch.sh spells a release: with
+          # version_schema none, a `-rc.N` lands a dash inside the rpm Version and zypper cannot
+          # name the installed package to remove it.
           #
           # The container is removed on EVERY exit path. This runner's Docker daemon is the
           # persistent host one, so letting `set -e` skip the cleanup when nfpm rejects a broken
@@ -367,39 +371,63 @@ jobs:
           # here are exactly the ones somebody re-runs while fixing it.
           cid=""
           trap 'test -z "$cid" || docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
-          package() { # package <deb|rpm>
-            local fmt="$1"
-            cid=$(docker create -e ARCH=amd64 -e VERSION=0.0.0-rc.1 -e GLIBC_FLOOR -w /w "$NFPM" \
-              package -p "$fmt" -f packaging/nfpm.yaml -t "/w/ci.$fmt")
-            docker cp . "$cid":/w >/dev/null
-            docker start -a "$cid"
-            docker cp "$cid":"/w/ci.$fmt" . >/dev/null
-            docker rm -f "$cid" >/dev/null
-            cid=""
-          }
-          package deb
-          package rpm
-          ls -l ci.deb ci.rpm
+          cid=$(docker create -e ARCH=amd64 -e GLIBC_FLOOR -w /w --entrypoint /bin/sh "$NFPM" -c '
+            set -e
+            VERSION=0.0.0~rc.1 nfpm package -p deb -f packaging/nfpm.yaml -t /w/ci-old.deb
+            VERSION=0.0.0~rc.2 nfpm package -p deb -f packaging/nfpm.yaml -t /w/ci.deb
+            VERSION=0.0.0~rc.1 nfpm package -p rpm -f packaging/nfpm.yaml -t /w/ci-old.rpm
+            VERSION=0.0.0~rc.2 nfpm package -p rpm -f packaging/nfpm.yaml -t /w/ci.rpm
+          ')
+          docker cp . "$cid":/w >/dev/null
+          docker start -a "$cid"
+          for artifact in ci-old.deb ci.deb ci-old.rpm ci.rpm; do
+            docker cp "$cid":"/w/$artifact" "./$artifact" >/dev/null
+          done
+          docker rm -f "$cid" >/dev/null
+          cid=""
+          ls -l ci-old.deb ci.deb ci-old.rpm ci.rpm
+          # nfpm assembles the package outside the build image, so this is the only step that
+          # compares what installs against what was frozen. A .deb carrying a stale binary still
+          # installs and still passes every smoke below.
+          rm -rf deb-extract && mkdir deb-extract
+          dpkg-deb -x ci.deb deb-extract
+          cmp dist/whiskerless deb-extract/usr/bin/whiskerless
 
-      - name: Install both packages in real distro userspaces and run the binary
+      - name: Install, upgrade and remove both packages across the distro matrix
         run: |
           set -euo pipefail
           # Building a package only proves nfpm accepted nfpm.yaml. What a layout mistake breaks is
           # the INSTALL — a binary landing somewhere not on PATH, a missing dependency, a maintainer
-          # script that exits non-zero — and none of that shows up until something installs it. The
-          # same two Dockerfiles the release path smokes with, on the packages just built here.
-          smoke() { # smoke <deb|rpm> <dockerfile>
-            # package-smoke-* so the same .gitignore line covers these and the release build's.
-            local fmt="$1" dockerfile="$2" result="package-smoke-$1-ci"
-            cp "ci.$fmt" "package-smoke.$fmt"
-            rm -rf "$result"
-            docker buildx build --platform linux/amd64 \
-              -f "$dockerfile" --target result --output "type=local,dest=$result" .
-            test -f "$result/package-smoke-passed"
-            rm -f "package-smoke.$fmt"
-          }
-          smoke deb packaging/package-smoke.Dockerfile
-          smoke rpm packaging/package-smoke-rpm.Dockerfile
+          # script that exits non-zero — and an upgrade or uninstall can break separately. Every
+          # floor and current release the packages claim, before the release that would ship them.
+          # Keep the self-hosted runner below its storage ceiling before pulling the distro matrix.
+          # The exported binary is already outside BuildKit, so its compile cache is disposable.
+          docker buildx prune --all --force
+          # renovate: datasource=docker depName=debian-12-compat packageName=debian
+          DEBIAN_FLOOR_IMAGE="debian:12-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3"
+          # renovate: datasource=docker depName=debian-13-current packageName=debian
+          DEBIAN_CURRENT_IMAGE="debian:13-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4"
+          # renovate: datasource=docker depName=ubuntu-22.04-compat packageName=ubuntu
+          UBUNTU_FLOOR_IMAGE="ubuntu:22.04@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b"
+          # renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
+          UBUNTU_CURRENT_IMAGE="ubuntu:26.04@sha256:0e73b71479e7bc5f006bca872e25c3cd680dc052a0116f90d63ae363537db0dd"
+          # renovate: datasource=docker depName=fedora-43-compat packageName=fedora
+          FEDORA_FLOOR_IMAGE="fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42"
+          # renovate: datasource=docker depName=fedora-44-current packageName=fedora
+          FEDORA_CURRENT_IMAGE="fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80"
+          # renovate: datasource=docker depName=rocky-8-compat packageName=rockylinux/rockylinux
+          RHEL_FLOOR_IMAGE="rockylinux/rockylinux:8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6"
+          # renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
+          RHEL_CURRENT_IMAGE="rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834"
+          # renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
+          OPENSUSE_IMAGE="opensuse/leap:16.0@sha256:952857883a24c24a64c8bc67d7d1a8f9d4800ad4fbe075fc4566ff9af706cb8b"
+          export DEBIAN_FLOOR_IMAGE DEBIAN_CURRENT_IMAGE
+          export UBUNTU_FLOOR_IMAGE UBUNTU_CURRENT_IMAGE
+          export FEDORA_FLOOR_IMAGE FEDORA_CURRENT_IMAGE
+          export RHEL_FLOOR_IMAGE RHEL_CURRENT_IMAGE OPENSUSE_IMAGE
+          # The version the binary was frozen at, which installed-smoke.sh checks it reports.
+          ver=$(python -c "import re;print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
+          bash packaging/test-linux-packages.sh "$ver" ci-old.deb ci.deb ci-old.rpm ci.rpm
       - name: Install the Homebrew formula for real, and run it
         run: |
           set -euo pipefail

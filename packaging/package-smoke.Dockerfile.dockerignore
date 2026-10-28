@@ -1,2 +1,6 @@
 **
 !package-smoke.deb
+!packaging/
+packaging/**
+!packaging/test-linux-packages.sh
+!packaging/installed-smoke.sh

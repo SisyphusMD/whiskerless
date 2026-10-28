@@ -3114,25 +3114,27 @@ def test_publish_attempts_every_registry_and_always_runs_repair_jobs() -> None:
 
 
 def test_the_package_smoke_base_is_one_pin_with_the_qualification_image() -> None:
-    """The pre-publish smoke installs on the SAME image the install matrix qualifies against, under
-    one Renovate identity, so the two cannot move on separate schedules.
+    """The pre-publish smoke installs on the SAME image the distro matrices qualify against, under
+    one Renovate identity, so they cannot move on separate schedules.
 
-    The sibling compares against its ci.yml, where its pre-merge distro matrix pins the image; this
-    project has no such matrix, so the qualification image is the install matrix's. Both formats,
-    because the .rpm smoke makes the same claim about Rocky 10.
+    Two matrices pin it: the pre-merge one in ci.yml, as in the sibling, and the post-publish install
+    matrix. Both formats, because the .rpm smoke makes the same claim about Rocky 10.
     """
     smoke = (REPO / "packaging" / "package-smoke.Dockerfile").read_text()
     matrix = INSTALL_SMOKE.read_text()
+    workflow = CI.read_text()
     assert "depName=ubuntu-26.04-current packageName=ubuntu" in smoke
     digest = re.search(r"ubuntu:26\.04@(sha256:[0-9a-f]{64})", smoke)
     assert digest is not None
     assert f"ubuntu:26.04@{digest.group(1)}" in matrix
+    assert f"ubuntu:26.04@{digest.group(1)}" in workflow
 
     rpm_smoke = (REPO / "packaging" / "package-smoke-rpm.Dockerfile").read_text()
     assert "depName=rocky-10-current packageName=rockylinux/rockylinux" in rpm_smoke
     rpm_digest = re.search(r"rockylinux/rockylinux:10@(sha256:[0-9a-f]{64})", rpm_smoke)
     assert rpm_digest is not None
     assert f"rockylinux/rockylinux:10@{rpm_digest.group(1)}" in matrix
+    assert f"rockylinux/rockylinux:10@{rpm_digest.group(1)}" in workflow
 
     config = _renovate()
     # The built-in dockerfile manager must not run at all. It reads a plain `ubuntu` where the
@@ -3150,6 +3152,86 @@ def test_the_package_smoke_base_is_one_pin_with_the_qualification_image() -> Non
             if any(re.search(pattern.strip("/"), name) for pattern in m.get("managerFilePatterns", []))
         ]
         assert covered, f"{name}'s annotated pins need a manager that reads them"
+
+
+def test_linux_package_matrix_keeps_floors_alongside_current_releases() -> None:
+    """Every PR installs, upgrades and removes both packages on each floor and current release.
+
+    The same nine hosts and the same clamps as the sibling's test of the same name. A floor that
+    quietly dropped out of the matrix would leave the README promising a distro nothing tests.
+    """
+    workflow = CI.read_text()
+    smoke = (REPO / "packaging" / "test-linux-packages.sh").read_text()
+
+    for image in (
+        "debian:12-slim@sha256:",
+        "debian:13-slim@sha256:",
+        "ubuntu:22.04@sha256:",
+        "ubuntu:26.04@sha256:",
+        "fedora:43@sha256:",
+        "fedora:44@sha256:",
+        "rockylinux/rockylinux:8@sha256:",
+        "rockylinux/rockylinux:10@sha256:",
+        "opensuse/leap:16.0@sha256:",
+    ):
+        assert image in workflow
+    for label in (
+        "Debian 12 (oldstable floor)",
+        "Debian 13 (current stable)",
+        "Ubuntu 22.04 (glibc floor)",
+        "Ubuntu 26.04 (current LTS)",
+        "Fedora 43 (supported floor)",
+        "Fedora 44 (current)",
+        "Rocky Linux 8 (RHEL-compatible glibc floor)",
+        "Rocky Linux 10 (RHEL-compatible current)",
+        "openSUSE Leap 16.0",
+    ):
+        assert label in smoke
+    assert "bash packaging/test-linux-packages.sh" in workflow
+
+    fixed_hosts = {
+        name: rule["allowedVersions"]
+        for rule in _renovate()["packageRules"]
+        for name in rule.get("matchDepNames", [])
+        if name
+        in {
+            "debian-12-compat",
+            "debian-13-current",
+            "ubuntu-22.04-compat",
+            "ubuntu-26.04-current",
+            "fedora-43-compat",
+            "fedora-44-current",
+            "rocky-8-compat",
+            "rocky-10-current",
+            "opensuse-leap-16-current",
+        }
+    }
+    assert fixed_hosts == {
+        "debian-12-compat": "/^12-slim$/",
+        "debian-13-current": "/^13-slim$/",
+        "ubuntu-22.04-compat": r"/^22\.04$/",
+        "ubuntu-26.04-current": r"/^26\.04$/",
+        "fedora-43-compat": "/^43$/",
+        "fedora-44-current": "/^44$/",
+        "rocky-8-compat": "/^8$/",
+        "rocky-10-current": "/^10$/",
+        "opensuse-leap-16-current": r"/^16\.0$/",
+    }
+    for dependency in fixed_hosts:
+        assert f"depName={dependency} packageName=" in workflow
+
+
+def test_the_release_smoke_runs_the_matrix_definition() -> None:
+    """The pre-publish smoke and the PR matrix are one script, so they cannot disagree about what
+    an installed package must do. The sibling's release smoke calls its script the same way.
+    """
+    for name, manager in (("package-smoke.Dockerfile", "apt"), ("package-smoke-rpm.Dockerfile", "dnf")):
+        dockerfile = (REPO / "packaging" / name).read_text()
+        assert f"test-linux-packages.sh --inside-single {manager} " in dockerfile, name
+        ignore = (REPO / "packaging" / f"{name}.dockerignore").read_text()
+        for script in ("test-linux-packages.sh", "installed-smoke.sh"):
+            assert f"!packaging/{script}" in ignore, f"{name} cannot see {script}"
+    assert '--build-arg EXPECT_VERSION="$raw"' in BUILD_ARCH.read_text()
 
 
 def test_the_bottle_leg_installs_the_formula_the_tag_names() -> None:

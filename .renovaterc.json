@@ -91,16 +91,6 @@
       ]
     },
     {
-      "description": "Debian 13 is the image the release's .deb/.rpm parity check unpacks into (PARITY_IMAGE, build-linux-arch.sh) and the install matrix's current Debian host (install-smoke.Dockerfile). Neither runs on a pull request: the parity check runs only in the release build, and the install matrix tests artifacts after they are published. The PR build job smoke-installs on Ubuntu and Rocky only. Dreame Valetudo automerges this dep because its PR CI runs the same image in its distro package matrix; drop this hold when that matrix is ported here.",
-      "matchDepNames": [
-        "debian-13-current"
-      ],
-      "automerge": false,
-      "prBodyNotes": [
-        "**CI cannot reach this.** No pull-request job runs the Debian 13 image: the parity check runs at release, and the install matrix after publishing. Clear it with a release candidate, then merge."
-      ]
-    },
-    {
       "description": "bleak is the BLE transport provisioning speaks to the robot over. CI proves only that the code around it behaves: tests/test_ble_transport.py fakes the bleak boundary outright, and no runner has a Bluetooth radio, so scanning, pairing, GATT writes and the esp-idf protocomm exchange are never executed against the real library. Green CI therefore says nothing about the path that re-points a robot onto a new broker, so a bump is read by a human. Same reason dreame-valetudo holds pyusb \u2014 see its .renovaterc.json.",
       "automerge": false,
       "matchDepNames": [
