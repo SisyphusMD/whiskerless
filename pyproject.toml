@@ -64,7 +64,7 @@ dev = [
     # renovate: datasource=pypi depName=pytest
     "pytest==9.1.1",
     # renovate: datasource=pypi depName=pytest-asyncio
-    "pytest-asyncio==1.4.0",
+    "pytest-asyncio==1.4.1",
     # renovate: datasource=pypi depName=pytest-cov
     "pytest-cov==7.1.0",
     # Only the repo-invariant tests need it: quality_scale.yaml and the shipped
