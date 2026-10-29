@@ -36,13 +36,13 @@
     "packaging/triage-infra-failure.py": "024f618cb46eb3192d8b818c1b521affc359aaf8a9581d6c9c1f905e0bf373fb",
     "packaging/update-tap.sh": "6c947de2a9cd2ee3826258ce61df5699f9230d3a2f7ab06984719770e04885e7",
     "packaging/wait-for-pypi.sh": "00e3b723203d1522be3050066d5752932962299b748fa37f3ecafe4f1f5aa000",
-    "packaging/wait-for-release.sh": "7cc811571a042d22420b020c63b099a25e2ca37fd9250c4d2da6f87b99cc14fa",
+    "packaging/wait-for-release.sh": "0ef2c5811d4b184b9c716bb219c5218058248652ae124d722507932c20cee964",
     "tests/release/macos-scope.sh": "66a55370a34b258b8ecef872603fcf87168c4b284c12cbc15de4e2ff8d79cac3",
     "tests/release/mirror-ci.sh": "0d6c23a3eae8ebe7d3350ab5efadff65b379c39d2717873516c1d7fde09e47e8",
     "tests/release/prune-rcs.sh": "3a17fca631469abff3565775307429865ce13f77a42e657a01218f2a8ab6a682",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "a358e4dd565a498c7c168a024475b339b39e618d",
+  "source_commit": "c9bae40244dcf8c3d7d76d2a341551393705c8ae",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.34"
+  "source_tag": "v0.1.36"
 }

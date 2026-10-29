@@ -216,6 +216,26 @@ for _role in ${_OPTIONAL_ASSET_ROLES[@]+"${_OPTIONAL_ASSET_ROLES[@]}"}; do
 done
 unset _role _r _known
 
+# Roles a project no longer builds, which reconcile must still heal on the old releases that carry
+# them but which no new release will ever carry: the Intel .pkg, once Intel Macs were dropped. The
+# wait never demands one. Optional does not fit, because an optional role is late until it arrives,
+# and the first release cut after dropping Intel waited out its whole deadline, in both projects,
+# for a .pkg nothing would build.
+retired_asset_role() {  # retired_asset_role <role>
+  local role
+  for role in ${_RETIRED_ASSET_ROLES[@]+"${_RETIRED_ASSET_ROLES[@]}"}; do
+    [ "$1" = "$role" ] && return 0
+  done
+  return 1
+}
+for _role in ${_RETIRED_ASSET_ROLES[@]+"${_RETIRED_ASSET_ROLES[@]}"}; do
+  _known=""
+  for _r in "${_ASSET_ROLES[@]}"; do [ "$_r" = "$_role" ] && _known=1; done
+  [ -n "$_known" ] || { echo "$0: retired role '$_role' is not in _ASSET_ROLES" >&2; exit 2; }
+  ! optional_asset_role "$_role" || { echo "$0: role '$_role' is both optional and retired" >&2; exit 2; }
+done
+unset _role _r _known
+
 carries() {  # carries <asset-names> <glob>
   local name
   while IFS= read -r name; do
@@ -239,6 +259,7 @@ carries() {  # carries <asset-names> <glob>
 missing_roles() {  # missing_roles <asset-names>
   local names="$1" role pred missing="" opt_seen="" opt_missing="" excused=""
   for role in "${_ASSET_ROLES[@]}"; do
+    retired_asset_role "$role" && continue
     if carries "$names" "$role"; then
       optional_asset_role "$role" && opt_seen=1
     elif optional_asset_role "$role"; then
@@ -269,6 +290,9 @@ missing_roles() {  # missing_roles <asset-names>
 # on its own cadence, so counting iterations would make the real budget depend on WHICH thing we are
 # waiting for — a release whose local side went ready early would get a shorter deadline than one
 # that did not, and the documented budget above would stop being the budget.
+# Sourced by tests/test-wait-for-release.sh to exercise the role logic without a network.
+[ -z "${WAIT_FOR_RELEASE_NO_POLL:-}" ] || return 0
+
 DEADLINE=$(( $(date +%s) + ATTEMPTS * INTERVAL ))
 missing=""
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do

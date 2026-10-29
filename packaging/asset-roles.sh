@@ -15,7 +15,7 @@ _ASSET_ROLES=(
   'whiskerless-*-macos-arm64.pkg'
   # Intel Macs are no longer built for, but stable releases that shipped an Intel .pkg are never
   # pruned, and this role is what lets reconcile repair a missing copy of one. Newer tags log a
-  # warn-only "no asset matches" for it.
+  # warn-only "no asset matches" for it, and _RETIRED_ASSET_ROLES keeps the wait from demanding it.
   'whiskerless-*-macos-x86_64.pkg'
   # The standalone binaries carry no extension at all.
   'whiskerless-*-linux-x86_64'
@@ -50,6 +50,13 @@ _OPTIONAL_ASSET_ROLES=(
 # (see above), so reconcile never asks for it; only the wait accepts it, and only in lieu of the pair.
 _OPTIONAL_ASSET_PREDECESSORS=(
   'SHA256SUMS'
+)
+
+# Roles no release cut today carries, kept above only so reconcile can heal the old releases that do.
+# wait-for-release.sh never demands one: listed as an ordinary role, the first release after Intel
+# was dropped waited out the install matrix's whole deadline for a .pkg nothing builds.
+_RETIRED_ASSET_ROLES=(
+  'whiskerless-*-macos-x86_64.pkg'
 )
 
 # Homebrew bottles are NOT reconciled, and that is deliberate rather than an oversight. Note the
