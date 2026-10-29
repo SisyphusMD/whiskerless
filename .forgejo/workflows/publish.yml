@@ -126,11 +126,11 @@ jobs:
         id: setup_python_1
         continue-on-error: true
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_1.outcome != 'success'
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - name: Build + upload
         env:
           TWINE_USERNAME: __token__
@@ -163,11 +163,11 @@ jobs:
         id: setup_python_2
         continue-on-error: true
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_2.outcome != 'success'
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       # NO QEMU. This runner is amd64 and builds only amd64; arm64 is built on a native arm64
       # runner (.github/workflows/release-linux-arm64.yml). buildx is still used because its
       # context and output are client-side streams, which dodges the workspace-visibility problem
@@ -337,11 +337,11 @@ jobs:
         id: setup_python_3
         continue-on-error: true
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_3.outcome != 'success'
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - name: Prove the formula installs before publishing it
         run: |
           set -euo pipefail
@@ -426,11 +426,11 @@ jobs:
         id: setup_python_4
         continue-on-error: true
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_4.outcome != 'success'
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - name: Wait for every bottle manifest on the Forgejo release
         run: |
           set -euo pipefail
