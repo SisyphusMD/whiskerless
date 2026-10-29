@@ -14,6 +14,7 @@
     "packaging/dependency-bumps.sh": "f8d0ee53297e7e257d709b3a7e9e5fc402e7dc8a2e4c8ec76235025a97a93472",
     "packaging/entitlements.plist": "7d4b164998eb6084488799c470d3b7b3d7e01fc3071eedadd00dc4374f56a5c1",
     "packaging/fetch-release-assets.sh": "7ea0d08b74e777db0deac090b8f59da4a5dd0a6d3b4a1935202aaf83432d728b",
+    "packaging/forgejo-preflight.sh": "14664e86d4a9527f0f3c372ed685d33eae3e731eaeb912bccb57bd98ff2dd7fd",
     "packaging/forgejo-release.sh": "dc5e96e22d9f4de7750353fc2fc7610341c99ff7be3160eeea32f9017c81114c",
     "packaging/github-release.sh": "bee5b8da3b1cb5129c1812f4d6211b9b370f63e818e45fcc61ef0b5fb6a7b355",
     "packaging/gitignore.base": "2d17dc175dd28d22fc2912ce4d5afecee080fdba369f3d6c7be3cdd72f9b798e",
@@ -32,7 +33,7 @@
     "packaging/shellcheck-all.sh": "14c87d497082a8982044c61c09207845b010e8a5a6f5eecca657cc4c68677c5d",
     "packaging/sisyphusmd-signing-key.asc": "739991cf1057257f55168c9e898f219d46134e86df804f3136205e5f3a5f2c54",
     "packaging/stamp_common.py": "193824c3c314239432d9648c7f1c98c9ceafebbaa9ffba30806ea39d41b6f701",
-    "packaging/triage-infra-failure.py": "655252e8b8b9310431f0806f405737c95ac4c921d2617ed8715c7e2681c066ec",
+    "packaging/triage-infra-failure.py": "024f618cb46eb3192d8b818c1b521affc359aaf8a9581d6c9c1f905e0bf373fb",
     "packaging/update-tap.sh": "6c947de2a9cd2ee3826258ce61df5699f9230d3a2f7ab06984719770e04885e7",
     "packaging/wait-for-pypi.sh": "00e3b723203d1522be3050066d5752932962299b748fa37f3ecafe4f1f5aa000",
     "packaging/wait-for-release.sh": "7cc811571a042d22420b020c63b099a25e2ca37fd9250c4d2da6f87b99cc14fa",
@@ -41,7 +42,7 @@
     "tests/release/prune-rcs.sh": "3a17fca631469abff3565775307429865ce13f77a42e657a01218f2a8ab6a682",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "8e7e035a2d037aceeb1800a0d58bc7ea23d5eea1",
+  "source_commit": "a358e4dd565a498c7c168a024475b339b39e618d",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.32"
+  "source_tag": "v0.1.34"
 }

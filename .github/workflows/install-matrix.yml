@@ -56,6 +56,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Its own step, first: the anonymous probe retry-infra-failures.yml trusts as proof of an edge ban.
+      - name: Check this runner can reach Forgejo
+        run: sh packaging/forgejo-preflight.sh
       - name: Poll until the release is installable
         id: v
         run: |
@@ -84,6 +87,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Its own step, first: the anonymous probe retry-infra-failures.yml trusts as proof of an edge ban.
+      - name: Check this runner can reach Forgejo
+        run: sh packaging/forgejo-preflight.sh
       - name: The signed .pkg — install it, and check it is really notarized
         env:
           VERSION: ${{ needs.wait.outputs.version }}
@@ -166,6 +172,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Its own step, first: the anonymous probe retry-infra-failures.yml trusts as proof of an edge ban.
+      - name: Check this runner can reach Forgejo
+        run: sh packaging/forgejo-preflight.sh
       # Needed for `--output type=local`, which the default docker driver does not
       # support. No registry mirror here: that one is on our network, not this one.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1

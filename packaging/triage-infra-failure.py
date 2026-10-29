@@ -39,6 +39,14 @@ broke stays red. Both lists grow from observed cases only; a signature that coul
 failure ("connection refused", any timeout) is deliberately absent, because a broker or a fixture
 that failed to start produces those too.
 
+The third class is a runner whose ADDRESS is banned at Forgejo's edge (observed, dreame-valetudo
+v0.3.0-rc.48): hosted runners borrow recycled cloud addresses, and one had been banned for an
+exploit probe hours earlier, so every request it made got HTTP 403. A 403 is also what a revoked
+token gets, so the status alone proves nothing. The proof is structural instead: every job that
+reaches Forgejo first runs `forgejo-preflight.sh` as a step of its own, an anonymous read of a
+public endpoint that Forgejo itself never refuses. Retried only when THAT step failed with THAT
+script's marker; a 403 anywhere else stays ours.
+
 Shared between projects because none of this reasoning is project-specific. What IS project-specific
 is which workflows to watch, and that stays in each repository's own workflow file.
 """
@@ -79,6 +87,18 @@ KNOWN_HOSTS = (
     "ghcr.io",
 )
 
+#: The step every Forgejo-reaching job runs first, and the exact line `forgejo-preflight.sh` prints
+#: when the edge refused the runner. Both must match: the name pins the evidence to the one step whose
+#: only request is anonymous, so an authenticated 403 later in the job can never borrow it.
+PREFLIGHT_STEP = "Check this runner can reach Forgejo"
+EDGE_BAN_SIGNATURE = "forgejo-preflight: edge refused this runner"
+
+#: Steps whose only job is to restate other jobs' results, so they fail exactly when one of those
+#: did: the install matrix's `Verdict` turns a leg's failure into a red summary. Such a step is
+#: never evidence either way, because the jobs it restates are judged on their own; but it cannot
+#: make a run retryable alone, or a leg a human cancelled would come back as a retry.
+DERIVATIVE_STEPS = frozenset({"Verdict"})
+
 #: How far back from the end of the failed step the evidence may sit. A resolver failure that took
 #: the step down is what the failing tool prints on its way out; one printed pages earlier was
 #: survived (a retried fetch, an offline-behaviour test's expected output) and says nothing about
@@ -109,6 +129,23 @@ def transient_network_failure(log: str, step: dict) -> str | None:
     return next((sig for sig in TRANSIENT_NETWORK_SIGNATURES if sig in tail), None)
 
 
+def edge_ban(log: str, step: dict) -> bool:
+    """Whether this is the preflight step, failing because the edge refused the runner's address.
+
+    Reads the step's window INCLUDING both boundary seconds, unlike `_step_lines`: a refused probe
+    finishes in milliseconds, so its whole output sits in the second it started or the next, and the
+    exclusive window would never see it. Borrowing a neighbour's line is harmless here, because the
+    marker is printed only by `forgejo-preflight.sh`, and that script runs only in this step."""
+    if step.get("name") != PREFLIGHT_STEP:
+        return False
+    start, end = step.get("started_at"), step.get("completed_at")
+    if not start or not end:
+        return False
+    start, end = start[:19], end[:19]
+    window = [line for line in log.splitlines() if start <= line[:19] <= end]
+    return EDGE_BAN_SIGNATURE in "\n".join(window[-TAIL_LINES:])
+
+
 def triage(jobs: list[dict], logs: dict[int, str] | None = None) -> tuple[bool, list[str]]:
     """(is_infra, human-readable report). Not infra when there are no failed jobs at all: there is
     then nothing to explain and nothing to re-run. `logs` maps job id to that job's log text; a
@@ -116,12 +153,29 @@ def triage(jobs: list[dict], logs: dict[int, str] | None = None) -> tuple[bool, 
     failed = [j for j in jobs if j.get("conclusion") == "failure"]
     report: list[str] = []
     infra = bool(failed)
+    caused = False
+    # A hang or a cancel is nobody's evidence of a runner fault, and it is not in `failed` to be
+    # judged, so it vetoes outright. Without this a timed-out leg would ride along on another leg's
+    # retry once the summary that used to report it red is exempted as derivative.
+    for job in jobs:
+        if job.get("conclusion") in ("timed_out", "cancelled"):
+            infra = False
+            report.append(f"{job['name']}: {job['conclusion']}; not retrying")
     for job in failed:
         log = (logs or {}).get(job.get("id"), "")
         bad = [s for s in job.get("steps", []) if s.get("conclusion") == "failure"]
         report.append(f"{job['name']}: failed steps={[s['name'] for s in bad] or ['(none recorded)']}")
+        if not bad:
+            caused = True
         for step in bad:
+            if step["name"] in DERIVATIVE_STEPS:
+                report.append(f"    -> {step['name']!r} only restates other jobs; judged by them")
+                continue
+            caused = True
             if step["name"] in RUNNER_PHASES:
+                continue
+            if edge_ban(log, step):
+                report.append(f"    -> {step['name']!r}: the edge refused this runner's address; retryable")
                 continue
             signature = transient_network_failure(log, step)
             if signature:
@@ -129,7 +183,7 @@ def triage(jobs: list[dict], logs: dict[int, str] | None = None) -> tuple[bool, 
                 continue
             infra = False
             report.append(f"    -> our step failed: {step['name']!r}; not retrying")
-    return infra, report
+    return infra and caused, report
 
 
 def load_logs(directory: Path) -> dict[int, str]:

@@ -8,6 +8,7 @@ neither Home Assistant nor a broker, and they fail on the file that drifted.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import re
 import shutil
@@ -1333,6 +1334,62 @@ def test_the_infra_retry_watches_every_github_workflow() -> None:
     unwatched = {n: f for n, f in present.items() if n not in watched and f != retry.name}
     assert unwatched == {}, f"GitHub workflows with no infra-retry cover: {unwatched}"
     assert watched <= set(present), f"watches workflows that do not exist: {watched - set(present)}"
+
+
+#: What makes a GitHub job reach Forgejo: the host, the `FORGE` variable the install matrix sets, or
+#: a vendored script that cannot run without it.
+_REACHES_FORGEJO = re.compile(
+    r"forgejo\.bryantserver\.com|\$\{?FORGE\b|(?:build-bottles|forgejo-release|wait-for-release"
+    r"|check-rc-install-matrix|fetch-release-assets|update-tap)\.sh"
+)
+
+
+def _load_triage() -> Any:
+    spec = importlib.util.spec_from_file_location("triage", REPO / "packaging" / "triage-infra-failure.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_every_github_job_that_reaches_forgejo_probes_it_first() -> None:
+    """Hosted runners borrow recycled addresses, and one CrowdSec has banned gets HTTP 403 from
+    Forgejo for everything. The infra retry accepts that only from the preflight step, by name, so
+    a job that reaches Forgejo without it turns a ban back into a red build nobody can rerun
+    automatically, and a renamed step silently disables the rule for every job at once."""
+    triage = _load_triage()
+    missing, covered = [], 0
+    for path in sorted((REPO / ".github" / "workflows").glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        wide = bool(_REACHES_FORGEJO.search(yaml.safe_dump(workflow.get("env") or {})))
+        for name, job in (workflow.get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            reaches = _REACHES_FORGEJO.search(yaml.safe_dump(job))
+            # A workflow-wide FORGE only counts for jobs that run our code; a pure verdict job that
+            # checks out nothing cannot reach Forgejo through it.
+            uses_code = any(str(st.get("uses", "")).startswith("actions/checkout@") for st in steps)
+            if not (reaches or (wide and uses_code)):
+                continue
+            covered += 1
+            first = str(steps[0].get("uses", "")) if steps else ""
+            probe = steps[1] if len(steps) > 1 else {}
+            # A whole line, so a form that swallows its failure (`... || true`) cannot pass.
+            runs_probe = any(line.strip() == "sh packaging/forgejo-preflight.sh"
+                             for line in probe.get("run", "").splitlines())
+            if (not first.startswith("actions/checkout@")
+                    or probe.get("name") != triage.PREFLIGHT_STEP or not runs_probe):
+                missing.append(f"{path.name}:{name}")
+    assert missing == [], f"jobs that reach Forgejo without checkout then the preflight: {missing}"
+    # The bottle build and publish, the install matrix's three, and both release uploads.
+    assert covered == 7
+
+
+def test_the_install_matrix_verdict_is_known_to_the_triage_as_derivative() -> None:
+    """The summary runs `always()` and fails whenever a leg did, so a banned leg also turns it red.
+    The triage exempts it by step name; renamed, it would veto every install-matrix retry again."""
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "install-matrix.yml").read_text(encoding="utf-8"))
+    names = [st.get("name") for st in workflow["jobs"]["summary"]["steps"]]
+    assert names and set(names) <= _load_triage().DERIVATIVE_STEPS
 
 
 def test_the_retired_signing_key_is_referenced_nowhere() -> None:

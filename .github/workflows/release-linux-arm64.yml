@@ -59,6 +59,16 @@ jobs:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
 
+      # Its own step, first: the anonymous probe retry-infra-failures.yml trusts as proof of an edge ban.
+      - name: Check this runner can reach Forgejo
+        run: |
+          # Dispatched against an older tag, the checkout above holds that tag's tree, which can
+          # predate the probe; such a rebuild runs unprobed rather than failing here.
+          if [ -f packaging/forgejo-preflight.sh ]; then
+            sh packaging/forgejo-preflight.sh
+          else
+            echo "::notice::this tag predates packaging/forgejo-preflight.sh; running without the probe"
+          fi
       # The same tag grammar every other release step enforces, before anything reads the key.
       # A tag can be named freely even though it cannot be a branch, and this job should build
       # only things that are actually releases.
