@@ -23,6 +23,13 @@
 # works anywhere the binaries exist — including inside a buildx stage, which is
 # how the arm64 leg gets tested at all.
 #
+# The broker's config and files live under /etc/mosquitto, where a packaged
+# broker keeps them, so this needs root and a throwaway machine. Not just
+# convention: Ubuntu 26.04 ships an AppArmor profile that confines
+# /usr/sbin/mosquitto to /etc/mosquitto, and a host enforcing it does so inside
+# a build container too. A config under /tmp read as "Unable to open config
+# file" on every arm64 leg once GitHub's runner moved to 26.04.
+#
 # Needs mosquitto, mosquitto_pub and openssl.
 set -uo pipefail
 
@@ -45,12 +52,15 @@ fails=0
 pass() { printf '  ok    %s\n' "$1"; }
 fail() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 
+[ "$(id -u)" = 0 ] || { echo "run as root on a throwaway machine: the broker's files go under /etc/mosquitto" >&2; exit 2; }
 work="$(mktemp -d)"
+etc_conf="/etc/mosquitto/conf.d/whiskerless-smoke-$$.conf"
+etc_certs="/etc/mosquitto/certs/whiskerless-smoke-$$"
 broker_pid=""
 # shellcheck disable=SC2329  # invoked by the EXIT trap below, not by name
 cleanup() {
   [ -z "$broker_pid" ] || kill "$broker_pid" 2>/dev/null
-  rm -rf "$work"
+  rm -rf "$work" "$etc_conf" "$etc_certs"
 }
 trap cleanup EXIT
 
@@ -72,22 +82,26 @@ else
 fi
 
 # --- a broker configured the way the setup guide tells people to ------------------
-conf="$work/mosquitto.conf"
+# Copied out of the store the way the setup guide tells people to install them.
+mkdir -p "$etc_certs" "$(dirname "$etc_conf")"
+install -m 0644 "$store/ca/ca.crt" "$store/broker/server.crt" "$etc_certs/"
+install -m 0600 "$store/broker/server.key" "$etc_certs/"
+conf="$etc_conf"
 cat > "$conf" <<EOF
 listener $PORT
-cafile $store/ca/ca.crt
-certfile $store/broker/server.crt
-keyfile $store/broker/server.key
+cafile $etc_certs/ca.crt
+certfile $etc_certs/server.crt
+keyfile $etc_certs/server.key
 # The strict setting the docs build toward: the robot (and the CLI) must present
 # a certificate this CA signed. Anything less would not answer the question.
 require_certificate true
 use_identity_as_username true
 allow_anonymous false
 EOF
-# mosquitto refuses to read a key it considers world-accessible, and the store is
-# deliberately 0600/0700 — so it runs as whoever owns the store rather than
-# dropping privileges to the `mosquitto` user it would pick by default.
-echo "user $(id -un)" >> "$conf"
+# mosquitto refuses to read a key it considers world-accessible, so the key is
+# 0600 root — and the broker runs as root rather than dropping privileges to the
+# `mosquitto` user it would pick by default, which could not read it.
+echo "user root" >> "$conf"
 mosquitto -c "$conf" > "$work/mosquitto.log" 2>&1 &
 broker_pid=$!
 

@@ -92,6 +92,11 @@ keyfile  /mosquitto/certs/server.key
 require_certificate false
 ```
 
+The paths above are the official container's. On a broker installed from a package (Debian,
+Ubuntu, Raspberry Pi OS), copy the three files into `/etc/mosquitto/certs/` and point the config
+there, not at `~/whiskerless`. Ubuntu 26.04 confines mosquitto with an AppArmor profile that lets
+it read only `/etc/mosquitto`, so a path into your home directory fails with "Unable to open".
+
 Start it:
 
 ```bash
