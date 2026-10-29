@@ -97,12 +97,35 @@ jobs:
           python-version: "3.15.1"
       - name: Install
         run: |
+          # The runner image ships aws/tap, which Homebrew's tap-trust check flags on every brew
+          # call; only homebrew-core formulae are installed, so drop the stray tap instead.
+          brew untap aws/tap 2>/dev/null || true
+          # bash because macOS ships 3.2, which the release scripts are not written for.
+          brew install bash shellcheck
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,ble]"
+      - name: Lint and type-check
+        # Platform-independent, so cheap insurance rather than new coverage; run here as in the
+        # sibling so the two macOS gates make the same claim.
+        run: |
+          ruff check $(git ls-files '*.py' | tr '\n' ' ')
+          mypy
       - name: Pytest (library)
-        # No lint or mypy leg: those are platform-independent and already run on
-        # Linux. What is macOS-specific is whether the code imports and runs.
         run: pytest -q
+      - name: Check shell scripts
+        # Every tracked script, at DEFAULT severity — the same set and threshold every other
+        # gate uses. A hand-listed set of directories silently stops covering a script added
+        # outside them, which is how a shell defect reaches a release green.
+        run: git ls-files '*.sh' | xargs shellcheck
+      - name: Run the release scripts' tests on BSD userland
+        # What IS platform-specific about the shell: the macOS release jobs run these scripts on
+        # BSD sed, date and stat, and a GNU-only flag passes every Linux gate.
+        run: |
+          for t in tests/release/*.sh; do
+            echo "== $t =="
+            bash "$t"
+          done
       - name: Import the BLE stack on this platform
         # bleak resolves its backend at import time (CoreBluetooth here, BlueZ on
         # Linux). The suite fakes bleak at the transport boundary, so nothing

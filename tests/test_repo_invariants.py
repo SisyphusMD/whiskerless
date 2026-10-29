@@ -3221,6 +3221,16 @@ def test_linux_package_matrix_keeps_floors_alongside_current_releases() -> None:
         assert f"depName={dependency} packageName=" in workflow
 
 
+def test_native_macos_ci_runs_the_same_gates_as_the_sibling() -> None:
+    """Lint, types, the suite, shellcheck and the release-script tests, on BSD userland. The
+    sibling asserts the same of its ci-macos.yml; the BLE import is whiskerless's own addition."""
+    macos = MACOS_CI.read_text()
+    for gate in ("ruff check $(git ls-files '*.py' | tr '\\n' ' ')", "mypy", "pytest -q",
+                 "git ls-files '*.sh' | xargs shellcheck", "tests/release/*.sh",
+                 "brew install bash shellcheck", "import bleak"):
+        assert gate in macos, gate
+
+
 def test_both_macos_release_jobs_run_the_package_test() -> None:
     """One definition of a good .pkg, run where it is built (floor) and where it is downloaded
     (current), as in the sibling. Gatekeeper, the staple, the receipt version and the real
