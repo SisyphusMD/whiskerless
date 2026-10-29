@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.15.1"
+          python-version: "3.15.2"
       - name: Shellcheck
         # The release path is shell scripts that only run during a release, so
         # a mistake in one surfaces while cutting it rather than in review. ruff
