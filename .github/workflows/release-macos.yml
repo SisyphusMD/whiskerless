@@ -103,21 +103,11 @@ jobs:
           bash packaging/retry.sh 5 xcrun notarytool submit "$PKG" \
             --key notary.p8 --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" --wait
           bash packaging/retry.sh 5 xcrun stapler staple "$PKG"
-      - name: Install the signed package, run it, and remove it
-        run: |
-          set -euo pipefail
-          PKG="whiskerless-${GITHUB_REF_NAME#v}-macos-${{ matrix.arch }}.pkg"
-          # Gatekeeper's own verdict first: `installer` does not enforce notarization, so a
-          # successful install proves nothing about whether a user could run it.
-          spctl -a -vvv -t install "$PKG" 2>&1 | tee /tmp/spctl.txt
-          grep -qi accepted /tmp/spctl.txt
-          grep -qi notarized /tmp/spctl.txt \
-            || { echo "::error::pkg is signed but NOT notarized"; exit 1; }
-          sudo installer -pkg "$PKG" -target /
-          bash packaging/installed-smoke.sh /usr/local/bin/whiskerless "${GITHUB_REF_NAME#v}"
-          # Left behind, the `current` job would test a binary this runner installed rather than
-          # the one it downloaded.
-          sudo rm -f /usr/local/bin/whiskerless
+      - name: Install, exercise, and uninstall the signed package
+        run: >-
+          bash packaging/test-macos-package.sh
+          "whiskerless-${GITHUB_REF_NAME#v}-macos-${{ matrix.arch }}.pkg"
+          "${{ matrix.arch }}" "${GITHUB_REF_NAME#v}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pkg-${{ matrix.arch }}
@@ -152,9 +142,8 @@ jobs:
           shopt -s nullglob
           pkgs=(*-macos-${{ matrix.arch }}.pkg)
           [ "${#pkgs[@]}" -eq 1 ] || { echo "::error::expected 1 pkg, found ${#pkgs[@]}"; exit 1; }
-          sudo installer -pkg "${pkgs[0]}" -target /
-          bash packaging/installed-smoke.sh /usr/local/bin/whiskerless "${GITHUB_REF_NAME#v}"
-          sudo rm -f /usr/local/bin/whiskerless
+          bash packaging/test-macos-package.sh \
+            "${pkgs[0]}" "${{ matrix.arch }}" "${GITHUB_REF_NAME#v}"
 
   publish:
     name: Append the signed .pkg to the GitHub + Forgejo releases

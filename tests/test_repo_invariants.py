@@ -3221,6 +3221,19 @@ def test_linux_package_matrix_keeps_floors_alongside_current_releases() -> None:
         assert f"depName={dependency} packageName=" in workflow
 
 
+def test_both_macos_release_jobs_run_the_package_test() -> None:
+    """One definition of a good .pkg, run where it is built (floor) and where it is downloaded
+    (current), as in the sibling. Gatekeeper, the staple, the receipt version and the real
+    `uninstall` path each fail a release that inline install-and-smoke steps let through."""
+    release = RELEASE_MACOS.read_text()
+    assert release.count("bash packaging/test-macos-package.sh") == 2
+    script = (REPO / "packaging" / "test-macos-package.sh").read_text()
+    for check in ("spctl -a -vvv -t install", "xcrun stapler validate", "pkgutil --pkg-info",
+                  "codesign --verify --strict", "packaging/installed-smoke.sh", " uninstall",
+                  "uninstall-must-preserve"):
+        assert check in script, check
+
+
 def test_the_release_smoke_runs_the_matrix_definition() -> None:
     """The pre-publish smoke and the PR matrix are one script, so they cannot disagree about what
     an installed package must do. The sibling's release smoke calls its script the same way.
