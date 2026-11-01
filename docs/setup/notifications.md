@@ -27,7 +27,7 @@ What it does:
 
 - The title is the robot's name as you see it in Home Assistant, renames included. The
   message says what to do. On iPhone a small "whiskerless" line sits between them;
-  Android has no such line.
+  Android has no such line, and tints the corner icon whiskerless teal instead.
 - Faults, a full-drawer lockout and an offline robot are **time-sensitive** on iOS
   (they break through Focus) and high priority on Android. They also ignore quiet hours.
 - In **quiet hours** everything else still arrives, silently. On Android the silent ones
