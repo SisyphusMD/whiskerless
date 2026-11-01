@@ -84,7 +84,7 @@ was.
 |---|---|---|---|
 | `0x07` | unitPowerType | **`0` = mains, `1` = battery** — proven by pulling AC and restoring it | PROVEN |
 | `0x31` | unitPowerStatus | **`1` powered, `0` powering down.** Unchanged across a mains→battery→mains transition, which is what kept it LOW for so long — but a panel power cycle moves it: `0x310000` two seconds after a written power-off, `0x310001` two seconds after the physical press that brought it back (2026-08-16, 1.1.75) | PROVEN |
-| `0x38` | isUSBPowerOn | **mains present, not USB** — went 1→0 with AC out and back, with the hopper untouched throughout. The LR4 has no user USB power; the field is misnamed | PROVEN |
+| `0x38` | isUSBPowerOn | **not simply mains present.** It went 1→0 with AC out and back, with the hopper untouched — but robot 1 has read 0 on mains for days since a battery-flat reboot (2026-10-28; owner confirms it is plugged in, and a direct read returned 0 on 2026-11-01) while its hopper still dispensed, and robot 2 reads 1. Perhaps a latched power-path flag the flat-battery reboot cleared (the Empty + Connect chord is documented as toggling USB power). Nothing reads it | CONTRADICTED |
 | `0x32` | sleepStatus | `1` inside the panel sleep window, `0` outside. **PROVEN by hand 2026-08-16 on BOTH robots**: holding Cycle (the panel's own sleep chord, `0x0202`) drove `0x320001` within a second on each, and a second hold drove `0x320000` — 31 minutes clear of the scheduled boundary, so it is following the sleep state and not the clock. Five nights of ten-for-ten schedule matches could never have separated those two. | PROVEN |
 | `0x34` | robotStatus **on the state doc only** | On the ACTIVITY stream this register is overloaded: 67 of 208 emissions are not enum members — `0x02C0` is the clean-delay tick and `0x_064`/`0x_065` are pre-cycle markers. It also never carries `25`, though 140 state documents do. Decoding activity `0x34` through the enum yields `unknown_704` for a third of it | PROVEN (field) / see note (activity) |
 | `0x35` | globe motor fault | **The state field does not mirror it.** A live fault (`0x350001` ×3, cleared 50 min later by `0x350000`) arrived only on the activity stream, in messages whose envelope is `type: "fault"`, while `globeMotorFaultStatus` read 0 in all 1198 of that robot's state documents — six of them sampled mid-fault. Read the activity stream, not the field | PROVEN (activity) / CONTRADICTED (field) |
@@ -363,8 +363,8 @@ still exist, because the stock ESP firmware decides what reaches MQTT.
   inert weight on it. Both readings fit "the scale says something is there", so this is a
   naming difference more than a contradiction. Our state-doc `25` = cat detected never
   appears on their list or on our activity stream.
-- **USB power:** they name `0x04` "isUSBPowerOn" from log strings. We proved `0x38`
-  carries that field and that it actually means mains present.
+- **USB power:** they name `0x04` "isUSBPowerOn" from log strings. `0x38` carries that
+  field; our "mains present" reading of it has since been contradicted (see the `0x38` row).
 
 `0x33` also lines up with something we saw: both our robots read `34` there, which is
 `0x22`, "connected", in their table.

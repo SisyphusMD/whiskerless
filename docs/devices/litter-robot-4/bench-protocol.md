@@ -31,7 +31,7 @@ three seconds, note the time, then hold again to undo.
 | **Reset** | `0x18` nightLightMode, `0x3B` LED | auto night light is a mode we expose; nobody has watched the panel set it |
 | **Empty** | `0x16` cleanCycleWaitTime | we ship this as a 3–30 number; if the panel steps it differently our range is wrong |
 | **Cycle + Reset** | `0x17` isKeypadLockout | panel lockout is a switch we expose |
-| **Empty + Connect** | `0x38` isUSBPowerOn | `0x38` is documented as "mains present, not USB" and misnamed — this is the test that says so |
+| **Empty + Connect** | `0x38` isUSBPowerOn | `0x38` was documented as "mains present"; that is now contradicted (robot 1 reads 0 on mains since a flat-battery reboot), so this chord is the test that says what it is |
 
 Tell me the time of each hold. If one of these moves a register that is *not* in
 its row, that is the finding.

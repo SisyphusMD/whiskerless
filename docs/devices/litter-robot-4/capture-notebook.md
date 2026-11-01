@@ -99,9 +99,10 @@ Raw pulls and scripts stayed outside the repo.
   emissions, every one with `DFIFullCounter` 2–7).
 - **`0x50` may be supply voltage in tenths of a volt:** 129–130 at three mains losses, 146–148
   on mains. Untested; a type-1 read against a multimeter would settle it.
-- **Open: robot 1 reads `isUSBPowerOn` 0 on mains since its 10-28 battery-flat reboot**
-  (1,394 documents), against the `0x38` = "mains present" reading. Either that decode is
-  incomplete or something about its supply changed.
+- **Robot 1 reads `isUSBPowerOn` 0 on mains since its 10-28 battery-flat reboot** (1,394
+  documents). The owner confirms it was unplugged for a while and has been plugged in since,
+  a direct `0x38` read on 11-01 returned 0 (robot 2: 1), and its hopper dispensed that
+  morning. So `0x38` is not "mains present"; `registers.md` now says CONTRADICTED.
 - New `robotCycleStatus` 12 (11 documents, robot 1's 10-28 boot cycle), and new `0x4F` /
   `0x34` values that fit the existing `0xX06Y` pattern.
 
