@@ -35,7 +35,8 @@ What it does:
   phone's settings.
 - A newer alert of the same kind replaces the older one, and an alert is removed from
   the phone when its condition clears (turn that off under **Quiet hours and
-  clearing**). An offline robot coming back says "Back online." instead.
+  clearing**). An offline robot coming back says "Back online." instead. On iPhone the
+  removal can lag by a couple of minutes, because iOS chooses when to wake the app for it.
 - Tapping a notification opens the robot's device page.
 - **Picture** is optional and shows full width when you expand a notification. Copy an
   image into your `config/www` folder and give its path, such as `/local/litterbox.png`.
