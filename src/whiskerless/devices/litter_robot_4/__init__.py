@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import calibration, commands, const, derive, models, protocol
+from . import alerts, calibration, commands, const, derive, models, protocol
 from .codec import (
     ActivityReading,
     decode_activity_code,
@@ -49,6 +49,7 @@ __all__ = [
     "LitterRobot4State",
     "LitterRobotEvent",
     "StateMessage",
+    "alerts",
     "build_command_payload",
     "calibration",
     "commands",

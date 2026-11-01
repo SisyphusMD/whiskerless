@@ -52,6 +52,7 @@ from whiskerless.devices.litter_robot_4.derive import (
     LearnedChanged,
     VisitEnded,
 )
+from whiskerless.devices.litter_robot_4.models import litter_level_percent_from_mm
 from whiskerless.devices.litter_robot_4.protocol import (
     ActivityMessage,
     StateMessage,
@@ -128,6 +129,20 @@ class WhiskerlessData:
     # What the user measured, for the diagnostic sensor. Deliberately not the
     # learned value: "at the line" is a claim only a person can make.
     litter_reference_mm: int | None = None
+
+    @property
+    def litter_percent(self) -> int | None:
+        """Litter %, against this robot's calibration when it has one.
+
+        A percentage the firmware reports itself always wins: it is the device's own
+        answer, and calibration exists only to replace our approximation of it.
+        """
+        robot = self.robot
+        if robot.litter_level_reported or robot.litter_level_mm is None:
+            return robot.litter_level
+        return litter_level_percent_from_mm(
+            robot.litter_level_mm, full_mm=self.litter_full_mm, empty_mm=self.litter_empty_mm
+        )
 
 
 class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):

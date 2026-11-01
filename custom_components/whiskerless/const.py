@@ -64,6 +64,18 @@ CONF_MAINTENANCE = "maintenance"
 SIGNAL_CLEAN_CYCLE = "whiskerless_clean_cycle_{}"
 # Dispatcher signal for a finished cat visit, formatted with the serial.
 SIGNAL_CAT_VISIT = "whiskerless_cat_visit_{}"
+
+# Fired on Home Assistant's bus once per alert change; the notification blueprint
+# and any automation listen for it. Documented in docs/setup/notifications.md.
+EVENT_ALERT = "whiskerless_alert"
+# Which condition alerts are active, so a restart does not announce them again.
+CONF_ACTIVE_ALERTS = "active_alerts"
+# Recent visit weights, the baseline for the weight-change alert.
+CONF_WEIGHT_HISTORY = "weight_history"
+# When the last visit ended, which the no-visit alert needs across a restart.
+CONF_LAST_VISIT = "last_visit"
+# The thresholds set in the integration's options.
+CONF_ALERT_SETTINGS = "alert_settings"
 CONF_LITTER_EMPTY_MM = "litter_empty_mm"
 
 # Default device name; the user can override it when adding a discovered robot,

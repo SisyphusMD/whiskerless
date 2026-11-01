@@ -256,5 +256,35 @@
     "panel_locked": {
       "message": "Control lock is on, and a locked Litter-Robot ignores button presses, including this one. Turn off Control lock first."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Alert thresholds",
+        "description": "When the whiskerless_alert events fire. Which alerts reach your phone is chosen in the notification blueprint.",
+        "data": {
+          "drawer_level_percent": "Drawer level alert",
+          "litter_low_percent": "Low litter alert",
+          "no_visit_hours": "No visit alert",
+          "long_visit_minutes": "Long visit alert",
+          "frequent_visits_per_hour": "Frequent visits alert",
+          "weight_change_percent": "Weight change alert",
+          "deep_clean_days": "Deep clean every",
+          "filter_days": "Carbon filter every",
+          "globe_clean_days": "Globe clean every"
+        },
+        "data_description": {
+          "drawer_level_percent": "Alert when the waste drawer reaches this level.",
+          "litter_low_percent": "Alert when litter drops to this level.",
+          "no_visit_hours": "Alert when no cat has visited for this long.",
+          "long_visit_minutes": "Alert when one visit lasts at least this long.",
+          "frequent_visits_per_hour": "Alert when this many visits happen within an hour.",
+          "weight_change_percent": "Alert when a weighed visit differs from the usual weight by this much. The usual weight mixes every cat that uses this robot.",
+          "deep_clean_days": "Whisker recommends at least every 3 months.",
+          "filter_days": "Whisker recommends monthly.",
+          "globe_clean_days": "Whisker recommends every 1 to 3 months."
+        }
+      }
+    }
   }
 }

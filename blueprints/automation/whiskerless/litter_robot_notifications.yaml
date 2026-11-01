@@ -1,0 +1,305 @@
+blueprint:
+  name: Litter-Robot 4 notifications (whiskerless)
+  description: >-
+    Phone notifications for one or more Litter-Robot 4 boxes run by the whiskerless
+    integration, replacing the ones the Whisker app sent. Pick the phones and robots,
+    tick the alerts you want, and set quiet hours when the ones that can wait arrive silently. Faults,
+    a full-drawer lockout and an offline robot are time-sensitive and ignore quiet
+    hours. A newer alert replaces the older one of the same kind, and an alert is
+    removed from the phone when its condition clears.
+
+
+    The rules for when each alert fires (hold times, thresholds) live in the
+    integration: its options page sets the thresholds, and every alert arrives as a
+    `whiskerless_alert` event that any automation can use.
+  domain: automation
+  author: SisyphusMD
+  source_url: https://github.com/SisyphusMD/whiskerless/blob/main/blueprints/automation/whiskerless/litter_robot_notifications.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    who:
+      name: Who and which robots
+      icon: mdi:cellphone-message
+      input:
+        phones:
+          name: Phones
+          description: Home Assistant Companion app devices to notify.
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        notify_action:
+          name: Other notify action
+          description: >-
+            Optional, for anything that is not a Companion app phone, for example
+            `notify.family`. Gets the title and message only.
+          default: ""
+          selector:
+            text:
+        robots:
+          name: Robots
+          description: Leave empty for every whiskerless robot.
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: whiskerless
+        image:
+          name: Picture
+          description: >-
+            Optional picture shown in the notification. Put a file in your `www`
+            folder and give its path, for example `/local/whiskerless.png`.
+          default: ""
+          selector:
+            text:
+    faults:
+      name: Faults (time-sensitive)
+      icon: mdi:alert-octagon
+      collapsed: true
+      input:
+        globe_fault:
+          name: Globe motor fault
+          default: true
+          selector: { boolean: {} }
+        bonnet_removed:
+          name: Bonnet off for 5 minutes
+          default: true
+          selector: { boolean: {} }
+        drawer_full_lockout:
+          name: Drawer-full lockout
+          default: true
+          selector: { boolean: {} }
+        cat_sensor_blocked:
+          name: Cat sensor blocked for 30 minutes
+          default: true
+          selector: { boolean: {} }
+        excess_weight:
+          name: Scale busy for 30 minutes
+          default: true
+          selector: { boolean: {} }
+        stuck_cycle:
+          name: Paused mid-cycle for 30 minutes
+          default: true
+          selector: { boolean: {} }
+        offline:
+          name: Offline for 15 minutes, and back online
+          default: true
+          selector: { boolean: {} }
+    drawer:
+      name: Drawer and litter
+      icon: mdi:delete-variant
+      collapsed: true
+      input:
+        drawer_full:
+          name: Drawer full
+          default: true
+          selector: { boolean: {} }
+        drawer_level:
+          name: Drawer reaches the level set in the integration's options
+          default: false
+          selector: { boolean: {} }
+        litter_low:
+          name: Litter low
+          default: true
+          selector: { boolean: {} }
+        hopper_empty:
+          name: Hopper empty
+          default: true
+          selector: { boolean: {} }
+        hopper_disconnected:
+          name: Hopper disconnected
+          default: false
+          selector: { boolean: {} }
+    health:
+      name: Cat health
+      icon: mdi:cat
+      collapsed: true
+      input:
+        no_visit:
+          name: No visit for a while
+          default: false
+          selector: { boolean: {} }
+        frequent_visits:
+          name: Many visits in an hour
+          default: false
+          selector: { boolean: {} }
+        long_visit:
+          name: A long visit
+          default: false
+          selector: { boolean: {} }
+        weight_change:
+          name: Weight far from the usual
+          default: false
+          selector: { boolean: {} }
+        visit:
+          name: Every visit, with its length and weight
+          default: false
+          selector: { boolean: {} }
+    maintenance:
+      name: Maintenance
+      icon: mdi:spray-bottle
+      collapsed: true
+      input:
+        deep_clean_due:
+          name: Deep clean due
+          default: true
+          selector: { boolean: {} }
+        filter_due:
+          name: Carbon filter due
+          default: true
+          selector: { boolean: {} }
+        globe_clean_due:
+          name: Globe clean due
+          default: false
+          selector: { boolean: {} }
+    activity:
+      name: Activity
+      icon: mdi:history
+      collapsed: true
+      input:
+        cycle_completed:
+          name: Clean cycle finished
+          default: false
+          selector: { boolean: {} }
+        panel_lock_changed:
+          name: Control lock changed at the robot
+          default: false
+          selector: { boolean: {} }
+    behaviour:
+      name: Quiet hours and clearing
+      icon: mdi:sleep
+      collapsed: true
+      input:
+        quiet_hours:
+          name: Quiet hours
+          description: >-
+            In this window, everything except time-sensitive alerts arrives silently.
+            On Android the silent ones use their own notification channel, "whiskerless_quiet".
+          default: false
+          selector: { boolean: {} }
+        quiet_start:
+          name: Quiet from
+          default: "22:00:00"
+          selector: { time: {} }
+        quiet_end:
+          name: Quiet until
+          default: "07:00:00"
+          selector: { time: {} }
+        clear_resolved:
+          name: Remove an alert from the phone when it clears
+          default: true
+          selector: { boolean: {} }
+
+mode: queued
+max: 25
+max_exceeded: silent
+
+triggers:
+  - trigger: event
+    event_type: whiskerless_alert
+
+variables:
+  phones: !input phones
+  notify_action: !input notify_action
+  robots: !input robots
+  image: !input image
+  clear_resolved: !input clear_resolved
+  quiet_hours: !input quiet_hours
+  quiet_start: !input quiet_start
+  quiet_end: !input quiet_end
+  wanted:
+    globe_fault: !input globe_fault
+    bonnet_removed: !input bonnet_removed
+    drawer_full_lockout: !input drawer_full_lockout
+    cat_sensor_blocked: !input cat_sensor_blocked
+    excess_weight: !input excess_weight
+    stuck_cycle: !input stuck_cycle
+    offline: !input offline
+    drawer_full: !input drawer_full
+    drawer_level: !input drawer_level
+    litter_low: !input litter_low
+    hopper_empty: !input hopper_empty
+    hopper_disconnected: !input hopper_disconnected
+    no_visit: !input no_visit
+    frequent_visits: !input frequent_visits
+    long_visit: !input long_visit
+    weight_change: !input weight_change
+    visit: !input visit
+    deep_clean_due: !input deep_clean_due
+    filter_due: !input filter_due
+    globe_clean_due: !input globe_clean_due
+    cycle_completed: !input cycle_completed
+    panel_lock_changed: !input panel_lock_changed
+  alert: "{{ trigger.event.data.alert }}"
+  kind: "{{ trigger.event.data.event }}"
+  urgent: "{{ trigger.event.data.urgent }}"
+  tag: "whiskerless_{{ trigger.event.data.serial }}_{{ alert }}"
+  # "Back online" is worth saying; every other clearing just removes the alert.
+  announce: "{{ kind != 'cleared' or alert == 'offline' }}"
+  quiet: >-
+    {% set t = now().strftime('%H:%M:%S') %}
+    {% set inside = quiet_start <= t < quiet_end if quiet_start <= quiet_end
+                    else t >= quiet_start or t < quiet_end %}
+    {{ quiet_hours and not urgent and inside }}
+  services: >-
+    {% set ns = namespace(out=[]) %}
+    {% for phone in phones %}
+      {% set ns.out = ns.out + ['notify.mobile_app_' ~ (device_attr(phone, 'name') | slugify)] %}
+    {% endfor %}
+    {{ ns.out }}
+  push: >-
+    {% set d = {'tag': tag, 'group': 'whiskerless', 'url': '/config/devices/device/' ~ trigger.event.data.device_id,
+                'clickAction': '/config/devices/device/' ~ trigger.event.data.device_id} %}
+    {% if urgent and kind == 'raised' %}
+      {% set d = dict(d, push={'interruption-level': 'time-sensitive'}, priority='high', ttl=0) %}
+    {% elif quiet %}
+      {% set d = dict(d, push={'interruption-level': 'passive'}, channel='whiskerless_quiet', importance='low') %}
+    {% endif %}
+    {% if image %}
+      {% set d = dict(d, image=image) %}
+    {% endif %}
+    {{ d }}
+
+conditions:
+  - condition: template
+    value_template: "{{ wanted.get(alert, false) }}"
+  - condition: template
+    value_template: "{{ robots | length == 0 or trigger.event.data.device_id in robots }}"
+  - condition: template
+    value_template: "{{ announce or clear_resolved }}"
+
+actions:
+  - if:
+      - "{{ announce }}"
+    then:
+      - repeat:
+          for_each: "{{ services }}"
+          sequence:
+            - action: "{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                title: "{{ trigger.event.data.robot }}"
+                message: "{{ trigger.event.data.message }}"
+                data: "{{ push }}"
+      - if:
+          - "{{ notify_action != '' }}"
+        then:
+          - action: "{{ notify_action }}"
+            continue_on_error: true
+            data:
+              title: "{{ trigger.event.data.robot }}"
+              message: "{{ trigger.event.data.message }}"
+    else:
+      - repeat:
+          for_each: "{{ services }}"
+          sequence:
+            - action: "{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                message: clear_notification
+                data:
+                  tag: "{{ tag }}"

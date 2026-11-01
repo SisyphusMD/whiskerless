@@ -31,7 +31,6 @@ from whiskerless.devices.litter_robot_4 import LitterRobot4State, derive
 from whiskerless.devices.litter_robot_4.calibration import hopper_percent_provisional
 from whiskerless.devices.litter_robot_4.models import (
     LITTER_DEFAULT_FULL_MM,
-    litter_level_percent_from_mm,
 )
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator, WhiskerlessData
@@ -161,17 +160,7 @@ class WhiskerlessDataSensorEntityDescription(SensorEntityDescription):
 # unknown from an HA restart until the next cat visit or dispense — potentially
 # hours.
 def _litter_percent(data: WhiskerlessData) -> StateType:
-    """Litter %, against this robot's calibration when it has one.
-
-    A percentage the firmware reports itself always wins: it is the device's own
-    answer, and calibration exists only to replace our approximation of it.
-    """
-    robot = data.robot
-    if robot.litter_level_reported or robot.litter_level_mm is None:
-        return robot.litter_level
-    return litter_level_percent_from_mm(
-        robot.litter_level_mm, full_mm=data.litter_full_mm, empty_mm=data.litter_empty_mm
-    )
+    return data.litter_percent
 
 
 def _hopper_level(data: WhiskerlessData) -> StateType:

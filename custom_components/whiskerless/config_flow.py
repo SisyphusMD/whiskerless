@@ -8,15 +8,36 @@ manual "Add Integration" entry just explains that setup is discovery-driven.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_NAME
-from homeassistant.helpers.selector import TextSelector
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    TextSelector,
+)
 from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 
-from .const import CONF_SERIAL, DEFAULT_NAME, DOMAIN
+from .alerts import alert_settings
+from .const import CONF_ALERT_SETTINGS, CONF_SERIAL, DEFAULT_NAME, DOMAIN
+
+# (min, max, unit) for each alert threshold on the options page.
+_THRESHOLDS: dict[str, tuple[int, int, str]] = {
+    "drawer_level_percent": (50, 100, "%"),
+    "litter_low_percent": (5, 80, "%"),
+    "no_visit_hours": (4, 96, "h"),
+    "long_visit_minutes": (1, 30, "min"),
+    "frequent_visits_per_hour": (2, 20, "visits"),
+    "weight_change_percent": (3, 50, "%"),
+    "deep_clean_days": (7, 365, "d"),
+    "filter_days": (7, 180, "d"),
+    "globe_clean_days": (7, 365, "d"),
+}
 
 
 def _serial_from_topic(topic: str) -> str | None:
@@ -32,6 +53,12 @@ class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._serial: str | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> WhiskerlessOptionsFlow:
+        """The alert thresholds the notification events use."""
+        return WhiskerlessOptionsFlow()
 
     async def async_step_mqtt(self, discovery_info: MqttServiceInfo) -> ConfigFlowResult:
         """Handle a robot discovered on the MQTT broker."""
@@ -72,3 +99,28 @@ class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Manual add is unsupported — robots are discovered automatically."""
         return self.async_abort(reason="discovery_only")
+
+
+class WhiskerlessOptionsFlow(OptionsFlow):
+    """Edit the alert thresholds; every other option on the entry is kept as it was.
+
+    The entry's options also hold what the integration learned and the alerts it
+    has active, so the result merges into them rather than replacing them.
+    """
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        options = dict(self.config_entry.options)
+        if user_input is not None:
+            chosen = {name: int(value) for name, value in user_input.items()}
+            return self.async_create_entry(data={**options, CONF_ALERT_SETTINGS: chosen})
+        current = asdict(alert_settings(options))
+        schema = {
+            vol.Required(name, default=current[name]): NumberSelector(
+                NumberSelectorConfig(
+                    min=low, max=high, step=1, unit_of_measurement=unit,
+                    mode=NumberSelectorMode.BOX,
+                )
+            )
+            for name, (low, high, unit) in _THRESHOLDS.items()
+        }
+        return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))

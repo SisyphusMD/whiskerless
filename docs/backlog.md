@@ -51,8 +51,7 @@ marker, and #64 read as open for four days after it shipped.
 - ~~**#80**~~ — solved: pairing mode holds the WiFi station down and never ends by
   itself; only a completed provision restores it.
 
-**Design conversations, not code yet:** #43 (replacing the app's notifications),
-#44 (firmware updates, which collide with a safety invariant), #89 (provisioning from Home
+**Design conversations, not code yet:** #44 (firmware updates, which collide with a safety invariant), #89 (provisioning from Home
 Assistant over its own Bluetooth stack, with an external issuer so the CA signing key stays out of HA),
 #90 (telling a robot that has left the broker apart from one that is merely not answering).
 
@@ -674,7 +673,7 @@ be told to look at, and what the robot does when a drawer is pulled and reseated
 All four are in `docs/devices/litter-robot-4/bench-protocol.md`, to be answered
 in one trip.
 
-### #43 — Replace the Whisker app's notifications — **designed 2026-11-01, not built**
+### #43 — Replace the Whisker app's notifications — **BUILT 2026-11-01**
 
 Going local silently loses every push notification the Whisker app sent.
 Confirm the app's real list first (drawer full, cat visit, cycle complete,
@@ -744,7 +743,19 @@ the other, `0xBC` landing 4–9 s before it. The 25 → 7 step itself is the cat
 leaving: the weight arrives 9–80 s after it, but 0–7 s after the sensors clear (118 of 130),
 so the event waits 15 s for it.
 
-**Still to build:** the blueprint.
+**Alerts and blueprint, built 2026-11-01.** The rules for WHEN live in the library
+(`devices/litter_robot_4/alerts.py`: conditions with hold times, moments, English messages),
+and the integration fires each change as one `whiskerless_alert` bus event, re-checking every
+minute so holds and due dates elapse with no new message. What is active and the last ten
+weights persist on the entry, so a restart announces nothing twice. Thresholds are the
+integration's options page. The blueprint
+(`blueprints/automation/whiskerless/litter_robot_notifications.yaml`) only routes: phones,
+robots, a toggle per alert, quiet hours that deliver silently rather than drop, and
+clear-on-resolve by tag. Chosen over entity-triggered blueprints because the hold, threshold
+and restart rules would otherwise be reimplemented in Jinja. Guide: `docs/setup/notifications.md`.
+
+Not yet seen on a real phone: the iOS time-sensitive level and Android channel keys are the
+Companion app's documented ones, tested only as the payload HA would send.
 
 ### #44 — DISCUSS: can we ever offer firmware updates? (collides with a safety invariant)
 
@@ -1306,11 +1317,8 @@ file list printed twice, `--debug` not enabling the request log).
 Nothing here blocks the 0.2.0 release. Each item is deliberately *not* being
 rushed into it, with the reason recorded so it is not re-litigated every cut.
 
-**Design conversations owed, both deferred to a later version:**
+**Design conversation owed, deferred to a later version:**
 
-- **#43 — replacing the Whisker app's notifications.** Local MQTT gives events,
-  not push. Whatever we recommend becomes the answer everyone copies, so it
-  wants a designed answer rather than an automation snippet dashed off.
 - **#44 — could we ever offer firmware updates?** Collides head-on with the
   safety invariant: `0xA3`/`0xA4` are refused unconditionally and there is no
   override flag. The likely honest outcome is a documented *no* with the

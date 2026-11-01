@@ -231,7 +231,7 @@ breaks software already running on other people's machines. What is promised:
 
 - **`whiskerless`** — everything in its `__all__`.
 - **`whiskerless.devices.<device>`** — everything in its `__all__`, including the submodules it
-  re-exports (`calibration`, `commands`, `const`, `derive`, `models`, `protocol`) and the names in
+  re-exports (`alerts`, `calibration`, `commands`, `const`, `derive`, `models`, `protocol`) and the names in
   each of those modules' own `__all__`.
 
 Everything else is internal and may be renamed, moved or deleted without notice.

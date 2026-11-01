@@ -341,7 +341,8 @@ automatically (the robot commits those with a little latency).
 - **Keep working when the internet doesn't.** Everything above runs on your LAN,
   so an ISP outage or a Whisker service incident changes nothing.
 
-Ready-to-copy automations and dashboard cards are in
+Phone notifications that replace the Whisker app's come from one blueprint; see
+[Notifications](notifications.md). Ready-to-copy automations and dashboard cards are in
 [`examples/litter-robot-4/`](../../examples/litter-robot-4/) — drawer-full
 alerts, fault alerts, weight logging, and night-light scheduling.
 

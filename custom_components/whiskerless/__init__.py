@@ -9,6 +9,7 @@ from typing import Any
 from awesomeversion import AwesomeVersion
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state
 from homeassistant.loader import async_get_integration
@@ -20,6 +21,7 @@ from whiskerless.devices.litter_robot_4.derive import Capability, Evidence
 from . import binary_sensor, button, event, number, select, sensor, switch
 from . import date as date_platform
 from . import time as time_platform
+from .alerts import AlertPublisher, async_clear_setup_failure, async_report_setup_failure
 from .const import (
     CONF_DERIVED,
     CONF_HOPPER_FILL_RAW,
@@ -560,7 +562,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
     # coordinator reads the options.
     _seed_missing_gauge(hass, entry)
     coordinator = WhiskerlessCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except ConfigEntryNotReady:
+        async_report_setup_failure(hass, entry)
+        raise
+    async_clear_setup_failure(hass, entry)
 
     entry.runtime_data = coordinator
     await _remove_retired_entities(hass, entry)
@@ -573,6 +580,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
     # they will keep rather than being created and immediately moved.
     _rename_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # After the platforms, so the device exists for the events to name.
+    entry.async_on_unload(AlertPublisher(hass, coordinator).async_start())
     # Again, for entries the platforms just created. If that flipped anything a
     # reload is queued, so the bootstrap readings have to survive to seed it.
     if not _enable_detected_entities(hass, entry):
