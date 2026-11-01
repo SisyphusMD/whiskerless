@@ -254,7 +254,8 @@ variables:
     {{ ns.out }}
   page: "/config/devices/device/{{ trigger.event.data.device_id }}"
   push: >-
-    {% set d = {'tag': tag, 'group': 'whiskerless', 'url': page, 'clickAction': page} %}
+    {% set d = {'tag': tag, 'group': 'whiskerless', 'subtitle': 'whiskerless', 'url': page,
+                'clickAction': page} %}
     {% if urgent and kind == 'raised' %}
       {% set d = dict(d, push={'interruption-level': 'time-sensitive'}, priority='high', ttl=0) %}
     {% elif quiet %}

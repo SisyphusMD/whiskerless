@@ -93,6 +93,7 @@ async def test_an_urgent_fault_is_time_sensitive_and_opens_the_robot(
     assert data["message"] == "globe_fault raised"
     push = data["data"]
     assert push["tag"] == "whiskerless_LR4X_globe_fault"
+    assert push["subtitle"] == "whiskerless"
     assert push["push"] == {"interruption-level": "time-sensitive"}
     assert push["url"] == push["clickAction"] == f"/config/devices/device/{devices['upstairs']}"
     assert push["image"] == "/local/whiskerless.png"
