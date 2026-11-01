@@ -51,8 +51,9 @@ blueprint:
         image:
           name: Picture
           description: >-
-            Optional picture shown in the notification. Put a file in your `www`
-            folder and give its path, for example `/local/whiskerless.png`.
+            Optional picture shown full width when a notification is expanded. Put a
+            file in your `www` folder and give its path, for example
+            `/local/litterbox.png`.
           default: ""
           selector:
             text:
@@ -251,16 +252,18 @@ variables:
       {% set ns.out = ns.out + ['notify.mobile_app_' ~ (device_attr(phone, 'name') | slugify)] %}
     {% endfor %}
     {{ ns.out }}
+  page: "/config/devices/device/{{ trigger.event.data.device_id }}"
   push: >-
-    {% set d = {'tag': tag, 'group': 'whiskerless', 'url': '/config/devices/device/' ~ trigger.event.data.device_id,
-                'clickAction': '/config/devices/device/' ~ trigger.event.data.device_id} %}
+    {% set d = {'tag': tag, 'group': 'whiskerless', 'url': page, 'clickAction': page} %}
     {% if urgent and kind == 'raised' %}
       {% set d = dict(d, push={'interruption-level': 'time-sensitive'}, priority='high', ttl=0) %}
     {% elif quiet %}
       {% set d = dict(d, push={'interruption-level': 'passive'}, channel='whiskerless_quiet', importance='low') %}
     {% endif %}
+    {# The Open button is not decoration: since Companion iOS 2026.9.3 a picture only
+       shows on a notification that carries at least one action. #}
     {% if image %}
-      {% set d = dict(d, image=image) %}
+      {% set d = dict(d, image=image, actions=[{'action': 'URI', 'title': 'Open', 'uri': page}]) %}
     {% endif %}
     {{ d }}
 

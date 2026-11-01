@@ -36,8 +36,10 @@ What it does:
   the phone when its condition clears (turn that off under **Quiet hours and
   clearing**). An offline robot coming back says "Back online." instead.
 - Tapping a notification opens the robot's device page.
-- **Picture** is optional. Copy any image into your `config/www` folder and give its
-  path, such as `/local/whiskerless.png`. The small corner icon is always Home
+- **Picture** is optional and shows full width when you expand a notification. Copy an
+  image into your `config/www` folder and give its path, such as `/local/litterbox.png`.
+  A notification with a picture also gets an **Open** button, because Companion for iOS
+  2026.9.3 and later show no picture without one. The small corner icon is always Home
   Assistant's; nothing a blueprint sends can change that.
 - **Other notify action** takes any `notify.*` action (a group, Telegram, a TV) and
   sends it the title and message only.

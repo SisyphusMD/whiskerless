@@ -96,6 +96,16 @@ async def test_an_urgent_fault_is_time_sensitive_and_opens_the_robot(
     assert push["push"] == {"interruption-level": "time-sensitive"}
     assert push["url"] == push["clickAction"] == f"/config/devices/device/{devices['upstairs']}"
     assert push["image"] == "/local/whiskerless.png"
+    assert push["actions"] == [{"action": "URI", "title": "Open", "uri": push["url"]}]
+
+
+async def test_without_a_picture_there_is_no_open_button(
+    hass: HomeAssistant, tmp_path: Path, devices: dict[str, str]
+) -> None:
+    calls = await _automation(hass, tmp_path, phones=[devices["phone"]])
+    await _alert(hass, devices["upstairs"], "drawer_full", "raised")
+    assert "image" not in calls[-1].data["data"]
+    assert "actions" not in calls[-1].data["data"]
 
 
 async def test_a_cleared_alert_is_removed_and_offline_says_back_online(
