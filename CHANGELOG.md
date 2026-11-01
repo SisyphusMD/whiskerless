@@ -6,6 +6,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Clean cycle, Reset and the other panel buttons now refuse while Control lock is on, and say
+  why. A locked robot ignores these presses, so the CLI reported a press that never happened and
+  Home Assistant blamed the robot for not answering.
+
 - `whiskerless uninstall` works from the `.deb`, `.rpm`, `.pkg` and standalone binary. It reported
   each one as a second, pip install too, then failed trying to remove that. As root it no longer
   needs `sudo`, which containers and minimal servers often lack.

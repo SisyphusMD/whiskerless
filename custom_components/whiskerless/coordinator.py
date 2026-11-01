@@ -521,6 +521,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         unrelated reasons, which would turn "no evidence" into a false success.
         """
         async with self._io_lock:
+            self._refuse_if_panel_locked()
             self._press_echo.clear()
             self._awaited_press = command.value
             try:
@@ -553,6 +554,20 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         raise WhiskerlessError(
             f"{command.label} was not acknowledged — check the robot before repeating it"
         )
+
+    def _refuse_if_panel_locked(self) -> None:
+        """Refuse a press the robot would drop, rather than report it as failed.
+
+        A locked panel ignores a written ``0x01`` press exactly as it ignores a finger
+        on the button (a clean cycle under the lock on 1.1.75 never ran; with the lock
+        off it ran at once). Left to the confirmation, the user would be told the press
+        "was not acknowledged" and to check the robot, which names the wrong cause.
+
+        Called holding ``_io_lock`` and read from the newest decoded state, so a press
+        queued behind a write that turns the lock on sees the lock.
+        """
+        if self._robot is not None and self._robot.keypad_lockout:
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="panel_locked")
 
     async def async_clean_cycle(self) -> None:
         """Run a clean cycle. The robot reports its own progress from there."""
@@ -609,6 +624,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         Silence is the expected outcome, so the publish is the whole operation.
         """
         async with self._io_lock:
+            self._refuse_if_panel_locked()
             await self._publish(commands.wifi_toggle(), allow_dangerous=True)
 
     async def async_panel_reset(self) -> None:

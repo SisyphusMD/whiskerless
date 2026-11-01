@@ -29,7 +29,7 @@ value pattern from a single cycle — accumulate in
 |---|---|---|---|
 | `0x0E` | DisplayIntensity High/Low | panel brightness (hi byte = High, lo byte = Low) | PROVEN |
 | `0x16` | cleanCycleWaitTime | minutes the robot waits before cycling | PROVEN |
-| `0x17` | isKeypadLockout | control lock 0/1 | PROVEN |
+| `0x17` | isKeypadLockout | control lock 0/1. While on, the robot also drops written `0x01` presses: a clean cycle sent locked never ran, and ran at once unlocked (one trial, 2026-11-01, 1.1.75). Every press is refused while it is on | PROVEN |
 | `0x18` | nightLightMode | 0 = off, 1 = on, 2 = auto | PROVEN |
 | `0x19` | nightLightBrightness | 0–100 % | PROVEN |
 | `0x1A` | isPanelSleepMode | 0/1 — **read-only**, follows `0x1D`, see below | PROVEN |
@@ -331,7 +331,8 @@ still exist, because the stock ESP firmware decides what reaches MQTT.
 
 - **Panel lockout (`0x17`) also blocks synthesised presses.** With the keypad locked, a
   written `0x02010201` would be ignored like a finger on the panel, so our clean cycle and
-  reset would silently do nothing (backlog #92).
+  reset would silently do nothing (backlog #92). *Confirmed for the clean cycle on 1.1.75,
+  2026-11-01; see the `0x17` row.*
 - **Drawer-full lockout.** `0x44` sets after three consecutive `0x43` readings over 80%,
   each later cycle increments `0x45`, and at 3 the robot stops detecting cats and refuses
   manual cycles until Reset. Reset clears `0x44` and `0x42` only from Ready, and both come

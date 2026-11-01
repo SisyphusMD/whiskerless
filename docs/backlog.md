@@ -39,7 +39,7 @@ marker, and #64 read as open for four days after it shipped.
   `0x0234000C` is written up there.
 - **#91** — debug mode (`0x05`) may stream a live scale reading every second; one
   bench trial settles whether stock ESP forwards it.
-- **#92** — panel lockout may silently swallow our clean cycle and reset presses.
+- ~~**#92**~~ — closed: panel lockout does swallow our presses, so they are now refused while it is on.
 - ~~**#51**~~ — closed: the firmware's own descriptor tables enumerate every message
   type and none is a read.
 - **#15** / **#20** — the rolling capture: keep analysing, and retire the pod when
@@ -2171,7 +2171,7 @@ in the settings bank with no row there.
 
 **Not a dreame-valetudo item.** It is an LR4 register.
 
-### #92 — Does panel lockout silently swallow our clean cycle and reset? — **open**
+### #92 — Does panel lockout silently swallow our clean cycle and reset? — **DONE 2026-11-01**
 
 The esphome-litter-robot UART reference says panel lockout (`0x17`) makes the robot ignore
 panel input, synthesised presses included. If that is true, a user who turns on our
@@ -2183,6 +2183,13 @@ lockout off and confirm the same command cycles. If the press is swallowed, deci
 refusing the command up front with a clear error while lockout is on, and lifting lockout
 for the press and restoring it. Refusing is simpler and does not quietly undo a setting the
 user chose. Either way the HA buttons should say why, not just log.
+
+**Result, 2026-11-01 (one robot, 1.1.75, one trial each way):** with lockout on, `clean-cycle`
+was accepted and the robot stayed ready for 90 s with the clean odometer unchanged at 9127;
+with lockout off the same command cycled at once (9128). Fixed by refusing: the CLI checks a
+fresh state document before each press and the HA coordinator checks its cached one, and both
+name Control lock as the reason. All five presses are refused, not just the cycle that was
+tested, because every one is the same written `0x01` press the lock drops.
 
 **Not a dreame-valetudo item.** It is LR4 panel behaviour.
 

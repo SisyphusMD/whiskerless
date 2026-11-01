@@ -67,6 +67,15 @@ class FakeLink:
         assert_sendable(command.code, allow_dangerous=allow_dangerous)
         FakeLink.published.append((command.code, allow_dangerous))
 
+    async def request_state(self) -> None:
+        return None
+
+    async def messages(self) -> Any:
+        # A robot that never answers: every press first asks whether the panel is
+        # locked, and an unknown lock is not a reason to refuse.
+        return
+        yield  # pragma: no cover - unreachable, keeps this a generator
+
 
 @pytest.fixture(scope="module")
 def _cli_loop() -> Any:
@@ -122,6 +131,69 @@ def test_an_action_confirmed_at_the_prompt_is_sent(command: str, code: str) -> N
 def test_yes_skips_the_prompt_for_the_recoverable_actions(command: str) -> None:
     """Both are undoable from the same connection, so scripting them is allowed."""
     assert _run(command, *BASE, "--yes") == 0
+    assert len(FakeLink.published) == 1
+
+
+_PRESSES = [
+    ("clean-cycle", "yes"),
+    ("empty-cycle", "yes"),
+    ("panel-reset", None),
+    ("power", "yes"),
+    ("wifi-toggle", "yes"),
+]
+
+
+@pytest.mark.parametrize(("command", "answer"), _PRESSES)
+def test_a_press_under_control_lock_is_refused_before_the_prompt(
+    command: str, answer: str | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A locked panel drops written presses too, so "requested" would be a lie.
+
+    Refused before the confirmation, so nobody agrees to a press that is then not sent.
+    """
+    locked = _armed(_state_message(keypad_lockout=True))
+    with (
+        patch("whiskerless.cli.LitterRobot4Link", locked),
+        patch("builtins.input", side_effect=AssertionError("prompted")),
+    ):
+        assert main([command, *BASE]) == 1
+    assert FakeLink.published == []
+    assert "keypad-lockout off" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("command", "answer"), _PRESSES)
+def test_a_press_with_control_lock_off_is_sent(command: str, answer: str | None) -> None:
+    unlocked = _armed(_state_message(keypad_lockout=False))
+    with patch("whiskerless.cli.LitterRobot4Link", unlocked):
+        assert _run(command, *BASE, answer=answer) == 0
+    assert len(FakeLink.published) == 1
+
+
+@pytest.mark.parametrize(("command", "answer"), [p for p in _PRESSES if p[1]])
+def test_the_lock_check_has_hung_up_before_anyone_is_prompted(
+    command: str, answer: str
+) -> None:
+    """The prompt blocks the event loop, so a connection held across it would miss its
+    keepalives and could drop the press the person then confirms."""
+    open_links: list[object] = []
+
+    class Counted(_armed(_state_message(keypad_lockout=False))):  # type: ignore[misc]
+        async def __aenter__(self) -> FakeLink:
+            open_links.append(self)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            open_links.remove(self)
+
+    def prompt(_: str) -> str:
+        assert open_links == []
+        return answer
+
+    with (
+        patch("whiskerless.cli.LitterRobot4Link", Counted),
+        patch("builtins.input", side_effect=prompt),
+    ):
+        assert main([command, *BASE]) == 0
     assert len(FakeLink.published) == 1
 
 

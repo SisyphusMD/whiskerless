@@ -189,6 +189,9 @@
     },
     "litter_reading_unavailable": {
       "message": "No usable litter reading right now — the robot is mid-cycle. Try again once it is idle."
+    },
+    "panel_locked": {
+      "message": "Control lock is on, and a locked Litter-Robot ignores button presses, including this one. Turn off Control lock first."
     }
   }
 }

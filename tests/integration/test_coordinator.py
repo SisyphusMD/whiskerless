@@ -11,6 +11,8 @@ waited out; what is under test is the retry and give-up behaviour, not the clock
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
 import json
 from datetime import timedelta
 from unittest.mock import patch
@@ -262,6 +264,57 @@ async def test_a_press_with_no_lasting_trace_is_confirmed_by_its_echo(
         await getattr(coordinator, method)()
 
     assert sent.count(expected) == 1
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "async_clean_cycle",
+        "async_empty_cycle",
+        "async_panel_reset",
+        "async_power_toggle",
+        "async_wifi_toggle",
+    ],
+)
+async def test_a_press_under_control_lock_is_refused_and_never_sent(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str, method: str
+) -> None:
+    """A locked panel drops written presses too, so sending one only buys a misleading
+    "not acknowledged" after the timeout. The refusal names the lock instead."""
+    locked = json.loads(state_payload)
+    locked["isKeypadLockout"] = 1
+    robot = await setup_integration(hass, mock_config_entry, json.dumps(locked))
+    coordinator = mock_config_entry.runtime_data
+
+    with (
+        robot_online(robot),
+        capture_writes(robot, echo=True) as sent,
+        pytest.raises(HomeAssistantError) as refused,
+    ):
+        await getattr(coordinator, method)()
+
+    assert refused.value.translation_key == "panel_locked"
+    assert not [code for code in sent if code.startswith("0x0201")]
+
+
+async def test_a_press_queued_behind_the_lock_being_turned_on_is_refused(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The check runs holding the command lock, so a press that waited out a Control
+    lock write sees the lock that write committed, not the state from before it."""
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    coordinator = mock_config_entry.runtime_data
+
+    with robot_online(robot), capture_writes(robot, echo=True) as sent:
+        async with coordinator._io_lock:
+            press = hass.async_create_task(coordinator.async_clean_cycle())
+            await asyncio.sleep(0)
+            coordinator._robot = dataclasses.replace(coordinator._robot, keypad_lockout=True)
+        with pytest.raises(HomeAssistantError) as refused:
+            await press
+
+    assert refused.value.translation_key == "panel_locked"
+    assert not [code for code in sent if code.startswith("0x0201")]
 
 
 async def test_the_empty_cycle_is_confirmed_by_its_own_odometer(

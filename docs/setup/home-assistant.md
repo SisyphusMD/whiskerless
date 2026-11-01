@@ -335,6 +335,10 @@ taking the robot off your broker and out of Home Assistant in under a second, wi
 the panel light turning white. Home Assistant has no confirmation prompt for a
 button press, so treat them accordingly.
 
+While **Control lock** is on, every one of these buttons is refused with a message saying
+so. A locked robot ignores presses from Home Assistant just as it ignores a finger on the
+panel. Turn Control lock off first.
+
 **The filter-change wizard cannot be started remotely.** Its panel chord is a long
 press, and the robot performs short presses over MQTT while declining long ones. Use
 the panel for that one. See

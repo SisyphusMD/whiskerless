@@ -263,6 +263,37 @@ def _link(
 _DRAIN_SECONDS = 0.25
 
 
+# How long a press waits to learn whether the panel is locked. A robot that has not
+# answered by then is sent the press anyway; see _refuse_if_panel_locked.
+_LOCK_CHECK_SECONDS = 10.0
+
+
+async def _refuse_if_panel_locked(args: argparse.Namespace, profile: RobotProfile) -> bool:
+    """True, having said why, when Control lock is on and the robot would drop the press.
+
+    A locked panel ignores a written ``0x01`` press exactly as it ignores a finger on
+    the button: on 1.1.75 a clean cycle sent under the lock was accepted and never ran,
+    and the same command cycled at once with the lock off. Sending it anyway would
+    print "requested" for a press that cannot happen. A robot that does not answer is
+    not refused, because the lock is then unknown and refusing would turn a slow state
+    document into a command that never works.
+
+    Its own connection, closed before any confirmation prompt: the prompt blocks the
+    event loop, and a connection held across it would miss its keepalives.
+    """
+    async with _link(args, profile=profile) as link:
+        robot = await _fresh_state(link, _LOCK_CHECK_SECONDS)
+    if robot is None or not robot.keypad_lockout:
+        return False
+    print(
+        f"refused: Control lock is on for {profile.display_name}, and a locked robot ignores "
+        "button presses, including this one. Turn it off first: "
+        "whiskerless set keypad-lockout off",
+        file=sys.stderr,
+    )
+    return True
+
+
 # --- command handlers --------------------------------------------------------
 async def _cmd_monitor(args: argparse.Namespace) -> int:
     # Resolved before the banner: args.serial is None whenever the robot comes
@@ -328,6 +359,8 @@ async def _cmd_set(args: argparse.Namespace) -> int:
 
 async def _cmd_clean_cycle(args: argparse.Namespace) -> int:
     profile = _profile(args)
+    if await _refuse_if_panel_locked(args, profile):
+        return 1
     if not args.yes and not _confirm(
         f"Run a clean cycle on {profile.display_name}? The globe will turn. Type 'yes': "
     ):
@@ -341,6 +374,8 @@ async def _cmd_clean_cycle(args: argparse.Namespace) -> int:
 
 async def _cmd_empty_cycle(args: argparse.Namespace) -> int:
     profile = _profile(args)
+    if await _refuse_if_panel_locked(args, profile):
+        return 1
     if not args.yes:
         _console.banner("EMPTY CYCLE — the globe dumps ALL of its litter")
     if not args.yes and not _confirm(
@@ -364,6 +399,8 @@ async def _cmd_power(args: argparse.Namespace) -> int:
     # does not say which robot is being switched off is not informed consent, and with two robots
     # saved this is the command where guessing wrong is unrecoverable.
     profile = _profile(args)
+    if await _refuse_if_panel_locked(args, profile):
+        return 1
     _console.banner("POWER TOGGLES — switched off, the robot leaves the network")
     if not _confirm(
         f"Press Power on {profile.display_name}? This TOGGLES the robot. If it turns OFF it "
@@ -383,6 +420,8 @@ async def _cmd_wifi_toggle(args: argparse.Namespace) -> int:
     # off the network. --yes does not skip the prompt, and the guard still has to
     # be opted past explicitly.
     profile = _profile(args)
+    if await _refuse_if_panel_locked(args, profile):
+        return 1
     _console.banner("CONNECT TOGGLES WIFI — switched off, the robot leaves the network")
     if not _confirm(
         f"Press Connect on {profile.display_name}? This TOGGLES the robot's WiFi. If it turns "
@@ -400,7 +439,7 @@ async def _cmd_wifi_toggle(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _fresh_state(args: argparse.Namespace, link: LitterRobot4Link) -> LitterRobot4State | None:
+async def _fresh_state(link: LitterRobot4Link, timeout: float) -> LitterRobot4State | None:
     """Ask for a state document and return the first one that lands.
 
     Every derived view here is built from ONE document, so it has to be a fresh
@@ -420,7 +459,7 @@ async def _fresh_state(args: argparse.Namespace, link: LitterRobot4Link) -> Litt
     try:
         # aclosing, because returning from inside the loop leaves the generator
         # suspended for the garbage collector to finalise whenever it likes.
-        async with asyncio.timeout(args.timeout), aclosing(link.messages()) as stream:
+        async with asyncio.timeout(timeout), aclosing(link.messages()) as stream:
             async for message in stream:
                 if isinstance(message, StateMessage):
                     return message.state
@@ -487,7 +526,7 @@ async def _cmd_status(args: argparse.Namespace) -> int:
     """
     profile = _profile(args)
     async with _link(args, profile=profile) as link:
-        robot = await _fresh_state(args, link)
+        robot = await _fresh_state(link, args.timeout)
     if robot is None:
         print("no state document received (is the robot online?)", file=sys.stderr)
         return 1
@@ -589,7 +628,7 @@ async def _cmd_calibrate(args: argparse.Namespace) -> int:
     profile = _profile(args)
     empty = args.point == "empty"
     async with _link(args, profile=profile) as link:
-        robot = await _fresh_state(args, link)
+        robot = await _fresh_state(link, args.timeout)
     if robot is None:
         print("no state document received (is the robot online?)", file=sys.stderr)
         return 1
@@ -682,7 +721,10 @@ async def _cmd_calibrate(args: argparse.Namespace) -> int:
 
 async def _cmd_panel_reset(args: argparse.Namespace) -> int:
     """Press Reset: acknowledge a full-drawer alarm, or release a stalled cycle."""
-    async with _link(args) as link:
+    profile = _profile(args)
+    if await _refuse_if_panel_locked(args, profile):
+        return 1
+    async with _link(args, profile=profile) as link:
         await link.publish(commands.panel_reset())
     print("reset press sent")
     return 0
