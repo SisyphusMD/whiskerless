@@ -737,10 +737,14 @@ codes 6, 4/5 and 3 by outside reference, so they ride on the globe-fault `cause`
 fault is probably code 1 (timeout). Laser board, dirty sensor and motion in drawer have no
 local signal yet. Side findings are in the capture notebook.
 
-**Still to build:** the Cat visit event. `0xBC` (visit duration) comes from only one of the
-two robots, so it cannot be the trigger; the robot's own status walk (cat detected →
-countdown → cycle) looks universal but needs checking against the capture first. Then the
-blueprint.
+**Cat visit event, built 2026-11-01.** `0xBC` comes from only one robot, so the trigger is the
+robot's own walk: status 25 (cat detected) → 7 (countdown) and catDetect reading 0. Over the
+30-day capture that fired 220 times against 222 cycles on one robot and 129 against 132 on
+the other, `0xBC` landing 4–9 s before it. The 25 → 7 step itself is the cat settling, not
+leaving: the weight arrives 9–80 s after it, but 0–7 s after the sensors clear (118 of 130),
+so the event waits 15 s for it.
+
+**Still to build:** the blueprint.
 
 ### #44 — DISCUSS: can we ever offer firmware updates? (collides with a safety invariant)
 

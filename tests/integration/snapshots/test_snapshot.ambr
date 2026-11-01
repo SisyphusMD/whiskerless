@@ -925,6 +925,63 @@
     'state': 'unknown',
   })
 # ---
+# name: test_the_entity_surface[event.litter_robot_4_cat_visit-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': dict({
+      'event_types': list([
+        'visit',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'event',
+    'entity_category': None,
+    'entity_id': 'event.litter_robot_4_cat_visit',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Cat visit',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Cat visit',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'cat_visit',
+    'unique_id': 'LR4C000001_cat_visit',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_the_entity_surface[event.litter_robot_4_cat_visit-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'event_type': None,
+      'event_types': list([
+        'visit',
+      ]),
+      'friendly_name': 'Litter-Robot 4 Cat visit',
+    }),
+    'context': <ANY>,
+    'entity_id': 'event.litter_robot_4_cat_visit',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
 # name: test_the_entity_surface[event.litter_robot_4_clean_cycle-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({

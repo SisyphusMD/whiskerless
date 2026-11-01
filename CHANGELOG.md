@@ -6,7 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-- A **Clean cycle** event fires when a cycle finishes, for automations and alerts.
+- **Cat visit** and **Clean cycle** events fire when a visit ends (with its length and the
+  cat's weight) and when a cycle finishes, for automations and alerts.
 - **Last deep clean**, **Last carbon filter change** and **Last globe clean** dates you set
   when you do the job, so reminders know when the next one is due.
 - A globe motor fault now says what the robot reported as its cause, such as a pinch or low

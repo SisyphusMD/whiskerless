@@ -62,6 +62,8 @@ CONF_MAINTENANCE = "maintenance"
 
 # Dispatcher signal for a finished clean cycle, formatted with the serial.
 SIGNAL_CLEAN_CYCLE = "whiskerless_clean_cycle_{}"
+# Dispatcher signal for a finished cat visit, formatted with the serial.
+SIGNAL_CAT_VISIT = "whiskerless_cat_visit_{}"
 CONF_LITTER_EMPTY_MM = "litter_empty_mm"
 
 # Default device name; the user can override it when adding a discovered robot,

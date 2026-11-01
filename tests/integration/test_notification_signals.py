@@ -3,7 +3,9 @@ maintenance dates, and the cause carried by a globe-motor fault."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+from unittest.mock import patch
 
 import pytest
 from custom_components.whiskerless.const import CONF_MAINTENANCE
@@ -14,6 +16,7 @@ from . import robot_online, setup_integration
 from .const import ACTIVITY_TOPIC
 
 CYCLE = "event.litter_robot_4_clean_cycle"
+VISIT = "event.litter_robot_4_cat_visit"
 DEEP_CLEAN = "date.litter_robot_4_last_deep_clean"
 GLOBE = "binary_sensor.litter_robot_4_globe_motor_fault"
 
@@ -129,3 +132,43 @@ async def test_a_fault_raised_only_in_the_state_document_still_names_its_cause(
     held = hass.states.get(GLOBE)
     assert held.state == "on"
     assert held.attributes["cause"] == "under_voltage"
+
+
+_real_sleep = asyncio.sleep
+
+
+async def _no_wait(_: float) -> None:
+    """Skip the grace wait but still yield, as the real one does: Home Assistant
+    starts tasks eagerly, so a sleep that never yields fires before the weight lands."""
+    await _real_sleep(0)
+
+
+async def test_a_visit_fires_with_the_weight_that_lands_just_after_it(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """The weight arrives seconds after the sensors clear, so the event waits for it."""
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    assert hass.states.get(VISIT).state == "unknown"
+
+    with robot_online(robot), patch("custom_components.whiskerless.coordinator.asyncio.sleep", _no_wait):
+        robot.push(_doc(state_payload, robotStatus=25, catDetect=3))
+        robot.push(_doc(state_payload, robotStatus=7, catDetect=0))
+        # Before the grace wait has run: the weight still counts.
+        robot.push(_activity("0x0903AC"), ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+
+    fired = hass.states.get(VISIT)
+    assert fired.attributes["event_type"] == "visit"
+    assert fired.attributes["weight_lb"] == 9.4
+    assert isinstance(fired.attributes["duration_s"], int)
+
+
+async def test_an_unweighed_visit_still_fires(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    with robot_online(robot), patch("custom_components.whiskerless.coordinator.asyncio.sleep", _no_wait):
+        robot.push(_doc(state_payload, robotStatus=25, catDetect=1))
+        robot.push(_doc(state_payload, robotStatus=7, catDetect=0))
+        await hass.async_block_till_done()
+    assert hass.states.get(VISIT).attributes["weight_lb"] is None

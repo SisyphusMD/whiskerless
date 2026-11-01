@@ -204,6 +204,11 @@ before settling.
 
 **Events**
 
+- **Cat visit** — fires `visit` when a visit the robot counted ends (it starts its
+  countdown and its cat sensors read clear), with the visit's length in seconds and the
+  cat's weight when the scale took one. It waits 15 seconds after the cat leaves, because
+  the weight arrives just after. A detection the robot dropped without a countdown — a
+  hand on the bonnet, a false trigger — never fires it.
 - **Clean cycle** — fires `completed` when a cycle ends back at ready, with the cycle
   count and the drawer level that cycle measured. Only cycles Home Assistant watched
   start are announced, so a restart never reports a cycle that already finished.

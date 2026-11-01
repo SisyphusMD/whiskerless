@@ -203,6 +203,22 @@
       }
     },
     "event": {
+      "cat_visit": {
+        "name": "Cat visit",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "visit": "Visit"
+            }
+          },
+          "duration_s": {
+            "name": "Duration"
+          },
+          "weight_lb": {
+            "name": "Weight"
+          }
+        }
+      },
       "clean_cycle": {
         "name": "Clean cycle",
         "state_attributes": {

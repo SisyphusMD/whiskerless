@@ -50,6 +50,7 @@ from whiskerless.devices.litter_robot_4.derive import (
     FirmwareChanged,
     HopperFillChanged,
     LearnedChanged,
+    VisitEnded,
 )
 from whiskerless.devices.litter_robot_4.protocol import (
     ActivityMessage,
@@ -76,6 +77,7 @@ from .const import (
     DOMAIN,
     HEARTBEAT_INTERVAL,
     LOGGER,
+    SIGNAL_CAT_VISIT,
     SIGNAL_CLEAN_CYCLE,
 )
 
@@ -381,6 +383,10 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                         async_dispatcher_send(
                             self.hass, SIGNAL_CLEAN_CYCLE.format(self.serial), effect
                         )
+                    elif isinstance(effect, VisitEnded):
+                        task = self.hass.async_create_task(self._announce_visit(effect))
+                        self._tasks.add(task)
+                        task.add_done_callback(self._tasks.discard)
             else:
                 if update.changed and self._robot is not None:
                     self.async_set_updated_data(self._build_data(self._robot))
@@ -412,6 +418,20 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         task = self.hass.async_create_task(self._safe_request_state())
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    async def _announce_visit(self, visit: VisitEnded) -> None:
+        """Announce a finished visit once its weight has had time to arrive.
+
+        The weight lands a few seconds AFTER the robot's sensors clear, so firing
+        at the end itself would report almost every visit as unweighed.
+        """
+        await asyncio.sleep(derive.VISIT_WEIGHT_GRACE.total_seconds())
+        async_dispatcher_send(
+            self.hass,
+            SIGNAL_CAT_VISIT.format(self.serial),
+            visit,
+            derive.visit_weight(self._derived, visit),
+        )
 
     async def _safe_request_state(self) -> None:
         with contextlib.suppress(WhiskerlessError, HomeAssistantError):

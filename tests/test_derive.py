@@ -28,6 +28,7 @@ from whiskerless.devices.litter_robot_4.derive import (
     FirmwareChanged,
     HopperFillChanged,
     LearnedChanged,
+    VisitEnded,
     apply_message,
     excess_weight,
     globe_motor_faulted,
@@ -35,6 +36,7 @@ from whiskerless.devices.litter_robot_4.derive import (
     hopper_level_percent,
     litter_scale,
     sighting_stands,
+    visit_weight,
 )
 from whiskerless.devices.litter_robot_4.protocol import ActivityMessage, StateMessage
 
@@ -593,3 +595,80 @@ def test_a_running_cycle_is_not_carried_over_a_restart() -> None:
     assert "cycle_running" not in running.as_dict()
     restored = DerivedState.from_dict(running.as_dict())
     assert _cycles(apply_message(restored, _state(robotStatus=4), T0)) == []
+
+
+# --- the end of a cat visit ---------------------------------------------------
+def _visits(update: object) -> list[VisitEnded]:
+    assert hasattr(update, "effects")
+    return [e for e in update.effects if isinstance(e, VisitEnded)]
+
+
+def _walk(*steps: tuple[dict[str, object], int]) -> tuple[DerivedState, list[VisitEnded]]:
+    """Fold (fields, seconds-after-T0) state documents and collect visits."""
+    state, seen = DerivedState(), []
+    for fields, at in steps:
+        update = apply_message(state, _state(**fields), T0 + timedelta(seconds=at))
+        state, seen = update.state, seen + _visits(update)
+    return state, seen
+
+
+def test_a_visit_ends_when_the_sensors_clear_during_the_countdown() -> None:
+    _, visits = _walk(
+        ({"robotStatus": 25, "catDetect": 3}, 0),
+        # The countdown starts with the cat still on the scale: not the end yet.
+        ({"robotStatus": 7, "catDetect": 3}, 12),
+        ({"robotStatus": 7, "catDetect": 0}, 40),
+        ({"robotStatus": 7, "catDetect": 0}, 60),
+    )
+    assert visits == [VisitEnded(started=T0, ended=T0 + timedelta(seconds=40))]
+    assert visits[0].duration_s == 40
+
+
+def test_a_detection_that_falls_back_to_ready_is_not_a_visit() -> None:
+    """A hand on the robot or a false trigger: the robot never counted it down."""
+    _, visits = _walk(
+        ({"robotStatus": 25, "catDetect": 2}, 0),
+        ({"robotStatus": 4, "catDetect": 0}, 5),
+        ({"robotStatus": 7, "catDetect": 0}, 9),
+    )
+    assert visits == []
+
+
+def test_a_countdown_with_no_detection_before_it_ends_nothing() -> None:
+    """The first document after a restart can land mid-countdown."""
+    _, visits = _walk(({"robotStatus": 7, "catDetect": 0}, 0))
+    assert visits == []
+
+
+def test_an_open_visit_is_not_carried_over_a_restart() -> None:
+    state, _ = _walk(({"robotStatus": 25, "catDetect": 3}, 0))
+    assert state.visit_started_at is not None
+    assert "visit_started_at" not in state.as_dict()
+
+
+def test_the_weight_belongs_to_the_visit_only_inside_its_window() -> None:
+    visit = VisitEnded(started=T0, ended=T0 + timedelta(seconds=40))
+    weighed = DerivedState(cat_weight_lb=9.4, weight_measured_at=T0 + timedelta(seconds=45))
+    assert visit_weight(weighed, visit) == 9.4
+    earlier = DerivedState(cat_weight_lb=9.4, weight_measured_at=T0 - timedelta(seconds=1))
+    assert visit_weight(earlier, visit) is None
+    late = DerivedState(cat_weight_lb=9.4, weight_measured_at=T0 + timedelta(seconds=56))
+    assert visit_weight(late, visit) is None
+    assert visit_weight(DerivedState(), visit) is None
+
+
+def test_a_weight_reading_records_when_it_arrived() -> None:
+    update = apply_message(DerivedState(), _activity("0x0903AC"), T0)
+    assert update.state.weight_measured_at == T0
+
+
+def test_a_weight_after_a_newer_visit_began_is_not_the_earlier_ones() -> None:
+    first = VisitEnded(started=T0, ended=T0 + timedelta(seconds=40))
+    state = DerivedState(
+        cat_weight_lb=12.0,
+        weight_measured_at=T0 + timedelta(seconds=50),
+        latest_visit_started_at=T0 + timedelta(seconds=45),
+    )
+    assert visit_weight(state, first) is None
+    second = VisitEnded(started=T0 + timedelta(seconds=45), ended=T0 + timedelta(seconds=48))
+    assert visit_weight(state, second) == 12.0

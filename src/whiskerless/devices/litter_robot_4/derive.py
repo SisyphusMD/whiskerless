@@ -63,6 +63,7 @@ from .protocol import ActivityMessage, StateMessage
 __all__ = [
     "ACCEPTED_EVIDENCE",
     "EXCESS_WEIGHT_AFTER",
+    "VISIT_WEIGHT_GRACE",
     "Capability",
     "CapabilitySighted",
     "CleanCycleCompleted",
@@ -73,6 +74,7 @@ __all__ = [
     "HopperFillChanged",
     "LearnedChanged",
     "Update",
+    "VisitEnded",
     "apply_message",
     "excess_weight",
     "globe_motor_faulted",
@@ -80,6 +82,7 @@ __all__ = [
     "hopper_level_percent",
     "litter_scale",
     "sighting_stands",
+    "visit_weight",
 ]
 
 # Two dispense reports closer together than this are the same event redelivered;
@@ -217,6 +220,33 @@ class CleanCycleCompleted:
 
 
 @dataclass(frozen=True, slots=True)
+class VisitEnded:
+    """A visit the robot itself judged real is over: its cat sensors read clear.
+
+    The robot's own walk is ready (4) -> cat detected (25) -> countdown (7) -> clean
+    cycle (10), and the visit ends when catDetect reads 0 during the countdown. Over
+    30 days that fired 220 times against 222 cycles on one robot and 129 against 132
+    on the other, and ``0xBC`` (one robot's own visit-end report) lands 4-9 s before
+    it. The 25 -> 7 step is NOT the end: the weight arrives after it, so the cat is
+    still on the scale. A detection that falls back to ready without a countdown is
+    a false trigger or a hand, and ends nothing.
+    """
+
+    started: datetime
+    ended: datetime
+
+    @property
+    def duration_s(self) -> int:
+        return round((self.ended - self.started).total_seconds())
+
+
+# How long after a visit ends its weight can still arrive. Over 30 days on both
+# robots, 118 of 130 weights landed 0-7 s after the end; the rest were repeats or
+# minutes late, and an event cannot wait for those.
+VISIT_WEIGHT_GRACE = timedelta(seconds=15)
+
+
+@dataclass(frozen=True, slots=True)
 class FirmwareChanged:
     """The robot is running a different build than the one last seen."""
 
@@ -224,7 +254,12 @@ class FirmwareChanged:
 
 
 Effect: TypeAlias = (
-    LearnedChanged | HopperFillChanged | CapabilitySighted | FirmwareChanged | CleanCycleCompleted
+    LearnedChanged
+    | HopperFillChanged
+    | CapabilitySighted
+    | FirmwareChanged
+    | CleanCycleCompleted
+    | VisitEnded
 )
 
 
@@ -266,6 +301,14 @@ class DerivedState:
     # as_dict: a cycle that ended while nobody was listening is not news, and a
     # restored flag would announce it on the first document after a restart.
     cycle_running: bool = False
+    # When the robot reported a cat (status 25) for the visit now open, and when
+    # the last weight arrived. Session-only for the same reason as cycle_running.
+    visit_started_at: datetime | None = None
+    weight_measured_at: datetime | None = None
+    # The start of the newest visit, kept after it closes: a weight that arrives
+    # once a later visit has begun is that visit's, even inside the earlier one's
+    # grace window.
+    latest_visit_started_at: datetime | None = None
     # When the time-of-flight beam was last broken. The visit gate reads this
     # rather than a sticky flag: an arm crossing the beam without loading the
     # scale would otherwise arm the gate indefinitely, and the next Reset
@@ -463,6 +506,20 @@ def _apply_state(state: DerivedState, robot: LitterRobot4State, now: datetime) -
     elif robot.robot_status == "ready" and state.cycle_running:
         state.cycle_running = False
         effects.append(CleanCycleCompleted(robot.odometer_clean_cycles))
+    if robot.robot_status == "cat_detected":
+        if state.visit_started_at is None:
+            state.visit_started_at = now
+            state.latest_visit_started_at = now
+    elif robot.robot_status == "cat_sensor_timing":
+        if (
+            state.visit_started_at is not None
+            and robot.cat_detected is False
+            and robot.scale_loaded is False
+        ):
+            effects.append(VisitEnded(started=state.visit_started_at, ended=now))
+            state.visit_started_at = None
+    elif robot.robot_status is not None:
+        state.visit_started_at = None
     if previous_occupancy is False and occupancy is True:
         state.last_cat_visit = now
         effects += _sight(state, Capability.CAT_VISIT, Evidence.OCCUPANCY)
@@ -488,6 +545,7 @@ def _apply_activity(state: DerivedState, message: ActivityMessage, now: datetime
     for event in events:
         if isinstance(event, CatWeightMeasured):
             state.cat_weight_lb = event.weight_lb
+            state.weight_measured_at = now
             state.last_cat_visit = now
             effects += _sight(state, Capability.PET_WEIGHT, Evidence.CAT_WEIGHT)
             effects += _sight(state, Capability.CAT_VISIT, Evidence.CAT_WEIGHT)
@@ -571,6 +629,21 @@ def _apply_activity(state: DerivedState, message: ActivityMessage, now: datetime
             effects += _sight(state, Capability.DRAWER, Evidence.DRAWER_MOVED)
             changed = True
     return Update(state=state, changed=changed, effects=tuple(effects))
+
+
+def visit_weight(state: DerivedState, visit: VisitEnded) -> float | None:
+    """The weight measured for ``visit``, or None if none arrived in time.
+
+    Read once :data:`VISIT_WEIGHT_GRACE` has passed. A weight from before the visit
+    started belongs to an earlier one, and short visits often produce none at all.
+    """
+    at = state.weight_measured_at
+    if at is None or not visit.started <= at <= visit.ended + VISIT_WEIGHT_GRACE:
+        return None
+    newer = state.latest_visit_started_at
+    if newer is not None and newer > visit.started and at >= newer:
+        return None
+    return state.cat_weight_lb
 
 
 def _sight(
