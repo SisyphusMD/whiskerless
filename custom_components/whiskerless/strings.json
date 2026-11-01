@@ -95,7 +95,25 @@
         "name": "Excess weight"
       },
       "globe_motor_fault": {
-        "name": "Globe motor fault"
+        "name": "Globe motor fault",
+        "state_attributes": {
+          "fault_code": {
+            "name": "Fault code"
+          },
+          "cause": {
+            "name": "Cause",
+            "state": {
+              "timeout": "Timeout",
+              "motor_disconnected": "Motor disconnected",
+              "under_voltage": "Low voltage",
+              "over_current": "Over-current",
+              "current_spike": "Current spike",
+              "pinch": "Pinch detected",
+              "all_sensors": "All sensors",
+              "unknown": "Unknown"
+            }
+          }
+        }
       },
       "hopper_connected": {
         "name": "Hopper"
@@ -171,6 +189,35 @@
       },
       "start_clean_cycle": {
         "name": "Clean cycle"
+      }
+    },
+    "date": {
+      "last_deep_clean": {
+        "name": "Last deep clean"
+      },
+      "last_filter_change": {
+        "name": "Last carbon filter change"
+      },
+      "last_globe_clean": {
+        "name": "Last globe clean"
+      }
+    },
+    "event": {
+      "clean_cycle": {
+        "name": "Clean cycle",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "completed": "Completed"
+            }
+          },
+          "cycle_count": {
+            "name": "Cycle count"
+          },
+          "waste_drawer_level": {
+            "name": "Waste drawer level"
+          }
+        }
       }
     }
   },

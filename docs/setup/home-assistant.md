@@ -184,7 +184,10 @@ before settling.
 - **Cat detected** (occupancy)
 - **Waste drawer full** (problem)
 - **Bonnet removed** (problem)
-- **Globe motor fault** (problem)
+- **Globe motor fault** (problem) — while a fault is held it carries the code the robot
+  raised and a **Cause** (timeout, motor disconnected, low voltage, over-current, current
+  spike, pinch, all sensors). The causes are what outside references say the codes mean;
+  no robot here has raised anything but a timeout yet
 - **Excess weight** (problem) — something has sat on the scale for over 30 minutes,
   which blocks cycling; the robot shows it only on the panel
 - **Panel sleep mode** (diagnostic) — whether the panel is asleep right now; set it
@@ -198,6 +201,20 @@ before settling.
   ambient light level, not the brightness rank
 - **Control lock**, **Weekday sleep schedule** (switches)
 - **Panel sleep time** / **Panel wake time** (time entities)
+
+**Events**
+
+- **Clean cycle** — fires `completed` when a cycle ends back at ready, with the cycle
+  count and the drawer level that cycle measured. Only cycles Home Assistant watched
+  start are announced, so a restart never reports a cycle that already finished.
+
+**Maintenance dates**
+
+- **Last deep clean**, **Last carbon filter change**, **Last globe clean** — dates you
+  set yourself when you do the job (back-dating is fine). The robot cannot know them, so
+  they stay available if it goes offline. (A robot that is already offline when Home
+  Assistant starts is not set up at all until it answers, these included.) Reminders read them: Whisker recommends a
+  deep clean at least every 3 months and a new carbon filter every month.
 
 **Calibrating the litter percentage**
 

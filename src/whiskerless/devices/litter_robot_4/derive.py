@@ -65,6 +65,7 @@ __all__ = [
     "EXCESS_WEIGHT_AFTER",
     "Capability",
     "CapabilitySighted",
+    "CleanCycleCompleted",
     "DerivedState",
     "Effect",
     "Evidence",
@@ -208,13 +209,23 @@ class CapabilitySighted:
 
 
 @dataclass(frozen=True, slots=True)
+class CleanCycleCompleted:
+    """A clean cycle we watched start has ended with the robot back at ready."""
+
+    #: The clean-cycle odometer when it ended, if the document carried it.
+    count: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class FirmwareChanged:
     """The robot is running a different build than the one last seen."""
 
     version: str
 
 
-Effect: TypeAlias = LearnedChanged | HopperFillChanged | CapabilitySighted | FirmwareChanged
+Effect: TypeAlias = (
+    LearnedChanged | HopperFillChanged | CapabilitySighted | FirmwareChanged | CleanCycleCompleted
+)
 
 
 @dataclass
@@ -251,6 +262,10 @@ class DerivedState:
     # The clean-cycle odometer as last seen, so a restored fault can be retired
     # by a cycle that completes without raising one.
     cycles_seen: int | None = None
+    # A clean cycle seen running in THIS process, deliberately left out of
+    # as_dict: a cycle that ended while nobody was listening is not news, and a
+    # restored flag would announce it on the first document after a restart.
+    cycle_running: bool = False
     # When the time-of-flight beam was last broken. The visit gate reads this
     # rather than a sticky flag: an arm crossing the beam without loading the
     # scale would otherwise arm the gate indefinitely, and the next Reset
@@ -439,6 +454,15 @@ def _apply_state(state: DerivedState, robot: LitterRobot4State, now: datetime) -
         ):
             state.globe_fault_restored = False
         state.cycles_seen = robot.odometer_clean_cycles
+    # The end is read from the status, not the odometer: the odometer advances
+    # as a cycle STARTS (live 2026-11-01, it read the new count while the robot
+    # still reported clean_cycle). A cat pause mid-cycle reports other statuses
+    # and then clean_cycle again, so only the return to ready ends it.
+    if robot.robot_status == "clean_cycle":
+        state.cycle_running = True
+    elif robot.robot_status == "ready" and state.cycle_running:
+        state.cycle_running = False
+        effects.append(CleanCycleCompleted(robot.odometer_clean_cycles))
     if previous_occupancy is False and occupancy is True:
         state.last_cat_visit = now
         effects += _sight(state, Capability.CAT_VISIT, Evidence.OCCUPANCY)

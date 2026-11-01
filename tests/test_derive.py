@@ -22,6 +22,7 @@ from whiskerless.devices.litter_robot_4.derive import (
     VISIT_CLOSE_GRACE,
     Capability,
     CapabilitySighted,
+    CleanCycleCompleted,
     DerivedState,
     Evidence,
     FirmwareChanged,
@@ -549,3 +550,46 @@ def test_stored_junk_never_becomes_a_derived_fact() -> None:
 def test_a_datetime_stored_as_itself_is_taken_as_read() -> None:
     # Consumers that keep the state in memory hand back real datetimes.
     assert DerivedState.from_dict({"beam_broken_at": T0}).beam_broken_at == T0
+
+
+# --- the end of a clean cycle -------------------------------------------------
+def _cycles(update: object) -> list[CleanCycleCompleted]:
+    assert hasattr(update, "effects")
+    return [e for e in update.effects if isinstance(e, CleanCycleCompleted)]
+
+
+def test_a_cycle_watched_from_start_to_ready_is_announced_once() -> None:
+    state = _seen(DerivedState(), _state(robotStatus=10, odometerCleanCycles=9128))
+    update = apply_message(state, _state(robotStatus=4, odometerCleanCycles=9128), T0)
+    assert _cycles(update) == [CleanCycleCompleted(9128)]
+    # A second ready document is not a second cycle.
+    assert _cycles(apply_message(update.state, _state(robotStatus=4), T0)) == []
+
+
+def test_a_cat_pause_mid_cycle_does_not_end_it() -> None:
+    """A pause reports other statuses and then clean_cycle again; only ready ends it."""
+    state = _seen(DerivedState(), _state(robotStatus=10))
+    for status in (7, 10):
+        update = apply_message(state, _state(robotStatus=status), T0)
+        assert _cycles(update) == []
+        state = update.state
+    assert len(_cycles(apply_message(state, _state(robotStatus=4), T0))) == 1
+
+
+def test_the_odometer_moving_is_not_the_end_of_a_cycle() -> None:
+    """It advances as a cycle starts, so it must not be read as one finishing."""
+    state = _seen(DerivedState(), _state(robotStatus=4, odometerCleanCycles=9127))
+    assert _cycles(apply_message(state, _state(robotStatus=10, odometerCleanCycles=9128), T0)) == []
+
+
+def test_a_cycle_not_seen_starting_is_not_announced() -> None:
+    """The first document after a restart says where the robot is, not what it just did."""
+    assert _cycles(apply_message(DerivedState(), _state(robotStatus=4), T0)) == []
+
+
+def test_a_running_cycle_is_not_carried_over_a_restart() -> None:
+    running = _seen(DerivedState(), _state(robotStatus=10))
+    assert running.cycle_running is True
+    assert "cycle_running" not in running.as_dict()
+    restored = DerivedState.from_dict(running.as_dict())
+    assert _cycles(apply_message(restored, _state(robotStatus=4), T0)) == []

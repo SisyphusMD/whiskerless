@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from typing import override
 
 from homeassistant.components import mqtt
@@ -24,6 +25,7 @@ from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -41,6 +43,7 @@ from whiskerless.devices.litter_robot_4.const import command_topic, subscribe_to
 from whiskerless.devices.litter_robot_4.derive import (
     Capability,
     CapabilitySighted,
+    CleanCycleCompleted,
     DerivedState,
     Effect,
     Evidence,
@@ -65,6 +68,7 @@ from .const import (
     CONF_LEARNED_LITTER,
     CONF_LITTER_EMPTY_MM,
     CONF_LITTER_FULL_MM,
+    CONF_MAINTENANCE,
     CONF_PET_WEIGHT_SEEN,
     CONF_SERIAL,
     CONF_VISIT_DURATION_SEEN,
@@ -72,6 +76,7 @@ from .const import (
     DOMAIN,
     HEARTBEAT_INTERVAL,
     LOGGER,
+    SIGNAL_CLEAN_CYCLE,
 )
 
 #: Which config-entry option records each capability's first sighting. The
@@ -240,6 +245,25 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         if sighted:
             self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
+    def maintenance_date(self, key: str) -> date | None:
+        """When the user last recorded doing ``key``, or None if never or unreadable."""
+        raw = (self.config_entry.options.get(CONF_MAINTENANCE) or {}).get(key)
+        if not isinstance(raw, str):
+            return None
+        try:
+            return date.fromisoformat(raw)
+        except ValueError:
+            return None
+
+    @callback
+    def async_set_maintenance_date(self, key: str, value: date) -> None:
+        """Record when ``key`` was last done. Back-dating is allowed on purpose."""
+        options = self.config_entry.options
+        done = {**(options.get(CONF_MAINTENANCE) or {}), key: value.isoformat()}
+        self.hass.config_entries.async_update_entry(
+            self.config_entry, options={**options, CONF_MAINTENANCE: done}
+        )
+
     @property
     def litter_full_mm(self) -> int | None:
         """The calibrated reading when the globe is filled to the line."""
@@ -350,6 +374,13 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 self._robot = parsed.state
                 self._state_event.set()
                 self.async_set_updated_data(self._build_data(parsed.state))
+                # After the data update, so the event carries the drawer level
+                # from the document that ended the cycle.
+                for effect in update.effects:
+                    if isinstance(effect, CleanCycleCompleted):
+                        async_dispatcher_send(
+                            self.hass, SIGNAL_CLEAN_CYCLE.format(self.serial), effect
+                        )
             else:
                 if update.changed and self._robot is not None:
                     self.async_set_updated_data(self._build_data(self._robot))

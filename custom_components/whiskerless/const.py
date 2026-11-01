@@ -55,6 +55,13 @@ CONF_LEARNED_LITTER = "learned_litter"
 CONF_LEARNED_HOPPER = "learned_hopper"
 
 CONF_LITTER_FULL_MM = "litter_full_mm"
+
+# User-recorded maintenance dates, {key: ISO date}. Not derived from the robot,
+# which has no way to know when someone deep-cleaned it.
+CONF_MAINTENANCE = "maintenance"
+
+# Dispatcher signal for a finished clean cycle, formatted with the serial.
+SIGNAL_CLEAN_CYCLE = "whiskerless_clean_cycle_{}"
 CONF_LITTER_EMPTY_MM = "litter_empty_mm"
 
 # Default device name; the user can override it when adding a discovered robot,

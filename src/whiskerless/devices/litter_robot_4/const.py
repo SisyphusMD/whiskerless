@@ -22,6 +22,7 @@ __all__ = [
     "CLEANING_STATUSES",
     "CLEAN_CYCLE_WAIT_MAX_MINUTES",
     "CLEAN_CYCLE_WAIT_MIN_MINUTES",
+    "GLOBE_MOTOR_FAULT_CAUSES",
     "HOPPER_DISPENSE_FILL_PHASE",
     "HOPPER_FILL_EMPTY_MAX",
     "HOPPER_LINK_DISCONNECTED",
@@ -501,3 +502,19 @@ BRIGHTNESS_PRESETS: dict[str, int] = {"low": 25, "medium": 50, "high": 100}
 # (live-tested at 3, 7 and 20), and the app exposes the whole span.
 CLEAN_CYCLE_WAIT_MIN_MINUTES = 3
 CLEAN_CYCLE_WAIT_MAX_MINUTES = 30
+
+
+# What a non-zero 0x35 code means, as the esphome-litter-robot UART reference and
+# pylitterbot's GlobeMotorFaultStatus both give it (same names, same order). Their
+# claim, not ours: the only code ever captured locally is 1, once, and nothing tied
+# it to a cause. Published so an alert can say more than "globe motor fault", and
+# worded as what the robot reported rather than as a diagnosis.
+GLOBE_MOTOR_FAULT_CAUSES: dict[int, str] = {
+    1: "timeout",
+    2: "motor_disconnected",
+    3: "under_voltage",
+    4: "over_current",
+    5: "current_spike",
+    6: "pinch",
+    7: "all_sensors",
+}

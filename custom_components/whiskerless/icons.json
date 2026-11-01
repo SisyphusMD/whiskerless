@@ -115,6 +115,22 @@
       "power_toggle": {
         "default": "mdi:power-plug-off"
       }
+    },
+    "date": {
+      "last_deep_clean": {
+        "default": "mdi:spray-bottle"
+      },
+      "last_filter_change": {
+        "default": "mdi:air-filter"
+      },
+      "last_globe_clean": {
+        "default": "mdi:broom"
+      }
+    },
+    "event": {
+      "clean_cycle": {
+        "default": "mdi:autorenew"
+      }
     }
   }
 }

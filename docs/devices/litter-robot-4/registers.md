@@ -146,7 +146,11 @@ named but their exact integers aren't all pinned yet.
   (owner-witnessed on both firmwares).
 - **nightLightMode (`0x18`):** `0` = off, `1` = on, `2` = auto (PROVEN).
 - **nightLightBrightness (`0x19`):** direct %, common presets 25 / 50 / 100.
-- **globeMotorFault / Retract (`0x35` / `0x4D`):** `0` = none, `1..9` = fault.
+- **globeMotorFault / Retract (`0x35` / `0x4D`):** `0` = none, non-zero = fault. The
+  esphome-litter-robot UART reference and pylitterbot both name `0x35`'s codes 1 timeout,
+  2 motor disconnected, 3 under-voltage, 4 over-current, 5 current spike, 6 pinch, 7 all
+  sensors. Their claim: the only code captured here is 1, once (2026-08-11). Shipped as the
+  globe-fault sensor's `cause` attribute (`GLOBE_MOTOR_FAULT_CAUSES`).
 - **catWeight (`0x09`):** raw int16 ÷ **100** = pounds, matching the cloud
   field's units. The divisor spent a few days at 50 on the strength of one
   reading — raw 408 attributed to a cat weighing ~8.1 lb on a household scale —

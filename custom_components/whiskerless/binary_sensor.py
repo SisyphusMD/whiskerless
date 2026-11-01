@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -18,6 +18,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State, derive
+from whiskerless.devices.litter_robot_4 import const as lr4
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity
@@ -223,6 +224,22 @@ class WhiskerlessGlobeMotorFaultSensor(_RestoringBinarySensor):
     def is_on(self) -> bool | None:
         data = self.coordinator.data
         return derive.globe_motor_faulted(data.derived, data.robot)
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """The code the robot raised, and what outside references say it means.
+
+        From whichever source raised it, as ``globe_motor_faulted`` reads both: the
+        activity edge first, then a state document that does populate the field. A
+        fault carried over a restart with neither has no code, and naming a cause
+        for it would be invention.
+        """
+        data = self.coordinator.data
+        code = data.derived.globe_motor_fault or data.robot.globe_motor_fault
+        if not code:
+            return None
+        return {"fault_code": code, "cause": lr4.GLOBE_MOTOR_FAULT_CAUSES.get(code, "unknown")}
 
 
 class WhiskerlessExcessWeightSensor(_RestoringBinarySensor):

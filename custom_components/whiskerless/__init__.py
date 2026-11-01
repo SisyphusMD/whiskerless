@@ -17,7 +17,8 @@ from whiskerless.devices.litter_robot_4 import derive
 from whiskerless.devices.litter_robot_4.calibration import HOPPER_PLAUSIBLE
 from whiskerless.devices.litter_robot_4.derive import Capability, Evidence
 
-from . import binary_sensor, button, number, select, sensor, switch
+from . import binary_sensor, button, event, number, select, sensor, switch
+from . import date as date_platform
 from . import time as time_platform
 from .const import (
     CONF_DERIVED,
@@ -40,6 +41,8 @@ _LAST_SWEEP = 3
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.DATE,
+    Platform.EVENT,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
@@ -65,6 +68,8 @@ def _producible_entities(serial: str) -> set[tuple[str, str]]:
             *binary_sensor.STANDALONE_KEYS,
         },
         Platform.BUTTON: {d.key for d in button.BUTTONS},
+        Platform.DATE: {d.key for d in date_platform.DATES},
+        Platform.EVENT: {d.key for d in event.EVENTS},
         Platform.NUMBER: {d.key for d in number.NUMBERS},
         Platform.SELECT: {d.key for d in select.SELECTS},
         Platform.SENSOR: {

@@ -70,6 +70,41 @@ Three properties of the robot's output will corrupt a capture if you don't expec
 
 ## Sessions
 
+### 2026-10-02→11-01, 30 days — looking for Whisker's fault notifications
+
+Searched for the seven faults the Whisker app pushes that whiskerless did not decode (pinch,
+over-torque, globe position, laser board, dirty sensor, low voltage, motion in drawer).
+3,248,321 lines from four capture pods → 129,650 messages; robot 1 (board rev 89, hopper)
+26,073 state / 31,125 activity, robot 2 (rev 93) 15,758 / 13,155, both ESP 1.1.75 throughout.
+Raw pulls and scripts stayed outside the repo.
+
+- **None of the seven occurred.** All 14 `fault` envelopes were `0x350000`, each the Reset
+  signature; no non-zero `0x35`, no `robotStatus` 12, both globe fault fields and
+  `USBFaultStatus` 0 in every document. No state key is named for any of them (69 keys,
+  identical on both robots). Outside names for `0x35` codes are now in `registers.md`.
+- **`0x371021` + `0x0B0008` is the robot's own 30-minute scale timer.** Always in the same
+  second (7 of 7), 1,805–1,807 s after `0x370021` in all 5 captured scale-on edges, then a
+  lone `0x0B0008` repeats while the load stays. That decodes the "unexplained `0x1021`" and
+  the unlabelled `0x0B` 8 as Whisker's extended scale activity, and could replace the local
+  timer behind `excess_weight`.
+- **`0x650008` is probably the 30-minute curtain timer** (Whisker's cat sensor fault): once,
+  1,793 s into a continuous curtain block on robot 1. `0x650000` (×17, both robots) is not
+  worked out.
+- **`0x6D` looks like a per-curtain-sensor blocked timer (robot 1 only).** The top two bits
+  index three sensors, low byte set at ~600 s of block and cleared by `0x6D_100` or Reset.
+  All three set together once (10-04), after ~9 minutes of flicker, with the only `0x0B` 4:
+  more likely a lingering cat than a board fault.
+- **`0x0B006A` (106) accompanies a press refused under Control lock** (2026-11-01, with the
+  `0x010000` echo), and **`0x0B0015` (21) is the drawer-full lockout annunciation** (200
+  emissions, every one with `DFIFullCounter` 2–7).
+- **`0x50` may be supply voltage in tenths of a volt:** 129–130 at three mains losses, 146–148
+  on mains. Untested; a type-1 read against a multimeter would settle it.
+- **Open: robot 1 reads `isUSBPowerOn` 0 on mains since its 10-28 battery-flat reboot**
+  (1,394 documents), against the `0x38` = "mains present" reading. Either that decode is
+  incomplete or something about its supply changed.
+- New `robotCycleStatus` 12 (11 documents, robot 1's 10-28 boot cycle), and new `0x4F` /
+  `0x34` values that fit the existing `0xX06Y` pattern.
+
 ### 2026-09-26→10-26, 30 days — the drawer-full lockout, and the outside reference tested
 
 Loki keeps 720 hours, so this is the whole window it still holds: 2026-08-25→09-26 has aged

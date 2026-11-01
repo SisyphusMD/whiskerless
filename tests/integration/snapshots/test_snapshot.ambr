@@ -778,6 +778,210 @@
     'unit_of_measurement': None,
   })
 # ---
+# name: test_the_entity_surface[date.litter_robot_4_last_carbon_filter_change-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'date',
+    'entity_category': None,
+    'entity_id': 'date.litter_robot_4_last_carbon_filter_change',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last carbon filter change',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Last carbon filter change',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'last_filter_change',
+    'unique_id': 'LR4C000001_last_filter_change',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_the_entity_surface[date.litter_robot_4_last_carbon_filter_change-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Litter-Robot 4 Last carbon filter change',
+    }),
+    'context': <ANY>,
+    'entity_id': 'date.litter_robot_4_last_carbon_filter_change',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_the_entity_surface[date.litter_robot_4_last_deep_clean-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'date',
+    'entity_category': None,
+    'entity_id': 'date.litter_robot_4_last_deep_clean',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last deep clean',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Last deep clean',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'last_deep_clean',
+    'unique_id': 'LR4C000001_last_deep_clean',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_the_entity_surface[date.litter_robot_4_last_deep_clean-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Litter-Robot 4 Last deep clean',
+    }),
+    'context': <ANY>,
+    'entity_id': 'date.litter_robot_4_last_deep_clean',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_the_entity_surface[date.litter_robot_4_last_globe_clean-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'date',
+    'entity_category': None,
+    'entity_id': 'date.litter_robot_4_last_globe_clean',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last globe clean',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Last globe clean',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'last_globe_clean',
+    'unique_id': 'LR4C000001_last_globe_clean',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_the_entity_surface[date.litter_robot_4_last_globe_clean-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'friendly_name': 'Litter-Robot 4 Last globe clean',
+    }),
+    'context': <ANY>,
+    'entity_id': 'date.litter_robot_4_last_globe_clean',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_the_entity_surface[event.litter_robot_4_clean_cycle-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': set({
+    }),
+    'area_id': None,
+    'capabilities': dict({
+      'event_types': list([
+        'completed',
+      ]),
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'event',
+    'entity_category': None,
+    'entity_id': 'event.litter_robot_4_clean_cycle',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Clean cycle',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Clean cycle',
+    'platform': 'whiskerless',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'clean_cycle',
+    'unique_id': 'LR4C000001_clean_cycle',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_the_entity_surface[event.litter_robot_4_clean_cycle-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'event_type': None,
+      'event_types': list([
+        'completed',
+      ]),
+      'friendly_name': 'Litter-Robot 4 Clean cycle',
+    }),
+    'context': <ANY>,
+    'entity_id': 'event.litter_robot_4_clean_cycle',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
 # name: test_the_entity_surface[number.litter_robot_4_clean_cycle_wait_time-entry]
   EntityRegistryEntrySnapshot({
     'aliases': set({

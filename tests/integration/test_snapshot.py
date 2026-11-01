@@ -18,6 +18,7 @@ from pathlib import Path
 
 import custom_components.whiskerless
 import pytest
+from custom_components.whiskerless import date as date_platform
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -94,9 +95,16 @@ async def test_a_robot_that_stops_answering_takes_every_entity_unavailable(
         if entry.disabled_by is None
     ]
     assert live
+    # The maintenance dates are the one exception, on purpose: they are records the
+    # user keeps, not readings from the robot, and a reminder that a filter is due
+    # should not go blank because the robot is offline.
+    records = {f"{coordinator.serial}_{d.key}" for d in date_platform.DATES}
     for entity_id in live:
         state = hass.states.get(entity_id)
         assert state is not None
+        if registry.async_get(entity_id).unique_id in records:
+            assert state.state != STATE_UNAVAILABLE, entity_id
+            continue
         assert state.state == STATE_UNAVAILABLE, entity_id
 
 

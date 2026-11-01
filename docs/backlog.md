@@ -726,8 +726,21 @@ published nowhere. † = a signal not yet decoded locally, ‡ = needs piece 1.
 Left out on purpose: firmware-update notices (updates are refused by design, #44). Whisker+
 "Patterns" (habit and weight trends) is a later, local follow-up built from the cat-health data.
 
-**Next:** find the † signals in the 30-day capture (they may already be `catDetect`,
-`robotStatus` or `unitPowerStatus` values we do not name), then agree the event design.
+**Built 2026-11-01:** the Clean cycle event (`completed`, read from the status returning to
+ready, because the odometer advances as a cycle starts), the three maintenance dates, and
+the globe-fault `cause` attribute. "Interrupted" was dropped: a paused cycle holds status 10,
+so there is no clean "stopped partway" signal, and the stuck-pause alert covers the harm.
+
+**The † signals, from the 30-day capture (2026-10-02→11-01):** none of the seven faults
+occurred, so none can be mapped from data. Pinch, over-torque and low voltage are `0x35`
+codes 6, 4/5 and 3 by outside reference, so they ride on the globe-fault `cause`; a position
+fault is probably code 1 (timeout). Laser board, dirty sensor and motion in drawer have no
+local signal yet. Side findings are in the capture notebook.
+
+**Still to build:** the Cat visit event. `0xBC` (visit duration) comes from only one of the
+two robots, so it cannot be the trigger; the robot's own status walk (cat detected →
+countdown → cycle) looks universal but needs checking against the capture first. Then the
+blueprint.
 
 ### #44 — DISCUSS: can we ever offer firmware updates? (collides with a safety invariant)
 
