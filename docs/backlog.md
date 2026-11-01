@@ -674,7 +674,7 @@ be told to look at, and what the robot does when a drawer is pulled and reseated
 All four are in `docs/devices/litter-robot-4/bench-protocol.md`, to be answered
 in one trip.
 
-### #43 — DISCUSS: how users replace the Whisker app's notifications
+### #43 — Replace the Whisker app's notifications — **designed 2026-11-01, not built**
 
 Going local silently loses every push notification the Whisker app sent.
 Confirm the app's real list first (drawer full, cat visit, cycle complete,
@@ -691,6 +691,43 @@ Also decide FIRST: should the integration fire real HA EVENTS for momentary
 things (visit ended, cycle completed, fault raised)? A flipping binary_sensor
 is awkward for momentary events, and the choice changes what a blueprint can be
 written against. Do not start building until the shape is agreed.
+
+**Agreed shape (Cody, 2026-11-01).** Two pieces, in order:
+
+1. **The integration** gains `event` entities for the moments (cat visit ended, clean cycle
+   finished, fault raised), and "Mark deep cleaned" / "Mark filter replaced" buttons with
+   last-done dates. Conditions (drawer full, offline, faults that persist) stay binary
+   sensors. The exact event types and their data are still to be agreed.
+2. **One blueprint**, imported by a My Home Assistant link: pick one or more phones and
+   one or more robots, tick alerts in collapsible sections, set quiet hours for the
+   non-urgent ones. Use it once for every robot or once per robot. Titles name the box,
+   messages say what to do, the whiskerless image rides along, tapping opens the robot,
+   faults are time-sensitive, a newer alert replaces the older one (tag), and an alert is
+   cleared from the phone when its condition clears. The small corner icon stays Home
+   Assistant's; nothing can change that.
+
+**The catalog.** Whisker's list was sourced from the LR4 support articles (every fault article
+says the app sends a push) and app release notes; the per-type toggle names and defaults are
+published nowhere. † = a signal not yet decoded locally, ‡ = needs piece 1.
+
+- Faults, default on, time-sensitive: globe motor fault; bonnet removed 5 min; drawer-full
+  lockout (button: Reset); cat sensor blocked 30 min; scale busy 30 min (Whisker's "Extended
+  scale activity"); paused mid-cycle over 30 min; offline 15 min, replaced by "back online";
+  pinch detect †; globe jammed / over-torque †; globe position fault †; laser board fault †;
+  dirty sensor †; low voltage †; motion in drawer †.
+- Drawer and litter: drawer full, on, cleared on emptying; drawer reaches X %, off; litter
+  below X %, on; hopper empty, on; hopper disconnected, off.
+- Cat health, all off: no visit in X h (24); more than X visits in an hour ‡; a visit over X
+  min; weight changed over X % from the average; every visit with weight and duration ‡.
+- Maintenance ‡: deep clean due every 90 days, on (Whisker: at least every 3 months); carbon
+  filter every 30 days, on (Whisker: monthly); basic globe clean every 60 days, off.
+- Activity, off: clean cycle finished ‡; panel lock changed at the robot.
+
+Left out on purpose: firmware-update notices (updates are refused by design, #44). Whisker+
+"Patterns" (habit and weight trends) is a later, local follow-up built from the cat-health data.
+
+**Next:** find the † signals in the 30-day capture (they may already be `catDetect`,
+`robotStatus` or `unitPowerStatus` values we do not name), then agree the event design.
 
 ### #44 — DISCUSS: can we ever offer firmware updates? (collides with a safety invariant)
 
