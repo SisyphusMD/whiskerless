@@ -8,6 +8,7 @@ the happy path.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
 from whiskerless.devices.litter_robot_4.alerts import (
@@ -17,6 +18,7 @@ from whiskerless.devices.litter_robot_4.alerts import (
     AlertSettings,
     AlertTracker,
     MomentTracker,
+    Reminders,
     Snapshot,
     conditions,
     describe,
@@ -66,6 +68,24 @@ def test_the_drawer_alerts_follow_the_gauge_but_not_a_reset_zero() -> None:
     assert _truth(_snap(DFILevelPercent=85), Alert.DRAWER_LEVEL) is True
     assert _truth(_snap(DFILevelPercent=50), Alert.DRAWER_LEVEL) is False
     assert _truth(_snap(DFILevelPercent=0, isDFIResetPending=1), Alert.DRAWER_LEVEL) is None
+
+
+def test_a_level_alert_clears_only_ten_points_back_past_its_threshold() -> None:
+    """The gauges wobble a few points on a box nobody touched; a wobble is not news."""
+    drawer, litter = Alert.DRAWER_LEVEL, Alert.LITTER_LOW
+    raised = {drawer, litter}
+
+    def truth(snap: Snapshot, alert: Alert, active: set[Alert]) -> object:
+        return conditions(snap, SETTINGS, T0, active)[alert][0]
+
+    assert truth(_snap(DFILevelPercent=77), drawer, set()) is False
+    assert truth(_snap(DFILevelPercent=77), drawer, raised) is True
+    assert truth(_snap(DFILevelPercent=70), drawer, raised) is False
+    low = Snapshot(robot=_snap().robot, derived=DerivedState(), online=True, litter_percent=35)
+    assert truth(low, litter, set()) is False
+    assert truth(low, litter, raised) is True
+    refilled = Snapshot(robot=_snap().robot, derived=DerivedState(), online=True, litter_percent=40)
+    assert truth(refilled, litter, raised) is False
 
 
 def test_litter_low_is_not_judged_while_the_globe_turns() -> None:
@@ -224,3 +244,76 @@ def test_every_alert_has_words_for_raising_and_clearing() -> None:
     assert describe(Alert.GLOBE_FAULT, True, {}) == "Globe motor fault. Check the robot."
     assert describe(Alert.OFFLINE, False, {}) == "Back online."
     assert describe(Alert.CYCLE_COMPLETED, None, {"waste_drawer_level": None}) == "Clean cycle finished."
+
+
+# --- reminders ------------------------------------------------------------------
+LA = ZoneInfo("America/Los_Angeles")
+
+
+def _at(day: int, hour: int, minute: int = 0) -> datetime:
+    """A Los Angeles wall-clock time on a November 2026 day, as UTC."""
+    return datetime(2026, 11, day, hour, minute, tzinfo=LA).astimezone(UTC)
+
+
+def _true(*alerts: Alert) -> dict:
+    return {alert: (True, {}) for alert in alerts}
+
+
+def test_an_urgent_alert_is_reminded_every_six_hours_until_it_clears() -> None:
+    reminders = Reminders()
+    reminders.track({Alert.GLOBE_FAULT}, _at(2, 9))
+    current = _true(Alert.GLOBE_FAULT)
+    assert reminders.due(SETTINGS, _at(2, 14, 59), LA, current) == []
+    assert reminders.due(SETTINGS, _at(2, 15), LA, current) == [Alert.GLOBE_FAULT]
+    assert reminders.due(SETTINGS, _at(2, 16), LA, current) == []
+    assert reminders.due(SETTINGS, _at(2, 21), LA, current) == [Alert.GLOBE_FAULT]
+    reminders.track(set(), _at(2, 22))
+    assert reminders.since == reminders.reminded == {}
+
+
+def test_other_alerts_are_reminded_at_seven_and_nineteen_once_six_hours_old() -> None:
+    reminders = Reminders()
+    reminders.track({Alert.LITTER_LOW}, _at(2, 18, 55))
+    current = _true(Alert.LITTER_LOW)
+    # Five minutes old at 19:00: the first notice is still fresh.
+    assert reminders.due(SETTINGS, _at(2, 19), LA, current) == []
+    assert reminders.due(SETTINGS, _at(3, 1), LA, current) == []
+    assert reminders.due(SETTINGS, _at(3, 7), LA, current) == [Alert.LITTER_LOW]
+    assert reminders.due(SETTINGS, _at(3, 7, 1), LA, current) == []
+    assert reminders.due(SETTINGS, _at(3, 19, 1), LA, current) == [Alert.LITTER_LOW]
+
+
+def test_a_set_time_missed_by_over_an_hour_is_skipped_not_sent_late() -> None:
+    reminders = Reminders()
+    reminders.track({Alert.DRAWER_FULL}, _at(2, 6))
+    assert reminders.due(SETTINGS, _at(2, 20, 30), LA, _true(Alert.DRAWER_FULL)) == []
+
+
+def test_reminders_skip_what_cannot_be_checked_and_honour_zero() -> None:
+    reminders = Reminders()
+    reminders.track({Alert.DRAWER_FULL, Alert.OFFLINE}, _at(2, 0))
+    current = {Alert.DRAWER_FULL: (None, {}), Alert.OFFLINE: (True, {})}
+    off = AlertSettings(urgent_reminder_hours=0)
+    assert reminders.due(off, _at(2, 7), LA, current) == []
+    assert reminders.due(SETTINGS, _at(2, 7), LA, current) == [Alert.OFFLINE]
+
+
+def test_set_times_follow_the_wall_clock_across_the_dst_change() -> None:
+    """1 November 2026 is the fall-back day: 19:00 local is 03:00 UTC, not 02:00."""
+    reminders = Reminders()
+    reminders.track({Alert.FILTER_DUE}, _at(1, 8))
+    current = _true(Alert.FILTER_DUE)
+    assert reminders.due(SETTINGS, datetime(2026, 11, 2, 2, 30, tzinfo=UTC), LA, current) == []
+    assert reminders.due(SETTINGS, datetime(2026, 11, 2, 3, 0, tzinfo=UTC), LA, current) == [
+        Alert.FILTER_DUE
+    ]
+
+
+def test_a_silenced_phone_is_remembered_until_the_alert_clears() -> None:
+    reminders = Reminders()
+    assert reminders.silence(Alert.DRAWER_FULL, "phone-a") is False
+    reminders.track({Alert.DRAWER_FULL}, T0)
+    assert reminders.silence(Alert.DRAWER_FULL, "phone-a") is True
+    assert reminders.silenced == {Alert.DRAWER_FULL: {"phone-a"}}
+    reminders.track(set(), T0)
+    assert reminders.silenced == {}

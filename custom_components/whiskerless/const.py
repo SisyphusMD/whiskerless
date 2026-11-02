@@ -76,6 +76,13 @@ CONF_WEIGHT_HISTORY = "weight_history"
 CONF_LAST_VISIT = "last_visit"
 # The thresholds set in the integration's options.
 CONF_ALERT_SETTINGS = "alert_settings"
+# Per active alert: when it was raised, when last reminded, and which phones
+# silenced it, so a restart neither re-times nor un-silences a reminder.
+CONF_REMINDERS = "reminders"
+# The Companion app event for a tapped notification button, and the prefix of the
+# Silence button's action, which carries `<serial>|<alert>|<phone device id>`.
+EVENT_NOTIFICATION_ACTION = "mobile_app_notification_action"
+SILENCE_ACTION = "WHISKERLESS_SILENCE"
 CONF_LITTER_EMPTY_MM = "litter_empty_mm"
 
 # Default device name; the user can override it when adding a discovered robot,

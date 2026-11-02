@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -14,9 +14,11 @@ from custom_components.whiskerless.const import (
     CONF_ACTIVE_ALERTS,
     CONF_ALERT_SETTINGS,
     CONF_LAST_VISIT,
+    CONF_REMINDERS,
     CONF_WEIGHT_HISTORY,
     DOMAIN,
     EVENT_ALERT,
+    EVENT_NOTIFICATION_ACTION,
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
@@ -74,6 +76,7 @@ async def test_a_condition_is_raised_once_and_cleared_once(
         "urgent": False,
         "message": "Waste drawer full. Empty it and press Reset.",
         "details": {},
+        "silenced": [],
     }
     assert mock_config_entry.options[CONF_ACTIVE_ALERTS] == ["drawer_full"]
 
@@ -239,6 +242,108 @@ async def test_the_options_page_sets_thresholds_and_keeps_everything_else(
 
 
 def test_stored_thresholds_that_no_longer_fit_are_ignored() -> None:
-    stored = {CONF_ALERT_SETTINGS: {"filter_days": 14, "gone": 3, "deep_clean_days": "x", "no_visit_hours": 0}}
-    assert alert_settings(stored) == AlertSettings(filter_days=14)
+    stored = {
+        CONF_ALERT_SETTINGS: {
+            "filter_days": 14, "gone": 3, "deep_clean_days": "x", "no_visit_hours": 0,
+            "urgent_reminder_hours": 0, "morning_reminder_hour": -1,
+        }
+    }
+    assert alert_settings(stored) == AlertSettings(filter_days=14, urgent_reminder_hours=0)
     assert alert_settings({}) == AlertSettings()
+
+
+def _next_slot(after: datetime) -> datetime:
+    """The first 07:00 or 19:00 in Home Assistant's zone at or after ``after``."""
+    zone = dt_util.get_default_time_zone()
+    day = after.astimezone(zone).date()
+    slots = [
+        datetime.combine(day + timedelta(days=n), time(hour), tzinfo=zone)
+        for n in (0, 1, 2) for hour in (7, 19)
+    ]
+    return min(slot for slot in slots if slot >= after)
+
+
+async def _tick_at(hass: HomeAssistant, when: datetime) -> None:
+    with patch("custom_components.whiskerless.alerts.dt_util.utcnow", return_value=when):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
+        await hass.async_block_till_done()
+
+
+async def test_an_alert_left_alone_is_reminded_at_a_set_time_and_silence_is_per_phone(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    robot = await setup_integration(hass, mock_config_entry, _doc(state_payload, isDFIFull=1))
+    since = dt_util.parse_datetime(mock_config_entry.options[CONF_REMINDERS]["drawer_full"]["since"])
+    assert since is not None
+    events = async_capture_events(hass, EVENT_ALERT)
+    slot = _next_slot(since + timedelta(hours=6))
+    robot.payload = _doc(state_payload, isDFIFull=1)
+    with robot_online(robot):
+        await _tick_at(hass, slot)
+        reminder = _seen(events, "drawer_full")
+        assert [(e["event"], e["message"], e["silenced"]) for e in reminder] == [
+            ("reminder", "Reminder: Waste drawer full. Empty it and press Reset.", [])
+        ]
+
+        for action in (
+            "WHISKERLESS_SILENCE|someone-else|drawer_full|phone-a",
+            "WHISKERLESS_SILENCE|" + MOCK_SERIAL + "|no_such_alert|phone-a",
+            "WHISKERLESS_SILENCE|" + MOCK_SERIAL + "|drawer_full|phone-a",
+            "OTHER_ACTION",
+        ):
+            hass.bus.async_fire(EVENT_NOTIFICATION_ACTION, {"action": action})
+        await hass.async_block_till_done()
+        assert mock_config_entry.options[CONF_REMINDERS]["drawer_full"]["silenced"] == ["phone-a"]
+
+        await _tick_at(hass, slot + timedelta(hours=12))
+    assert [e["silenced"] for e in _seen(events, "drawer_full")][1:] == [["phone-a"]]
+
+
+async def test_reminder_clocks_and_silences_survive_a_reload(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """An alert active from before reminders existed starts its clock at the upgrade."""
+    mock_config_entry.add_to_hass(hass)
+    long_ago = dt_util.utcnow() - timedelta(days=2)
+    # Reminded a moment ago, so no set time can fall due during the test.
+    lately = dt_util.utcnow()
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={
+            **mock_config_entry.options,
+            CONF_ACTIVE_ALERTS: ["drawer_full", "litter_low"],
+            CONF_REMINDERS: {
+                "drawer_full": {
+                    "since": long_ago.isoformat(),
+                    "reminded": lately.isoformat(),
+                    "silenced": ["phone-a"],
+                },
+                "litter_low": "not a mapping",
+            },
+        },
+    )
+    with robot_online(Robot(payload=_doc(state_payload, isDFIFull=1))):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+    publisher_state = mock_config_entry.options[CONF_REMINDERS]
+    assert publisher_state["drawer_full"] == {
+        "since": long_ago.isoformat(),
+        "reminded": lately.isoformat(),
+        "silenced": ["phone-a"],
+    }
+    # litter_low cleared on the first reading (the fixture's litter is not low).
+    assert "litter_low" not in publisher_state
+
+
+async def test_a_clock_started_at_an_upgrade_is_saved_at_once(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Unsaved, every reload would restart it and the first reminder never come."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={**mock_config_entry.options, CONF_ACTIVE_ALERTS: ["drawer_full"]}
+    )
+    with robot_online(Robot(payload=_doc(state_payload, isDFIFull=1))):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert mock_config_entry.options[CONF_REMINDERS]["drawer_full"]["since"]

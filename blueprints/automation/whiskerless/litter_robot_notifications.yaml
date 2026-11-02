@@ -6,12 +6,13 @@ blueprint:
     tick the alerts you want, and set quiet hours when the ones that can wait arrive silently. Faults,
     a full-drawer lockout and an offline robot are time-sensitive and ignore quiet
     hours. A newer alert replaces the older one of the same kind, and an alert is
-    removed from the phone when its condition clears.
+    removed from the phone when its condition clears. One left alone is announced
+    again, until it clears or someone taps Silence on their phone.
 
 
-    The rules for when each alert fires (hold times, thresholds) live in the
-    integration: its options page sets the thresholds, and every alert arrives as a
-    `whiskerless_alert` event that any automation can use.
+    The rules for when each alert fires (hold times, thresholds, how often a reminder
+    repeats) live in the integration: its options page sets them, and every alert
+    arrives as a `whiskerless_alert` event that any automation can use.
   domain: automation
   author: SisyphusMD
   source_url: https://github.com/SisyphusMD/whiskerless/blob/main/blueprints/automation/whiskerless/litter_robot_notifications.yaml
@@ -171,15 +172,25 @@ blueprint:
           default: false
           selector: { boolean: {} }
     behaviour:
-      name: Quiet hours and clearing
+      name: Quiet hours, reminders and clearing
       icon: mdi:sleep
       collapsed: true
       input:
+        reminders:
+          name: Reminders
+          description: >-
+            Announce an alert again while it stays active: an urgent one every 6 hours,
+            the rest at 7:00 and 19:00 (both set in the integration's options). Each
+            notification has a Silence button that stops the reminders on that phone
+            until the alert clears.
+          default: true
+          selector: { boolean: {} }
         quiet_hours:
           name: Quiet hours
           description: >-
-            In this window, everything except time-sensitive alerts arrives silently.
-            On Android the silent ones use their own notification channel, "whiskerless_quiet".
+            In this window, everything except time-sensitive alerts arrives silently,
+            and reminders are not sent at all. On Android the silent ones use their own
+            notification channel, "whiskerless_quiet".
           default: false
           selector: { boolean: {} }
         quiet_start:
@@ -209,6 +220,7 @@ variables:
   robots: !input robots
   image: !input image
   clear_resolved: !input clear_resolved
+  reminders: !input reminders
   quiet_hours: !input quiet_hours
   quiet_start: !input quiet_start
   quiet_end: !input quiet_end
@@ -241,15 +253,21 @@ variables:
   tag: "whiskerless_{{ trigger.event.data.serial }}_{{ alert }}"
   # "Back online" is worth saying; every other clearing just removes the alert.
   announce: "{{ kind != 'cleared' or alert == 'offline' }}"
-  quiet: >-
+  in_quiet_hours: >-
     {% set t = now().strftime('%H:%M:%S') %}
     {% set inside = quiet_start <= t < quiet_end if quiet_start <= quiet_end
                     else t >= quiet_start or t < quiet_end %}
-    {{ quiet_hours and not urgent and inside }}
-  services: >-
+    {{ quiet_hours and inside }}
+  quiet: "{{ in_quiet_hours and not urgent }}"
+  # Silence is offered wherever a reminder could follow: a condition just raised,
+  # or a reminder of one.
+  silenceable: "{{ kind in ['raised', 'reminder'] }}"
+  targets: >-
+    {% set silenced = trigger.event.data.get('silenced', []) if kind == 'reminder' else [] %}
     {% set ns = namespace(out=[]) %}
-    {% for phone in phones %}
-      {% set ns.out = ns.out + ['notify.mobile_app_' ~ (device_attr(phone, 'name') | slugify)] %}
+    {% for phone in phones if phone not in silenced %}
+      {% set ns.out = ns.out + [{'phone': phone,
+          'service': 'notify.mobile_app_' ~ (device_attr(phone, 'name') | slugify)}] %}
     {% endfor %}
     {{ ns.out }}
   page: "/config/devices/device/{{ trigger.event.data.device_id }}"
@@ -267,6 +285,7 @@ variables:
       {% set d = dict(d, image=image, actions=[{'action': 'URI', 'title': 'Open', 'uri': page}]) %}
     {% endif %}
     {{ d }}
+  silence_action: "WHISKERLESS_SILENCE|{{ trigger.event.data.serial }}|{{ alert }}|"
 
 conditions:
   - condition: template
@@ -275,20 +294,29 @@ conditions:
     value_template: "{{ robots | length == 0 or trigger.event.data.device_id in robots }}"
   - condition: template
     value_template: "{{ announce or clear_resolved }}"
+  - condition: template
+    value_template: "{{ kind != 'reminder' or (reminders and not in_quiet_hours) }}"
 
 actions:
   - if:
       - "{{ announce }}"
     then:
       - repeat:
-          for_each: "{{ services }}"
+          for_each: "{{ targets }}"
           sequence:
-            - action: "{{ repeat.item }}"
+            - action: "{{ repeat.item.service }}"
               continue_on_error: true
               data:
                 title: "{{ trigger.event.data.robot }}"
                 message: "{{ trigger.event.data.message }}"
-                data: "{{ push }}"
+                # Silence names the phone it was tapped on, so it quiets only that one.
+                data: >-
+                  {% if silenceable %}
+                    {{ dict(push, actions=[{'action': silence_action ~ repeat.item.phone,
+                                            'title': 'Silence'}] + push.get('actions', [])) }}
+                  {% else %}
+                    {{ push }}
+                  {% endif %}
       - if:
           - "{{ notify_action != '' }}"
         then:
@@ -299,9 +327,9 @@ actions:
               message: "{{ trigger.event.data.message }}"
     else:
       - repeat:
-          for_each: "{{ services }}"
+          for_each: "{{ targets }}"
           sequence:
-            - action: "{{ repeat.item }}"
+            - action: "{{ repeat.item.service }}"
               continue_on_error: true
               data:
                 message: clear_notification

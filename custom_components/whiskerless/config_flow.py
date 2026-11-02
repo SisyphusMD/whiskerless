@@ -26,7 +26,7 @@ from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 from .alerts import alert_settings
 from .const import CONF_ALERT_SETTINGS, CONF_SERIAL, DEFAULT_NAME, DOMAIN
 
-# (min, max, unit) for each alert threshold on the options page.
+# (min, max, unit) for each alert threshold on the options page; no unit for an hour of the day.
 _THRESHOLDS: dict[str, tuple[int, int, str]] = {
     "drawer_level_percent": (50, 100, "%"),
     "litter_low_percent": (5, 80, "%"),
@@ -37,6 +37,9 @@ _THRESHOLDS: dict[str, tuple[int, int, str]] = {
     "deep_clean_days": (7, 365, "d"),
     "filter_days": (7, 180, "d"),
     "globe_clean_days": (7, 365, "d"),
+    "urgent_reminder_hours": (0, 48, "h"),
+    "morning_reminder_hour": (0, 23, ""),
+    "evening_reminder_hour": (0, 23, ""),
 }
 
 
@@ -117,8 +120,8 @@ class WhiskerlessOptionsFlow(OptionsFlow):
         schema = {
             vol.Required(name, default=current[name]): NumberSelector(
                 NumberSelectorConfig(
-                    min=low, max=high, step=1, unit_of_measurement=unit,
-                    mode=NumberSelectorMode.BOX,
+                    min=low, max=high, step=1, mode=NumberSelectorMode.BOX,
+                    **({"unit_of_measurement": unit} if unit else {}),
                 )
             )
             for name, (low, high, unit) in _THRESHOLDS.items()

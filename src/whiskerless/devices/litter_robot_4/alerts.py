@@ -13,6 +13,10 @@ Two kinds of alert:
 * **Moments** have no end (a visit, a finished cycle). :class:`MomentTracker`
   turns the reducer's effects into them.
 
+A condition left alone is announced again by :class:`Reminders`: an urgent one on an
+interval, the rest at two set times of day, each until it clears or a phone
+silences it.
+
 The catalog follows the Whisker LR4 support articles, which say per fault that the
 app sends a push. Faults this firmware does not publish locally (laser board, dirty
 sensor, motion in drawer) are absent rather than guessed.
@@ -21,9 +25,9 @@ sensor, motion in drawer) are absent rather than guessed.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 from enum import StrEnum
 from statistics import median
 from typing import Any
@@ -42,12 +46,16 @@ from .models import LitterRobot4State
 
 __all__ = [
     "HOLD",
+    "LEVEL_MARGIN",
+    "REMINDER_GRACE",
+    "REMINDER_MIN_AGE",
     "URGENT",
     "Alert",
     "AlertSettings",
     "AlertTracker",
     "Moment",
     "MomentTracker",
+    "Reminders",
     "Snapshot",
     "Transition",
     "conditions",
@@ -112,6 +120,18 @@ HOLD: dict[Alert, timedelta] = {
     Alert.OFFLINE: timedelta(minutes=15),
 }
 
+#: Percentage points a level must move back past its threshold before its alert
+#: clears. The litter gauge reads 28, 30, 28 on a box nobody touched, and the drawer
+#: gauge 77, 82, 87; without the gap each wobble across the line was a new alert.
+LEVEL_MARGIN = 10
+
+#: An alert this young is not reminded about at a set time: the first notice is
+#: still fresh, and one raised at 18:55 should not repeat at 19:00.
+REMINDER_MIN_AGE = timedelta(hours=6)
+#: A set-time reminder missed by longer than this (Home Assistant was down) is
+#: skipped rather than sent at an hour nobody chose.
+REMINDER_GRACE = timedelta(hours=1)
+
 
 @dataclass(frozen=True, slots=True)
 class AlertSettings:
@@ -128,6 +148,11 @@ class AlertSettings:
     deep_clean_days: int = 90
     filter_days: int = 30
     globe_clean_days: int = 60
+    #: Hours between reminders of an urgent alert; 0 sends none.
+    urgent_reminder_hours: int = 6
+    #: Local hours at which every other active alert is reminded about.
+    morning_reminder_hour: int = 7
+    evening_reminder_hour: int = 19
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,9 +184,16 @@ Truth = bool | None
 
 
 def conditions(
-    snap: Snapshot, settings: AlertSettings, now: datetime
+    snap: Snapshot,
+    settings: AlertSettings,
+    now: datetime,
+    active: Collection[Alert] = frozenset(),
 ) -> dict[Alert, tuple[Truth, dict[str, Any]]]:
-    """The raw truth of every condition alert, before hold times."""
+    """The raw truth of every condition alert, before hold times.
+
+    ``active`` is what is raised now, so a level alert clears only once the level is
+    :data:`LEVEL_MARGIN` back past its threshold.
+    """
     out: dict[Alert, tuple[Truth, dict[str, Any]]] = {
         Alert.OFFLINE: (not snap.online, {}),
     }
@@ -201,13 +233,23 @@ def conditions(
     if level is None or robot.is_dfi_reset_pending:
         out[Alert.DRAWER_LEVEL] = (None, {})
     else:
-        out[Alert.DRAWER_LEVEL] = (level >= settings.drawer_level_percent, {"level": level})
+        threshold = settings.drawer_level_percent
+        full = (
+            level > threshold - LEVEL_MARGIN if Alert.DRAWER_LEVEL in active
+            else level >= threshold
+        )
+        out[Alert.DRAWER_LEVEL] = (full, {"level": level})
     litter = snap.litter_percent
     # The distance sensor looks at the globe, not the litter, while it turns.
     if litter is None or robot.robot_status in LITTER_UNRELIABLE_STATUSES:
         out[Alert.LITTER_LOW] = (None, {})
     else:
-        out[Alert.LITTER_LOW] = (litter <= settings.litter_low_percent, {"level": litter})
+        threshold = settings.litter_low_percent
+        low = (
+            litter < threshold + LEVEL_MARGIN if Alert.LITTER_LOW in active
+            else litter <= threshold
+        )
+        out[Alert.LITTER_LOW] = (low, {"level": litter})
     if derived.sighted(Capability.HOPPER):
         out[Alert.HOPPER_EMPTY] = (hopper_empty(derived), {})
         connected = derived.hopper_connected
@@ -288,6 +330,80 @@ class AlertTracker:
                 self.active.add(alert)
                 out.append(Transition(alert, True, details))
         return out
+
+
+@dataclass
+class Reminders:
+    """When each active condition was raised and last reminded, and who silenced it.
+
+    All three maps are worth persisting: without ``since`` a restart would make every
+    alert look new and postpone its reminders, and without ``silenced`` a phone that
+    asked for quiet would hear the next one anyway. Phones are opaque strings here.
+    """
+
+    since: dict[Alert, datetime] = field(default_factory=dict)
+    reminded: dict[Alert, datetime] = field(default_factory=dict)
+    silenced: dict[Alert, set[str]] = field(default_factory=dict)
+
+    def track(self, active: Iterable[Alert], now: datetime) -> None:
+        """Start the clock for newly active alerts and forget the ones that cleared."""
+        current = set(active)
+        for alert in current:
+            self.since.setdefault(alert, now)
+        for alert in set(self.since) - current:
+            self.since.pop(alert, None)
+            self.reminded.pop(alert, None)
+            self.silenced.pop(alert, None)
+
+    def silence(self, alert: Alert, phone: str) -> bool:
+        """Stop reminding one phone until the alert clears; False if it is not active."""
+        if alert not in self.since:
+            return False
+        self.silenced.setdefault(alert, set()).add(phone)
+        return True
+
+    def due(
+        self,
+        settings: AlertSettings,
+        now: datetime,
+        zone: tzinfo,
+        current: Mapping[Alert, tuple[Truth, dict[str, Any]]],
+    ) -> list[Alert]:
+        """The alerts to remind about now, recorded as reminded.
+
+        Only an alert still true right now qualifies: one that cannot be checked (a
+        robot offline says nothing about its drawer) is left alone. ``now`` is UTC;
+        ``zone`` is where the set times are read.
+        """
+        slot = _last_slot(
+            now, zone, (settings.morning_reminder_hour, settings.evening_reminder_hour)
+        )
+        interval = timedelta(hours=settings.urgent_reminder_hours)
+        out: list[Alert] = []
+        for alert, since in self.since.items():
+            if current.get(alert, (None, {}))[0] is not True:
+                continue
+            last = self.reminded.get(alert, since)
+            if alert in URGENT:
+                if not interval or now - last < interval:
+                    continue
+            elif not (slot > last and slot - since >= REMINDER_MIN_AGE
+                      and now - slot < REMINDER_GRACE):
+                continue
+            self.reminded[alert] = now
+            out.append(alert)
+        return out
+
+
+def _last_slot(now: datetime, zone: tzinfo, hours: Iterable[int]) -> datetime:
+    """The latest set reminder time at or before ``now``, as a UTC datetime."""
+    local = now.astimezone(zone).date()
+    slots = [
+        datetime.combine(day, time(hour), tzinfo=zone)
+        for day in (local - timedelta(days=1), local)
+        for hour in hours
+    ]
+    return max(slot for slot in slots if slot <= now)
 
 
 @dataclass(frozen=True, slots=True)

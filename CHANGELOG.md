@@ -8,9 +8,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Phone notifications to replace the Whisker app's: one blueprint, imported with a link, sends
   the alerts you tick to the phones you pick, with faults marked time-sensitive, quiet hours for
-  the rest, and each alert removed from the phone once it clears. Behind it, every alert is a
+  the rest, and each alert removed from the phone once it clears. An alert left alone is
+  reminded about (an urgent one every 6 hours, the rest at 7:00 and 19:00), and a Silence
+  button stops the reminders on that phone until it clears. Behind it, every alert is a
   `whiskerless_alert` event any automation can use, and the integration's new options page sets
-  the thresholds. See docs/setup/notifications.md.
+  the thresholds and reminder times. See docs/setup/notifications.md.
 - **Cat visit** and **Clean cycle** events fire when a visit ends (with its length and the
   cat's weight) and when a cycle finishes, for automations and alerts.
 - **Last deep clean**, **Last carbon filter change** and **Last globe clean** dates you set

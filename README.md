@@ -217,6 +217,16 @@ The `.deb` and `.rpm` need glibc 2.28 or newer.
 
 See [`docs/setup/`](docs/setup/) for the broker, certificate, and discovery details.
 
+#### Phone notifications
+
+Going local loses the Whisker app's push notifications. A blueprint brings them back:
+faults that break through Focus, quiet hours, reminders while an alert is left alone, and
+a Silence button. Import it once, then create an automation from it and pick the phones:
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FSisyphusMD%2Fwhiskerless%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fwhiskerless%2Flitter_robot_notifications.yaml)
+
+[Notifications](docs/setup/notifications.md) has the details and the event behind it.
+
 ### The provisioning CLI
 
 Runs on the computer near the robot. Every channel ships the same tool; none of

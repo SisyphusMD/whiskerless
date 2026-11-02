@@ -271,7 +271,10 @@
           "weight_change_percent": "Weight change alert",
           "deep_clean_days": "Deep clean every",
           "filter_days": "Carbon filter every",
-          "globe_clean_days": "Globe clean every"
+          "globe_clean_days": "Globe clean every",
+          "urgent_reminder_hours": "Remind about urgent alerts every",
+          "morning_reminder_hour": "Morning reminder hour",
+          "evening_reminder_hour": "Evening reminder hour"
         },
         "data_description": {
           "drawer_level_percent": "Alert when the waste drawer reaches this level.",
@@ -282,7 +285,10 @@
           "weight_change_percent": "Alert when a weighed visit differs from the usual weight by this much. The usual weight mixes every cat that uses this robot.",
           "deep_clean_days": "Whisker recommends at least every 3 months.",
           "filter_days": "Whisker recommends monthly.",
-          "globe_clean_days": "Whisker recommends every 1 to 3 months."
+          "globe_clean_days": "Whisker recommends every 1 to 3 months.",
+          "urgent_reminder_hours": "A fault, a full-drawer lockout or an offline robot is announced again this often until it clears. 0 for never.",
+          "morning_reminder_hour": "Every other alert still active is announced again at this hour (0 to 23) and at the evening one, once it is 6 hours old.",
+          "evening_reminder_hour": "Set it to the morning hour for one reminder a day."
         }
       }
     }

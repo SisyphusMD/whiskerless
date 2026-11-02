@@ -61,7 +61,14 @@ async def _automation(hass: HomeAssistant, tmp_path: Path, **inputs: Any) -> lis
     return calls
 
 
-async def _alert(hass: HomeAssistant, device_id: str, alert: str, event: str, urgent: bool = False) -> None:
+async def _alert(
+    hass: HomeAssistant,
+    device_id: str,
+    alert: str,
+    event: str,
+    urgent: bool = False,
+    silenced: list[str] | None = None,
+) -> None:
     hass.bus.async_fire(
         EVENT_ALERT,
         {
@@ -73,6 +80,7 @@ async def _alert(hass: HomeAssistant, device_id: str, alert: str, event: str, ur
             "urgent": urgent,
             "message": f"{alert} {event}",
             "details": {},
+            "silenced": silenced or [],
         },
     )
     await hass.async_block_till_done()
@@ -98,16 +106,43 @@ async def test_an_urgent_fault_is_time_sensitive_and_opens_the_robot(
     assert push["push"] == {"interruption-level": "time-sensitive"}
     assert push["url"] == push["clickAction"] == f"/config/devices/device/{devices['upstairs']}"
     assert push["image"] == "/local/whiskerless.png"
-    assert push["actions"] == [{"action": "URI", "title": "Open", "uri": push["url"]}]
+    silence = f"WHISKERLESS_SILENCE|LR4X|globe_fault|{devices['phone']}"
+    assert push["actions"] == [
+        {"action": silence, "title": "Silence"},
+        {"action": "URI", "title": "Open", "uri": push["url"]},
+    ]
 
 
-async def test_without_a_picture_there_is_no_open_button(
+async def test_without_a_picture_only_silence_is_offered_and_only_where_reminders_follow(
+    hass: HomeAssistant, tmp_path: Path, devices: dict[str, str]
+) -> None:
+    calls = await _automation(hass, tmp_path, phones=[devices["phone"]], visit=True)
+    await _alert(hass, devices["upstairs"], "drawer_full", "raised")
+    assert "image" not in calls[-1].data["data"]
+    assert [a["title"] for a in calls[-1].data["data"]["actions"]] == ["Silence"]
+    await _alert(hass, devices["upstairs"], "visit", "moment")
+    assert "actions" not in calls[-1].data["data"]
+
+
+async def test_a_reminder_skips_phones_that_silenced_it_and_never_breaks_focus(
     hass: HomeAssistant, tmp_path: Path, devices: dict[str, str]
 ) -> None:
     calls = await _automation(hass, tmp_path, phones=[devices["phone"]])
-    await _alert(hass, devices["upstairs"], "drawer_full", "raised")
-    assert "image" not in calls[-1].data["data"]
-    assert "actions" not in calls[-1].data["data"]
+    await _alert(hass, devices["upstairs"], "globe_fault", "reminder", urgent=True, silenced=[devices["phone"]])
+    assert calls == []
+    await _alert(hass, devices["upstairs"], "globe_fault", "reminder", urgent=True)
+    push = calls[-1].data["data"]
+    assert "push" not in push
+    assert push["tag"] == "whiskerless_LR4X_globe_fault"
+    assert [a["title"] for a in push["actions"]] == ["Silence"]
+
+
+async def test_reminders_can_be_turned_off(
+    hass: HomeAssistant, tmp_path: Path, devices: dict[str, str]
+) -> None:
+    calls = await _automation(hass, tmp_path, phones=[devices["phone"]], reminders=False)
+    await _alert(hass, devices["upstairs"], "drawer_full", "reminder")
+    assert calls == []
 
 
 async def test_a_cleared_alert_is_removed_and_offline_says_back_online(
@@ -135,7 +170,7 @@ async def test_unticked_alerts_and_other_robots_are_ignored(
     assert len(calls) == 1
 
 
-async def test_quiet_hours_silence_all_but_urgent_alerts(
+async def test_quiet_hours_silence_all_but_urgent_alerts_and_drop_reminders(
     hass: HomeAssistant, tmp_path: Path, devices: dict[str, str], freezer: FrozenDateTimeFactory
 ) -> None:
     await hass.config.async_set_time_zone("UTC")
@@ -146,6 +181,9 @@ async def test_quiet_hours_silence_all_but_urgent_alerts(
     assert calls[-1].data["data"]["channel"] == "whiskerless_quiet"
     await _alert(hass, devices["upstairs"], "offline", "raised", urgent=True)
     assert calls[-1].data["data"]["push"] == {"interruption-level": "time-sensitive"}
+    sent = len(calls)
+    await _alert(hass, devices["upstairs"], "offline", "reminder", urgent=True)
+    assert len(calls) == sent
     freezer.move_to("2026-11-01 12:00:00+00:00")
     await _alert(hass, devices["upstairs"], "drawer_full", "raised")
     assert "push" not in calls[-1].data["data"]

@@ -6,7 +6,9 @@ dates elapse with no new message, and fire one event per change. The notificatio
 blueprint listens for these, and so can any automation.
 
 What is active is kept on the entry, so a restart does not announce a drawer that
-was already full before it. Nothing is evaluated until Home Assistant has started:
+was already full before it, and so are the reminder clocks and who silenced what.
+The Silence button on a notification comes back as the Companion app's own action
+event, which is heard here directly rather than through an action of our own. Nothing is evaluated until Home Assistant has started:
 an alert raised before the automations are armed would be recorded as announced
 while nobody heard it.
 """
@@ -19,7 +21,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
@@ -34,6 +36,7 @@ from whiskerless.devices.litter_robot_4.alerts import (
     AlertTracker,
     Moment,
     MomentTracker,
+    Reminders,
     Snapshot,
     Transition,
     conditions,
@@ -45,18 +48,24 @@ from .const import (
     CONF_ACTIVE_ALERTS,
     CONF_ALERT_SETTINGS,
     CONF_LAST_VISIT,
+    CONF_REMINDERS,
     CONF_SERIAL,
     CONF_WEIGHT_HISTORY,
     DEFAULT_NAME,
     DOMAIN,
     EVENT_ALERT,
+    EVENT_NOTIFICATION_ACTION,
     SIGNAL_CAT_VISIT,
     SIGNAL_CLEAN_CYCLE,
+    SILENCE_ACTION,
 )
 from .coordinator import WhiskerlessCoordinator
 
 _TICK = timedelta(minutes=1)
 _SETUP_FAILURES = f"{DOMAIN}_setup_failures"
+# Settings where 0 means something (no urgent reminders, a midnight reminder);
+# for every other threshold a 0 can only be a stored value that no longer fits.
+_MAY_BE_ZERO = {"urgent_reminder_hours", "morning_reminder_hour", "evening_reminder_hour"}
 _MAINTENANCE_KEYS = {
     "deep_clean": "last_deep_clean",
     "filter": "last_filter_change",
@@ -70,7 +79,8 @@ def alert_settings(options: dict[str, Any]) -> AlertSettings:
     known = {f.name for f in fields(AlertSettings)}
     values: dict[str, int] = {}
     for name, value in stored.items():
-        if name in known and isinstance(value, (int, float)) and value > 0:
+        floor = 0 if name in _MAY_BE_ZERO else 1
+        if name in known and isinstance(value, (int, float)) and value >= floor:
             values[name] = int(value)
     return AlertSettings(**values)
 
@@ -117,6 +127,7 @@ def _fire(
     kind: str,
     message: str,
     details: dict[str, Any],
+    silenced: list[str] | None = None,
 ) -> None:
     device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, serial)})
     hass.bus.async_fire(
@@ -131,6 +142,8 @@ def _fire(
             "urgent": alert in URGENT,
             "message": message,
             "details": details,
+            # Phones that asked not to be reminded; only a reminder carries any.
+            "silenced": silenced or [],
         },
     )
 
@@ -148,6 +161,7 @@ class AlertPublisher:
             float(w) for w in options.get(CONF_WEIGHT_HISTORY) or [] if isinstance(w, (int, float))
         ]
         self._moments = MomentTracker(weights=weights)
+        self._reminders = _restore_reminders(options.get(CONF_REMINDERS), active)
         # The coordinator forgets the last visit across a restart, and "no visit for a
         # day" matters most exactly when none arrives to remind it.
         self._last_visit = dt_util.parse_datetime(str(options.get(CONF_LAST_VISIT) or ""))
@@ -170,6 +184,7 @@ class AlertPublisher:
                     async_dispatcher_connect(
                         self._hass, SIGNAL_CLEAN_CYCLE.format(serial), self._cycle
                     ),
+                    self._hass.bus.async_listen(EVENT_NOTIFICATION_ACTION, self._action),
                 ]
             )
             self._evaluate()
@@ -210,15 +225,58 @@ class AlertPublisher:
         )
         settings = alert_settings(dict(coordinator.config_entry.options))
         now = dt_util.utcnow()
-        transitions = self._tracker.update(conditions(snapshot, settings, now), now)
+        raw = conditions(snapshot, settings, now, self._tracker.active)
+        transitions = self._tracker.update(raw, now)
         if coordinator.last_update_success:
             lock = self._moments.lock(data.robot.keypad_lockout)
             if lock is not None:
                 self._fire_moment(lock)
-        if transitions:
-            self._save({CONF_ACTIVE_ALERTS: sorted(a.value for a in self._tracker.active)})
-            for transition in transitions:
-                self._fire_transition(transition)
+        self._reminders.track(self._tracker.active, now)
+        due = self._reminders.due(settings, now, dt_util.get_default_time_zone(), raw)
+        # Compared, not keyed on a change: a clock started at an upgrade has no
+        # transition behind it, and unsaved it would restart with every reload.
+        stored = self._stored_reminders()
+        options = coordinator.config_entry.options
+        if transitions or stored != options.get(CONF_REMINDERS):
+            self._save(
+                {
+                    CONF_ACTIVE_ALERTS: sorted(a.value for a in self._tracker.active),
+                    CONF_REMINDERS: stored,
+                }
+            )
+        for transition in transitions:
+            self._fire_transition(transition)
+        for alert in due:
+            details = raw[alert][1]
+            self._fire(
+                alert,
+                "reminder",
+                f"Reminder: {describe(alert, True, details)}",
+                details,
+                sorted(self._reminders.silenced.get(alert, set())),
+            )
+
+    @callback
+    def _action(self, event: Event) -> None:
+        """A Silence button tapped on a phone, for one of this robot's alerts."""
+        parts = str(event.data.get("action") or "").split("|")
+        if len(parts) != 4 or parts[0] != SILENCE_ACTION or parts[1] != self._coordinator.serial:
+            return
+        _, _, alert_key, phone = parts
+        alert = next((a for a in Alert if a.value == alert_key), None)
+        if alert is not None and self._reminders.silence(alert, phone):
+            self._save({CONF_REMINDERS: self._stored_reminders()})
+
+    def _stored_reminders(self) -> dict[str, dict[str, Any]]:
+        reminders = self._reminders
+        return {
+            alert.value: {
+                "since": since.isoformat(),
+                "reminded": reminded.isoformat() if (reminded := reminders.reminded.get(alert)) else None,
+                "silenced": sorted(reminders.silenced.get(alert, set())),
+            }
+            for alert, since in reminders.since.items()
+        }
 
     @callback
     def _visit(self, visit: VisitEnded, weight_lb: float | None) -> None:
@@ -251,6 +309,37 @@ class AlertPublisher:
     def _fire_moment(self, moment: Moment) -> None:
         self._fire(moment.alert, "moment", describe(moment.alert, None, moment.details), moment.details)
 
-    def _fire(self, alert: Alert, kind: str, message: str, details: dict[str, Any]) -> None:
+    def _fire(
+        self,
+        alert: Alert,
+        kind: str,
+        message: str,
+        details: dict[str, Any],
+        silenced: list[str] | None = None,
+    ) -> None:
         coordinator = self._coordinator
-        _fire(self._hass, coordinator.serial, coordinator.device_name, alert, kind, message, details)
+        _fire(
+            self._hass, coordinator.serial, coordinator.device_name, alert, kind, message,
+            details, silenced,
+        )
+
+
+def _restore_reminders(stored: object, active: set[Alert]) -> Reminders:
+    """The reminder clocks as saved, for alerts still active.
+
+    An alert active from before reminders existed has no clock; it starts now, so an
+    upgrade postpones its first reminder rather than sending a burst of them.
+    """
+    reminders = Reminders()
+    saved = stored if isinstance(stored, dict) else {}
+    now = dt_util.utcnow()
+    for alert in active:
+        entry = saved.get(alert.value)
+        entry = entry if isinstance(entry, dict) else {}
+        reminders.since[alert] = dt_util.parse_datetime(str(entry.get("since") or "")) or now
+        if reminded := dt_util.parse_datetime(str(entry.get("reminded") or "")):
+            reminders.reminded[alert] = reminded
+        phones = entry.get("silenced")
+        if isinstance(phones, list) and phones:
+            reminders.silenced[alert] = {str(p) for p in phones}
+    return reminders

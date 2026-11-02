@@ -30,12 +30,18 @@ What it does:
   Android has no such line, and tints the corner icon whiskerless teal instead.
 - Faults, a full-drawer lockout and an offline robot are **time-sensitive** on iOS
   (they break through Focus) and high priority on Android. They also ignore quiet hours.
-- In **quiet hours** everything else still arrives, silently. On Android the silent ones
-  use their own notification channel, `whiskerless_quiet`, which you can tune in the
-  phone's settings.
+- In **quiet hours** everything else still arrives, silently, and reminders are not sent.
+  On Android the silent ones use their own notification channel, `whiskerless_quiet`,
+  which you can tune in the phone's settings.
+- An alert left alone is announced again: an urgent one every 6 hours, the rest at 7:00
+  and 19:00 once they are 6 hours old, until the alert clears. The reminder replaces the
+  earlier notification rather than adding another.
+- Every alert and reminder has a **Silence** button. It stops the reminders on that phone
+  only, until the alert clears; everyone else keeps getting them, and the next time the
+  same thing happens everyone hears about it again.
 - A newer alert of the same kind replaces the older one, and an alert is removed from
-  the phone when its condition clears (turn that off under **Quiet hours and
-  clearing**). An offline robot coming back says "Back online." instead. On iPhone the
+  the phone when its condition clears (turn that off under **Quiet hours, reminders
+  and clearing**, where reminders can be turned off too). An offline robot coming back says "Back online." instead. On iPhone the
   removal can lag by a couple of minutes, because iOS chooses when to wake the app for it.
 - Tapping a notification opens the robot's device page.
 - **Picture** is optional and shows full width when you expand a notification. Copy an
@@ -52,7 +58,12 @@ The integration's **Configure** button (Settings → Devices & services → whis
 opens **Alert thresholds**: the drawer level, low litter, the no-visit window, long and
 frequent visits, the weight change, and how often the deep clean, carbon filter and
 globe clean fall due. Whisker recommends a deep clean at least every 3 months and a new
-carbon filter monthly.
+carbon filter monthly. The same page sets how often an urgent alert is reminded about (0
+for never) and the two hours of the day for every other reminder.
+
+A drawer level or low litter alert clears only once the level is 10 points back past its
+threshold: low litter at 30% clears at 40%. The gauges wander a few points on a box nobody
+has touched, and without that gap each wander was a new alert.
 
 The maintenance alerts count from the **Last deep clean**, **Last carbon filter change** and
 **Last globe clean** dates on the device page. Nothing is due until you set one.
@@ -67,13 +78,19 @@ Any automation can trigger on it. Its data:
 | `serial` | The robot's serial |
 | `robot` | The robot's name as shown in Home Assistant |
 | `alert` | One of the keys below |
-| `event` | `raised` or `cleared` for a condition, `moment` for something that just happened |
+| `event` | `raised` or `cleared` for a condition, `reminder` for one still active, `moment` for something that just happened |
 | `urgent` | `true` for the time-sensitive alerts |
 | `message` | The English text the blueprint sends |
 | `details` | Extra values, per alert (below) |
+| `silenced` | On a reminder, the phones (device IDs) that tapped Silence; empty otherwise |
 
-A condition is raised once and cleared once. One that was active before a restart is
-not announced again.
+A condition is raised once and cleared once, with reminders between while it lasts. One
+that was active before a restart is not announced again, and its reminder clock and
+silences carry over.
+
+The Silence button's action is `WHISKERLESS_SILENCE|<serial>|<alert>|<phone device ID>`.
+The integration listens for the Companion app's `mobile_app_notification_action` event, so
+a notification of your own can carry the same button.
 
 | `alert` | Kind | Raised when | `details` |
 | --- | --- | --- | --- |
@@ -85,8 +102,8 @@ not announced again.
 | `stuck_cycle` | condition, urgent | A clean cycle stuck for 30 minutes | |
 | `offline` | condition, urgent | No answer for 15 minutes | |
 | `drawer_full` | condition | The drawer-full sensor trips | |
-| `drawer_level` | condition | The drawer reaches the threshold | `level` |
-| `litter_low` | condition | Litter at or below the threshold | `level` |
+| `drawer_level` | condition | The drawer reaches the threshold; clears 10 points below it | `level` |
+| `litter_low` | condition | Litter at or below the threshold; clears 10 points above it | `level` |
 | `hopper_empty` | condition | The hopper runs out | |
 | `hopper_disconnected` | condition | A hopper seen before is unplugged | |
 | `no_visit` | condition | No visit for the set number of hours | `hours`, `last_visit` |
