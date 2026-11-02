@@ -123,7 +123,8 @@ reprovisioned; the robot should reconnect MQTT to 192.168.1.10
 ```
 
 (A second robot is much shorter — the broker and the certificate authority are
-already settled, so it asks only for the serial and which network to join.)
+already settled, so it lists the robots you have saved, then asks only for the new
+serial and which network to join.)
 
 The robot reboots, joins *your* broker, and from then on every check and every
 button press is local:
@@ -134,8 +135,9 @@ whiskerless monitor        # live telemetry as it happens
 ```
 
 — and if you run Home Assistant, the robot **appears on its own** as a
-discovered device the moment it reaches the broker. Fourteen sensors, the
-buttons, and every writable setting, all local.
+discovered device the moment it reaches the broker. Sensors, binary sensors,
+visit and cycle events, maintenance dates, the buttons, and every writable
+setting, all local. A few of the more detailed sensors start disabled.
 
 ## What you need
 
@@ -153,13 +155,14 @@ Physical prerequisites, gathered up front — everything else is prompted for:
   The serial becomes the robot's MQTT identity, so it must match the label
   exactly.
 - **An MQTT broker on your LAN with TLS** (port 8883) that you control —
-  Mosquitto in a container, the HA add-on, anything. Setup, including making
-  the certificates, is walked through in
+  Mosquitto in a container, the HA add-on, anything. Broker setup is walked
+  through in
   [docs/setup/mqtt-broker.md](docs/setup/mqtt-broker.md) and
   [docs/setup/certificates.md](docs/setup/certificates.md).
-- **Your CA certificate as a PEM file** — the one that signed the broker's
-  certificate. You created it during broker setup; it gets written into the
-  robot, which then trusts your broker and nothing else.
+- **A certificate authority** — the one that signs the broker's certificate. It
+  gets written into the robot, which then trusts your broker and nothing else.
+  `whiskerless setup` creates one for you, or takes the files of one you already
+  have.
 - **The WiFi network and password** the robot should join (2.4 GHz).
 - **A computer with Bluetooth within a few meters of the robot**, for the
   one-time provisioning. macOS, Linux, or Windows — installs below.
@@ -225,7 +228,9 @@ a Silence button. Import it once, then create an automation from it and pick the
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FSisyphusMD%2Fwhiskerless%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fwhiskerless%2Flitter_robot_notifications.yaml)
 
-[Notifications](docs/setup/notifications.md) has the details and the event behind it.
+The integration's **Configure** button sets the alert thresholds and reminder times.
+Every alert is also a `whiskerless_alert` event any automation can use;
+[Notifications](docs/setup/notifications.md) has the details.
 
 ### The provisioning CLI
 
@@ -279,6 +284,11 @@ last candidate.
 **Fedora, RHEL** — a dnf repository:
 
 ```bash
+# Fedora (dnf5)
+sudo dnf config-manager addrepo \
+  --from-repofile=https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd.repo
+
+# RHEL, Rocky (dnf4)
 sudo dnf config-manager --add-repo \
   https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd.repo
 
@@ -286,8 +296,7 @@ sudo dnf install whiskerless
 ```
 
 (`sisyphusmd-testing.repo` in place of `sisyphusmd.repo` tracks release
-candidates. On dnf4, `--add-repo` is the same flag; on dnf5 it is
-`dnf config-manager addrepo --from-repofile=<url>`.)
+candidates.)
 
 That file pins the **SisyphusMD** signing key, `CCE50015D058E9BF`, and dnf
 verifies every package against it on every install. Do **not** substitute the
@@ -297,7 +306,7 @@ with `GPG check FAILED`. Adding Forgejo's key alongside it "to be safe" is worse
 still — dnf accepts a package signed by *any* listed key, which would let the
 machine hosting the packages sign its own.
 
-**openSUSE:** the same repository —
+**openSUSE:** the same `.rpm`, downloaded from the releases page —
 
 ```bash
 sudo rpm --import https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/packaging/sisyphusmd-signing-key.asc
@@ -409,7 +418,7 @@ seconds, until the light **blinks yellow** — then, near it:
 whiskerless provision
 ```
 
-It prompts for everything in [What you need](#what-you-need), checks each answer
+It asks for the serial and the WiFi network, checks each answer
 as you give it, shows exactly what it is about to write, and asks before
 touching anything. When it finishes, the robot reboots onto your broker;
 `whiskerless state` is the proof. Add `--dry-run` to watch the whole flow with
@@ -417,8 +426,8 @@ nothing written.
 
 That's the only step that needs details. whiskerless remembers your broker, your
 CA and each robot under `~/whiskerless`, so everything afterwards is bare.
-Provisioning a second robot only asks for its serial and which network it should
-join — the broker and the CA are already settled.
+Provisioning a second robot lists the robots you have saved, then asks only for the
+new serial and which network it should join — the broker and the CA are already settled.
 
 > **whiskerless sets up the certificates for you.** The robot cannot send a
 > username or a password — it was built for AWS IoT, which authenticates by
@@ -661,8 +670,9 @@ it in the Whisker app — the round trip is proven and documented in
 
 ## Safety first
 
-This library talks straight to a robot's controller, and some opcodes can reset it
-or, in the worst case, brick a control board. So it guards every send:
+This library talks straight to a robot's controller, and some opcodes are described
+as reset, flash and update operations (one send was followed by a reboot, in a single
+trial never repeated). None is worth a bricked board, so it guards every send:
 
 - **Four opcodes are refused unconditionally** (`0xA3`, `0xA4`, `0xAC`, `0xAD` —
   reset / main-board-OTA orchestrator, globe-motor OTA, flash erase, hardware reset).
@@ -680,7 +690,8 @@ or, in the worst case, brick a control board. So it guards every send:
 The routine presses — clean cycle, reset, empty — are ungated. Writing the panel
 button register reproduces the exact code the panel emits, so the robot cannot tell
 it from a finger, and the firmware's pinch, cat-detect and bonnet interlocks apply
-either way.
+either way. They refuse while Control lock is on, because a locked robot ignores
+them.
 
 The guard lives in [`safety.py`](src/whiskerless/safety.py) and *both* the CLI and
 the integration funnel through it — see [`docs/devices/litter-robot-4/`](docs/devices/litter-robot-4/).
@@ -691,7 +702,7 @@ the integration funnel through it — see [`docs/devices/litter-robot-4/`](docs/
 press, and the firmware performs short presses over MQTT while silently declining
 long ones — so every hold-only function is out of reach by this route. Whisker's own
 cloud has no long-press command either; it reaches those settings by writing
-registers, which is what whiskerless already does for panel lockout, the night light,
+registers, which is what whiskerless already does for Control lock, the night light,
 the cycle delay and the sleep schedule.
 
 **Empty, Power and WiFi ship disabled by default.** Power is now proven — written to
@@ -715,6 +726,7 @@ whiskerless/
 ├─ src/whiskerless/            # the pip library (codec, MQTT, BLE, safety, CLI)
 │  └─ devices/litter_robot_4/  # LR4 protocol: codec, commands, state model, link
 ├─ custom_components/whiskerless/  # the Home Assistant integration (depends on the lib)
+├─ blueprints/                 # the phone notifications blueprint
 ├─ docs/                       # protocol reference + setup + recovery guides
 ├─ examples/                   # example automations
 └─ tests/                      # codec / safety / command / integration tests
@@ -722,9 +734,9 @@ whiskerless/
 
 ## Documentation
 
-- [How it works](docs/how-it-works.md) · [Reverse-engineering writeup](docs/reverse-engineering.md) · [Recovery](docs/recovery.md)
-- Setup: [MQTT broker](docs/setup/mqtt-broker.md) · [Certificates](docs/setup/certificates.md) · [Home Assistant](docs/setup/home-assistant.md) · [Notifications](docs/setup/notifications.md)
-- LR4 protocol: [protocol](docs/devices/litter-robot-4/protocol.md) · [commands](docs/devices/litter-robot-4/commands.md) · [registers](docs/devices/litter-robot-4/registers.md) · [compatibility](docs/devices/litter-robot-4/compatibility.md) · [capture notebook](docs/devices/litter-robot-4/capture-notebook.md)
+- [How it works](docs/how-it-works.md) · [Reverse-engineering writeup](docs/reverse-engineering.md) · [Recovery](docs/recovery.md) · [Hardware testing](docs/HARDWARE-TESTING.md)
+- Setup: [MQTT broker](docs/setup/mqtt-broker.md) · [Certificates](docs/setup/certificates.md) · [Authentication design](docs/design/authentication.md) · [Home Assistant](docs/setup/home-assistant.md) · [Notifications](docs/setup/notifications.md)
+- LR4 protocol: [protocol](docs/devices/litter-robot-4/protocol.md) · [commands](docs/devices/litter-robot-4/commands.md) · [control panel](docs/devices/litter-robot-4/control-panel.md) · [registers](docs/devices/litter-robot-4/registers.md) · [compatibility](docs/devices/litter-robot-4/compatibility.md) · [capture notebook](docs/devices/litter-robot-4/capture-notebook.md)
 
 ## Adding another Whisker device
 
