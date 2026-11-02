@@ -291,7 +291,7 @@ COPY --from=rpm-file-fedora /passed /passed
 # installs the shipped .rpm on is the gap this closes — the pre-merge ladder builds from source,
 # which proves something else.
 # renovate: datasource=docker depName=fedora-43-compat packageName=fedora
-FROM fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42 AS fedora-floor-base
+FROM fedora:43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5 AS fedora-floor-base
 COPY packaging/retry.sh /retry
 RUN set -eux; /retry 5 dnf install -y -q openssl >/dev/null
 COPY packaging/installed-smoke.sh /smoke.sh
