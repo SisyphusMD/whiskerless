@@ -6,6 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- A refilled hopper no longer keeps reporting empty when the globe was topped up at the same time.
+  The robot only measures the hopper when it dispenses, and a full globe does not dispense, so a
+  hand top-up now clears the alert and shows the level as unknown until the next dispense.
 - Phone notifications to replace the Whisker app's: one blueprint, imported with a link, sends
   the alerts you tick to the phones you pick, with faults marked time-sensitive, quiet hours for
   the rest, and each alert removed from the phone once it clears. An alert left alone is

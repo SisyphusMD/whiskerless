@@ -8,9 +8,11 @@ import pytest
 from custom_components.whiskerless.const import (
     CONF_DERIVED,
     CONF_HOPPER_FILL_RAW,
+    CONF_HOPPER_GAUGE_STALE,
     CONF_HOPPER_SEEN,
     CONF_LEARNED_HOPPER,
 )
+from custom_components.whiskerless.sensor import _hopper_level
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -493,3 +495,33 @@ async def test_a_lone_0x0c_reading_is_not_a_dispense(
     registry = er.async_get(hass)
     for domain, key in HOPPER_ENTITIES:
         assert _disabled_by(registry, domain, key) is er.RegistryEntryDisabler.INTEGRATION
+
+
+async def test_a_stale_gauge_outlives_a_restart_and_ends_at_the_next_dispense(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """A refill must not come back as empty, and announced, after a restart."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={
+            **mock_config_entry.options,
+            CONF_HOPPER_SEEN: str(Evidence.DISPENSE),
+            CONF_HOPPER_FILL_RAW: 60,
+            CONF_HOPPER_GAUGE_STALE: True,
+        },
+    )
+
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+    data = mock_config_entry.runtime_data.data
+    assert data.derived.hopper_gauge_stale is True
+    assert _hopper_level(data) is None
+
+    with robot_online(robot):
+        robot.push(DISPENSE, ACTIVITY_TOPIC)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.options[CONF_HOPPER_GAUGE_STALE] is False
+    assert mock_config_entry.runtime_data.data.derived.hopper_gauge_stale is False

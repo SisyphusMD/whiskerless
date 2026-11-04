@@ -169,6 +169,8 @@ def _hopper_level(data: WhiskerlessData) -> StateType:
     measured = derive.hopper_level_percent(data.derived)
     if measured is not None:
         return measured
+    if data.derived.hopper_gauge_stale:
+        return None
     raw = data.derived.hopper_fill_raw
     return None if raw is None else hopper_percent_provisional(raw)
 

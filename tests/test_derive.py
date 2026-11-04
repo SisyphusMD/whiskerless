@@ -27,6 +27,7 @@ from whiskerless.devices.litter_robot_4.derive import (
     Evidence,
     FirmwareChanged,
     HopperFillChanged,
+    HopperGaugeStaleChanged,
     LearnedChanged,
     VisitEnded,
     apply_message,
@@ -382,6 +383,87 @@ def test_the_hopper_reads_nothing_until_it_has_reported_a_gauge() -> None:
     state = DerivedState(learned_hopper=Learned(low=61, high=90, low_hits=3))
     assert hopper_level_percent(state) is None
     assert hopper_empty(state) is None
+
+
+def _settle(state: DerivedState, *readings: int) -> tuple[DerivedState, list[object]]:
+    """Fold in settled litter readings five minutes apart, as a robot publishes them."""
+    effects: list[object] = []
+    for i, mm in enumerate(readings):
+        update = apply_message(
+            state, _state(**{**IDLE, "litterLevel": mm}), T0 + timedelta(minutes=5 * i)
+        )
+        state = update.state
+        effects += update.effects
+    return state, effects
+
+
+EMPTY_HOPPER = {"hopper_fill_raw": 60, "learned_hopper": Learned(low=59, high=81, low_hits=3)}
+
+
+def test_a_top_up_stops_an_empty_gauge_from_being_believed() -> None:
+    """Filling the globe stops the dispenses that would have re-read the hopper."""
+    state, effects = _settle(DerivedState(**EMPTY_HOPPER), 470, 470, *[440] * 5)
+    assert HopperGaugeStaleChanged(True) in effects
+    assert hopper_empty(state) is False
+    assert hopper_level_percent(state) is None
+
+
+def test_a_gauge_is_believed_until_the_step_has_held() -> None:
+    state, effects = _settle(DerivedState(**EMPTY_HOPPER), 470, *[440] * 4)
+    assert not any(isinstance(e, HopperGaugeStaleChanged) for e in effects)
+    assert hopper_empty(state) is True
+
+
+def test_a_passing_reading_breaks_a_step() -> None:
+    """A paw over the sensor reads like a full globe for as long as it stays there."""
+    state, effects = _settle(
+        DerivedState(**EMPTY_HOPPER), 470, 440, 440, 440, 440, 470, 440, 440, 440, 440
+    )
+    assert not any(isinstance(e, HopperGaugeStaleChanged) for e in effects)
+    assert hopper_empty(state) is True
+
+
+def test_a_slow_rise_is_not_a_top_up() -> None:
+    _, effects = _settle(DerivedState(**EMPTY_HOPPER), *range(470, 430, -5))
+    assert not any(isinstance(e, HopperGaugeStaleChanged) for e in effects)
+
+
+def test_litter_taken_out_is_not_a_top_up_nor_is_the_way_back() -> None:
+    """Steps down move the baseline, and a scoop must not make the old level a fill."""
+    state, effects = _settle(DerivedState(**EMPTY_HOPPER), 440, *[470] * 5, 470, 470)
+    assert not any(isinstance(e, HopperGaugeStaleChanged) for e in effects)
+    assert state.litter_baseline_mm == 470
+
+
+def test_a_top_up_is_announced_once() -> None:
+    _, effects = _settle(DerivedState(**EMPTY_HOPPER), 470, *[440] * 5, *[410] * 5)
+    assert effects.count(HopperGaugeStaleChanged(True)) == 1
+
+
+def test_a_dispense_after_a_top_up_reads_the_hopper_again() -> None:
+    state, _ = _settle(DerivedState(**EMPTY_HOPPER), 470, *[440] * 5)
+    now = T0 + timedelta(hours=1)
+    for code in BURST:
+        update = apply_message(state, _activity(code), now)
+        state = update.state
+    assert state.hopper_gauge_stale is False
+    assert hopper_level_percent(state) is not None
+
+
+def test_implausible_readings_are_not_a_top_up() -> None:
+    state, effects = _settle(DerivedState(**EMPTY_HOPPER), 600, *[470] * 5, *[0] * 5)
+    assert not any(isinstance(e, HopperGaugeStaleChanged) for e in effects)
+    assert state.litter_baseline_mm == 470
+
+
+def test_a_top_up_survives_a_restart_and_the_baseline_does_not() -> None:
+    """The snapshot is old by the time it is read, so its baseline would invent a step."""
+    state, _ = _settle(DerivedState(**EMPTY_HOPPER), 470, 440)
+    state.hopper_gauge_stale = True
+    restored = DerivedState.from_dict(state.as_dict())
+    assert restored.hopper_gauge_stale is True
+    assert restored.litter_baseline_mm is None
+    assert restored.litter_step_samples == 0
 
 
 def test_a_gauge_against_a_confirmed_scale_is_a_percentage() -> None:

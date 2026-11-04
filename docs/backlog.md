@@ -930,6 +930,13 @@ never answers looks identical to one that is merely asleep.
 
 ### #68 — The hopper gauge under-reports
 
+**2026-11-03, 40 days of recorder history:** all 112 gauge changes on robot 1 landed at a
+dispense, so the gauge is sampled by a dispense and by nothing else. A refill alongside a globe
+top-up (29 % to 85 %, 2026-11-02) left it at the empty reading for 24 h and 11 cycles with no
+dispense, and the alert kept reminding. `_watch_for_top_up` now marks the gauge stale on an
+18 mm step held for five settled readings, which found that top-up and nothing else in the same
+40 days. A hopper refilled alone still waits for the next dispense: nothing reports it.
+
 **2026-10-26, 30-day capture:** robot 1 now dispenses and its gauge reads 73–81 normally and
 58–62 when empty, never above 81 even after a refill. Its readings straddle
 `HOPPER_FILL_EMPTY_MAX` = 72 (71 against 73), so the bands from the 1.4.4 robot do not fit it.

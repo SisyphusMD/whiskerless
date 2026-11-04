@@ -78,6 +78,8 @@ __all__ = [
     "LITTER_MAX_SPAN_MM",
     "LITTER_MIN_SPAN_MM",
     "LITTER_PLAUSIBLE_MM",
+    "LITTER_STEP_MM",
+    "LITTER_STEP_SAMPLES",
     "Learned",
     "hopper_is_empty",
     "hopper_percent",
@@ -115,6 +117,13 @@ HOPPER_MIN_SPAN = 8
 # to be the floor: consecutive dispenses each remove litter, so an unchanged
 # gauge across several of them means nothing is being delivered.
 HOPPER_EMPTY_CONFIRMATIONS = 3
+
+# A move this big, held for this many settled readings, is a person pouring
+# litter in or scooping it out rather than the bed wandering. 18 mm is 30 points
+# on the cloud's slope. Run over 40 days of one robot's readings this pair found
+# its one real top-up and nothing else; 12 mm or 3 readings also found stray steps.
+LITTER_STEP_MM = 18
+LITTER_STEP_SAMPLES = 5
 
 # Hampel-identifier gate, for DENSE signals only. The litter stream delivers
 # dozens of sampleable readings a day, enough for a short rolling window; the

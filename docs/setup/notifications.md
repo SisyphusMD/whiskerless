@@ -65,6 +65,12 @@ A drawer level or low litter alert clears only once the level is 10 points back 
 threshold: low litter at 30% clears at 40%. The gauges wander a few points on a box nobody
 has touched, and without that gap each wander was a new alert.
 
+The robot only measures the hopper when it dispenses, and a full globe does not dispense. A
+hopper refilled on its own clears the alert at the next dispense, which can be days away. Topping
+up the globe at the same time clears it within the hour, and the hopper level shows
+unknown until the next dispense measures it. If the hopper is in fact still empty, that dispense
+raises the alert again.
+
 The maintenance alerts count from the **Last deep clean**, **Last carbon filter change** and
 **Last globe clean** dates on the device page. Nothing is due until you set one.
 
@@ -104,7 +110,7 @@ a notification of your own can carry the same button.
 | `drawer_full` | condition | The drawer-full sensor trips | |
 | `drawer_level` | condition | The drawer reaches the threshold; clears 10 points below it | `level` |
 | `litter_low` | condition | Litter at or below the threshold; clears 10 points above it | `level` |
-| `hopper_empty` | condition | The hopper runs out | |
+| `hopper_empty` | condition | The hopper runs out; clears at a dispense that finds litter, or when the globe is topped up by hand | |
 | `hopper_disconnected` | condition | A hopper seen before is unplugged | |
 | `no_visit` | condition | No visit for the set number of hours | `hours`, `last_visit` |
 | `deep_clean_due`, `filter_due`, `globe_clean_due` | condition | The interval since the recorded date has passed | `last_done`, `due` |

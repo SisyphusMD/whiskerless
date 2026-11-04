@@ -49,6 +49,7 @@ from whiskerless.devices.litter_robot_4.derive import (
     Evidence,
     FirmwareChanged,
     HopperFillChanged,
+    HopperGaugeStaleChanged,
     LearnedChanged,
     VisitEnded,
 )
@@ -65,6 +66,7 @@ from .const import (
     CONF_DERIVED,
     CONF_DRAWER_SEEN,
     CONF_HOPPER_FILL_RAW,
+    CONF_HOPPER_GAUGE_STALE,
     CONF_HOPPER_SEEN,
     CONF_LEARNED_HOPPER,
     CONF_LEARNED_LITTER,
@@ -188,6 +190,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             ("learned_litter", CONF_LEARNED_LITTER),
             ("learned_hopper", CONF_LEARNED_HOPPER),
             ("hopper_fill_raw", CONF_HOPPER_FILL_RAW),
+            ("hopper_gauge_stale", CONF_HOPPER_GAUGE_STALE),
         ):
             if options.get(durable) is not None:
                 stored[field] = options[durable]
@@ -244,6 +247,8 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
                 options[CONF_LEARNED_HOPPER] = self._derived.learned_hopper.as_dict()
             elif isinstance(effect, HopperFillChanged):
                 options[CONF_HOPPER_FILL_RAW] = effect.value
+            elif isinstance(effect, HopperGaugeStaleChanged):
+                options[CONF_HOPPER_GAUGE_STALE] = effect.value
             elif isinstance(effect, CapabilitySighted):
                 # The evidence, not a bare flag: a later change to what counts
                 # as proof can then retire this sighting or leave it alone on

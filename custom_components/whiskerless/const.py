@@ -25,6 +25,9 @@ CONF_HOPPER_SEEN = "hopper_seen"
 #: one — long enough that a restart would otherwise leave the level unknown
 #: until it next runs low.
 CONF_HOPPER_FILL_RAW = "hopper_fill_raw"
+#: Kept beside it: losing this on a restart would bring back an empty reading from
+#: before a refill, and announce it as new.
+CONF_HOPPER_GAUGE_STALE = "hopper_gauge_stale"
 
 # The same pair for the visit duration (register 0xBC), which is not optional
 # hardware but an older-firmware gap: ESP 1.4.4 reports one at the end of every

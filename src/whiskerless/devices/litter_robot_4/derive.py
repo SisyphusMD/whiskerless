@@ -44,6 +44,8 @@ from .calibration import (
     LITTER_CORROBORATION_MM,
     LITTER_MAX_SPAN_MM,
     LITTER_PLAUSIBLE_MM,
+    LITTER_STEP_MM,
+    LITTER_STEP_SAMPLES,
     Learned,
     hopper_is_empty,
     hopper_percent,
@@ -72,6 +74,7 @@ __all__ = [
     "Evidence",
     "FirmwareChanged",
     "HopperFillChanged",
+    "HopperGaugeStaleChanged",
     "LearnedChanged",
     "Update",
     "VisitEnded",
@@ -204,6 +207,13 @@ class HopperFillChanged:
 
 
 @dataclass(frozen=True, slots=True)
+class HopperGaugeStaleChanged:
+    """The fill gauge stopped, or started again, describing the hopper."""
+
+    value: bool
+
+
+@dataclass(frozen=True, slots=True)
 class CapabilitySighted:
     """This robot proved, for the first time, that it owns ``capability``."""
 
@@ -256,6 +266,7 @@ class FirmwareChanged:
 Effect: TypeAlias = (
     LearnedChanged
     | HopperFillChanged
+    | HopperGaugeStaleChanged
     | CapabilitySighted
     | FirmwareChanged
     | CleanCycleCompleted
@@ -280,6 +291,10 @@ class DerivedState:
     hopper_connected: bool | None = None
     last_hopper_dispensed: datetime | None = None
     hopper_fill_raw: int | None = None
+    # The gauge is only sampled by a dispense, and a globe someone has just filled
+    # will not dispense for days. Set by a top-up, so a hopper refilled in the same
+    # visit does not go on reading empty; the next dispense samples it again.
+    hopper_gauge_stale: bool = False
     drawer_last_moved: datetime | None = None
     # From the ACTIVITY stream, not the state document: one robot held a live
     # globe-motor fault for 50 minutes while globeMotorFaultStatus read 0 in
@@ -327,6 +342,12 @@ class DerivedState:
     # reading corroborate itself.
     last_hopper_sample_at: datetime | None = None
     last_litter_sample_at: datetime | None = None
+    # The settled litter reading a step is measured from, and how many readings
+    # in a row have sat a step away from it: positive for more litter, negative
+    # for less. Never stored: the snapshot is only written at a sighting, and a
+    # baseline that old would read a restart as a top-up.
+    litter_baseline_mm: int | None = None
+    litter_step_samples: int = 0
     # The dispense burst in flight, phase -> value, and when its first phase
     # arrived. The burst spans three messages, so it has to be assembled here
     # before it can prove anything (see the dispense arm). Cleared the moment it
@@ -389,6 +410,7 @@ class DerivedState:
             hopper_connected=_as_bool(raw.get("hopper_connected")),
             last_hopper_dispensed=_as_datetime(raw.get("last_hopper_dispensed")),
             hopper_fill_raw=_as_int(raw.get("hopper_fill_raw")),
+            hopper_gauge_stale=_as_bool(raw.get("hopper_gauge_stale")) is True,
             drawer_last_moved=_as_datetime(raw.get("drawer_last_moved")),
             globe_motor_fault=_as_int(raw.get("globe_motor_fault")),
             scale_loaded_since=_as_datetime(raw.get("scale_loaded_since")),
@@ -416,6 +438,7 @@ class DerivedState:
             "hopper_connected": self.hopper_connected,
             "last_hopper_dispensed": _iso(self.last_hopper_dispensed),
             "hopper_fill_raw": self.hopper_fill_raw,
+            "hopper_gauge_stale": self.hopper_gauge_stale,
             "drawer_last_moved": _iso(self.drawer_last_moved),
             "globe_motor_fault": self.globe_motor_fault,
             "scale_loaded_since": _iso(self.scale_loaded_since),
@@ -600,6 +623,9 @@ def _apply_activity(state: DerivedState, message: ActivityMessage, now: datetime
                 if fill != state.hopper_fill_raw:
                     state.hopper_fill_raw = fill
                     effects.append(HopperFillChanged(fill))
+                if state.hopper_gauge_stale:
+                    state.hopper_gauge_stale = False
+                    effects.append(HopperGaugeStaleChanged(False))
                 effects += _learn_hopper(state, fill, now)
             effects += _sight(state, Capability.HOPPER, Evidence.DISPENSE)
             changed = True
@@ -691,6 +717,7 @@ def _learn_litter(state: DerivedState, robot: LitterRobot4State, now: datetime) 
     if not litter_is_sampleable(robot):
         return []
     assert robot.litter_level_mm is not None
+    effects = _watch_for_top_up(state, robot.litter_level_mm)
     moved = state.learned_litter.observe(
         robot.litter_level_mm,
         bounds=LITTER_PLAUSIBLE_MM,
@@ -703,7 +730,37 @@ def _learn_litter(state: DerivedState, robot: LitterRobot4State, now: datetime) 
     )
     # Only when something actually changed. A new extreme is rare, so this is
     # not the per-state-document write it might look like.
-    return [LearnedChanged()] if moved else []
+    return [*effects, LearnedChanged()] if moved else effects
+
+
+def _watch_for_top_up(state: DerivedState, mm: int) -> list[Effect]:
+    """Mark the hopper gauge stale once the globe has visibly been filled by hand.
+
+    A dispense cannot be what this catches: a hopper delivers a few points at a
+    time. The baseline survives dispenses on purpose, because a person servicing
+    the robot often sets one off just before pouring. Steps down are tracked as
+    well, so one scoop does not leave the next ordinary reading looking like a fill.
+    """
+    low, high = LITTER_PLAUSIBLE_MM
+    if not low <= mm <= high:
+        return []
+    baseline = state.litter_baseline_mm
+    if baseline is None or abs(mm - baseline) < LITTER_STEP_MM:
+        state.litter_baseline_mm = mm
+        state.litter_step_samples = 0
+        return []
+    # The reading is a distance to the bed, so a smaller one is more litter.
+    direction = 1 if mm < baseline else -1
+    held = state.litter_step_samples
+    state.litter_step_samples = held + direction if held * direction > 0 else direction
+    if abs(state.litter_step_samples) < LITTER_STEP_SAMPLES:
+        return []
+    state.litter_baseline_mm = mm
+    state.litter_step_samples = 0
+    if direction < 0 or state.hopper_gauge_stale:
+        return []
+    state.hopper_gauge_stale = True
+    return [HopperGaugeStaleChanged(True)]
 
 
 def _learn_hopper(state: DerivedState, raw: int, now: datetime) -> list[Effect]:
@@ -755,7 +812,7 @@ def litter_scale(
 
 def hopper_level_percent(state: DerivedState) -> int | None:
     """The hopper gauge as a percentage, or None until the scale is known."""
-    if state.hopper_fill_raw is None:
+    if state.hopper_fill_raw is None or state.hopper_gauge_stale:
         return None
     return hopper_percent(state.hopper_fill_raw, state.learned_hopper)
 
@@ -764,6 +821,8 @@ def hopper_empty(state: DerivedState) -> bool | None:
     """Whether the gauge sits at this unit's confirmed empty floor."""
     if state.hopper_fill_raw is None:
         return None
+    if state.hopper_gauge_stale:
+        return False
     return hopper_is_empty(state.hopper_fill_raw, state.learned_hopper)
 
 
