@@ -303,7 +303,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
 
         Uses litter_level_mm rather than the percentage, because the percentage
         is the thing being calibrated. Refuses while the reading is suppressed
-        (mid-cycle, or the filter wizard) — the ToF is looking at the globe, not
+        (mid-cycle, a visit, or the filter wizard) — the ToF is not looking at
         the litter, and capturing that would bake in a garbage reference.
         """
         # The user has just filled or emptied the globe, so the cached snapshot

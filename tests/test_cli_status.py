@@ -332,14 +332,25 @@ def test_an_impossible_stored_calibration_does_not_break_every_command(
     assert stored.litter_full_mm is None
 
 
-def test_status_marks_a_reading_taken_while_a_cat_is_in_the_globe(
+def test_status_marks_a_reading_from_a_robot_that_is_not_settled(
     saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The ToF measures whatever is in front of it — a captured visit read 253 mm
-    against a 428-462 mm bed — and a one-shot is whatever moment you asked in."""
-    FakeLink.document = {**IDLE, "catDetect": 1, "litterLevel": 253}
+    """A one-shot is whatever moment you asked in, so it says when that was a bad one."""
+    FakeLink.document = {**IDLE, "robotStatus": 5}
     assert main(["status", "--serial", SERIAL]) == 0
     assert "not a clean reading" in capsys.readouterr().out
+
+
+def test_status_shows_no_level_while_a_cat_is_in_the_beam(
+    saved: RobotProfileStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The ToF measures whatever is in front of it: a captured visit read 253 mm
+    against a 428-462 mm bed."""
+    FakeLink.document = {**IDLE, "catDetect": 1, "litterLevel": 253}
+    assert main(["status", "--serial", SERIAL]) == 0
+    out = capsys.readouterr().out
+    assert "253" not in out
+    assert "not a clean reading" not in out
 
 
 def test_calibrate_refuses_a_distance_no_litter_bed_can_be_at(

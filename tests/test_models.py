@@ -238,6 +238,30 @@ def test_litter_level_suppressed_while_cycling() -> None:
     assert state.litter_level_mm is None
 
 
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"robotStatus": 25},
+        {"robotStatus": 6},
+        {"robotStatus": 7},
+        {"robotStatus": 4, "catDetect": 1},
+        {"robotStatus": 4, "catDetect": 3},
+    ],
+)
+def test_litter_level_suppressed_around_a_visit(fields: dict[str, int]) -> None:
+    state = LitterRobot4State.from_state_doc({"litterLevel": 520, **fields, **V14})
+    assert state.litter_level is None
+    assert state.litter_level_mm is None
+
+
+def test_litter_level_kept_with_only_the_scale_loaded() -> None:
+    # Bit 1 alone is weight on the pan, and the beam still sees the bed.
+    state = LitterRobot4State.from_state_doc(
+        {"robotStatus": 4, "catDetect": 2, "litterLevel": 460, **V14}
+    )
+    assert state.litter_level_mm == 460
+
+
 def test_litter_level_kept_while_ready() -> None:
     state = LitterRobot4State.from_state_doc({"robotStatus": 4, "litterLevel": 460, **V14})
     assert state.litter_level_mm == 460

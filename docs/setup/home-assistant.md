@@ -170,7 +170,9 @@ before settling.
 **Sensors**
 
 - **Status** — Ready / Clean cycle / Cat detected / etc.
-- **Litter level** (%) and **Litter level distance** (mm, diagnostic, disabled by default)
+- **Litter level** (%) and **Litter level distance** (mm, diagnostic, disabled by default).
+  Both read unknown during a visit, the countdown after it and a clean cycle, because the
+  sensor is not seeing a settled bed then.
 - **Waste drawer level** (%)
 - **Pet weight** (lb)
 - **Last cat visit**, and **Last visit duration** (not every robot reports one; enables itself)

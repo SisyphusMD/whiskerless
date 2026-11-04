@@ -94,6 +94,25 @@ async def test_calibration_takes_effect_immediately(
     assert mock_config_entry.options[CONF_LITTER_FULL_MM] == 455
 
 
+async def test_a_visit_shows_no_litter_level(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    state_payload: str,
+) -> None:
+    """The countdown after a visit read 7% on a bed that settled back at 38%."""
+    enable_calibration_buttons(hass, mock_config_entry)
+    robot = await setup_integration(hass, mock_config_entry, state_payload)
+
+    countdown = {**json.loads(state_payload), "robotStatus": 6, "litterLevel": 520}
+    countdown.pop("litterLevelPercentage", None)
+    robot.push(json.dumps(countdown))
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.litter_robot_4_litter_level")
+    assert state is not None
+    assert state.state == "unknown"
+
+
 async def test_a_suppressed_reading_is_not_papered_over_by_the_last_one(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,

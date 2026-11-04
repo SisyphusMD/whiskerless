@@ -63,7 +63,8 @@ for never) and the two hours of the day for every other reminder.
 
 A drawer level or low litter alert clears only once the level is 10 points back past its
 threshold: low litter at 30% clears at 40%. The gauges wander a few points on a box nobody
-has touched, and without that gap each wander was a new alert.
+has touched, and without that gap each wander was a new alert. Low litter is only judged on
+a settled robot, so a visit or the countdown after it neither raises nor clears it.
 
 The robot only measures the hopper when it dispenses, and a full globe does not dispense. A
 hopper refilled on its own clears the alert at the next dispense, which can be days away. Topping

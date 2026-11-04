@@ -97,6 +97,13 @@ def test_litter_low_is_not_judged_while_the_globe_turns() -> None:
     assert _truth(turning, Alert.LITTER_LOW) is None
 
 
+def test_litter_low_is_not_judged_during_a_visit_or_the_countdown_after_it() -> None:
+    for status in (25, 6, 7):
+        visit = Snapshot(robot=LitterRobot4State.from_state_doc({**IDLE, "robotStatus": status}),
+                         derived=DerivedState(), online=True, litter_percent=7)
+        assert _truth(visit, Alert.LITTER_LOW) is None
+
+
 def test_a_globe_fault_carries_its_reported_cause() -> None:
     raw = conditions(_snap(derived=DerivedState(globe_motor_fault=6)), SETTINGS, T0)
     assert raw[Alert.GLOBE_FAULT] == (True, {"cause": "pinch"})

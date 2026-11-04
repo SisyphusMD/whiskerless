@@ -438,8 +438,11 @@ CLEANING_STATUSES: frozenset[str] = frozenset(
 # Statuses where the ToF sensors are not looking at a level litter bed, so any
 # litter reading is meaningless. Broader than CLEANING_STATUSES: the
 # filter-change wizard parks the globe inverted for minutes at a time without
-# ever being a clean cycle.
-LITTER_UNRELIABLE_STATUSES: frozenset[str] = CLEANING_STATUSES | frozenset({"changing_filter"})
+# ever being a clean cycle. A visit counts too, and so does the countdown after
+# it: the cat has gone by then, yet a bed that read 38% after the cycle read 7%.
+LITTER_UNRELIABLE_STATUSES: frozenset[str] = CLEANING_STATUSES | frozenset(
+    {"changing_filter", "cat_detected", "cat_sensor_timing"}
+)
 
 # Every slug the decoder produces from a value it actually recognized. An
 # unmapped int decodes to "unknown_N" and an unseen cloud string passes through

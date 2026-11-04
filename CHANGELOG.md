@@ -6,6 +6,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- A cat visit no longer sets off a false low litter alert. The litter reading is badly off during
+  a visit and the countdown after it, so **Litter level** now reads unknown for that time, the way
+  it already did during a clean cycle, and the alert waits for a settled reading. The CLI's
+  `status` shows no level then either, and calibrating refuses to store one.
 - A refilled hopper no longer keeps reporting empty when the globe was topped up at the same time.
   The robot only measures the hopper when it dispenses, and a full globe does not dispense, so a
   hand top-up now clears the alert and shows the level as unknown until the next dispense.

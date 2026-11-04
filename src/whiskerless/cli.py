@@ -559,10 +559,9 @@ async def _cmd_status(args: argparse.Namespace) -> int:
         if profile.litter_empty_mm is not None:
             calibration += f", {profile.litter_empty_mm} mm when empty"
 
-    # The robot keeps reporting a level while a cat is standing in the globe, and
-    # the ToF is then measuring the cat: a captured visit read 253 mm against a
-    # 428-462 mm bed. Home Assistant rides this out because it updates again in a
-    # minute; a one-shot is whatever moment you happened to ask in, so it says so.
+    # A level reported by anything but a settled robot may not describe the bed.
+    # Home Assistant rides this out because it updates again in a minute; a
+    # one-shot is whatever moment you happened to ask in, so it says so.
     level = "unknown" if percent is None else f"{percent}%"
     if robot.litter_level_mm is not None and not litter_is_sampleable(robot):
         # Only when there IS a reading and it cannot be trusted. A document that

@@ -152,10 +152,14 @@ class LitterRobot4State:
         litter_pct = _int(g("litterLevelPercentage"))
         litter_level_reported = litter_pct is not None
         litter_mm = _int(g("litterLevel"))
-        if is_cleaning or robot_status in const.LITTER_UNRELIABLE_STATUSES:
+        if (
+            is_cleaning
+            or robot_status in const.LITTER_UNRELIABLE_STATUSES
+            or cat_detect_bit0(g("catDetect")) is True
+        ):
             # The ToF sensors read the rotating globe, not the litter bed, while
-            # a cycle runs (observed: 574 mm mid-cycle on a 460 mm fill). Suppress
-            # rather than publish garbage.
+            # a cycle runs (observed: 574 mm mid-cycle on a 460 mm fill), and the
+            # cat while it is in the beam. Suppress rather than publish garbage.
             litter_pct = litter_mm = None
         elif litter_pct is None and litter_mm is not None:
             litter_pct = litter_level_percent_from_mm(litter_mm)
