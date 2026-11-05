@@ -29,6 +29,7 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from . import setup_integration
+from .test_evo import EvoRobot, evo_online
 
 pytestmark = pytest.mark.usefixtures("mqtt_mock")
 
@@ -62,9 +63,17 @@ def _documents() -> list[Any]:
 
 
 async def test_the_examples_reference_real_entities(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_evo_config_entry: MockConfigEntry,
+    state_payload: str,
 ) -> None:
     await setup_integration(hass, mock_config_entry, state_payload)
+    # The EVO examples live alongside the Litter-Robot 4's, so both robots are set up.
+    with evo_online(EvoRobot()):
+        mock_evo_config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(mock_evo_config_entry.entry_id)
+        await hass.async_block_till_done()
 
     referenced = set()
     for document in _documents():
@@ -80,7 +89,8 @@ async def test_the_examples_reference_real_entities(
     registry = er.async_get(hass)
     real = {
         entry.entity_id
-        for entry in er.async_entries_for_config_entry(registry, mock_config_entry.entry_id)
+        for config_entry in (mock_config_entry, mock_evo_config_entry)
+        for entry in er.async_entries_for_config_entry(registry, config_entry.entry_id)
     }
     missing = sorted(referenced - real)
     assert not missing, f"examples reference entities that do not exist: {missing}"

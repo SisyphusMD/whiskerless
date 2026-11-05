@@ -10,8 +10,9 @@
 **Un-cloud your Whisker devices.** Fully-local MQTT control and telemetry for the
 Whisker **Litter-Robot 4** — no cloud account, no internet round-trip, no
 third-party servers. Your robot talks to *your* broker, and that's it.
-The library and CLI also drive the **Litter-Robot EVO** ([protocol](docs/devices/litter-robot-evo/protocol.md));
-the Home Assistant integration does not yet.
+The library, CLI and Home Assistant integration also drive the **Litter-Robot EVO**
+([protocol](docs/devices/litter-robot-evo/protocol.md),
+[Home Assistant](docs/setup/home-assistant.md#the-litter-robot-evo)).
 
 > **Primary repository**: developed at [forgejo.bryantserver.com/SisyphusMD/whiskerless](https://forgejo.bryantserver.com/SisyphusMD/whiskerless). The [GitHub copy](https://github.com/SisyphusMD/whiskerless) is a read-only mirror (HACS installs from it). **Please file issues and pull requests on [GitHub](https://github.com/SisyphusMD/whiskerless/issues)** — the Forgejo repository does not take external issues.
 

@@ -142,6 +142,12 @@ def test_every_example_automation_has_a_trigger_and_an_action(path: Path) -> Non
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert isinstance(loaded, list), f"{path.name} should be a list of automations"
     for automation in loaded:
+        if "use_blueprint" in automation:
+            # Its triggers and actions come from the blueprint it names.
+            blueprint = automation["use_blueprint"]
+            assert blueprint.get("path"), f"{path.name}: {automation.get('alias')}"
+            assert blueprint.get("input"), f"{path.name}: {automation.get('alias')}"
+            continue
         assert automation.get("triggers"), f"{path.name}: {automation.get('alias')}"
         assert automation.get("actions"), f"{path.name}: {automation.get('alias')}"
 
@@ -187,7 +193,13 @@ EXAMPLE_NETWORKS = frozenset(
 # designator would wave through a real `LR4D…` from somebody else's robot — and
 # the whole point is to catch the serial nobody thought to look for.
 #: The EVO's serial is `LRE-` and hyphenated hex groups.
-_SERIAL = re.compile(r"\bLR[0-9][A-Z]?[0-9]{6}\b|\bLRE(?:-[0-9A-F]{2,8}){4,}\b", re.IGNORECASE)
+#: Ends on "no letter or digit follows" rather than `\b`, which an underscore
+#: defeats: in a unique ID such as `<serial>_status` the serial would otherwise
+#: not match whole, or not at all.
+_SERIAL = re.compile(
+    r"\bLR[0-9][A-Z]?[0-9]{6}(?![0-9A-Za-z])|\bLRE(?:-[0-9A-F]{2,8}){4,}(?![0-9A-Za-z-])",
+    re.IGNORECASE,
+)
 
 #: A MAC identifies a unit as durably as its serial — `diagnostics.py` says so, and the
 #: `--debug` scrubber redacts one. Matched as a maximal run of hex-pair groups and judged

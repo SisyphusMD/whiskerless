@@ -19,7 +19,7 @@ from syrupy.assertion import SnapshotAssertion
 
 from whiskerless.devices.litter_robot_4.derive import Evidence
 
-from .const import MOCK_CONFIG, MOCK_NAME, MOCK_SERIAL
+from .const import EVO_CONFIG, EVO_NAME, EVO_SERIAL, MOCK_CONFIG, MOCK_NAME, MOCK_SERIAL
 
 
 @pytest.fixture
@@ -72,4 +72,12 @@ def mock_config_entry() -> MockConfigEntry:
             CONF_PET_WEIGHT_SEEN: str(Evidence.CAT_WEIGHT),
             CONF_CAT_VISIT_SEEN: str(Evidence.OCCUPANCY),
         },
+    )
+
+
+@pytest.fixture
+def mock_evo_config_entry() -> MockConfigEntry:
+    """A config entry for one synthetic Litter-Robot EVO."""
+    return MockConfigEntry(
+        domain=DOMAIN, title=EVO_NAME, unique_id=EVO_SERIAL, data=dict(EVO_CONFIG)
     )

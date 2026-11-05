@@ -28,6 +28,10 @@ Provisioning writes the EVO's own topic prefix, `prod/robots`, so a robot moved
 between Whisker's cloud and a local broker keeps the same topics. A robot
 provisioned under another prefix is driven with `--topic-prefix`.
 
+In Home Assistant the integration discovers an EVO from its `prod/robots/…`
+topics; its entities, and the blueprint that holds a custom panel brightness,
+are in [Home Assistant: The Litter-Robot EVO](../../setup/home-assistant.md#the-litter-robot-evo).
+
 ## Hardware and firmware
 
 | Item | Value |

@@ -19,6 +19,8 @@ from whiskerless.devices.litter_robot_4.derive import CleanCycleCompleted, Visit
 from .const import SIGNAL_CAT_VISIT, SIGNAL_CLEAN_CYCLE
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity
+from .evo import event as evo_event
+from .evo import is_evo_entry
 
 PARALLEL_UPDATES = 0
 
@@ -43,6 +45,9 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Whiskerless event entities."""
+    if is_evo_entry(entry):
+        await evo_event.async_setup_entry(hass, entry, async_add_entities)
+        return
     coordinator = entry.runtime_data
     async_add_entities(
         [WhiskerlessCatVisitEvent(coordinator), WhiskerlessCleanCycleEvent(coordinator)]

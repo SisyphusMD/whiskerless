@@ -1,0 +1,34 @@
+# Example Home Assistant script for a Litter-Robot EVO via whiskerless.
+#
+# Sets the screen and status LED to any pair of levels, 1-100 each. Both levels
+# travel in one write to the robot, so the two calls run one after the other.
+
+litter_robot_evo_panel_brightness:
+  alias: "Litter-Robot EVO - set panel brightness"
+  mode: queued
+  fields:
+    screen:
+      description: Screen brightness, 1-100.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 100
+    led:
+      description: Status LED brightness, 1-100.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 100
+  sequence:
+    - action: number.set_value
+      target:
+        entity_id: number.litter_robot_evo_screen_brightness
+      data:
+        value: "{{ screen }}"
+    - action: number.set_value
+      target:
+        entity_id: number.litter_robot_evo_status_led_brightness
+      data:
+        value: "{{ led }}"
