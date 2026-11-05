@@ -1,0 +1,42 @@
+name: Whiskerless robot broker
+version: "0.1.0"
+slug: whiskerless_broker
+description: TLS MQTT broker for Whisker robots, bridged into the Mosquitto add-on.
+url: https://github.com/SisyphusMD/whiskerless/blob/main/docs/setup/robot-broker.md
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: services
+boot: auto
+
+# The Supervisor hands this add-on the Mosquitto add-on's service account, so the
+# bridge into it needs no login of its own.
+services:
+  - mqtt:need
+
+# ca.crt, server.crt and server.key from `whiskerless setup` go in this add-on's
+# config folder, mounted at /config.
+map:
+  - addon_config:rw
+
+# The robot's port is fixed at 8883. If the host's 8883 is taken, change the host
+# port in the add-on's Network settings and redirect the robot's 8883 to it on the
+# router (docs/setup/robot-broker.md).
+ports:
+  8883/tcp: 8883
+ports_description:
+  8883/tcp: Robot TLS listener
+
+options:
+  require_client_certificate: false
+  log_subscriptions: false
+  robot_acl_pattern: "prod/#"
+  bridge_topics:
+    - "prod/# both 1"
+schema:
+  require_client_certificate: bool
+  log_subscriptions: bool
+  robot_acl_pattern: str
+  bridge_topics:
+    - str

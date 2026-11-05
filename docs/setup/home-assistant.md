@@ -24,7 +24,9 @@ supported. Firmware caveats and the per-opcode differences are in
    broker (e.g. the Mosquitto add-on, or any broker — Settings → Devices &
    Services → Add Integration → MQTT). This is the broker your robots publish to.
 2. A broker the robot can reach over TLS → [mqtt-broker.md](mqtt-broker.md) and
-   [certificates.md](certificates.md).
+   [certificates.md](certificates.md). On Home Assistant OS the Mosquitto add-on
+   cannot take the robot itself; the [robot broker add-on](robot-broker.md) bridges
+   it in.
 3. The robot re-provisioned onto that broker → `whiskerless provision`.
 
 > The robot always connects to the broker over TLS on 8883 with your CA. Home
