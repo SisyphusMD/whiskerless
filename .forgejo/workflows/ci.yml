@@ -418,7 +418,7 @@ jobs:
           # renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
           RHEL_CURRENT_IMAGE="rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834"
           # renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
-          OPENSUSE_IMAGE="opensuse/leap:16.0@sha256:952857883a24c24a64c8bc67d7d1a8f9d4800ad4fbe075fc4566ff9af706cb8b"
+          OPENSUSE_IMAGE="opensuse/leap:16.0@sha256:966ea44f996aa60bd9ef163067a72cb6cdf5282aa4e91706f4d5a00c5d521bbf"
           export DEBIAN_FLOOR_IMAGE DEBIAN_CURRENT_IMAGE
           export UBUNTU_FLOOR_IMAGE UBUNTU_CURRENT_IMAGE
           export FEDORA_FLOOR_IMAGE FEDORA_CURRENT_IMAGE

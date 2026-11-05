@@ -428,7 +428,7 @@ COPY --from=pip /passed /passed
 # on Leap 16 can still fail on 15.6, and nothing else here would notice. Both stages below are
 # identical apart from the base image. The sibling project runs the same pair, under the same names.
 # renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
-FROM opensuse/leap:16.0@sha256:952857883a24c24a64c8bc67d7d1a8f9d4800ad4fbe075fc4566ff9af706cb8b AS zypper
+FROM opensuse/leap:16.0@sha256:966ea44f996aa60bd9ef163067a72cb6cdf5282aa4e91706f4d5a00c5d521bbf AS zypper
 COPY packaging/retry.sh /retry
 ARG V PV DL ARCH_RPM FORGE
 RUN set -eux; zypper --non-interactive install -y curl openssl >/dev/null; command -v openssl >/dev/null
