@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
+from .cloud_bridge import BridgeConfigEntry, is_bridge_entry
 from .const import CONF_SERIAL
 from .coordinator import WhiskerlessConfigEntry
 
@@ -18,6 +19,8 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: WhiskerlessConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
+    if is_bridge_entry(entry):
+        return _bridge_diagnostics(cast(BridgeConfigEntry, entry))
     coordinator = entry.runtime_data
     robot = asdict(coordinator.data.robot)
     # The firmware's camelCase `raw` doc can carry identifiers that snake_case
@@ -41,6 +44,38 @@ async def async_get_config_entry_diagnostics(
             "available": coordinator.last_update_success,
             "state": robot,
             "derived": derived,
+        },
+        TO_REDACT,
+    )
+
+
+def _bridge_diagnostics(entry: BridgeConfigEntry) -> dict[str, Any]:
+    """A bridge's settings, state and recent traffic, without the serial or payloads.
+
+    Payloads are left out: cloud messages can carry the account's pet profiles.
+    """
+    runtime = entry.runtime_data
+    serial = runtime.serial
+
+    def scrub(topic: str) -> str:
+        return topic.replace(serial, "**REDACTED**")
+
+    return async_redact_data(
+        {
+            "entry": dict(entry.data),
+            "options": dict(entry.options),
+            "state": runtime.state.value,
+            "last_error": runtime.last_error and scrub(runtime.last_error),
+            "recent_traffic": [
+                {
+                    "at": traffic.at.isoformat(),
+                    "direction": traffic.direction.value,
+                    "topic": scrub(traffic.topic),
+                    "bytes": len(traffic.payload),
+                    "injected": traffic.injected,
+                }
+                for traffic in runtime.recent
+            ],
         },
         TO_REDACT,
     )

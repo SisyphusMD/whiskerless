@@ -4,9 +4,7 @@
 # later core submission is small.
 rules:
   # Bronze
-  action-setup:
-    status: exempt
-    comment: This integration does not register custom service actions.
+  action-setup: done
   appropriate-polling:
     status: exempt
     comment: This is a push integration; state arrives over MQTT. A long heartbeat only detects an unresponsive robot.
@@ -17,9 +15,7 @@ rules:
   config-flow-test-coverage: done
   config-flow: done
   dependency-transparency: done
-  docs-actions:
-    status: exempt
-    comment: This integration does not register custom service actions.
+  docs-actions: done
   docs-conditions:
     status: exempt
     comment: This integration does not provide conditions.

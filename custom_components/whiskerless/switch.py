@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, override
+from typing import Any, cast, override
 
 from homeassistant.components.switch import (
     SwitchDeviceClass,
     SwitchEntity,
     SwitchEntityDescription,
 )
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from whiskerless.devices.litter_robot_4 import LitterRobot4State
 
+from .cloud_bridge import BridgeConfigEntry, async_add_bridge_entities, is_bridge_entry
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity, exception_handler
 
@@ -57,6 +58,9 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Whiskerless switches."""
+    if is_bridge_entry(entry):
+        async_add_bridge_entities(cast(BridgeConfigEntry, entry), Platform.SWITCH, async_add_entities)
+        return
     coordinator = entry.runtime_data
     async_add_entities(WhiskerlessSwitch(coordinator, description) for description in SWITCHES)
 

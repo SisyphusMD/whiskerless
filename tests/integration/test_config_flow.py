@@ -80,7 +80,10 @@ async def test_discovery_already_configured(
 
 
 async def test_user_step_is_discovery_only(hass: HomeAssistant) -> None:
-    """Manual add explains that robots are discovered automatically."""
+    """Manual add of a robot explains that robots are discovered automatically."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert result["type"] is FlowResultType.MENU
+    assert result["menu_options"] == ["cloud_bridge", "robot"]
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "robot"})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "discovery_only"

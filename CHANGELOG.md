@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Cloud bridge**: keeps the Whisker app and cloud working for a robot on your broker. It
+  connects to Whisker's cloud as the robot, with the robot's own cloud identity, and relays its
+  MQTT both ways, so every cloud command is readable on your broker. In Home Assistant it is its
+  own entry (Add integration → Whiskerless → Cloud bridge) with a **Cloud bridge** switch, a
+  connection state, a **Cloud bridge traffic** event per message, and a
+  `whiskerless.send_bridge_message` action. `scripts/cloud_identity.py` extracts the identity from
+  an iPhone or Android Bluetooth capture of the app's onboarding. See docs/setup/cloud-bridge.md.
+
 - A cat visit no longer sets off a false low litter alert. The litter reading is badly off during
   a visit and the countdown after it, so **Litter level** now reads unknown for that time, the way
   it already did during a clean cycle, and the alert waits for a settled reading. The CLI's
