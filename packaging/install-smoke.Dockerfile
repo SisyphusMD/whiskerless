@@ -42,7 +42,7 @@ ARG GH_PV
 # leg cannot forget it. This is not laundering a flaky test, it is making a network fetch survive
 # the network; a package that genuinely does not install still fails.
 # renovate: datasource=docker depName=debian-13-current packageName=debian
-FROM debian:13-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS deb-base
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS deb-base
 COPY packaging/retry.sh /retry
 RUN set -eux; \
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/99retries; \
