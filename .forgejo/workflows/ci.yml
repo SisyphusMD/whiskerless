@@ -402,7 +402,7 @@ jobs:
           # The exported binary is already outside BuildKit, so its compile cache is disposable.
           docker buildx prune --all --force
           # renovate: datasource=docker depName=debian-12-compat packageName=debian
-          DEBIAN_FLOOR_IMAGE="debian:12-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3"
+          DEBIAN_FLOOR_IMAGE="debian:12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc"
           # renovate: datasource=docker depName=debian-13-current packageName=debian
           DEBIAN_CURRENT_IMAGE="debian:13-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4"
           # renovate: datasource=docker depName=ubuntu-22.04-compat packageName=ubuntu
