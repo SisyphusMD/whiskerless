@@ -123,7 +123,7 @@ def _bleak(robot: FakeRobot) -> Any:
 async def test_a_device_without_the_lr4_service_is_refused_before_any_write() -> None:
     """--address takes an arbitrary BLE address, so this is the only guard."""
     robot = FakeRobot(service_uuid="0000ffff-0000-1000-8000-00805f9b34fb")
-    with _bleak(robot), pytest.raises(ProvisioningError, match="not a Litter-Robot 4"):
+    with _bleak(robot), pytest.raises(ProvisioningError, match="does not expose a Litter-Robot 4 or EVO"):
         await provision_robot("AA:BB:CC:DD:EE:FF", _config(), dry_run=True)
     assert robot.requests == [], "nothing may be written to an unidentified device"
 
@@ -214,7 +214,7 @@ def test_no_id_stays_none() -> None:
 # --- the read-only preflight -------------------------------------------------
 async def test_the_preflight_refuses_a_device_that_is_not_an_lr4() -> None:
     robot = FakeRobot(service_uuid="0000ffff-0000-1000-8000-00805f9b34fb")
-    with _bleak(robot), pytest.raises(ProvisioningError, match="not a Litter-Robot 4"):
+    with _bleak(robot), pytest.raises(ProvisioningError, match="does not expose a Litter-Robot 4 or EVO"):
         await read_device_mac("AA:BB:CC:DD:EE:FF")
 
 

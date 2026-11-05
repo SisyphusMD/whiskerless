@@ -26,7 +26,9 @@ because the mechanism is known.
 
 The command grammar guarded here is the LR4 ESP wire format: a 10-character
 string ``0xTTRRVVVV`` where the second hex digit ``T`` is the type (1=read,
-2=write/macro), ``RR`` the register/opcode, and ``VVVV`` the 16-bit value.
+2=write/macro), ``RR`` the register/opcode, and ``VVVV`` the 16-bit value. The
+Litter-Robot EVO's banked 12-character grammar has its own functions at the end
+of this module (`assert_evo_sendable`).
 """
 
 from __future__ import annotations
@@ -219,5 +221,94 @@ def assert_sendable(code: str, *, allow_dangerous: bool = False) -> Hazard:
         raise DangerousCommandError(
             f"{code} is untraced/unverified (control-band, calibration, or "
             "unknown opcode); pass allow_dangerous=True to override"
+        )
+    return hazard
+
+
+# --- Litter-Robot EVO --------------------------------------------------------
+# The EVO's grammar is banked: ``0xTTBBRRVVVV`` (type, bank, register, 16-bit
+# value), twelve characters. It is guarded separately because the two grammars
+# cannot be told apart by content, only by width, and an LR4 element sent to an
+# EVO is parsed at the wrong address. `assert_evo_sendable` therefore refuses
+# anything that is not exactly the EVO's width before it classifies.
+#
+# The EVO has no known brick-class command, so nothing is NEVER yet. Every write
+# that is not on the lists below is DANGEROUS: untested, not known to be harmful.
+
+#: Bank 02 registers whose writes are the app's or the cloud's own settings writes,
+#: echoed back: panel brightness, the clock (02-08), cycle delay, lockout and the
+#: sleep schedule.
+EVO_SAFE_SETTINGS: frozenset[int] = frozenset({*range(0x01, 0x0B), *range(0x10, 0x1F)})
+EVO_SETTINGS_BANK = 0x02
+#: (bank, register, value) actions, each echoed by the robot. The clean cycle,
+#: empty cycle and filter change turn the globe behind the robot's own interlocks,
+#: exactly as the app's buttons and the panel's Cycle hold do.
+EVO_SAFE_ACTIONS: frozenset[tuple[int, int, int]] = frozenset(
+    {
+        (0x01, 0x03, 0x000A),  # clean cycle
+        (0x01, 0x03, 0x000B),  # empty cycle
+        (0x01, 0x03, 0x000C),  # change filter
+        (0x01, 0x22, 0x0001),  # reset drawer level
+        (0x01, 0x14, 0x0001),  # power on
+    }
+)
+#: Power off stops the robot cleaning until something powers it back on. The EVO
+#: stays connected while off and accepts power on over MQTT, but an automation
+#: that powers it off by mistake leaves the litter uncleaned, so it is gated the
+#: same way the LR4's power toggle is.
+EVO_POWER_OFF: tuple[int, int, int] = (0x01, 0x14, 0x0000)
+
+
+def parse_evo_code(code: str) -> tuple[CommandType, int, int, int]:
+    """Parse a ``0xTTBBRRVVVV`` EVO command into ``(type, bank, register, value)``.
+
+    Raises :class:`ProtocolError` unless the string is ``0x`` + 10 hex digits.
+    """
+    raw = code.strip()
+    if len(raw) != 12 or raw[:2].lower() != "0x":
+        raise ProtocolError(
+            f"EVO command must be '0x' + 10 hex digits (got {code!r}); "
+            "an 8-digit LR4 element is parsed at the wrong address"
+        )
+    if not all(character in "0123456789abcdefABCDEF" for character in raw[2:]):
+        raise ProtocolError(f"non-hex digits in command {code!r}")
+    type_byte = int(raw[2:4], 16)
+    bank, register, value = int(raw[4:6], 16), int(raw[6:8], 16), int(raw[8:12], 16)
+    try:
+        ctype = CommandType(type_byte)
+    except ValueError:
+        ctype = CommandType.NOOP
+    return ctype, bank, register, value
+
+
+def classify_evo(ctype: CommandType, bank: int, register: int, value: int) -> Hazard:
+    """Classify a parsed EVO command into a :class:`Hazard`."""
+    if ctype is CommandType.NOOP:
+        return Hazard.NOOP
+    if ctype is CommandType.READ:
+        return Hazard.SAFE  # answered with the register's value, changes nothing
+    if bank == EVO_SETTINGS_BANK and register in EVO_SAFE_SETTINGS:
+        return Hazard.SAFE
+    if (bank, register, value) in EVO_SAFE_ACTIONS:
+        return Hazard.SAFE
+    return Hazard.DANGEROUS
+
+
+def classify_evo_code(code: str) -> Hazard:
+    """Parse and classify an EVO command string in one step."""
+    return classify_evo(*parse_evo_code(code))
+
+
+def assert_evo_sendable(code: str, *, allow_dangerous: bool = False) -> Hazard:
+    """Raise unless the EVO command ``code`` may be published.
+
+    ``DANGEROUS`` requires ``allow_dangerous=True``, as for the LR4. Returns the
+    :class:`Hazard` on success.
+    """
+    hazard = classify_evo_code(code)
+    if hazard is Hazard.DANGEROUS and not allow_dangerous:
+        raise DangerousCommandError(
+            f"{code} is not a known-safe EVO command (power off, or an untested "
+            "bank/register); pass allow_dangerous=True to override"
         )
     return hazard

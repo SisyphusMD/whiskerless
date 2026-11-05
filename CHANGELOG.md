@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Litter-Robot EVO support in the library and CLI. `whiskerless provision` accepts an EVO
+  (`LRE-…` serial, setup mode first) and writes its own topics, `prod/robots/…`; the LR4's
+  provisioning is unchanged. `whiskerless evo` reads the robot's state (`evo state`), watches
+  what it reports, sets panel
+  brightness (screen and status LED separately, 1-100), cycle delay, lockout, the sleep
+  schedule and the robot's clock (`evo set-clock`), and runs a clean cycle, empty cycle, filter change, drawer reset or power on/off. Its
+  state includes the power-cycle and empty-cycle odometers, each cat visit's weight and the pet
+  the robot identifies. An empty cycle waits at the dump position until Cycle is pressed on the
+  panel. Every send goes
+  through the safety guard, which refuses power off without `--allow-dangerous`. The Home
+  Assistant integration does not drive an EVO yet. See docs/devices/litter-robot-evo/protocol.md.
 - A cat visit no longer sets off a false low litter alert. The litter reading is badly off during
   a visit and the countdown after it, so **Litter level** now reads unknown for that time, the way
   it already did during a clean cycle, and the alert waits for a settled reading. The CLI's

@@ -503,7 +503,7 @@ def test_a_real_serial_is_normalized() -> None:
 
 def test_another_model_is_refused_outright() -> None:
 
-    with pytest.raises(ProvisioningError, match="only supports the LR4"):
+    with pytest.raises(ProvisioningError, match="not a Litter-Robot 4 or EVO serial"):
         ProvisioningConfig.check_serial("LR3C123456")
 
 

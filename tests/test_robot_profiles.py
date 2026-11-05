@@ -25,6 +25,7 @@ from whiskerless.robot_profiles import (
     RobotProfile,
     RobotProfileStore,
     Serial,
+    looks_like_a_robot_serial,
 )
 
 CA = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
@@ -1349,3 +1350,13 @@ def test_a_newer_json_marker_is_left_alone(tmp_path: Path) -> None:
     with pytest.raises(RobotProfileError):
         RobotProfileStore.from_env({HOME_ENV: str(root)})
     assert (root / ".layout").read_text(encoding="utf-8").strip().startswith("{")
+
+
+@pytest.mark.parametrize("value", ["LR4C123456", "LR3C000001", "LRE-01-40-01-2610-000000", " lre-01-40-01-2610-000000 "])
+def test_robot_serial_shapes_are_recognized(value: str) -> None:
+    assert looks_like_a_robot_serial(value)
+
+
+@pytest.mark.parametrize("value", ["Upstairs", "LR4-0301-00-US", "LRE-01", "LRE-ZZ-40-01-2610"])
+def test_names_and_model_numbers_are_not_serials(value: str) -> None:
+    assert not looks_like_a_robot_serial(value)

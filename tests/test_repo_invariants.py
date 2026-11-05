@@ -166,6 +166,8 @@ EXAMPLE_SERIALS = frozenset(
         # A model letter this project has never seen, used to prove the scrubber redacts the whole
         # `LR3/LR4<letter>` shape provisioning accepts and not just the LR4C it happens to know.
         "LR4D123456",
+        # Litter-Robot EVO examples.
+        "LRE-01-40-01-2610-000000", "LRE-01-40-01-2610-000001",
     }
 )
 #: Every network name the repository is allowed to use as an example.
@@ -184,7 +186,8 @@ EXAMPLE_NETWORKS = frozenset(
 # accepts any LR4-prefixed serial on purpose, so pinning the guard to the `C`
 # designator would wave through a real `LR4D…` from somebody else's robot — and
 # the whole point is to catch the serial nobody thought to look for.
-_SERIAL = re.compile(r"\bLR[0-9][A-Z]?[0-9]{6}\b", re.IGNORECASE)
+#: The EVO's serial is `LRE-` and hyphenated hex groups.
+_SERIAL = re.compile(r"\bLR[0-9][A-Z]?[0-9]{6}\b|\bLRE(?:-[0-9A-F]{2,8}){4,}\b", re.IGNORECASE)
 
 #: A MAC identifies a unit as durably as its serial — `diagnostics.py` says so, and the
 #: `--debug` scrubber redacts one. Matched as a maximal run of hex-pair groups and judged
