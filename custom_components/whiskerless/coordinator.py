@@ -14,7 +14,7 @@ import contextlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import override
+from typing import Any, override
 
 from homeassistant.components import mqtt
 from homeassistant.components.mqtt.models import ReceiveMessage
@@ -736,8 +736,12 @@ def stored_state(hass: HomeAssistant, entity_id: str) -> restore_state.StoredSta
     id) with two maps, by entity id and by registry id, behind
     ``async_get_stored_state``. Older cores only have the dict.
     """
-    data = restore_state.async_get(hass)
-    getter = getattr(data, "async_get_stored_state", None)
-    if getter is not None:
-        return getter(entity_id)
-    return data.last_states.get(entity_id)
+    # Any, because which of the two attributes exists depends on the core the
+    # type checker happens to have installed, and both must check on either.
+    data: Any = restore_state.async_get(hass)
+    stored: restore_state.StoredState | None
+    if hasattr(data, "async_get_stored_state"):
+        stored = data.async_get_stored_state(entity_id)
+    else:
+        stored = data.last_states.get(entity_id)
+    return stored
