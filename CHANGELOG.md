@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- An optional **Whiskerless robot broker** add-on for Home Assistant OS, whose Mosquitto
+  add-on cannot take a robot: the robot logs in without a password, which that add-on
+  refuses. It listens for robots on 8883 and bridges their topics into the Mosquitto
+  add-on. Add this repository in the add-on store to install it. docs/setup/robot-broker.md
+  covers when you need it, a router redirect for a host whose port 8883 is already taken,
+  and why the robot then needs a fixed IP.
+
 - A cat visit no longer sets off a false low litter alert. The litter reading is badly off during
   a visit and the countdown after it, so **Litter level** now reads unknown for that time, the way
   it already did during a clean cycle, and the alert waits for a settled reading. The CLI's
