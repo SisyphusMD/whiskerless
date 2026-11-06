@@ -7,15 +7,17 @@ an event.
 
 from __future__ import annotations
 
-from typing import override
+from typing import cast, override
 
 from homeassistant.components.event import EventEntity, EventEntityDescription
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from whiskerless.devices.litter_robot_4.derive import CleanCycleCompleted, VisitEnded
 
+from .cloud_bridge import BridgeConfigEntry, async_add_bridge_entities, is_bridge_entry
 from .const import SIGNAL_CAT_VISIT, SIGNAL_CLEAN_CYCLE
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity
@@ -43,6 +45,9 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Whiskerless event entities."""
+    if is_bridge_entry(entry):
+        async_add_bridge_entities(cast(BridgeConfigEntry, entry), Platform.EVENT, async_add_entities)
+        return
     coordinator = entry.runtime_data
     async_add_entities(
         [WhiskerlessCatVisitEvent(coordinator), WhiskerlessCleanCycleEvent(coordinator)]

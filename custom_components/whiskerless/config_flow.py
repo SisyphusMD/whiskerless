@@ -2,8 +2,11 @@
 
 Robots are discovered over MQTT: when a Litter-Robot publishes to the broker
 Home Assistant's MQTT integration is connected to, it shows up as a discovered
-device the user can Add or Ignore — no broker details, no serial to type. The
-manual "Add Integration" entry just explains that setup is discovery-driven.
+device the user can Add or Ignore — no broker details, no serial to type.
+
+The manual "Add Integration" entry offers the one thing that is not discovered:
+a cloud bridge, which relays one robot's MQTT to Whisker's cloud as that robot.
+Choosing a robot there explains that robots are discovered.
 """
 
 from __future__ import annotations
@@ -23,8 +26,26 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 
+from whiskerless import CloudIdentity, ProtocolError, TopicMap, WhiskerlessConnectionError
+
 from .alerts import alert_settings
-from .const import CONF_ALERT_SETTINGS, CONF_SERIAL, DEFAULT_NAME, DOMAIN
+from .cloud_bridge import identity_paths, is_bridge_entry
+from .const import (
+    CONF_ALERT_SETTINGS,
+    CONF_CLOUD_HOST,
+    CONF_CLOUD_PREFIX,
+    CONF_IDENTITY_DIR,
+    CONF_KIND,
+    CONF_LOCAL_PREFIX,
+    CONF_SERIAL,
+    DEFAULT_CLOUD_HOST,
+    DEFAULT_CLOUD_PREFIX,
+    DEFAULT_IDENTITY_DIR,
+    DEFAULT_LOCAL_PREFIX,
+    DEFAULT_NAME,
+    DOMAIN,
+    KIND_CLOUD_BRIDGE,
+)
 
 # (min, max, unit) for each alert threshold on the options page; no unit for an hour of the day.
 _THRESHOLDS: dict[str, tuple[int, int, str]] = {
@@ -63,6 +84,12 @@ class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
         """The alert thresholds the notification events use."""
         return WhiskerlessOptionsFlow()
 
+    @classmethod
+    @callback
+    def async_supports_options_flow(cls, config_entry: ConfigEntry) -> bool:
+        """Robots have alert thresholds; a cloud bridge has nothing to adjust."""
+        return not is_bridge_entry(config_entry)
+
     async def async_step_mqtt(self, discovery_info: MqttServiceInfo) -> ConfigFlowResult:
         """Handle a robot discovered on the MQTT broker."""
         serial = _serial_from_topic(discovery_info.topic)
@@ -100,8 +127,60 @@ class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manual add is unsupported — robots are discovered automatically."""
+        """Offer a cloud bridge, or explain that robots are discovered."""
+        return self.async_show_menu(step_id="user", menu_options=["cloud_bridge", "robot"])
+
+    async def async_step_robot(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manual add of a robot is unsupported — robots are discovered automatically."""
         return self.async_abort(reason="discovery_only")
+
+    async def async_step_cloud_bridge(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Name the robot, its topics and where its cloud identity is."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {key: str(value).strip().strip("/") for key, value in user_input.items()}
+            serial = data[CONF_SERIAL]
+            try:
+                TopicMap(f"{data[CONF_LOCAL_PREFIX]}/{serial}", f"{data[CONF_CLOUD_PREFIX]}/{serial}")
+                if not all((serial, data[CONF_LOCAL_PREFIX], data[CONF_CLOUD_PREFIX])) or "/" in serial:
+                    raise ProtocolError(serial)
+            except ProtocolError:
+                errors["base"] = "invalid_topics"
+            else:
+                try:
+                    await self.hass.async_add_executor_job(
+                        CloudIdentity.from_files, *identity_paths(self.hass, data[CONF_IDENTITY_DIR])
+                    )
+                except WhiskerlessConnectionError:
+                    errors[CONF_IDENTITY_DIR] = "identity_unreadable"
+                except ProtocolError:
+                    errors[CONF_IDENTITY_DIR] = "identity_invalid"
+            if not errors:
+                await self.async_set_unique_id(f"{KIND_CLOUD_BRIDGE}_{serial}")
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=f"Cloud bridge {serial}", data={CONF_KIND: KIND_CLOUD_BRIDGE, **data}
+                )
+        defaults = user_input or {
+            CONF_CLOUD_HOST: DEFAULT_CLOUD_HOST,
+            CONF_LOCAL_PREFIX: DEFAULT_LOCAL_PREFIX,
+            CONF_CLOUD_PREFIX: DEFAULT_CLOUD_PREFIX,
+            CONF_IDENTITY_DIR: DEFAULT_IDENTITY_DIR,
+        }
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_SERIAL, default=defaults.get(CONF_SERIAL, "")): TextSelector(),
+                vol.Required(CONF_CLOUD_HOST, default=defaults[CONF_CLOUD_HOST]): TextSelector(),
+                vol.Required(CONF_LOCAL_PREFIX, default=defaults[CONF_LOCAL_PREFIX]): TextSelector(),
+                vol.Required(CONF_CLOUD_PREFIX, default=defaults[CONF_CLOUD_PREFIX]): TextSelector(),
+                vol.Required(CONF_IDENTITY_DIR, default=defaults[CONF_IDENTITY_DIR]): TextSelector(),
+            }
+        )
+        return self.async_show_form(step_id="cloud_bridge", data_schema=schema, errors=errors)
 
 
 class WhiskerlessOptionsFlow(OptionsFlow):

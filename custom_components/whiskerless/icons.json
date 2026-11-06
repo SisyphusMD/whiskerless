@@ -36,6 +36,14 @@
       },
       "hopper_level": {
         "default": "mdi:silo"
+      },
+      "cloud_bridge_state": {
+        "default": "mdi:cloud-check-outline",
+        "state": {
+          "off": "mdi:cloud-off-outline",
+          "connecting": "mdi:cloud-refresh",
+          "error": "mdi:cloud-alert"
+        }
       }
     },
     "binary_sensor": {
@@ -75,6 +83,12 @@
       },
       "weekday_sleep": {
         "default": "mdi:calendar-clock"
+      },
+      "cloud_bridge": {
+        "default": "mdi:cloud-sync",
+        "state": {
+          "off": "mdi:cloud-off-outline"
+        }
       }
     },
     "number": {
@@ -133,7 +147,15 @@
       },
       "clean_cycle": {
         "default": "mdi:autorenew"
+      },
+      "cloud_bridge_traffic": {
+        "default": "mdi:swap-vertical"
       }
+    }
+  },
+  "services": {
+    "send_bridge_message": {
+      "service": "mdi:send"
     }
   }
 }
