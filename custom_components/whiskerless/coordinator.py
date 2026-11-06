@@ -225,7 +225,7 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
         entity_id = registry.async_get_entity_id(
             Platform.BINARY_SENSOR, DOMAIN, f"{self.serial}_{key}"
         )
-        stored = restore_state.async_get(self.hass).last_states.get(entity_id) if entity_id else None
+        stored = stored_state(self.hass, entity_id) if entity_id else None
         if stored is None or stored.state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             return None
         return stored.state.state == STATE_ON
@@ -727,3 +727,17 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
             commands.set_panel_wake_times(minutes),
             lambda s: every_weekday_is(s.weekday_wake_times, minutes),
         )
+
+
+def stored_state(hass: HomeAssistant, entity_id: str) -> restore_state.StoredState | None:
+    """Look one entity up in the restore cache, on either side of HA 2026.11.
+
+    2026.11 replaced ``RestoreStateData.last_states`` (one dict keyed by entity
+    id) with two maps, by entity id and by registry id, behind
+    ``async_get_stored_state``. Older cores only have the dict.
+    """
+    data = restore_state.async_get(hass)
+    getter = getattr(data, "async_get_stored_state", None)
+    if getter is not None:
+        return getter(entity_id)
+    return data.last_states.get(entity_id)
