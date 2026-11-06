@@ -6,6 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- The integration loads again on Home Assistant 2026.11. That release changed how Home
+  Assistant stores the values entities restore after a restart, and setup failed on every robot
+  with all entities unavailable. Older Home Assistant versions keep working.
 - A cat visit no longer sets off a false low litter alert. The litter reading is badly off during
   a visit and the countdown after it, so **Litter level** now reads unknown for that time, the way
   it already did during a clean cycle, and the alert waits for a settled reading. The CLI's

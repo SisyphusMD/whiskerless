@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from typing import Any
 
 from awesomeversion import AwesomeVersion
@@ -30,7 +29,12 @@ from .const import (
     DOMAIN,
     LOGGER,
 )
-from .coordinator import SIGHTING_OPTIONS, WhiskerlessConfigEntry, WhiskerlessCoordinator
+from .coordinator import (
+    SIGHTING_OPTIONS,
+    WhiskerlessConfigEntry,
+    WhiskerlessCoordinator,
+    stored_state,
+)
 
 # Option key recording which version last swept the entity registry.
 _SWEPT_BY = "retired_entities_swept_by"
@@ -201,7 +205,7 @@ def _seed_missing_gauge(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> N
     entity_id = registry.async_get_entity_id(
         domain, DOMAIN, f"{entry.data[CONF_SERIAL]}_{key}"
     )
-    stored = restore_state.async_get(hass).last_states.get(entity_id) if entity_id else None
+    stored = stored_state(hass, entity_id) if entity_id else None
     if stored is None:
         return
     extra = stored.extra_data.as_dict() if stored.extra_data else {}
@@ -238,7 +242,7 @@ def _recheck_sightings(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> No
     the rules may revert that.
     """
     registry = er.async_get(hass)
-    last_states = restore_state.async_get(hass).last_states
+    last_states = _StoredStates(hass)
     # From entry data, not runtime_data: this runs BEFORE the coordinator is
     # built, so the coordinator reads the post-sweep flags and a re-proving
     # report can re-sight in the same session.
@@ -294,11 +298,21 @@ def _recheck_sightings(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> No
         hass.config_entries.async_update_entry(entry, options=options)
 
 
+class _StoredStates:
+    """``.get(entity_id)`` over the restore cache; see ``stored_state``."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
+
+    def get(self, entity_id: str) -> restore_state.StoredState | None:
+        return stored_state(self._hass, entity_id)
+
+
 def _reproved(
     capability: Capability,
     serial: str,
     registry: er.EntityRegistry,
-    last_states: Mapping[str, restore_state.StoredState],
+    last_states: _StoredStates,
     options: dict[str, Any],
 ) -> bool:
     """Whether this capability's own past reports still prove it."""
@@ -479,8 +493,11 @@ def _rename_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None
         # comes back `unknown` after the rename: a button forgets when it was
         # last pressed, and the hopper gauge forgets a reading the detection
         # sweep reads as proof the hardware exists.
-        cached = restore_state.async_get(hass).last_states
-        if entity_id in cached:
+        # HA 2026.11 keys the cache by registry id, so a renamed entity keeps
+        # its stored state without help; only the older entity_id-keyed dict
+        # needs the entry moved.
+        cached = getattr(restore_state.async_get(hass), "last_states", None)
+        if cached is not None and entity_id in cached:
             cached[target] = cached.pop(entity_id)
         LOGGER.warning(
             "Renamed %s to %s — update any automation or dashboard that used the old id",
