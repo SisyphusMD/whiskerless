@@ -31,6 +31,7 @@ from .const import (
     LOGGER,
 )
 from .coordinator import SIGHTING_OPTIONS, WhiskerlessConfigEntry, WhiskerlessCoordinator
+from .evo import EVO_PLATFORMS, async_setup_evo_entry, is_evo_entry
 
 # Option key recording which version last swept the entity registry.
 _SWEPT_BY = "retired_entities_swept_by"
@@ -557,6 +558,8 @@ def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry
 
 async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Set up Whiskerless from a config entry."""
+    if is_evo_entry(entry):
+        return await async_setup_evo_entry(hass, entry)
     _recheck_sightings(hass, entry)
     # After the sweep (which may itself seed the flag and gauge), before the
     # coordinator reads the options.
@@ -591,7 +594,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
 
 async def async_unload_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Unload a Whiskerless config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    platforms = EVO_PLATFORMS if is_evo_entry(entry) else PLATFORMS
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
     if unload_ok:
         await entry.runtime_data.async_shutdown()
     return unload_ok

@@ -60,6 +60,7 @@ src/whiskerless/                 # the PyPI library (codec, MQTT, BLE, safety, C
   mqtt.py                        # async MQTT transport (shared by all devices)
   ble/                           # device-agnostic protocomm BLE provisioning
   devices/litter_robot_4/        # LR4 protocol: const, codec, models, commands, client
+  devices/litter_robot_evo/      # EVO protocol: same shape, banked registers, state read per register
 custom_components/whiskerless/   # the HACS integration (depends on the library)
 docs/                            # protocol reference + setup + recovery guides
 examples/                        # example automations + dashboard cards

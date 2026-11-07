@@ -1,5 +1,6 @@
-"""Provisioning guards — LR4-only serial validation, the GATT model check, and
-the WiFi join verify (a mistyped password must fail loud, not silently)."""
+"""Provisioning guards — LR4 and EVO serial validation, the GATT model check, the
+per-model topics, and the WiFi join verify (a mistyped password must fail loud,
+not silently)."""
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import pytest
 from whiskerless.ble import provision as provision_module
 from whiskerless.ble.messages import (
     EP_PROV_CONFIG,
+    EVO_PROV_SERVICE_UUID,
     PROV_SERVICE_UUID,
     WifiConnectFailedReason,
     WifiStationState,
@@ -22,6 +24,7 @@ from whiskerless.ble.provision import (
     ProvisioningConfig,
     _assert_lr4,
     _verify_wifi,
+    is_evo_serial,
 )
 from whiskerless.exceptions import ProvisioningError
 
@@ -42,8 +45,42 @@ def test_serial_normalized_upper_and_stripped() -> None:
 
 @pytest.mark.parametrize("serial", ["", "LR3C123456", "FR1A000001", "123456", "WR4C123456"])
 def test_serial_non_lr4_refused(serial: str) -> None:
-    with pytest.raises(ProvisioningError, match="not a Litter-Robot 4 serial"):
+    with pytest.raises(ProvisioningError, match="not a Litter-Robot 4 or EVO serial"):
         _config(serial)
+
+
+def test_serial_evo_accepted_and_normalized() -> None:
+    assert _config(" lre-01-40-01-2610-000000 ").serial == "LRE-01-40-01-2610-000000"
+
+
+@pytest.mark.parametrize("serial", ["LRE-", "LRE-01-40", "LRE-01-40-01-ZZZZ", "LRE-0-40-01-2610-000000"])
+def test_serial_malformed_evo_refused(serial: str) -> None:
+    with pytest.raises(ProvisioningError, match="not a Litter-Robot EVO serial"):
+        _config(serial)
+
+
+def test_is_evo_serial() -> None:
+    assert is_evo_serial("LRE-01-40-01-2610-000000")
+    assert not is_evo_serial("LR4C123456")
+
+
+def test_each_model_gets_its_own_stock_topics() -> None:
+    """The LR4's topics are byte-identical to before; the EVO keeps the app's prefix."""
+    lr4 = _config("LR4C123456")
+    assert lr4.resolved_command_topic() == "prod/LR4/LR4C123456/command"
+    assert lr4.resolved_device_topic() == "prod/LR4/LR4C123456/activity"
+    evo = _config("LRE-01-40-01-2610-000000")
+    assert evo.resolved_command_topic() == "prod/robots/LRE-01-40-01-2610-000000/command"
+    assert evo.resolved_device_topic() == "prod/robots/LRE-01-40-01-2610-000000/activity"
+
+
+def test_explicit_topics_override_the_model_default() -> None:
+    config = ProvisioningConfig(
+        serial="LRE-01-40-01-2610-000000", host="192.168.1.10", ca_pem=CA_PEM,
+        command_topic="a/command", device_topic="a/activity",
+    )
+    assert config.resolved_command_topic() == "a/command"
+    assert config.resolved_device_topic() == "a/activity"
 
 
 @dataclass
@@ -62,9 +99,14 @@ def test_assert_lr4_passes_on_provisioning_service() -> None:
     _assert_lr4(client)  # type: ignore[arg-type]
 
 
+def test_assert_lr4_passes_on_the_evo_service() -> None:
+    client = _FakeClient("AA:BB:CC:DD:EE:FF", [_FakeService(EVO_PROV_SERVICE_UUID)])
+    _assert_lr4(client)  # type: ignore[arg-type]
+
+
 def test_assert_lr4_refuses_other_devices() -> None:
     client = _FakeClient("AA:BB:CC:DD:EE:FF", [_FakeService("0000180a-0000-1000-8000-00805f9b34fb")])
-    with pytest.raises(ProvisioningError, match="not a Litter-Robot 4"):
+    with pytest.raises(ProvisioningError, match="does not expose a Litter-Robot 4 or EVO"):
         _assert_lr4(client)  # type: ignore[arg-type]
 
 

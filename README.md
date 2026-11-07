@@ -10,6 +10,9 @@
 **Un-cloud your Whisker devices.** Fully-local MQTT control and telemetry for the
 Whisker **Litter-Robot 4** — no cloud account, no internet round-trip, no
 third-party servers. Your robot talks to *your* broker, and that's it.
+The library, CLI and Home Assistant integration also drive the **Litter-Robot EVO**
+([protocol](docs/devices/litter-robot-evo/protocol.md),
+[Home Assistant](docs/setup/home-assistant.md#the-litter-robot-evo)).
 
 > **Primary repository**: developed at [forgejo.bryantserver.com/SisyphusMD/whiskerless](https://forgejo.bryantserver.com/SisyphusMD/whiskerless). The [GitHub copy](https://github.com/SisyphusMD/whiskerless) is a read-only mirror (HACS installs from it). **Please file issues and pull requests on [GitHub](https://github.com/SisyphusMD/whiskerless/issues)** — the Forgejo repository does not take external issues.
 
@@ -75,10 +78,14 @@ broker IP (e.g. 192.168.1.10): 192.168.1.10
 
 
 $ whiskerless provision
-robot serial (the unhyphenated LR4C… line on the label, …): LR4C123456
+robot serial:
+  LR4: the unhyphenated LR4C… line on the label (e.g. LR4C123456), not the LR4-…-US model number
+  EVO: the hyphenated LRE-… line (e.g. LRE-01-40-01-2610-000000)
+> LR4C123456
 
-  Hold Connect on the robot now until its light
-  BLINKS YELLOW (about three seconds) — that is pairing mode.
+  Put the robot in pairing mode now:
+    LR4: hold Connect until the light BLINKS YELLOW (about three seconds).
+    EVO: hold Connect until the light BREATHES BLUE.
 
 ⠹ scanning for robots over BLE — done (3s)
    1 ▸ connected to F8:B3:B7:xx:xx:xx (MTU=500, cert chunk=100)
@@ -144,13 +151,17 @@ setting, all local. A few of the more detailed sensors start disabled.
 Physical prerequisites, gathered up front — everything else is prompted for:
 
 - **The robot's serial**, printed on its label (also in the Whisker app under
-  the robot's settings). The label carries two lines that both start with
-  "LR4"; the serial is the **unhyphenated** one:
+  the robot's settings). On a **Litter-Robot 4** the label carries two lines that
+  both start with "LR4"; the serial is the **unhyphenated** one:
 
   ```
   LR4C123456      ← the serial (LR4C + six digits) — this is what you type
   LR4-0301-00-US  ← the model number — not per-unit, not accepted
   ```
+
+  On a **Litter-Robot EVO** it is the reverse: the serial is the long
+  **hyphenated** `LRE-…` line (e.g. `LRE-01-40-01-2610-000000`), and that is what
+  you type.
 
   The serial becomes the robot's MQTT identity, so it must match the label
   exactly.
@@ -737,6 +748,7 @@ whiskerless/
 - [How it works](docs/how-it-works.md) · [Reverse-engineering writeup](docs/reverse-engineering.md) · [Recovery](docs/recovery.md) · [Hardware testing](docs/HARDWARE-TESTING.md)
 - Setup: [MQTT broker](docs/setup/mqtt-broker.md) · [Certificates](docs/setup/certificates.md) · [Authentication design](docs/design/authentication.md) · [Home Assistant](docs/setup/home-assistant.md) · [Notifications](docs/setup/notifications.md)
 - LR4 protocol: [protocol](docs/devices/litter-robot-4/protocol.md) · [commands](docs/devices/litter-robot-4/commands.md) · [control panel](docs/devices/litter-robot-4/control-panel.md) · [registers](docs/devices/litter-robot-4/registers.md) · [compatibility](docs/devices/litter-robot-4/compatibility.md) · [capture notebook](docs/devices/litter-robot-4/capture-notebook.md)
+- EVO protocol: [protocol](docs/devices/litter-robot-evo/protocol.md)
 
 ## Adding another Whisker device
 

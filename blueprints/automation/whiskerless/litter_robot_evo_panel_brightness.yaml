@@ -1,0 +1,156 @@
+blueprint:
+  name: Litter-Robot EVO panel brightness schedule (whiskerless)
+  description: >-
+    Sets a Litter-Robot EVO's screen and status LED to one brightness for a nightly
+    window and another for the day, using the whiskerless integration's Screen
+    brightness and Status LED brightness controls. The robot takes any level from
+    1 to 100 for each; the Whisker app only offers Low (8), Medium (20) and High
+    (40) for both together. 1 is the dimmest the robot goes: it turns 0 into 50.
+
+
+    The levels are applied when the window starts and ends, when Home Assistant
+    starts, and after the robot reconnects. A reconnect matters because the Whisker
+    cloud resends the app's stored preset whenever the robot reconnects through a
+    cloud bridge. In between, a level you change by hand, here or in the app, is
+    left alone until the next boundary or reconnect.
+
+
+    After a start or a reconnect the blueprint waits 15 seconds, so the cloud's
+    push and the integration's read have landed before it sets the levels. A burst
+    of reconnects collapses into one write.
+
+
+    The window's start and end take a time. In YAML they also take an
+    `input_datetime` entity holding a time, so several automations can share one
+    window.
+  domain: automation
+  source_url: https://github.com/SisyphusMD/whiskerless/blob/main/blueprints/automation/whiskerless/litter_robot_evo_panel_brightness.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    lights:
+      name: Panel lights
+      icon: mdi:brightness-6
+      input:
+        screen:
+          name: Screen brightness
+          description: The robot's Screen brightness control.
+          selector:
+            entity:
+              filter:
+                - integration: whiskerless
+                  domain: number
+        led:
+          name: Status LED brightness
+          description: The robot's Status LED brightness control.
+          selector:
+            entity:
+              filter:
+                - integration: whiskerless
+                  domain: number
+        display:
+          name: Display
+          description: >-
+            The robot's Display sensor. It reads Connecting while the robot
+            reconnects, which is when the cloud resends the app's preset.
+          selector:
+            entity:
+              filter:
+                - integration: whiskerless
+                  domain: sensor
+    window:
+      name: Night window
+      icon: mdi:weather-night
+      input:
+        night_start:
+          name: Night starts
+          default: "20:00:00"
+          selector:
+            time: {}
+        night_end:
+          name: Night ends
+          default: "08:00:00"
+          selector:
+            time: {}
+        night_level:
+          name: Night level
+          description: Screen and status LED level during the night window.
+          default: 1
+          selector:
+            number:
+              min: 1
+              max: 100
+              mode: slider
+        day_level:
+          name: Day level
+          description: Screen and status LED level outside it. 8 is the app's Low.
+          default: 8
+          selector:
+            number:
+              min: 1
+              max: 100
+              mode: slider
+
+# A boundary or a new reconnect replaces a wait still in progress, so a burst of
+# reconnects ends in one write.
+mode: restart
+
+triggers:
+  - trigger: time
+    at: !input night_start
+    id: boundary
+  - trigger: time
+    at: !input night_end
+    id: boundary
+  - trigger: homeassistant
+    event: start
+    id: settle
+  - trigger: state
+    entity_id: !input display
+    to: connecting
+    id: settle
+
+variables:
+  screen: !input screen
+  led: !input led
+  night_start: !input night_start
+  night_end: !input night_end
+  night_level: !input night_level
+  day_level: !input day_level
+  # A helper's state is its time, so both forms compare as HH:MM:SS strings.
+  start: "{{ states(night_start) if '.' in night_start | string else night_start | string }}"
+  end: "{{ states(night_end) if '.' in night_end | string else night_end | string }}"
+
+actions:
+  # After a start or a reconnect, wait for the cloud's push and the integration's
+  # read to land.
+  - if:
+      - condition: trigger
+        id: settle
+    then:
+      - delay: "00:00:15"
+  - variables:
+      is_night: >-
+        {% set t = now().strftime('%H:%M:%S') %}
+        {{ (t >= start or t < end) if start > end else (start <= t < end) }}
+      level: "{{ (night_level if is_night else day_level) | int }}"
+  # Nothing to do when both levels already match. A level the robot has not
+  # reported yet is left alone.
+  - condition: template
+    value_template: >-
+      {{ [screen, led] | map('states') | select('is_number') | map('int')
+         | reject('eq', level) | list | count > 0 }}
+  # One at a time: both levels travel in one write, so each call carries the
+  # other's current value. A level not reported yet makes its call fail.
+  - action: number.set_value
+    continue_on_error: true
+    target:
+      entity_id: "{{ screen }}"
+    data:
+      value: "{{ level }}"
+  - action: number.set_value
+    continue_on_error: true
+    target:
+      entity_id: "{{ led }}"
+    data:
+      value: "{{ level }}"

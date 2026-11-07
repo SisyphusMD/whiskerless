@@ -31,6 +31,13 @@ EP_WHISKER = "whisker-config"
 # (stable across robots/hosts/OSes; far more reliable than the weak advert name).
 PROV_SERVICE_UUID = "b7ee1c20-dcfd-4208-8813-14845cac5212"
 ADVERTISER_NAME = "LitterRobot4"
+# The Litter-Robot EVO exposes the same protocomm endpoints, with the same
+# messages, under a service UUID and name of its own.
+EVO_PROV_SERVICE_UUID = "28cbfd44-6c8c-43c4-88ee-4da18ca98510"
+EVO_ADVERTISER_NAME = "LitterRobotEvo"
+#: Every provisioning service whiskerless knows how to drive.
+PROV_SERVICE_UUIDS: frozenset[str] = frozenset({PROV_SERVICE_UUID, EVO_PROV_SERVICE_UUID})
+ADVERTISER_NAMES: frozenset[str] = frozenset({ADVERTISER_NAME, EVO_ADVERTISER_NAME})
 
 
 class CertificateType(IntEnum):

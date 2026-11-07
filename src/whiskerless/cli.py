@@ -31,7 +31,7 @@ from cryptography import x509
 
 from . import __version__, backup, ble, diagnostics, installs, pki, update_check
 from .ble.messages import WifiNetwork as DiscoveredNetwork
-from .ble.provision import ProvisioningConfig
+from .ble.provision import ProvisioningConfig, is_evo_serial
 from .ble.transport import DiscoveredRobot
 from .console import Console
 from .devices.litter_robot_4 import commands, const, derive
@@ -45,6 +45,19 @@ from .devices.litter_robot_4.commands import Command
 from .devices.litter_robot_4.link import LitterRobot4Link
 from .devices.litter_robot_4.models import LitterRobot4State, litter_level_percent_from_mm
 from .devices.litter_robot_4.protocol import ActivityMessage, StateMessage
+from .devices.litter_robot_evo import commands as evo_commands
+from .devices.litter_robot_evo import const as evo_const
+from .devices.litter_robot_evo.link import LitterRobotEvoLink
+from .devices.litter_robot_evo.models import LitterRobotEvoState, apply_message
+from .devices.litter_robot_evo.protocol import (
+    ActivityMessage as EvoActivityMessage,
+)
+from .devices.litter_robot_evo.protocol import (
+    EventMessage as EvoEventMessage,
+)
+from .devices.litter_robot_evo.protocol import (
+    PawprintMessage as EvoPawprintMessage,
+)
 from .exceptions import (
     AmbiguousRobotError,
     RobotProfileError,
@@ -62,7 +75,7 @@ from .robot_profiles import (
     Serial,
     looks_like_a_robot_serial,
 )
-from .safety import classify_code
+from .safety import classify_code, classify_evo_code
 
 log = logging.getLogger("whiskerless")
 
@@ -127,7 +140,8 @@ def _read_pem(raw: str) -> str:
 #: running `whiskerless power` and only afterwards wondering which one they just switched off. A
 #: robot switched off has left the network, and nothing over MQTT brings it back.
 _WRITE_COMMANDS = frozenset({
-    "calibrate", "clean-cycle", "empty-cycle", "panel-reset", "power", "send", "set", "wifi-toggle",
+    "calibrate", "clean-cycle", "empty-cycle", "evo", "panel-reset", "power", "send", "set",
+    "wifi-toggle",
 })
 
 
@@ -842,8 +856,10 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # (LR4-0301-00-US) is the model, and picking it provisions a robot that then
     # never appears on the broker.
     serial = _ask(
-        "robot serial (the unhyphenated LR4C… line on the label, e.g. LR4C123456 — "
-        "NOT the LR4-…-US model number): ",
+        "robot serial:\n"
+        "  LR4: the unhyphenated LR4C… line on the label (e.g. LR4C123456), not the LR4-…-US model number\n"
+        "  EVO: the hyphenated LRE-… line (e.g. LRE-01-40-01-2610-000000)\n"
+        "> ",
         # `is None`, not truthiness: `--serial ""` (an unset shell variable) is explicit
         # input and must still be rejected by check_serial, not quietly redirected into
         # the picker. Passing --serial at all skips the list, as documented.
@@ -913,8 +929,11 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # connects. The signal is the LIGHT, which is what Whisker's own documentation
     # and this command's failure path both name.
     print(
-        f"\n  Hold {_console.accent('Connect')} on the robot now until its light\n"
-        f"  {_console.accent('BLINKS YELLOW')} (about three seconds) — that is pairing mode.\n"
+        "\n  Put the robot in pairing mode now:\n"
+        f"    LR4: hold {_console.accent('Connect')} until the light "
+        f"{_console.accent('BLINKS YELLOW')} (about three seconds).\n"
+        f"    EVO: hold {_console.accent('Connect')} until the light "
+        f"{_console.accent('BREATHES BLUE')}.\n"
     )
     # Said at the moment of the hold, because that is the only moment it can still
     # be avoided. Whisker documents the same behaviour for their own app
@@ -939,8 +958,9 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         # HOLD, not tap. A tap toggles the robot's WiFi off (light goes white),
         # which looks like a dead robot and is the worse failure of the two.
         print(
-            "no LR4 found advertising — HOLD the robot's Connect button for about three "
-            "seconds, until its light BLINKS YELLOW (that is pairing mode), then rerun.\n"
+            "no robot found advertising — put it in pairing mode, then rerun:\n"
+            "  LR4: HOLD the Connect button until the light BLINKS YELLOW (about three seconds).\n"
+            "  EVO: HOLD the Connect button until the light BREATHES BLUE.\n"
             "If it is ALREADY blinking yellow it has forgotten its WiFi and is off your\n"
             "network until a provision completes — rerun this and finish it.\n"
             "Hold it, do not tap it: a short press toggles the robot's WiFi off instead.",
@@ -2922,6 +2942,187 @@ def _pick_robot(robots: Sequence[DiscoveredRobot], address: str | None) -> Disco
             return robots[int(choice)]
 
 
+# --- Litter-Robot EVO --------------------------------------------------------
+#: (bank, register) -> name, for printing EVO telemetry.
+_EVO_NAMES: dict[tuple[int, int], str] = {
+    **{(evo_const.Bank.ROBOT, r.value): r.name.lower() for r in evo_const.RobotRegister},
+    **{(evo_const.Bank.SETTINGS, r.value): r.name.lower() for r in evo_const.SettingsRegister},
+    **{(evo_const.Bank.SENSORS, r.value): r.name.lower() for r in evo_const.SensorRegister},
+    **{(evo_const.Bank.MEASURE, r.value): r.name.lower() for r in evo_const.MeasureRegister},
+    **{
+        (evo_const.Bank.SETTINGS, register): f"{'wake' if is_wake else 'sleep'}_{day}"
+        for day, pair in evo_const.SLEEP_SCHEDULE_REGS.items()
+        for is_wake, register in enumerate(pair)
+    },
+}
+
+
+def _evo_link(args: argparse.Namespace, profile: RobotProfile) -> LitterRobotEvoLink:
+    store = _store(args)
+    return LitterRobotEvoLink(
+        store.settings(client_id=args.client_id),
+        profile.serial.value,
+        topic_prefix=args.topic_prefix,
+    )
+
+
+def _evo_profile(args: argparse.Namespace) -> RobotProfile:
+    profile = _profile(args)
+    if not is_evo_serial(profile.serial.value):
+        raise WhiskerlessError(
+            f"{profile.display_name} is not a Litter-Robot EVO; the `evo` commands only drive an EVO"
+        )
+    return profile
+
+
+def _parse_clock(value: str) -> int:
+    """`HH:MM` -> minutes after midnight."""
+    try:
+        hours, minutes = (int(part) for part in value.split(":"))
+    except ValueError as exc:
+        raise WhiskerlessError(f"{value!r} is not a time; expected HH:MM") from exc
+    if not (0 <= hours < 24 and 0 <= minutes < 60):
+        raise WhiskerlessError(f"{value!r} is not a time of day")
+    return hours * 60 + minutes
+
+
+def _print_evo_message(message: EvoActivityMessage | EvoEventMessage | EvoPawprintMessage) -> None:
+    stamp = _console.dim(datetime.now().astimezone().strftime("%H:%M:%S"))
+    if isinstance(message, EvoPawprintMessage):
+        print(f"{stamp} pawprint: {message.message_type or '?'}", flush=True)
+        return
+    parts = [
+        f"{reading.hex} {_console.accent(_EVO_NAMES.get(reading.address, '?'))}={reading.value}"
+        for reading in message.readings
+    ]
+    if isinstance(message, EvoEventMessage):
+        label = f"event {message.event_type or '?'}"
+    else:
+        label = "query" if message.query else "activity"
+    print(f"{stamp} {label}: " + "  ".join(parts), flush=True)
+
+
+def _print_evo_state(state: LitterRobotEvoState, heading: str = "reported so far:") -> None:
+    fields = {
+        key: value
+        for key, value in asdict(state).items()
+        if key != "registers" and value not in (None, frozenset(), {})
+    }
+    print(heading, flush=True)
+    for key, value in fields.items():
+        print(f"  {_console.dim(key)} = {value}", flush=True)
+
+
+async def _evo_monitor(args: argparse.Namespace, profile: RobotProfile) -> int:
+    print(
+        f"monitoring {profile.display_name} for {args.duration:.0f}s (ctrl-c to stop)…",
+        flush=True,
+    )
+    state = LitterRobotEvoState()
+    async with _evo_link(args, profile) as link:
+        try:
+            async with asyncio.timeout(args.duration):
+                async for message in link.messages():
+                    _print_evo_message(message)
+                    state = apply_message(state, message)
+        except TimeoutError:
+            pass
+    _print_evo_state(state)
+    return 0
+
+
+async def _evo_state(args: argparse.Namespace, profile: RobotProfile) -> int:
+    async with _evo_link(args, profile) as link:
+        readings = await link.read_all(timeout=args.timeout)
+    if readings is None:
+        print(f"no reply to the reads within {args.timeout:.0f}s", file=sys.stderr)
+        return 1
+    _print_evo_state(LitterRobotEvoState().with_readings(readings), f"{profile.display_name}:")
+    return 0
+
+
+async def _evo_apply(
+    args: argparse.Namespace, profile: RobotProfile, command: evo_commands.Command
+) -> int:
+    async with _evo_link(args, profile) as link:
+        applied = await link.apply(command, timeout=args.timeout)
+    if applied is None:
+        print(f"{command.label}: sent, no echo within {args.timeout:.0f}s", file=sys.stderr)
+        return 1
+    if applied != command.value:
+        print(f"{command.label}: the robot applied 0x{applied:04X} instead of 0x{command.value:04X}")
+        return 1
+    print(f"{command.label}: applied")
+    return 0
+
+
+async def _evo_send(
+    args: argparse.Namespace,
+    profile: RobotProfile,
+    commands_: list[evo_commands.Command],
+    *,
+    allow_dangerous: bool = False,
+) -> int:
+    async with _evo_link(args, profile) as link:
+        await link.publish_many(commands_, allow_dangerous=allow_dangerous)
+    print("sent: " + ", ".join(command.label for command in commands_))
+    return 0
+
+
+async def _cmd_evo(args: argparse.Namespace) -> int:
+    profile = _evo_profile(args)
+    action = args.evo_action
+    if action == "monitor":
+        return await _evo_monitor(args, profile)
+    if action == "state":
+        return await _evo_state(args, profile)
+    if action == "brightness":
+        return await _evo_apply(args, profile, evo_commands.set_panel_brightness(args.screen, args.led))
+    if action == "cycle-delay":
+        return await _evo_apply(args, profile, evo_commands.set_cycle_delay(args.minutes))
+    if action == "lockout":
+        return await _evo_apply(args, profile, evo_commands.set_keypad_lockout(args.state == "on"))
+    if action == "sleep":
+        schedule = evo_commands.set_sleep_schedule(
+            args.days, _parse_clock(args.sleep), _parse_clock(args.wake)
+        )
+        return await _evo_send(args, profile, schedule)
+    if action == "set-clock":
+        try:
+            moment = datetime.fromisoformat(args.at) if args.at else datetime.now()
+        except ValueError:
+            print(f"--at must be a date and time like 2026-01-31T08:00:00 (got {args.at!r})", file=sys.stderr)
+            return 2
+        return await _evo_send(args, profile, evo_commands.set_clock(moment))
+    if action == "power":
+        command = evo_commands.power_on() if args.state == "on" else evo_commands.power_off()
+        return await _evo_send(args, profile, [command], allow_dangerous=args.allow_dangerous)
+    if action == "empty-cycle":
+        if not args.yes:
+            _console.banner("EMPTY CYCLE — the globe dumps ALL of its litter")
+        if not args.yes and not _confirm(
+            f"Run an empty cycle on {profile.display_name}? EVERY gram of litter goes into the "
+            "waste drawer, and the globe waits at the dump position until you press Cycle on "
+            "the panel. Type 'yes': "
+        ):
+            print("aborted", file=sys.stderr)
+            return 1
+        return await _evo_send(args, profile, [evo_commands.empty_cycle()])
+    if action == "send":
+        code = args.code if args.code.lower().startswith("0x") else f"0x{args.code}"
+        print(f"{code}: {classify_evo_code(code).value}", flush=True)
+        async with _evo_link(args, profile) as link:
+            await link.publish_code(code, allow_dangerous=args.allow_dangerous)
+        print("sent")
+        return 0
+    actions = {
+        "clean-cycle": evo_commands.clean_cycle,
+        "change-filter": evo_commands.change_filter,
+        "reset-drawer": evo_commands.reset_drawer_level,
+    }
+    return await _evo_send(args, profile, [actions[action]()])
+
+
 # --- argument parsing --------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="whiskerless", description="Un-cloud your Whisker devices.")
@@ -3028,11 +3229,52 @@ def build_parser() -> argparse.ArgumentParser:
     add_conn(p_power)
     p_power.set_defaults(func=_cmd_power)
 
+    p_evo = add_parser("evo", "drive a Litter-Robot EVO (monitor, settings, actions)")
+    evo_sub = p_evo.add_subparsers(dest="evo_action", required=True, parser_class=argparse.ArgumentParser)
+
+    def add_evo(name: str, help_text: str) -> argparse.ArgumentParser:
+        p = evo_sub.add_parser(name, help=help_text, parents=[common])
+        add_conn(p)
+        p.add_argument(
+            "--topic-prefix", default=evo_const.TOPIC_PREFIX,
+            help=f"the robot's topic prefix (default {evo_const.TOPIC_PREFIX}, as provisioned)",
+        )
+        p.add_argument("--timeout", type=float, default=8.0, help="seconds to wait for the echo")
+        return p
+
+    add_evo("state", "read every readable register and print the robot's state")
+    p_evo_monitor = add_evo("monitor", "watch activity and events, then print what was reported")
+    p_evo_monitor.add_argument("--duration", type=float, default=300.0)
+    p_evo_bright = add_evo("brightness", "set the screen and status LED levels (1-100 each)")
+    p_evo_bright.add_argument("screen", type=int)
+    p_evo_bright.add_argument("led", type=int)
+    add_evo("cycle-delay", "set the clean-cycle delay in minutes").add_argument("minutes", type=int)
+    add_evo("lockout", "lock or unlock the control panel").add_argument("state", choices=("on", "off"))
+    p_evo_sleep = add_evo("sleep", "set the sleep schedule (same times every chosen day)")
+    p_evo_sleep.add_argument("--days", nargs="*", default=[], choices=evo_const.WEEKDAYS,
+                             help="days to arm; none disarms the schedule")
+    p_evo_sleep.add_argument("--sleep", default="00:00", help="sleep time, HH:MM")
+    p_evo_sleep.add_argument("--wake", default="00:00", help="wake time, HH:MM")
+    p_evo_clock = add_evo("set-clock", "set the robot's clock, which the sleep schedule runs on")
+    p_evo_clock.add_argument("--at", help="local date and time, e.g. 2026-01-31T08:00:00 (default: now)")
+    add_evo("clean-cycle", "run a clean cycle (turns the globe)")
+    p_evo_empty = add_evo("empty-cycle", "empty the globe into the waste drawer")
+    p_evo_empty.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    add_evo("change-filter", "rotate the globe for a filter change")
+    add_evo("reset-drawer", "zero the drawer level after emptying it")
+    p_evo_power = add_evo("power", "power the robot on or off (off needs --allow-dangerous)")
+    p_evo_power.add_argument("state", choices=("on", "off"))
+    p_evo_power.add_argument("--allow-dangerous", action="store_true")
+    p_evo_send = add_evo("send", "send a raw 0xTTBBRRVVVV code (guarded by safety)")
+    p_evo_send.add_argument("code", help="e.g. 0x0202010808")
+    p_evo_send.add_argument("--allow-dangerous", action="store_true")
+    p_evo.set_defaults(func=_cmd_evo)
+
     p_prov = add_parser("provision", "re-provision a robot onto your broker over BLE")
     p_prov.add_argument(
         "--serial",
-        help="robot serial: the unhyphenated LR4C… label line, not the LR4-…-US model "
-        "(prompted if omitted)",
+        help="robot serial (prompted if omitted). LR4: the unhyphenated LR4C… label line, "
+        "not the LR4-…-US model. EVO: the hyphenated LRE-… line",
     )
     p_prov.add_argument("--wifi-ssid", help="WiFi SSID; omit it to choose from the networks the ROBOT can see")
     p_prov.add_argument("--wifi-pass", default=None,

@@ -84,6 +84,29 @@ the network, and only a physical press returns it.
 .TP
 .B power
 Toggle robot power. Same warning \(em nothing over MQTT can undo it.
+.TP
+.B evo \fIaction\fR
+Drive a Litter-Robot EVO. Actions:
+.BR state ,
+.BR monitor ,
+.BR brightness " \fIscreen led\fR (1\(en100 each),"
+.BR cycle\-delay " \fIminutes\fR,"
+.BR lockout " on|off,"
+.BR sleep " \-\-days \fIday\fR... \-\-sleep \fIHH:MM\fR \-\-wake \fIHH:MM\fR,"
+.BR set\-clock " [\-\-at \fIdatetime\fR] (default now, local time),"
+.BR clean\-cycle ,
+.BR empty\-cycle " (asks first; \-\-yes skips),"
+.BR change\-filter ,
+.BR reset\-drawer ,
+.BR power " on|off (off needs \-\-allow\-dangerous),"
+and
+.BR send " \fI0xTTBBRRVVVV\fR."
+Settings are confirmed by the robot's echo.
+.B state
+reads every readable register in one message and prints the result; the display
+code and the weight sensor cannot be read, so
+.B monitor
+shows them as the robot reports them.
 .SH SAVED ROBOTS
 .TP
 .B robots

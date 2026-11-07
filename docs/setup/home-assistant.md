@@ -14,6 +14,10 @@ activity surfaces are identical across all three. The optional **LitterHopper**
 attachment is supported and detected automatically — the hopper work came from
 that 1.4.4 install.
 
+The **Litter-Robot EVO** is supported too, with the controls and readings its
+protocol has been decoded for so far; see [The Litter-Robot EVO](#the-litter-robot-evo)
+below and its [protocol reference](../devices/litter-robot-evo/protocol.md).
+
 Litter-Robot 3 and earlier speak a different protocol entirely and are not
 supported. Firmware caveats and the per-opcode differences are in
 [../devices/litter-robot-4/compatibility.md](../devices/litter-robot-4/compatibility.md).
@@ -320,6 +324,56 @@ while it is on.
 
 Settings writes are verified by reading them back, and the schedule times retry
 automatically (the robot commits those with a little latency).
+
+## The Litter-Robot EVO
+
+An EVO is discovered the same way, from the `prod/robots/<serial>/…` topics it
+publishes on, and added under its own device. It has fewer entities than a
+Litter-Robot 4 because less of its protocol is decoded. The EVO has no state
+document, so Whiskerless reads its registers instead: a few seconds after the
+integration starts (repeated up to three times if the robot does not answer),
+and again a few seconds after the robot reconnects or powers up. Status, power,
+drawer, bonnet, the cycle counters and every setting show real values within
+seconds. The **Display** and the raw weight cannot be read, so they read
+unknown until the robot reports them. Every write is verified by the robot's echo
+of it. Each time it reads the robot, Whiskerless also sets the robot's clock to
+Home Assistant's local time; the robot's sleep schedule runs on that clock.
+
+| Entity | What it does |
+|---|---|
+| **Screen brightness**, **Status LED brightness** | Each level from 1 to 100 on its own. |
+| **Panel brightness** | Off (1), and the app's presets Low (8), Medium (20) and High (40), each setting both levels. Off is the dimmest the robot shows: it turns 0 into 50. Unknown when the two levels form a custom pair. |
+| **Cycle delay** | 3, 7 or 15 minutes, the values the app offers. |
+| **Control lock** | Locks the panel buttons. A 3-second press of Power unlocks it at the robot. |
+| **Sleep mode**, **Sleep mode start**, **Sleep mode end** | The robot's Sleep Mode: between its start and end the cat sensor is off, so **the robot does not clean automatically during those hours**. The switch turns it on every day or off; the times show today's and set all seven days. It does not change the panel lights. |
+| **Clean cycle**, **Change filter**, **Reset waste drawer level** | The app's actions. Change filter rotates the globe for bonnet access; the robot then waits for the bonnet to come off and back on, and for a press of Connect. |
+| **Empty cycle** | Dumps all of the globe's litter into the waste drawer, the same as holding Cycle on the panel. **The globe then waits at the dump position until Cycle is pressed on the panel**, which sends it home. |
+| **Power on**, **Power off** | Power off stops the robot cleaning until it is powered back on. The robot stays connected while off, so Power on works from here. |
+| **Status**, **Display**, **Waste drawer removed**, **Bonnet removed**, **Power**, **Cleaning** | What the robot reports. *Waste drawer removed* can flick on and off for a few seconds while the drawer is being seated; give automations on it a `for:` of a few seconds. |
+| **Pet weight** | The weight from the robot's last weight event, in pounds. |
+| **Power cycle count**, **Empty cycle count** | The robot's own counters; the power-cycle count arrives at each power-on. |
+| **Robot record** | An event for each `cycle` (a cycle completed) and `usage` (a weight event, with `weight_lb`) record, with its raw elements, and a `pet_id_match` when the robot identifies a pet by weight (`profile`, `confidence`, `sources`). Marking a weight event as a litter refill in the Whisker app changes only the cloud's record, not these. |
+| **Weight sensor (raw)**, **Waste drawer counter (raw)**, **Cycle step** | Disabled diagnostics. The weight and drawer scales are not decoded yet. |
+
+### The panel lights, beyond the app's presets
+
+The Whisker app sets the screen and status LED together, to one of three levels.
+The two brightness controls set each one alone, from 1 to 100, so the status LED
+can sit at 1 overnight while the screen keeps its level. **1 is the dimmest**: the
+robot turns 0 into 50, so the controls stop at 1. Changing one level needs the
+other one known, because both travel in one write; if the robot has not reported
+them yet, pick a **Panel brightness** preset once. **Off** sets both to 1.
+
+When the robot reconnects through a cloud bridge, the cloud resends the app's
+stored preset. The **panel brightness blueprint**
+([`litter_robot_evo_panel_brightness.yaml`](../../blueprints/automation/whiskerless/litter_robot_evo_panel_brightness.yaml))
+sets a night level and a day level over a window you choose: at each end of the
+window, when Home Assistant starts, and 15 seconds after the robot reconnects (its
+**Display** reads *Connecting*), once the cloud's push has landed. A level you
+change by hand in between, here or in the app, is left alone until the next of
+those. Import it from that link, or copy the example
+in [`examples/litter-robot-evo/`](../../examples/litter-robot-evo/), which also has
+a script for setting any pair of levels.
 
 ## What people use it for
 

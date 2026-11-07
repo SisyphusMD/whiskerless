@@ -21,7 +21,8 @@ from pathlib import Path
 #: Any LR3/LR4 model letter, not `LR4C` alone: provisioning accepts the whole shape, so a
 #: future `LR4D…` was logged by the DEVICE_ID_SET step and survived a scrubber the CLI had
 #: just promised redacts robot serials.
-_SERIAL = re.compile(r"\bLR[34][A-Z][A-Za-z0-9]{4,}\b")
+#: The EVO's `LRE-` serial is redacted on the same terms.
+_SERIAL = re.compile(r"\b(?:LR[34][A-Z][A-Za-z0-9]{4,}|LRE(?:-[0-9A-Fa-f]{2,8}){4,})\b")
 #: A WiFi SSID as this tool prints it, QUOTED — `ssid="HomeNet"`.
 # ESCAPING-AWARE. `repr()` escapes the delimiter when the value contains it, and a pattern that
 # stopped at the first bare quote treated that `\'` as the end — publishing the rest of somebody's

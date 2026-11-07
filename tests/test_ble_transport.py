@@ -20,7 +20,12 @@ from unittest.mock import patch
 
 import pytest
 
-from whiskerless.ble.messages import ADVERTISER_NAME, PROV_SERVICE_UUID
+from whiskerless.ble.messages import (
+    ADVERTISER_NAME,
+    EVO_ADVERTISER_NAME,
+    EVO_PROV_SERVICE_UUID,
+    PROV_SERVICE_UUID,
+)
 from whiskerless.ble.transport import USER_DESC_UUID, DiscoveredRobot, ProtocommBLE, scan
 from whiskerless.exceptions import ProvisioningError
 
@@ -184,6 +189,15 @@ async def test_a_robot_is_also_matched_by_the_advertised_name() -> None:
     found = {"a": (FakeDevice("AA:01"), FakeAdv(local_name=ADVERTISER_NAME))}
     with _scanner(found):
         assert (await scan(timeout=0, rounds=1, settle=0))[0].address == "AA:01"
+
+
+async def test_an_evo_is_matched_by_its_own_service_uuid_or_name() -> None:
+    found = {
+        "uuid": (FakeDevice("AA:01"), FakeAdv(uuids=[EVO_PROV_SERVICE_UUID])),
+        "name": (FakeDevice("AA:02"), FakeAdv(local_name=EVO_ADVERTISER_NAME)),
+    }
+    with _scanner(found):
+        assert {r.address for r in await scan(timeout=0, rounds=1, settle=0)} == {"AA:01", "AA:02"}
 
 
 async def test_results_are_ordered_by_signal_so_the_nearest_is_first() -> None:

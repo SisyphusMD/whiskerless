@@ -81,7 +81,9 @@ def test_things_that_merely_look_like_addresses_are_left_alone(line: str) -> Non
     assert scrub(line) == line
 
 
-@pytest.mark.parametrize("serial", ["LR4C123456", "LR4D123456", "LR3C000001"])
+@pytest.mark.parametrize(
+    "serial", ["LR4C123456", "LR4D123456", "LR3C000001", "LRE-01-40-01-2610-000000"]
+)
 def test_every_serial_shape_provisioning_accepts_is_redacted(serial: str) -> None:
     """Provisioning accepts the whole `LR3/LR4<letter>` shape, so a future `LR4D…` was logged by
     the DEVICE_ID_SET step and survived a scrubber that had just promised to redact serials."""
