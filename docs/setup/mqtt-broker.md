@@ -60,6 +60,12 @@ Three consequences:
 > apply, and it must trust your CA. A managed or hosted broker you do not control
 > is therefore out. Run your own Mosquitto for the robot — a second listener on
 > the broker you already have, or a second instance on the same box.
+>
+> **Home Assistant OS's Mosquitto add-on is one of these.** It requires a username
+> and password from every client, so the robot cannot log in to it. The
+> [Whiskerless robot broker](robot-broker.md) add-on is the second instance for that
+> case, bridged into the Mosquitto add-on. The same guide covers a host whose port
+> 8883 is already taken.
 
 **Ports are a convention, not a policy.** 1883 and 8883 are the registered ports for
 plain MQTT and MQTT-over-TLS, and that is *all* they mean — neither one implies

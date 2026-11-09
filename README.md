@@ -154,11 +154,13 @@ Physical prerequisites, gathered up front — everything else is prompted for:
 
   The serial becomes the robot's MQTT identity, so it must match the label
   exactly.
-- **An MQTT broker on your LAN with TLS** (port 8883) that you control —
-  Mosquitto in a container, the HA add-on, anything. Broker setup is walked
-  through in
+- **An MQTT broker on your LAN with TLS** (port 8883) that you control and that
+  accepts a client without a password — Mosquitto in a container, a package
+  install, anything you can configure. Broker setup is walked through in
   [docs/setup/mqtt-broker.md](docs/setup/mqtt-broker.md) and
-  [docs/setup/certificates.md](docs/setup/certificates.md).
+  [docs/setup/certificates.md](docs/setup/certificates.md). On Home Assistant OS
+  the Mosquitto add-on cannot take the robot itself; the optional
+  [robot broker add-on](docs/setup/robot-broker.md) bridges it in.
 - **A certificate authority** — the one that signs the broker's certificate. It
   gets written into the robot, which then trusts your broker and nothing else.
   `whiskerless setup` creates one for you, or takes the files of one you already
@@ -735,7 +737,7 @@ whiskerless/
 ## Documentation
 
 - [How it works](docs/how-it-works.md) · [Reverse-engineering writeup](docs/reverse-engineering.md) · [Recovery](docs/recovery.md) · [Hardware testing](docs/HARDWARE-TESTING.md)
-- Setup: [MQTT broker](docs/setup/mqtt-broker.md) · [Certificates](docs/setup/certificates.md) · [Authentication design](docs/design/authentication.md) · [Home Assistant](docs/setup/home-assistant.md) · [Notifications](docs/setup/notifications.md)
+- Setup: [MQTT broker](docs/setup/mqtt-broker.md) · [Robot broker add-on (optional)](docs/setup/robot-broker.md) · [Certificates](docs/setup/certificates.md) · [Authentication design](docs/design/authentication.md) · [Home Assistant](docs/setup/home-assistant.md) · [Notifications](docs/setup/notifications.md)
 - LR4 protocol: [protocol](docs/devices/litter-robot-4/protocol.md) · [commands](docs/devices/litter-robot-4/commands.md) · [control panel](docs/devices/litter-robot-4/control-panel.md) · [registers](docs/devices/litter-robot-4/registers.md) · [compatibility](docs/devices/litter-robot-4/compatibility.md) · [capture notebook](docs/devices/litter-robot-4/capture-notebook.md)
 
 ## Adding another Whisker device
