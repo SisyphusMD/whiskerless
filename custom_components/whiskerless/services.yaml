@@ -1,0 +1,32 @@
+send_bridge_message:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: whiskerless
+    direction:
+      required: true
+      default: to_robot
+      selector:
+        select:
+          translation_key: direction
+          options:
+            - to_robot
+            - to_cloud
+    payload:
+      required: true
+      example: '{"serial": "LR4C000000", "data": ["0x02A00000"]}'
+      selector:
+        text:
+          multiline: true
+    topic_leaf:
+      required: false
+      example: command
+      selector:
+        text:
+    allow_untraced:
+      required: false
+      default: false
+      selector:
+        boolean:

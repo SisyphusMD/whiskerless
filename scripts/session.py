@@ -1,4 +1,4 @@
-"""Full decode of a Whisker-app BLE onboarding session from an Apple .pklg.
+"""Full decode of a Whisker-app BLE onboarding session from a phone HCI capture.
 
 Covers the HCI layer (advertising, connection) and every protocomm endpoint,
 not just mqtt-config. Secrets are measured, never printed.
@@ -12,7 +12,7 @@ import sys
 from collections import defaultdict
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
-from pklg import records
+from capture import records
 
 # Canonical order, plus the reversed form: 128-bit UUIDs travel little-endian in
 # advertising data, so a canonical-only match silently finds nothing.
@@ -114,7 +114,7 @@ def att_pdus(path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        raise SystemExit(f"usage: {sys.argv[0]} <capture.pklg> [...]")
+        raise SystemExit(f"usage: {sys.argv[0]} <capture.pklg or btsnoop_hci.log> [...]")
     for path in sys.argv[1:]:
         print(f"=== {path} ===")
         adverts, conns = hci_events(path)

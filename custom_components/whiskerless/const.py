@@ -95,3 +95,27 @@ DEFAULT_NAME = "Litter-Robot 4"
 # Heartbeat only — state arrives by push over MQTT. This bounds how long an
 # unresponsive robot can still look available, and refreshes after writes.
 HEARTBEAT_INTERVAL = timedelta(minutes=5)
+
+# A cloud bridge entry: it relays one robot's MQTT between the local broker and
+# Whisker's cloud, as that robot. Its data names the robot and where its cloud
+# identity lives; the robot's own entry, if any, is separate and unaffected.
+CONF_KIND = "kind"
+KIND_CLOUD_BRIDGE = "cloud_bridge"
+CONF_CLOUD_HOST = "cloud_host"
+#: Topic prefixes without the serial: the bridge appends it. A Litter-Robot 4 uses
+#: prod/LR4 on both sides; a Litter-Robot EVO onboarded by the app uses prod/robots
+#: in the cloud.
+CONF_LOCAL_PREFIX = "local_prefix"
+CONF_CLOUD_PREFIX = "cloud_prefix"
+#: A directory under the Home Assistant config directory holding root_ca.pem,
+#: device.crt and device.key, as scripts/cloud_identity.py writes them.
+CONF_IDENTITY_DIR = "identity_dir"
+#: Whether the bridge runs; kept on the entry's options so it survives a restart.
+CONF_BRIDGE_ENABLED = "bridge_enabled"
+
+DEFAULT_CLOUD_HOST = "a2wz9c6y6mikoy-ats.iot.us-east-1.amazonaws.com"
+DEFAULT_LOCAL_PREFIX = "prod/LR4"
+DEFAULT_CLOUD_PREFIX = "prod/LR4"
+DEFAULT_IDENTITY_DIR = "whiskerless/cloud_identity"
+IDENTITY_FILES = ("root_ca.pem", "device.crt", "device.key")
+SERVICE_SEND_BRIDGE_MESSAGE = "send_bridge_message"

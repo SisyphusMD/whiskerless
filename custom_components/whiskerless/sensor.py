@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, override
+from typing import Any, cast, override
 
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -19,6 +19,7 @@ from homeassistant.const import (
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    Platform,
     UnitOfLength,
     UnitOfMass,
     UnitOfTime,
@@ -33,6 +34,7 @@ from whiskerless.devices.litter_robot_4.models import (
     LITTER_DEFAULT_FULL_MM,
 )
 
+from .cloud_bridge import BridgeConfigEntry, async_add_bridge_entities, is_bridge_entry
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator, WhiskerlessData
 from .entity import WhiskerlessEntity
 
@@ -313,6 +315,9 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Whiskerless sensors."""
+    if is_bridge_entry(entry):
+        async_add_bridge_entities(cast(BridgeConfigEntry, entry), Platform.SENSOR, async_add_entities)
+        return
     coordinator = entry.runtime_data
     entities: list[SensorEntity] = [
         WhiskerlessSensor(coordinator, description) for description in SENSORS

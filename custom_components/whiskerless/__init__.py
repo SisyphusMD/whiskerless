@@ -4,21 +4,23 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from awesomeversion import AwesomeVersion
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from whiskerless.devices.litter_robot_4 import derive
 from whiskerless.devices.litter_robot_4.calibration import HOPPER_PLAUSIBLE
 from whiskerless.devices.litter_robot_4.derive import Capability, Evidence
 
-from . import binary_sensor, button, event, number, select, sensor, switch
+from . import binary_sensor, button, cloud_bridge, event, number, select, sensor, switch
 from . import date as date_platform
 from . import time as time_platform
 from .alerts import AlertPublisher, async_clear_setup_failure, async_report_setup_failure
@@ -39,6 +41,8 @@ _SWEPT_BY = "retired_entities_swept_by"
 # left pinned there, so a downgrade does not re-run them.
 _DETECTION_RESET_BY = "detection_reset_by"
 _LAST_SWEEP = 3
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -555,8 +559,18 @@ def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry
     hass.config_entries.async_update_entry(entry, options=options)
 
 
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the integration's actions, which outlive any one entry."""
+    cloud_bridge.async_register_bridge_actions(hass)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Set up Whiskerless from a config entry."""
+    if cloud_bridge.is_bridge_entry(entry):
+        return await cloud_bridge.async_setup_bridge_entry(
+            hass, cast(cloud_bridge.BridgeConfigEntry, entry)
+        )
     _recheck_sightings(hass, entry)
     # After the sweep (which may itself seed the flag and gauge), before the
     # coordinator reads the options.
@@ -591,6 +605,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) 
 
 async def async_unload_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Unload a Whiskerless config entry."""
+    if cloud_bridge.is_bridge_entry(entry):
+        return await cloud_bridge.async_unload_bridge_entry(
+            hass, cast(cloud_bridge.BridgeConfigEntry, entry)
+        )
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         await entry.runtime_data.async_shutdown()

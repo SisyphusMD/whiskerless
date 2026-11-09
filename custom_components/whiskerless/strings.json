@@ -11,12 +11,43 @@
         "data_description": {
           "name": "A friendly name for this robot, e.g. \"Upstairs litterbox\". You can rename it later."
         }
+      },
+      "user": {
+        "title": "Add to Whiskerless",
+        "description": "Litter-Robots are added automatically when they connect to your MQTT broker. A cloud bridge is set up here.",
+        "menu_options": {
+          "cloud_bridge": "Cloud bridge",
+          "robot": "A Litter-Robot"
+        }
+      },
+      "cloud_bridge": {
+        "title": "Cloud bridge",
+        "description": "Relays one robot's MQTT between your broker and Whisker's cloud, as that robot, so the Whisker app keeps working and every cloud command is visible. The robot must already be provisioned onto your broker. See the cloud bridge guide in the documentation.",
+        "data": {
+          "serial": "Robot serial",
+          "cloud_host": "Cloud host",
+          "local_prefix": "Local topic prefix",
+          "cloud_prefix": "Cloud topic prefix",
+          "identity_dir": "Identity folder"
+        },
+        "data_description": {
+          "serial": "The serial the robot uses as its MQTT client ID, as provisioned.",
+          "cloud_host": "The AWS IoT host the Whisker app wrote during onboarding.",
+          "local_prefix": "The robot's topics on your broker, before the serial: prod/LR4 for a robot provisioned by whiskerless.",
+          "cloud_prefix": "The robot's topics in the cloud, before the serial: prod/LR4 for a Litter-Robot 4, prod/robots for a Litter-Robot EVO.",
+          "identity_dir": "A folder under your Home Assistant config folder holding root_ca.pem, device.crt and device.key, as written by scripts/cloud_identity.py."
+        }
       }
     },
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
       "discovery_only": "Litter-Robots are added automatically when they connect to your MQTT broker. Provision a robot onto your broker (see the documentation) and it will appear here to add.",
       "invalid_discovery_info": "The discovery message did not contain a usable serial number."
+    },
+    "error": {
+      "invalid_topics": "The serial or a topic prefix is not usable: no wildcards, and no slash in the serial.",
+      "identity_unreadable": "The folder does not hold root_ca.pem, device.crt and device.key, or they cannot be read.",
+      "identity_invalid": "One of the identity files is not a PEM file."
     }
   },
   "entity": {
@@ -76,6 +107,20 @@
       },
       "hopper_level": {
         "name": "Hopper level"
+      },
+      "cloud_bridge_state": {
+        "name": "Cloud bridge state",
+        "state": {
+          "off": "Off",
+          "connecting": "Connecting",
+          "connected": "Connected",
+          "error": "Error"
+        },
+        "state_attributes": {
+          "last_error": {
+            "name": "Last error"
+          }
+        }
       }
     },
     "binary_sensor": {
@@ -141,6 +186,9 @@
       },
       "weekday_sleep": {
         "name": "Weekday sleep schedule"
+      },
+      "cloud_bridge": {
+        "name": "Cloud bridge"
       }
     },
     "number": {
@@ -234,6 +282,29 @@
             "name": "Waste drawer level"
           }
         }
+      },
+      "cloud_bridge_traffic": {
+        "name": "Cloud bridge traffic",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "to_robot": "To robot",
+              "to_cloud": "To cloud"
+            }
+          },
+          "topic": {
+            "name": "Topic"
+          },
+          "payload": {
+            "name": "Payload"
+          },
+          "truncated": {
+            "name": "Truncated"
+          },
+          "injected": {
+            "name": "Sent by hand"
+          }
+        }
       }
     }
   },
@@ -255,6 +326,21 @@
     },
     "panel_locked": {
       "message": "Control lock is on, and a locked Litter-Robot ignores button presses, including this one. Turn off Control lock first."
+    },
+    "bridge_identity_unreadable": {
+      "message": "The cloud bridge cannot load its identity: {error}"
+    },
+    "bridge_not_found": {
+      "message": "That config entry is not a Whiskerless cloud bridge."
+    },
+    "bridge_not_loaded": {
+      "message": "That cloud bridge is not loaded."
+    },
+    "bridge_command_refused": {
+      "message": "The safety guard refused the command: {error}"
+    },
+    "bridge_offline": {
+      "message": "The cloud bridge cannot send right now: {error}"
     }
   },
   "options": {
@@ -290,6 +376,42 @@
           "morning_reminder_hour": "Every other alert still active is announced again at this hour (0 to 23) and at the evening one, once it is 6 hours old.",
           "evening_reminder_hour": "Set it to the morning hour for one reminder a day."
         }
+      }
+    }
+  },
+  "services": {
+    "send_bridge_message": {
+      "name": "Send through cloud bridge",
+      "description": "Sends a message through a cloud bridge: a command to the robot, or a message to the cloud as the robot.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Cloud bridge",
+          "description": "The cloud bridge to send through."
+        },
+        "direction": {
+          "name": "Direction",
+          "description": "To the robot's command topic, or to the cloud as the robot."
+        },
+        "payload": {
+          "name": "Payload",
+          "description": "The message, usually JSON such as {\"serial\": \"…\", \"data\": [\"0x…\"]}."
+        },
+        "topic_leaf": {
+          "name": "Topic",
+          "description": "The last topic level. Defaults to command toward the robot and activity toward the cloud."
+        },
+        "allow_untraced": {
+          "name": "Allow untraced commands",
+          "description": "Send a command to the robot that the safety guard cannot classify. Brick-class commands are refused regardless."
+        }
+      }
+    }
+  },
+  "selector": {
+    "direction": {
+      "options": {
+        "to_robot": "To robot",
+        "to_cloud": "To cloud"
       }
     }
   }

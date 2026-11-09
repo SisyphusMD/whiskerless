@@ -24,6 +24,20 @@ from typing import Any
 
 import pytest
 import yaml
+from custom_components.whiskerless.const import (
+    CONF_CLOUD_HOST,
+    CONF_CLOUD_PREFIX,
+    CONF_IDENTITY_DIR,
+    CONF_KIND,
+    CONF_LOCAL_PREFIX,
+    CONF_SERIAL,
+    DEFAULT_CLOUD_HOST,
+    DEFAULT_CLOUD_PREFIX,
+    DEFAULT_IDENTITY_DIR,
+    DEFAULT_LOCAL_PREFIX,
+    DOMAIN,
+    KIND_CLOUD_BRIDGE,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -50,6 +64,13 @@ def _entity_values(node: Any) -> set[str]:
     return found
 
 
+def _defined_scripts(node: Any) -> set[str]:
+    """The `script.<id>` entities a document defines under a top-level `script:` key."""
+    if isinstance(node, dict) and isinstance(node.get("script"), dict):
+        return {f"script.{name}" for name in node["script"]}
+    return set()
+
+
 def _documents() -> list[Any]:
     docs: list[Any] = []
     for path in sorted(EXAMPLES.rglob("*")):
@@ -62,13 +83,15 @@ def _documents() -> list[Any]:
 
 
 async def test_the_examples_reference_real_entities(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str, tmp_path: Path
 ) -> None:
     await setup_integration(hass, mock_config_entry, state_payload)
+    bridge = await _setup_bridge(hass, tmp_path)
 
-    referenced = set()
+    referenced, defined = set(), set()
     for document in _documents():
         referenced |= _entity_values(document)
+        defined |= _defined_scripts(document)
     # Only Home Assistant's own sentinels are exempt. Dropping everything without
     # a dot would look tidier and would discard `sensor_litter_robot_4_status`,
     # which is precisely the typo worth reporting.
@@ -78,9 +101,36 @@ async def test_the_examples_reference_real_entities(
     # Disabled-by-default entities are legitimate to document, so compare against
     # everything the integration can produce, not only what is currently enabled.
     registry = er.async_get(hass)
-    real = {
+    real = defined | {
         entry.entity_id
-        for entry in er.async_entries_for_config_entry(registry, mock_config_entry.entry_id)
+        for config_entry in (mock_config_entry, bridge)
+        for entry in er.async_entries_for_config_entry(registry, config_entry.entry_id)
     }
     missing = sorted(referenced - real)
     assert not missing, f"examples reference entities that do not exist: {missing}"
+
+
+async def _setup_bridge(hass: HomeAssistant, config_dir: Path) -> MockConfigEntry:
+    """A cloud bridge entry as the cloud-bridge examples assume it: serial LR4C000001."""
+    hass.config.config_dir = str(config_dir)
+    identity = config_dir / DEFAULT_IDENTITY_DIR
+    identity.mkdir(parents=True)
+    for name in ("root_ca.pem", "device.crt", "device.key"):
+        (identity / name).write_text("-----BEGIN SYNTHETIC-----\nAA==\n-----END SYNTHETIC-----\n")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Cloud bridge LR4C000001",
+        unique_id=f"{KIND_CLOUD_BRIDGE}_LR4C000001",
+        data={
+            CONF_KIND: KIND_CLOUD_BRIDGE,
+            CONF_SERIAL: "LR4C000001",
+            CONF_CLOUD_HOST: DEFAULT_CLOUD_HOST,
+            CONF_LOCAL_PREFIX: DEFAULT_LOCAL_PREFIX,
+            CONF_CLOUD_PREFIX: DEFAULT_CLOUD_PREFIX,
+            CONF_IDENTITY_DIR: DEFAULT_IDENTITY_DIR,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
