@@ -24,7 +24,15 @@ from homeassistant.helpers.selector import (
 from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 
 from .alerts import alert_settings
-from .const import CONF_ALERT_SETTINGS, CONF_SERIAL, DEFAULT_NAME, DOMAIN
+from .const import (
+    CONF_ALERT_SETTINGS,
+    CONF_MODEL,
+    CONF_SERIAL,
+    DEFAULT_NAME,
+    DEFAULT_NAME_EVO,
+    DOMAIN,
+    MODEL_EVO,
+)
 
 # (min, max, unit) for each alert threshold on the options page; no unit for an hour of the day.
 _THRESHOLDS: dict[str, tuple[int, int, str]] = {
@@ -44,9 +52,14 @@ _THRESHOLDS: dict[str, tuple[int, int, str]] = {
 
 
 def _serial_from_topic(topic: str) -> str | None:
-    """Extract the serial from a `prod/LR4/<serial>/...` topic."""
+    """Extract the serial from a `prod/LR4/<serial>/...` or `prod/robots/<serial>/...` topic."""
     parts = topic.split("/")
     return parts[2] if len(parts) >= 3 and parts[2] else None
+
+
+def _is_evo_topic(topic: str) -> bool:
+    """A Litter-Robot EVO publishes under `prod/robots/`, a Litter-Robot 4 under `prod/LR4/`."""
+    return topic.split("/")[1:2] == ["robots"]
 
 
 class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -56,12 +69,19 @@ class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._serial: str | None = None
+        self._evo = False
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> WhiskerlessOptionsFlow:
         """The alert thresholds the notification events use."""
         return WhiskerlessOptionsFlow()
+
+    @classmethod
+    @callback
+    def async_supports_options_flow(cls, config_entry: ConfigEntry) -> bool:
+        """Only a Litter-Robot 4 has alerts to tune; an EVO has no options."""
+        return config_entry.data.get(CONF_MODEL) != MODEL_EVO
 
     async def async_step_mqtt(self, discovery_info: MqttServiceInfo) -> ConfigFlowResult:
         """Handle a robot discovered on the MQTT broker."""
@@ -74,8 +94,13 @@ class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
         # since the discovery carries no connection info to act on).
         self._abort_if_unique_id_configured(reload_on_update=False)
         self._serial = serial
-        self.context["title_placeholders"] = {"name": f"Litter-Robot 4 ({serial})"}
+        self._evo = _is_evo_topic(discovery_info.topic)
+        self.context["title_placeholders"] = {"name": f"{self._default_name} ({serial})"}
         return await self.async_step_discovery_confirm()
+
+    @property
+    def _default_name(self) -> str:
+        return DEFAULT_NAME_EVO if self._evo else DEFAULT_NAME
 
     async def async_step_discovery_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -87,14 +112,17 @@ class WhiskerlessConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         assert self._serial is not None
         if user_input is not None:
-            name = user_input[CONF_NAME].strip() or DEFAULT_NAME
-            return self.async_create_entry(
-                title=name, data={CONF_SERIAL: self._serial, CONF_NAME: name}
-            )
+            name = user_input[CONF_NAME].strip() or self._default_name
+            data = {CONF_SERIAL: self._serial, CONF_NAME: name}
+            if self._evo:
+                data[CONF_MODEL] = MODEL_EVO
+            return self.async_create_entry(title=name, data=data)
         return self.async_show_form(
             step_id="discovery_confirm",
-            data_schema=vol.Schema({vol.Required(CONF_NAME, default=DEFAULT_NAME): TextSelector()}),
-            description_placeholders={"serial": self._serial},
+            data_schema=vol.Schema(
+                {vol.Required(CONF_NAME, default=self._default_name): TextSelector()}
+            ),
+            description_placeholders={"serial": self._serial, "model": self._default_name},
         )
 
     async def async_step_user(

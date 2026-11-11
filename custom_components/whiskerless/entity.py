@@ -6,6 +6,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any, Concatenate
 
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from whiskerless import WhiskerlessError
@@ -34,7 +35,7 @@ class WhiskerlessEntity(CoordinatorEntity[WhiskerlessCoordinator]):
         return self.coordinator.data.robot
 
 
-def exception_handler[EntityT: WhiskerlessEntity, **P](
+def exception_handler[EntityT: Entity, **P](
     func: Callable[Concatenate[EntityT, P], Coroutine[Any, Any, Any]],
 ) -> Callable[Concatenate[EntityT, P], Coroutine[Any, Any, None]]:
     """Translate a lib error from a command method into a HomeAssistantError."""

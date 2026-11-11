@@ -6,6 +6,28 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- The Home Assistant integration discovers a Litter-Robot EVO on its `prod/robots/…` topics and
+  adds it as its own device. **Screen brightness** and **Status LED brightness** set each panel
+  light from 1 to 100 on its own, beyond the app's Low, Medium and High, alongside the brightness
+  preset (with Off), cycle delay, control lock, Sleep mode, the app's actions, an empty cycle and
+  power on/off, and the
+  status, drawer, bonnet, power, weight, power-cycle and empty-cycle counts the robot reports. Its
+  record event also fires when the robot identifies a pet. The integration reads the robot's state
+  when it starts and whenever the robot reconnects, so entities show real values at once; the
+  display and the weight fill in from what the robot reports. A new blueprint sets a night and a day panel level at the window's
+  ends, at start and after a reconnect, and leaves a level changed by hand alone. See the EVO section of
+  docs/setup/home-assistant.md.
+- Litter-Robot EVO support in the library and CLI. `whiskerless provision` accepts an EVO
+  (`LRE-…` serial, setup mode first) and writes its own topics, `prod/robots/…`; the LR4's
+  provisioning is unchanged. `whiskerless evo` reads the robot's state (`evo state`), watches
+  what it reports, sets panel
+  brightness (screen and status LED separately, 1-100), cycle delay, lockout, the sleep
+  schedule and the robot's clock (`evo set-clock`), and runs a clean cycle, empty cycle, filter change, drawer reset or power on/off. Its
+  state includes the power-cycle and empty-cycle odometers, each cat visit's weight and the pet
+  the robot identifies. An empty cycle waits at the dump position until Cycle is pressed on the
+  panel. Every send goes
+  through the safety guard, which refuses power off without `--allow-dangerous`. See
+  docs/devices/litter-robot-evo/protocol.md.
 - A cat visit no longer sets off a false low litter alert. The litter reading is badly off during
   a visit and the countdown after it, so **Litter level** now reads unknown for that time, the way
   it already did during a clean cycle, and the alert waits for a settled reading. The CLI's

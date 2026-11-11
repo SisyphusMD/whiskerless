@@ -4,7 +4,7 @@
     "step": {
       "discovery_confirm": {
         "title": "Add Litter-Robot",
-        "description": "A Litter-Robot 4 (serial {serial}) was found on your MQTT broker. Give it a name — this becomes the device name and is used to generate its entity IDs.",
+        "description": "A {model} (serial {serial}) was found on your MQTT broker. Give it a name — this becomes the device name and is used to generate its entity IDs.",
         "data": {
           "name": "Name"
         },
@@ -76,6 +76,48 @@
       },
       "hopper_level": {
         "name": "Hopper level"
+      },
+      "robot_status": {
+        "name": "Status",
+        "state": {
+          "powering_up": "Powering up",
+          "powering_down": "Powering down",
+          "ready": "Ready",
+          "cleaning": "Cleaning",
+          "changing_filter": "Changing filter",
+          "emptying": "Emptying"
+        }
+      },
+      "panel_display": {
+        "name": "Display",
+        "state": {
+          "drawer_removed": "Waste drawer removed",
+          "bonnet_removed": "Bonnet removed",
+          "cat_detected": "Cat detected",
+          "paused": "Paused",
+          "cycling": "Cycling",
+          "idle": "Idle",
+          "wifi_status": "Wi-Fi status",
+          "setting_updated": "Setting updated",
+          "connecting": "Connecting",
+          "lockout_key_pressed": "Button pressed while locked",
+          "zeroing": "Zeroing weight"
+        }
+      },
+      "weight_raw": {
+        "name": "Weight sensor (raw)"
+      },
+      "drawer_counter": {
+        "name": "Waste drawer counter (raw)"
+      },
+      "cycle_step": {
+        "name": "Cycle step"
+      },
+      "power_cycle_count": {
+        "name": "Power cycle count"
+      },
+      "empty_cycle_count": {
+        "name": "Empty cycle count"
       }
     },
     "binary_sensor": {
@@ -123,6 +165,15 @@
       },
       "panel_sleep_mode": {
         "name": "Panel sleep mode"
+      },
+      "drawer_removed": {
+        "name": "Waste drawer removed"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "cleaning": {
+        "name": "Cleaning"
       }
     },
     "select": {
@@ -133,6 +184,23 @@
           "on": "[%key:common::state::on%]",
           "auto": "Auto"
         }
+      },
+      "panel_brightness_preset": {
+        "name": "Panel brightness",
+        "state": {
+          "off": "Off",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "cycle_delay": {
+        "name": "Cycle delay",
+        "state": {
+          "3": "3 minutes",
+          "7": "7 minutes",
+          "15": "15 minutes"
+        }
       }
     },
     "switch": {
@@ -141,6 +209,9 @@
       },
       "weekday_sleep": {
         "name": "Weekday sleep schedule"
+      },
+      "sleep_mode": {
+        "name": "Sleep mode"
       }
     },
     "number": {
@@ -155,6 +226,12 @@
       },
       "panel_brightness_low": {
         "name": "Panel brightness (dark room)"
+      },
+      "screen_brightness": {
+        "name": "Screen brightness"
+      },
+      "status_led_brightness": {
+        "name": "Status LED brightness"
       }
     },
     "time": {
@@ -163,6 +240,12 @@
       },
       "panel_wake_time": {
         "name": "Panel wake time"
+      },
+      "sleep_mode_start": {
+        "name": "Sleep mode start"
+      },
+      "sleep_mode_end": {
+        "name": "Sleep mode end"
       }
     },
     "button": {
@@ -189,6 +272,21 @@
       },
       "start_clean_cycle": {
         "name": "Clean cycle"
+      },
+      "start_filter_change": {
+        "name": "Change filter"
+      },
+      "reset_drawer_level": {
+        "name": "Reset waste drawer level"
+      },
+      "power_on": {
+        "name": "Power on"
+      },
+      "power_off": {
+        "name": "Power off"
+      },
+      "evo_empty_cycle": {
+        "name": "Empty cycle"
       }
     },
     "date": {
@@ -232,6 +330,18 @@
           },
           "waste_drawer_level": {
             "name": "Waste drawer level"
+          }
+        }
+      },
+      "robot_event": {
+        "name": "Robot record",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "cycle": "Cycle completed",
+              "usage": "Weight event",
+              "pet_id_match": "Pet identified"
+            }
           }
         }
       }

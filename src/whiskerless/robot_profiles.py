@@ -134,7 +134,10 @@ _SERIAL_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{2,63}\Z")
 #: `Serial` accepts: that is a containment rule for a directory name and lets almost any word
 #: through, so a mistyped display name ("Upstair" for "Upstairs") parsed as a perfectly valid
 #: serial and the CLI published to a topic no robot subscribes to, reporting success.
-_LOOKS_LIKE_A_ROBOT_SERIAL = re.compile(r"\ALR[34][A-Z][A-Za-z0-9]{4,}\Z", re.IGNORECASE)
+#: The EVO's serial is `LRE-` and hyphenated hex groups, a shape of its own.
+_LOOKS_LIKE_A_ROBOT_SERIAL = re.compile(
+    r"\A(?:LR[34][A-Z][A-Za-z0-9]{4,}|LRE(?:-[0-9A-F]{2,8}){4,})\Z", re.IGNORECASE
+)
 
 
 def looks_like_a_robot_serial(value: str) -> bool:

@@ -28,6 +28,8 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity, exception_handler
+from .evo import button as evo_button
+from .evo import is_evo_entry
 
 PARALLEL_UPDATES = 1
 
@@ -113,6 +115,9 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Whiskerless buttons."""
+    if is_evo_entry(entry):
+        await evo_button.async_setup_entry(hass, entry, async_add_entities)
+        return
     coordinator = entry.runtime_data
     async_add_entities(WhiskerlessButton(coordinator, description) for description in BUTTONS)
 

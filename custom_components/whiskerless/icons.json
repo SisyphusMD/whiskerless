@@ -36,6 +36,27 @@
       },
       "hopper_level": {
         "default": "mdi:silo"
+      },
+      "robot_status": {
+        "default": "mdi:robot"
+      },
+      "panel_display": {
+        "default": "mdi:monitor-dashboard"
+      },
+      "weight_raw": {
+        "default": "mdi:scale"
+      },
+      "drawer_counter": {
+        "default": "mdi:counter"
+      },
+      "cycle_step": {
+        "default": "mdi:debug-step-over"
+      },
+      "power_cycle_count": {
+        "default": "mdi:counter"
+      },
+      "empty_cycle_count": {
+        "default": "mdi:counter"
       }
     },
     "binary_sensor": {
@@ -64,6 +85,12 @@
     "select": {
       "night_light_mode": {
         "default": "mdi:lightbulb-night"
+      },
+      "panel_brightness_preset": {
+        "default": "mdi:brightness-6"
+      },
+      "cycle_delay": {
+        "default": "mdi:timer-outline"
       }
     },
     "switch": {
@@ -75,6 +102,9 @@
       },
       "weekday_sleep": {
         "default": "mdi:calendar-clock"
+      },
+      "sleep_mode": {
+        "default": "mdi:sleep"
       }
     },
     "number": {
@@ -89,6 +119,12 @@
       },
       "panel_brightness_low": {
         "default": "mdi:brightness-4"
+      },
+      "screen_brightness": {
+        "default": "mdi:monitor"
+      },
+      "status_led_brightness": {
+        "default": "mdi:led-on"
       }
     },
     "time": {
@@ -97,6 +133,12 @@
       },
       "panel_wake_time": {
         "default": "mdi:weather-sunny"
+      },
+      "sleep_mode_start": {
+        "default": "mdi:sleep"
+      },
+      "sleep_mode_end": {
+        "default": "mdi:sleep-off"
       }
     },
     "button": {
@@ -114,6 +156,21 @@
       },
       "power_toggle": {
         "default": "mdi:power-plug-off"
+      },
+      "start_filter_change": {
+        "default": "mdi:air-filter"
+      },
+      "reset_drawer_level": {
+        "default": "mdi:delete-restore"
+      },
+      "power_on": {
+        "default": "mdi:power"
+      },
+      "power_off": {
+        "default": "mdi:power-off"
+      },
+      "evo_empty_cycle": {
+        "default": "mdi:delete-empty"
       }
     },
     "date": {
@@ -133,6 +190,9 @@
       },
       "clean_cycle": {
         "default": "mdi:autorenew"
+      },
+      "robot_event": {
+        "default": "mdi:paw"
       }
     }
   }

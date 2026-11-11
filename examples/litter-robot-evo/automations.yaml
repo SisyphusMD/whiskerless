@@ -1,0 +1,35 @@
+# Example Home Assistant automations for a Litter-Robot EVO via whiskerless.
+#
+# Entity IDs below assume the device is named "Litter-Robot EVO" (the default),
+# so entities are slugged `*.litter_robot_evo_*`. If you renamed the device,
+# adjust the entity IDs to match (check Developer Tools → States).
+
+# --- Dim the panel at night ------------------------------------------------
+# The screen and status LED go to 1 from 20:00 to 08:00 and back to the app's
+# Low (8) by day, and again after the robot reconnects, when the cloud resends
+# the app's preset. A level you change by hand is left alone until then.
+- alias: "Litter-Robot EVO - panel brightness schedule"
+  use_blueprint:
+    path: whiskerless/litter_robot_evo_panel_brightness.yaml
+    input:
+      screen: number.litter_robot_evo_screen_brightness
+      led: number.litter_robot_evo_status_led_brightness
+      display: sensor.litter_robot_evo_display
+      night_start: "20:00:00"
+      night_end: "08:00:00"
+      night_level: 1
+      day_level: 8
+
+# --- Notify when the waste drawer is left out -------------------------------
+- alias: "Litter-Robot EVO - waste drawer left out"
+  description: "The robot will not cycle with the drawer out."
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.litter_robot_evo_waste_drawer_removed
+      to: "on"
+      for: "00:05:00"
+  actions:
+    - action: notify.notify
+      data:
+        title: "Litter-Robot EVO"
+        message: "The waste drawer has been out for 5 minutes."

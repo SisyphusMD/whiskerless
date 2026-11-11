@@ -92,6 +92,13 @@ CONF_LITTER_EMPTY_MM = "litter_empty_mm"
 # which sets the device name and therefore the generated entity_ids.
 DEFAULT_NAME = "Litter-Robot 4"
 
+# Which robot an entry is. Absent on Litter-Robot 4 entries, which predate it.
+CONF_MODEL = "model"
+MODEL_EVO = "litter_robot_evo"
+DEFAULT_NAME_EVO = "Litter-Robot EVO"
+# Dispatcher signal for an EVO event-topic record, formatted with the serial.
+SIGNAL_EVO_EVENT = "whiskerless_evo_event_{}"
+
 # Heartbeat only — state arrives by push over MQTT. This bounds how long an
 # unresponsive robot can still look available, and refreshes after writes.
 HEARTBEAT_INTERVAL = timedelta(minutes=5)

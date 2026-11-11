@@ -1,4 +1,4 @@
-"""High-level BLE re-provisioning flow for the Litter-Robot 4.
+"""High-level BLE re-provisioning flow for the Litter-Robot 4 and Litter-Robot EVO.
 
 Replicates the official Whisker app's exact onboarding sequence, substituting
 only the broker host (your broker's IP) and the trusted root CA (your CA). The
@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -30,7 +31,7 @@ from typing import TYPE_CHECKING
 from ..exceptions import ProvisioningError, WhiskerlessError
 from ..pki import KeyPair, check_pair
 from . import messages as m
-from .messages import PROV_SERVICE_UUID
+from .messages import PROV_SERVICE_UUIDS
 from .transport import ProtocommBLE, translated
 
 if TYPE_CHECKING:
@@ -48,6 +49,19 @@ NetworkChooser = Callable[[list["m.WifiNetwork"]], Awaitable[tuple[str, str]]]
 #: link is open — so the caller cannot have read it beforehand without opening a
 #: second connection of its own.
 Confirm = Callable[["ProvisioningConfig", "str | None"], bool]
+
+#: Stock topic prefixes, as each model's own app provisions them.
+LR4_TOPIC_PREFIX = "prod/LR4"
+EVO_TOPIC_PREFIX = "prod/robots"
+
+#: ``LRE-`` and at least four hyphenated hex groups, e.g. ``LRE-01-40-01-2610-000000``.
+_EVO_SERIAL = re.compile(r"\ALRE(?:-[0-9A-F]{2,8}){4,}\Z", re.IGNORECASE)
+
+
+def is_evo_serial(serial: str) -> bool:
+    """True for a Litter-Robot EVO serial (``LRE-`` plus hyphenated hex groups)."""
+    return bool(_EVO_SERIAL.match(serial.strip()))
+
 
 # GetStatus poll cadence during the WiFi join verify. An auth failure typically
 # reports within a few seconds; a successful join (through DHCP) in 3-10 s.
@@ -217,35 +231,56 @@ class ProvisioningConfig:
         value provisions cleanly and then never appears on the broker — there is
         no error to see. It is worth rejecting early.
 
-        The shape rule is deliberately loose: only two units have ever been seen
-        here, both ``LR4C`` + six digits, which is far too small a sample to
+        The LR4 shape rule is deliberately loose: only two units have ever been
+        seen here, both ``LR4C`` + six digits, which is far too small a sample to
         insist on. Requiring some length and some digits is enough to reject the
         model designator printed beside the serial on the same label, which is
         the mistake this actually catches.
+
+        An EVO serial is ``LRE-`` followed by hyphenated hex groups
+        (``LRE-01-40-01-2610-000000``), so it takes its own rule; see
+        :func:`is_evo_serial`.
         """
         serial = value.strip().upper()
+        if serial.startswith("LRE-"):
+            if not is_evo_serial(serial):
+                raise ProvisioningError(
+                    f"serial {serial!r} is not a Litter-Robot EVO serial — expected LRE- "
+                    "followed by hyphenated hex groups (e.g. LRE-01-40-01-2610-000000)"
+                )
+            return serial
         if not serial.startswith("LR4"):
             raise ProvisioningError(
-                f"serial {serial!r} is not a Litter-Robot 4 serial "
-                "(expected LR4…, e.g. LR4C123456) — this provisioner only supports the LR4"
+                f"serial {serial!r} is not a Litter-Robot 4 or EVO serial "
+                "(expected LR4…, e.g. LR4C123456, or LRE-…, e.g. LRE-01-40-01-2610-000000)"
             )
         # The hyphen test is what actually catches the label's other line: the
         # designator (LR4-0301-00-US) is long enough and carries enough digits
         # to pass the shape checks below.
         if "-" in serial or len(serial) < 8 or sum(character.isdigit() for character in serial) < 4:
             raise ProvisioningError(
-                f"serial {serial!r} looks like the model number, not the serial — the serial is "
-                "the longer line, LR4 followed by a letter and six digits (e.g. LR4C123456)"
+                f"serial {serial!r} looks like the model number, not the serial — on an LR4 label "
+                "the serial is the unhyphenated line, LR4 followed by a letter and six digits "
+                "(e.g. LR4C123456)"
             )
         return serial
 
+    def topic_prefix(self) -> str:
+        """The stock topic prefix for this serial's model.
+
+        Each model keeps the prefix its own app provisions, so a robot moved
+        between the cloud and a local broker publishes on the same topics either
+        way: ``prod/LR4`` for the LR4, ``prod/robots`` for the EVO.
+        """
+        return EVO_TOPIC_PREFIX if is_evo_serial(self.serial) else LR4_TOPIC_PREFIX
+
     def resolved_command_topic(self) -> str:
-        return self.command_topic or f"prod/LR4/{self.serial}/command"
+        return self.command_topic or f"{self.topic_prefix()}/{self.serial}/command"
 
     def resolved_device_topic(self) -> str:
         # The app points the device (publish) endpoint at /activity; the firmware
-        # derives the /state sub-topic from it.
-        return self.device_topic or f"prod/LR4/{self.serial}/activity"
+        # derives its other sub-topics from it.
+        return self.device_topic or f"{self.topic_prefix()}/{self.serial}/activity"
 
 
 @dataclass(slots=True)
@@ -257,17 +292,19 @@ class ProvisioningResult:
 
 
 def _assert_lr4(client: BleakClient) -> None:
-    """Refuse any connected device that lacks the LR4 provisioning GATT service.
+    """Refuse any connected device that lacks a known Whisker provisioning service.
 
     Guards the ``--address`` path (which accepts an arbitrary BLE address) and any
-    other Whisker model: writing LR4 topics/config onto a different device is
-    never safe, so fail before touching an endpoint.
+    Whisker model this module does not know: writing robot topics/config onto a
+    different device is never safe, so fail before touching an endpoint. The LR4
+    and the EVO pass; each exposes its own service UUID.
     """
     uuids = {service.uuid.lower() for service in client.services}
-    if PROV_SERVICE_UUID not in uuids:
+    if PROV_SERVICE_UUIDS.isdisjoint(uuids):
         raise ProvisioningError(
-            f"device at {client.address} does not expose the LR4 provisioning service "
-            f"({PROV_SERVICE_UUID}) — not a Litter-Robot 4; refusing to provision"
+            f"device at {client.address} does not expose a Litter-Robot 4 or EVO "
+            f"provisioning service ({', '.join(sorted(PROV_SERVICE_UUIDS))}); "
+            "refusing to provision"
         )
 
 

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import ProvisioningError
-from .messages import ADVERTISER_NAME, EP_MQTT, EP_PROV_CONFIG, PROV_SERVICE_UUID
+from .messages import ADVERTISER_NAMES, EP_MQTT, EP_PROV_CONFIG, PROV_SERVICE_UUIDS
 
 #: Endpoints whose payloads are never logged. `prov-config` carries the WiFi
 #: passphrase in cleartext; `mqtt-config` carries the robot's private key.
@@ -99,7 +99,7 @@ async def scan(
     address: str | None = None,
     settle: float = 1.5,
 ) -> list[DiscoveredRobot]:
-    """Scan for advertising LR4s, matched by protocomm service UUID (or name).
+    """Scan for advertising LR4s and EVOs, matched by protocomm service UUID (or name).
 
     ``timeout`` is a CEILING, not a duration: the scan returns as soon as a
     robot answers.
@@ -108,11 +108,11 @@ async def scan(
     robot advertising in the same window is still offered rather than silently
     losing a race to whichever replied first.
 
-    The LR4 advertises sporadically at low RSSI, so an empty round is retried.
+    The LR4 advertises sporadically at low RSSI, so an empty round is retried. An
+    EVO advertises reliably only in pairing mode.
     If ``address`` is given, only that device is returned (when seen).
     """
     bleak = _require_bleak()
-    target = PROV_SERVICE_UUID.lower()
 
     def _detector(
         _found: dict[str, DiscoveredRobot], _answered: asyncio.Event
@@ -135,7 +135,7 @@ async def scan(
             if address is not None:
                 if device.address.lower() != address.lower():
                     return
-            elif target not in uuids and name != ADVERTISER_NAME:
+            elif PROV_SERVICE_UUIDS.isdisjoint(uuids) and name not in ADVERTISER_NAMES:
                 return
             _found[device.address] = DiscoveredRobot(device.address, name or "?", adv.rssi)
             _answered.set()

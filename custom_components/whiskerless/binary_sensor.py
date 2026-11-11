@@ -22,6 +22,8 @@ from whiskerless.devices.litter_robot_4 import const as lr4
 
 from .coordinator import WhiskerlessConfigEntry, WhiskerlessCoordinator
 from .entity import WhiskerlessEntity
+from .evo import binary_sensor as evo_binary_sensor
+from .evo import is_evo_entry
 
 PARALLEL_UPDATES = 0
 
@@ -88,6 +90,9 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Whiskerless binary sensors."""
+    if is_evo_entry(entry):
+        await evo_binary_sensor.async_setup_entry(hass, entry, async_add_entities)
+        return
     coordinator = entry.runtime_data
     entities: list[BinarySensorEntity] = [
         WhiskerlessBinarySensor(coordinator, description) for description in BINARY_SENSORS
