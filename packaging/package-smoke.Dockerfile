@@ -7,7 +7,7 @@
 # image, the build image IS the declared floor and no distro can sit between them. The floor is
 # enforced statically by check-glibc-floor.py during the build instead.
 # renovate: datasource=docker depName=ubuntu-26.04-current packageName=ubuntu
-FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS smoke
+FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96 AS smoke
 
 # The version the binary was frozen at; installed-smoke.sh checks the binary reports it.
 ARG EXPECT_VERSION
