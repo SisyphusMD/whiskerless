@@ -27,6 +27,12 @@ name: Retry infrastructure failures
 # reads that step's own log lines and retries only on an exact resolver-failure
 # spelling naming a host CI is known to reach — the rules and their refusals live
 # in the vendored script.
+#
+# The last is a job no runner ever took: GitHub's macOS arm64 pool runs short, and it cancels a job
+# it could not place after fifteen minutes, with "not acquired by Runner" in the job's annotation.
+# That is `cancelled`, not `failure`, so the annotations of every cancelled job are fetched as its
+# evidence. A short pool stays short for hours, so this class alone is retried past the first
+# attempt, up to a bound the vendored script holds; every other class still gets exactly one.
 on:
   workflow_run:
     # EVERY GitHub workflow in this repository, asserted by a repo invariant test. A runner fault
@@ -50,11 +56,12 @@ permissions:
 jobs:
   retry:
     name: Retry if the runner, not the code, failed
-    # run_attempt == 1 bounds this to a single retry: a fault that recurs is not
-    # transient, and must be allowed to stay red.
+    # No attempt bound here: the vendored script refuses every class past the first attempt
+    # except a runner that never arrived, and that one past its own bound, so a fault that
+    # recurs still stays red. One copy of the bound, in the script both repositories share.
     if: >-
-      github.event.workflow_run.conclusion == 'failure' &&
-      github.event.workflow_run.run_attempt == 1
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'cancelled'
     runs-on: ubuntu-latest
     steps:
       # A `workflow_run` job starts with an EMPTY workspace — it is not a checkout of the run that
@@ -85,11 +92,19 @@ jobs:
             gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$job/logs" > "logs/$job.log" \
               || rm -f "logs/$job.log"
           done
+          # One annotation list per CANCELLED job: GitHub's own "not acquired by Runner" note is
+          # the only evidence that separates a job no runner took from one a person cancelled. A
+          # list that cannot be fetched is removed, which makes that cancel a veto, the safe side.
+          mkdir -p annotations
+          for job in $(jq -r '.jobs[] | select(.conclusion == "cancelled") | .id' jobs.json); do
+            gh api "repos/$REPO/check-runs/$job/annotations" > "annotations/$job.json" \
+              || rm -f "annotations/$job.json"
+          done
           # The discriminator itself lives in packaging/triage-infra-failure.py, vendored from
           # project-standard and shared with the sibling project — none of that reasoning is
           # specific to this repository, and it is tested there against the cases that must REFUSE
           # to retry.
-          python3 packaging/triage-infra-failure.py jobs.json logs >> "$GITHUB_OUTPUT"
+          python3 packaging/triage-infra-failure.py jobs.json logs annotations >> "$GITHUB_OUTPUT"
       - name: Re-run the failed jobs
         if: steps.triage.outputs.infra == 'true'
         env:
@@ -107,19 +122,20 @@ jobs:
           # precisely when things are already going wrong.
           WORKFLOW: ${{ github.event.workflow_run.name }}
           ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           SUMMARY: ${{ steps.triage.outputs.summary }}
           INFRA: ${{ steps.triage.outputs.infra }}
         run: |
           {
-            echo "### $WORKFLOW — attempt $ATTEMPT failed"
+            echo "### $WORKFLOW — attempt $ATTEMPT $CONCLUSION"
             echo
             echo '```'
             echo "$SUMMARY"
             echo '```'
             echo
             if [ "$INFRA" = "true" ]; then
-              echo "Runner fault only (its setup phase, or its resolver) — re-ran the failed jobs once."
-              echo "If the retry also fails, it is not transient and stays red."
+              echo "Runner fault only (its setup phase, its resolver, or no runner at all) — re-ran the failed jobs."
+              echo "Only a missing runner is retried again; any other repeat is not transient and stays red."
             else
               echo "One of our own steps failed. Left red deliberately; this is a real failure."
             fi

@@ -33,7 +33,7 @@
     "packaging/shellcheck-all.sh": "14c87d497082a8982044c61c09207845b010e8a5a6f5eecca657cc4c68677c5d",
     "packaging/sisyphusmd-signing-key.asc": "739991cf1057257f55168c9e898f219d46134e86df804f3136205e5f3a5f2c54",
     "packaging/stamp_common.py": "193824c3c314239432d9648c7f1c98c9ceafebbaa9ffba30806ea39d41b6f701",
-    "packaging/triage-infra-failure.py": "024f618cb46eb3192d8b818c1b521affc359aaf8a9581d6c9c1f905e0bf373fb",
+    "packaging/triage-infra-failure.py": "b4f962361ac27b00c8f2c9f96b448f530cb8971b5dcadaaad307127a10436033",
     "packaging/update-tap.sh": "6c947de2a9cd2ee3826258ce61df5699f9230d3a2f7ab06984719770e04885e7",
     "packaging/wait-for-pypi.sh": "00e3b723203d1522be3050066d5752932962299b748fa37f3ecafe4f1f5aa000",
     "packaging/wait-for-release.sh": "0ef2c5811d4b184b9c716bb219c5218058248652ae124d722507932c20cee964",
@@ -42,7 +42,7 @@
     "tests/release/prune-rcs.sh": "3a17fca631469abff3565775307429865ce13f77a42e657a01218f2a8ab6a682",
     "tests/release/release-scripts.sh": "6a11484fbc47283b75e58c1cadea3834682b88d9936e79889241e3238ada72bf"
   },
-  "source_commit": "c9bae40244dcf8c3d7d76d2a341551393705c8ae",
+  "source_commit": "e0d2fded2ffb5488dbdb5338fbf16ee94d6e7f15",
   "source_repo": "SisyphusMD/project-standard",
-  "source_tag": "v0.1.36"
+  "source_tag": "v0.1.37"
 }

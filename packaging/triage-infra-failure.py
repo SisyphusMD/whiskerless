@@ -3,7 +3,8 @@
 
     gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs" > jobs.json
     gh api "repos/$REPO/actions/jobs/<id>/logs" > logs/<id>.log   # one per failed job
-    triage-infra-failure.py jobs.json [logs/] >> "$GITHUB_OUTPUT"
+    gh api "repos/$REPO/check-runs/<id>/annotations" > annotations/<id>.json   # one per cancelled job
+    ATTEMPT=<run attempt> triage-infra-failure.py jobs.json [logs/ [annotations/]] >> "$GITHUB_OUTPUT"
 
 Writes `infra=true|false` and a `summary` heredoc, both as GitHub step outputs.
 
@@ -47,6 +48,16 @@ reaches Forgejo first runs `forgejo-preflight.sh` as a step of its own, an anony
 public endpoint that Forgejo itself never refuses. Retried only when THAT step failed with THAT
 script's marker; a 403 anywhere else stays ours.
 
+The fourth class is a job no runner ever picked up (observed, whiskerless rc.74 and rc.75): when
+GitHub's macOS arm64 pool is short, it cancels a queued job after fifteen minutes and says so in the
+job's annotation, "The job was not acquired by Runner of type hosted even after multiple attempts".
+The job is `cancelled`, not `failure`, so the first three rules never see it, and a cancel otherwise
+vetoes the retry. The evidence is the annotation's exact spelling on a job that ran no step and was
+assigned no runner; a cancel by a person, or by a concurrency group, carries neither. It is also the
+one class that recurs: the pool stays short for hours, so one retry was not enough (one release
+took six). Only a run whose every cause is this class is retried past the first attempt, up to
+`MAX_CAPACITY_ATTEMPTS`; anything else still gets exactly one.
+
 Shared between projects because none of this reasoning is project-specific. What IS project-specific
 is which workflows to watch, and that stays in each repository's own workflow file.
 """
@@ -54,6 +65,7 @@ is which workflows to watch, and that stays in each repository's own workflow fi
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -98,6 +110,12 @@ EDGE_BAN_SIGNATURE = "forgejo-preflight: edge refused this runner"
 #: never evidence either way, because the jobs it restates are judged on their own; but it cannot
 #: make a run retryable alone, or a leg a human cancelled would come back as a retry.
 DERIVATIVE_STEPS = frozenset({"Verdict"})
+
+#: Exactly what GitHub writes in the annotation of a job it gave up on queueing, and the attempt past
+#: which even that stops being retried. The bound is what keeps a pool that is gone for the day from
+#: retrying forever; past it the run stays red for a person to look at.
+NOT_ACQUIRED_SIGNATURE = "was not acquired by Runner"
+MAX_CAPACITY_ATTEMPTS = 5
 
 #: How far back from the end of the failed step the evidence may sit. A resolver failure that took
 #: the step down is what the failing tool prints on its way out; one printed pages earlier was
@@ -146,18 +164,40 @@ def edge_ban(log: str, step: dict) -> bool:
     return EDGE_BAN_SIGNATURE in "\n".join(window[-TAIL_LINES:])
 
 
-def triage(jobs: list[dict], logs: dict[int, str] | None = None) -> tuple[bool, list[str]]:
-    """(is_infra, human-readable report). Not infra when there are no failed jobs at all: there is
-    then nothing to explain and nothing to re-run. `logs` maps job id to that job's log text; a
-    failed step of ours with no log to read is treated as ours."""
+def never_acquired(job: dict, annotations: list[str]) -> bool:
+    """Whether GitHub cancelled this job because no runner ever took it. All three must hold: no
+    step ran, no runner was assigned, and GitHub's own annotation says so."""
+    return (
+        job.get("conclusion") == "cancelled"
+        and not job.get("steps")
+        and not job.get("runner_name")
+        and any(NOT_ACQUIRED_SIGNATURE in message for message in annotations)
+    )
+
+
+def triage(
+    jobs: list[dict],
+    logs: dict[int, str] | None = None,
+    annotations: dict[int, list[str]] | None = None,
+    attempt: int = 1,
+) -> tuple[bool, list[str]]:
+    """(is_infra, human-readable report). Not infra when nothing failed or went unqueued: there is
+    then nothing to explain and nothing to re-run. `logs` maps job id to that job's log text, and
+    `annotations` to its annotation messages; a failure of ours with no log to read, or a cancel with
+    no annotation to read, is treated as ours. `attempt` is the run attempt being judged."""
     failed = [j for j in jobs if j.get("conclusion") == "failure"]
-    report: list[str] = []
-    infra = bool(failed)
-    caused = False
-    # A hang or a cancel is nobody's evidence of a runner fault, and it is not in `failed` to be
-    # judged, so it vetoes outright. Without this a timed-out leg would ride along on another leg's
-    # retry once the summary that used to report it red is exempted as derivative.
+    unqueued = [j for j in jobs if never_acquired(j, (annotations or {}).get(j.get("id"), []))]
+    report = [f"{j['name']}: no runner ever took it (GitHub capacity); retryable" for j in unqueued]
+    infra = bool(failed or unqueued)
+    caused = bool(unqueued)
+    # Whether anything besides a missing runner explains the run; a derivative summary does not.
+    other_cause = False
+    # A hang or any other cancel is nobody's evidence of a runner fault, and it is not in `failed`
+    # to be judged, so it vetoes outright. Without this a timed-out leg would ride along on another
+    # leg's retry once the summary that used to report it red is exempted as derivative.
     for job in jobs:
+        if job in unqueued:
+            continue
         if job.get("conclusion") in ("timed_out", "cancelled"):
             infra = False
             report.append(f"{job['name']}: {job['conclusion']}; not retrying")
@@ -166,12 +206,12 @@ def triage(jobs: list[dict], logs: dict[int, str] | None = None) -> tuple[bool, 
         bad = [s for s in job.get("steps", []) if s.get("conclusion") == "failure"]
         report.append(f"{job['name']}: failed steps={[s['name'] for s in bad] or ['(none recorded)']}")
         if not bad:
-            caused = True
+            caused = other_cause = True
         for step in bad:
             if step["name"] in DERIVATIVE_STEPS:
                 report.append(f"    -> {step['name']!r} only restates other jobs; judged by them")
                 continue
-            caused = True
+            caused = other_cause = True
             if step["name"] in RUNNER_PHASES:
                 continue
             if edge_ban(log, step):
@@ -183,6 +223,14 @@ def triage(jobs: list[dict], logs: dict[int, str] | None = None) -> tuple[bool, 
                 continue
             infra = False
             report.append(f"    -> our step failed: {step['name']!r}; not retrying")
+    if infra and caused and attempt > 1:
+        # Every class but the capacity cancel is a one-off, so its second failure is not transient.
+        if other_cause:
+            report.append(f"attempt {attempt}: only a capacity cancel is retried past the first attempt")
+            return False, report
+        if attempt >= MAX_CAPACITY_ATTEMPTS:
+            report.append(f"attempt {attempt}: no runner after {attempt} attempts; leaving it red")
+            return False, report
     return infra and caused, report
 
 
@@ -196,13 +244,31 @@ def load_logs(directory: Path) -> dict[int, str]:
     return logs
 
 
+def load_annotations(directory: Path) -> dict[int, list[str]]:
+    """`<job id>.json` files, each the check-run annotations API's list. Anything unparseable is
+    skipped, which makes that job's cancel count as ours: the safe side."""
+    found: dict[int, list[str]] = {}
+    for path in directory.glob("*.json"):
+        if not path.stem.isdigit():
+            continue
+        try:
+            items = json.loads(path.read_text(errors="replace"))
+        except ValueError:
+            continue
+        if isinstance(items, list):
+            found[int(path.stem)] = [str(i.get("message", "")) for i in items if isinstance(i, dict)]
+    return found
+
+
 def main() -> int:
-    if len(sys.argv) not in (2, 3):
-        print(f"usage: {sys.argv[0]} <jobs.json> [logs-dir]", file=sys.stderr)
+    if len(sys.argv) not in (2, 3, 4):
+        print(f"usage: {sys.argv[0]} <jobs.json> [logs-dir [annotations-dir]]", file=sys.stderr)
         return 2
     jobs = json.loads(Path(sys.argv[1]).read_text())["jobs"]
-    logs = load_logs(Path(sys.argv[2])) if len(sys.argv) == 3 else {}
-    infra, report = triage(jobs, logs)
+    logs = load_logs(Path(sys.argv[2])) if len(sys.argv) >= 3 else {}
+    annotations = load_annotations(Path(sys.argv[3])) if len(sys.argv) == 4 else {}
+    attempt = int(os.environ.get("ATTEMPT") or 1)
+    infra, report = triage(jobs, logs, annotations, attempt)
     print(f"infra={'true' if infra else 'false'}")
     print("summary<<EOF")
     print("\n".join(report) or "no failed jobs found")

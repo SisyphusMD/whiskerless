@@ -1316,7 +1316,12 @@ def test_the_infra_triage_is_the_shared_one() -> None:
     # resolver-failure retry class would silently stop existing.
     assert "--allow-escape-sequences" in retry
     assert "/logs" in retry
-    assert "triage-infra-failure.py jobs.json logs" in retry
+    assert "triage-infra-failure.py jobs.json logs annotations" in retry
+    # A job GitHub never found a runner for ends `cancelled`, with the reason only in its
+    # annotations. Without both the trigger and the fetch, every such cancel stays red until a
+    # person reruns it, which is how one release sat for an hour on a job that never started.
+    assert "conclusion == 'cancelled'" in retry
+    assert "check-runs/$job/annotations" in retry
 
 
 def test_the_infra_retry_watches_every_github_workflow() -> None:
