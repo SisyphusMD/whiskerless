@@ -16,15 +16,14 @@ from custom_components.whiskerless.const import (
     CONF_LAST_VISIT,
     CONF_REMINDERS,
     CONF_WEIGHT_HISTORY,
-    DOMAIN,
     EVENT_ALERT,
     EVENT_NOTIFICATION_ACTION,
 )
+from custom_components.whiskerless.registry import robot_device
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -66,7 +65,7 @@ async def test_a_condition_is_raised_once_and_cleared_once(
         await hass.async_block_till_done()
     raised = _seen(events, "drawer_full")
     assert len(raised) == 1
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, MOCK_SERIAL)})
+    device = robot_device(hass, MOCK_SERIAL)
     assert raised[0] == {
         "device_id": device.id,
         "serial": MOCK_SERIAL,

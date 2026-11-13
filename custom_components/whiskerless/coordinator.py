@@ -82,6 +82,7 @@ from .const import (
     SIGNAL_CAT_VISIT,
     SIGNAL_CLEAN_CYCLE,
 )
+from .registry import robot_device
 from .restore import stored_state
 
 #: Which config-entry option records each capability's first sighting. The
@@ -416,10 +417,9 @@ class WhiskerlessCoordinator(DataUpdateCoordinator[WhiskerlessData]):
 
     @callback
     def _refresh_device_firmware(self, firmware: str) -> None:
-        registry = dr.async_get(self.hass)
-        device = registry.async_get_device(identifiers={(DOMAIN, self.serial)})
+        device = robot_device(self.hass, self.serial)
         if device is not None:
-            registry.async_update_device(device.id, sw_version=firmware)
+            dr.async_get(self.hass).async_update_device(device.id, sw_version=firmware)
 
     @callback
     def _schedule_activity_refresh(self) -> None:

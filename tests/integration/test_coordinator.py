@@ -24,11 +24,11 @@ from custom_components.whiskerless.const import (
     CONF_LITTER_EMPTY_MM,
     CONF_LITTER_FULL_MM,
 )
+from custom_components.whiskerless.registry import robot_device
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -490,7 +490,7 @@ async def test_a_firmware_update_refreshes_the_device_registry(
         robot.push(json.dumps(doc))
         await hass.async_block_till_done()
 
-    device = dr.async_get(hass).async_get_device(identifiers={("whiskerless", MOCK_SERIAL)})
+    device = robot_device(hass, MOCK_SERIAL)
     assert device is not None
     assert device.sw_version == "9.9.99"
 

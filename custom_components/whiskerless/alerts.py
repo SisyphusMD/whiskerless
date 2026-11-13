@@ -22,7 +22,6 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.start import async_at_started
@@ -60,6 +59,7 @@ from .const import (
     SILENCE_ACTION,
 )
 from .coordinator import WhiskerlessCoordinator
+from .registry import robot_device
 
 _TICK = timedelta(minutes=1)
 _SETUP_FAILURES = f"{DOMAIN}_setup_failures"
@@ -129,7 +129,7 @@ def _fire(
     details: dict[str, Any],
     silenced: list[str] | None = None,
 ) -> None:
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, serial)})
+    device = robot_device(hass, serial)
     hass.bus.async_fire(
         EVENT_ALERT,
         {

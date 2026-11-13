@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Keeps working past Home Assistant 2027.8, which removes the device lookup the alerts and the
+  firmware version used; the log no longer warns about it.
 - Loads on Home Assistant 2026.11. That release changed how restored entity states are kept,
   and the release candidates up to rc.74 failed to set up every robot there (`Error setting up
   entry`), which left its entities unavailable and stopped every alert. Earlier Home Assistant
