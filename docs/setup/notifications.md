@@ -28,7 +28,8 @@ What it does:
 - The title is the robot's name as you see it in Home Assistant, renames included. The
   message says what to do. On iPhone a small "whiskerless" line sits between them;
   Android has no such line, and tints the corner icon whiskerless teal instead.
-- Faults, a full-drawer lockout and an offline robot are **time-sensitive** on iOS
+- Faults, a full-drawer lockout, an offline robot and an integration that failed to
+  start are **time-sensitive** on iOS
   (they break through Focus) and high priority on Android. They also ignore quiet hours.
 - In **quiet hours** everything else still arrives, silently, and reminders are not sent.
   On Android the silent ones use their own notification channel, `whiskerless_quiet`,
@@ -41,7 +42,8 @@ What it does:
   same thing happens everyone hears about it again.
 - A newer alert of the same kind replaces the older one, and an alert is removed from
   the phone when its condition clears (turn that off under **Quiet hours, reminders
-  and clearing**, where reminders can be turned off too). An offline robot coming back says "Back online." instead. On iPhone the
+  and clearing**, where reminders can be turned off too). An offline robot coming back says "Back online." instead, and
+  an integration that failed to start says "Whiskerless is running again." once it does. On iPhone the
   removal can lag by a couple of minutes, because iOS chooses when to wake the app for it.
 - Tapping a notification opens the robot's device page.
 - **Picture** is optional and shows full width when you expand a notification. Copy an
@@ -108,6 +110,7 @@ a notification of your own can carry the same button.
 | `excess_weight` | condition, urgent | Something on the scale for 30 minutes | |
 | `stuck_cycle` | condition, urgent | A clean cycle stuck for 30 minutes | |
 | `offline` | condition, urgent | No answer for 15 minutes | |
+| `setup_failed` | urgent | Home Assistant could not set the integration up (anything but an unreachable robot, which is `offline`); clears when a later setup succeeds. Never reminded, and has no Silence button | `error` (the exception's type) |
 | `drawer_full` | condition | The drawer-full sensor trips | |
 | `drawer_level` | condition | The drawer reaches the threshold; clears 10 points below it | `level` |
 | `litter_low` | condition | Litter at or below the threshold; clears 10 points above it | `level` |

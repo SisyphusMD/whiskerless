@@ -73,6 +73,9 @@ SIGNAL_CAT_VISIT = "whiskerless_cat_visit_{}"
 EVENT_ALERT = "whiskerless_alert"
 # Which condition alerts are active, so a restart does not announce them again.
 CONF_ACTIVE_ALERTS = "active_alerts"
+# Whether a setup_failed alert has been sent and not yet cleared. Kept apart from
+# active_alerts, which the publisher owns and rewrites.
+CONF_SETUP_FAILED = "setup_failed"
 # Recent visit weights, the baseline for the weight-change alert.
 CONF_WEIGHT_HISTORY = "weight_history"
 # When the last visit ended, which the no-visit alert needs across a restart.

@@ -6,6 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Sends a notification when the integration fails to start, and another once it is running
+  again. Until now a failed setup stopped every alert, including the one that would have said
+  so. Re-import the notification blueprint to get it; it is on by default, and urgent.
 - Keeps working past Home Assistant 2027.8, which removes the device lookup the alerts and the
   firmware version used; the log no longer warns about it.
 - Loads on Home Assistant 2026.11. That release changed how restored entity states are kept,

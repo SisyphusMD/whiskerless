@@ -74,6 +74,9 @@ class Alert(StrEnum):
     EXCESS_WEIGHT = "excess_weight"
     STUCK_CYCLE = "stuck_cycle"
     OFFLINE = "offline"
+    # Raised by the Home Assistant integration, not by a condition: nothing on the
+    # robot's side can say that the software reading it never started.
+    SETUP_FAILED = "setup_failed"
     # Drawer and litter
     DRAWER_FULL = "drawer_full"
     DRAWER_LEVEL = "drawer_level"
@@ -105,6 +108,7 @@ URGENT: frozenset[Alert] = frozenset(
         Alert.EXCESS_WEIGHT,
         Alert.STUCK_CYCLE,
         Alert.OFFLINE,
+        Alert.SETUP_FAILED,
     }
 )
 
@@ -522,6 +526,7 @@ _RAISED: dict[Alert, str] = {
     Alert.EXCESS_WEIGHT: "Something has been on the scale for 30 minutes. The robot will not cycle.",
     Alert.STUCK_CYCLE: "A clean cycle has been stuck for 30 minutes.",
     Alert.OFFLINE: "Not responding for 15 minutes.",
+    Alert.SETUP_FAILED: "Whiskerless failed to start, so nothing is being watched. Check the Home Assistant log.",
     Alert.DRAWER_FULL: "Waste drawer full. Empty it and press Reset.",
     Alert.HOPPER_EMPTY: "The hopper is out of litter.",
     Alert.HOPPER_DISCONNECTED: "The hopper is disconnected.",
@@ -532,6 +537,7 @@ _RAISED: dict[Alert, str] = {
 
 _CLEARED: dict[Alert, str] = {
     Alert.OFFLINE: "Back online.",
+    Alert.SETUP_FAILED: "Whiskerless is running again.",
     Alert.GLOBE_FAULT: "Globe motor fault cleared.",
     Alert.DRAWER_FULL: "Waste drawer emptied.",
     Alert.DRAWER_FULL_LOCKOUT: "Running again.",

@@ -15,6 +15,7 @@ from custom_components.whiskerless.const import (
     CONF_ALERT_SETTINGS,
     CONF_LAST_VISIT,
     CONF_REMINDERS,
+    CONF_SETUP_FAILED,
     CONF_WEIGHT_HISTORY,
     EVENT_ALERT,
     EVENT_NOTIFICATION_ACTION,
@@ -218,6 +219,65 @@ async def test_a_robot_unreachable_at_setup_is_reported_offline_then_back(
         await hass.async_block_till_done()
     assert mock_config_entry.state is ConfigEntryState.LOADED
     assert [e["message"] for e in _seen(events, "offline")][1:] == ["Back online."]
+
+
+async def test_a_setup_that_crashes_is_reported_once_and_cleared_when_one_succeeds(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, state_payload: str
+) -> None:
+    """Home Assistant does not retry a setup that raised, so only an alert says so."""
+    mock_config_entry.add_to_hass(hass)
+    events = async_capture_events(hass, EVENT_ALERT)
+    broken = patch.object(integration, "_recheck_sightings", side_effect=AttributeError("gone"))
+    for _ in range(2):
+        with broken:
+            await hass.config_entries.async_reload(mock_config_entry.entry_id)
+            await hass.async_block_till_done()
+    assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+    [raised] = _seen(events, "setup_failed")
+    assert raised["event"] == "raised"
+    assert raised["urgent"] is True
+    assert raised["details"] == {"error": "AttributeError"}
+    assert raised["message"].startswith("Whiskerless failed to start")
+    assert mock_config_entry.options[CONF_SETUP_FAILED] is True
+
+    with robot_online(Robot(payload=state_payload)):
+        await hass.config_entries.async_reload(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert mock_config_entry.state is ConfigEntryState.LOADED
+    cleared = _seen(events, "setup_failed")[1:]
+    assert [(e["event"], e["message"]) for e in cleared] == [("cleared", "Whiskerless is running again.")]
+    assert mock_config_entry.options[CONF_SETUP_FAILED] is False
+
+
+async def test_a_crash_at_startup_waits_for_automations_to_be_armed(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    mock_config_entry.add_to_hass(hass)
+    events = async_capture_events(hass, EVENT_ALERT)
+    hass.set_state(CoreState.not_running)
+    with patch.object(integration, "_recheck_sightings", side_effect=RuntimeError):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert _seen(events, "setup_failed") == []
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+    assert [e["event"] for e in _seen(events, "setup_failed")] == ["raised"]
+
+
+async def test_a_crash_is_remembered_only_once_it_is_announced(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Home Assistant stopped before it started, so the first alert never went out."""
+    mock_config_entry.add_to_hass(hass)
+    events = async_capture_events(hass, EVENT_ALERT)
+    hass.set_state(CoreState.not_running)
+    with patch.object(integration, "_recheck_sightings", side_effect=RuntimeError):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert CONF_SETUP_FAILED not in mock_config_entry.options
+    assert _seen(events, "setup_failed") == []
 
 
 async def test_the_options_page_sets_thresholds_and_keeps_everything_else(

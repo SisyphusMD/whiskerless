@@ -4,7 +4,8 @@ blueprint:
     Phone notifications for one or more Litter-Robot 4 boxes run by the whiskerless
     integration, replacing the ones the Whisker app sent. Pick the phones and robots,
     tick the alerts you want, and set quiet hours when the ones that can wait arrive silently. Faults,
-    a full-drawer lockout and an offline robot are time-sensitive and ignore quiet
+    a full-drawer lockout, an offline robot and an integration that failed to start
+    are time-sensitive and ignore quiet
     hours. A newer alert replaces the older one of the same kind, and an alert is
     removed from the phone when its condition clears. One left alone is announced
     again, until it clears or someone taps Silence on their phone.
@@ -89,6 +90,10 @@ blueprint:
           selector: { boolean: {} }
         offline:
           name: Offline for 15 minutes, and back online
+          default: true
+          selector: { boolean: {} }
+        setup_failed:
+          name: Whiskerless failed to start, and running again
           default: true
           selector: { boolean: {} }
     drawer:
@@ -232,6 +237,7 @@ variables:
     excess_weight: !input excess_weight
     stuck_cycle: !input stuck_cycle
     offline: !input offline
+    setup_failed: !input setup_failed
     drawer_full: !input drawer_full
     drawer_level: !input drawer_level
     litter_low: !input litter_low
@@ -251,8 +257,9 @@ variables:
   kind: "{{ trigger.event.data.event }}"
   urgent: "{{ trigger.event.data.urgent }}"
   tag: "whiskerless_{{ trigger.event.data.serial }}_{{ alert }}"
-  # "Back online" is worth saying; every other clearing just removes the alert.
-  announce: "{{ kind != 'cleared' or alert == 'offline' }}"
+  # "Back online" and "running again" are worth saying; every other clearing just
+  # removes the alert.
+  announce: "{{ kind != 'cleared' or alert in ['offline', 'setup_failed'] }}"
   in_quiet_hours: >-
     {% set t = now().strftime('%H:%M:%S') %}
     {% set inside = quiet_start <= t < quiet_end if quiet_start <= quiet_end
@@ -260,8 +267,9 @@ variables:
     {{ quiet_hours and inside }}
   quiet: "{{ in_quiet_hours and not urgent }}"
   # Silence is offered wherever a reminder could follow: a condition just raised,
-  # or a reminder of one.
-  silenceable: "{{ kind in ['raised', 'reminder'] }}"
+  # or a reminder of one. A failed start has no reminders, and nothing running to
+  # hear the button.
+  silenceable: "{{ kind in ['raised', 'reminder'] and alert != 'setup_failed' }}"
   targets: >-
     {% set silenced = trigger.event.data.get('silenced', []) if kind == 'reminder' else [] %}
     {% set ns = namespace(out=[]) %}

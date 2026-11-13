@@ -19,7 +19,13 @@ from whiskerless.devices.litter_robot_4.derive import Capability, Evidence
 from . import binary_sensor, button, event, number, select, sensor, switch
 from . import date as date_platform
 from . import time as time_platform
-from .alerts import AlertPublisher, async_clear_setup_failure, async_report_setup_failure
+from .alerts import (
+    AlertPublisher,
+    async_clear_setup_crash,
+    async_clear_setup_failure,
+    async_report_setup_crash,
+    async_report_setup_failure,
+)
 from .const import (
     CONF_DERIVED,
     CONF_HOPPER_FILL_RAW,
@@ -552,6 +558,20 @@ def _drop_detection_bootstrap(hass: HomeAssistant, entry: WhiskerlessConfigEntry
 
 async def async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     """Set up Whiskerless from a config entry."""
+    try:
+        loaded = await _async_setup_entry(hass, entry)
+    except ConfigEntryNotReady:
+        raise
+    except Exception as err:
+        # Anything but "not ready" leaves the entry in setup_error with no retry,
+        # which is how a Core upgrade once silenced both robots for five days.
+        async_report_setup_crash(hass, entry, err)
+        raise
+    async_clear_setup_crash(hass, entry)
+    return loaded
+
+
+async def _async_setup_entry(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> bool:
     _recheck_sightings(hass, entry)
     # After the sweep (which may itself seed the flag and gauge), before the
     # coordinator reads the options.

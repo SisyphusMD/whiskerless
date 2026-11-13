@@ -2324,7 +2324,7 @@ leg only, because of the schema typing above.
 
 **Not a dreame-valetudo item.** It ships no Home Assistant integration.
 
-### #95 — A crash during setup raises no alert — **discuss**
+### #95 — A crash during setup raises no alert — **DONE 2026-11-13**
 
 `async_setup_entry` reports a failed setup only for `ConfigEntryNotReady`, the robot that
 cannot be reached. Any other exception leaves the entry in `setup_error`, which Home Assistant
@@ -2337,5 +2337,18 @@ catch the exception at the top of setup, fire one `whiskerless_alert` saying the
 failed to start, and re-raise. Open questions are what the blueprint does with it (it is not a
 robot condition, and it cannot clear itself), and whether a repair issue is the better
 surface, since Home Assistant shows those without any automation.
+
+**Done.** `async_setup_entry` now wraps the real setup: `ConfigEntryNotReady` passes through
+untouched (that is `offline`'s job), and any other exception raises a new urgent alert,
+`setup_failed`, with the exception's type in `details`, before re-raising; a setup that
+finishes clears it ("Whiskerless is running again."). Both events wait for `async_at_started`,
+because a setup that fails at boot runs before any automation is armed, and the entry's own
+`setup_failed` option is written only as an event goes out, so a restart that fails the same way
+says nothing new, while a boot that stopped before announcing leaves nothing to suppress the
+next. It is kept out of `active_alerts`, which the publisher owns and rewrites. The answers to the open
+questions: the blueprint carries it as its own input, on by default, announces the recovery like
+"Back online", and offers no Silence button, since there are no reminders and nothing running
+to hear one. A repair issue was not added: the integrations page already flags the entry as
+failed, and the gap was a notification, which a repair is not.
 
 **Not a dreame-valetudo item.** It ships no Home Assistant integration.

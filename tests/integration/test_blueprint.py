@@ -156,6 +156,18 @@ async def test_a_cleared_alert_is_removed_and_offline_says_back_online(
     assert "push" not in calls[-1].data["data"]
 
 
+async def test_a_failed_start_breaks_focus_offers_no_silence_and_announces_recovery(
+    hass: HomeAssistant, tmp_path: Path, devices: dict[str, str]
+) -> None:
+    calls = await _automation(hass, tmp_path, phones=[devices["phone"]])
+    await _alert(hass, devices["upstairs"], "setup_failed", "raised", urgent=True)
+    push = calls[-1].data["data"]
+    assert push["push"] == {"interruption-level": "time-sensitive"}
+    assert "actions" not in push
+    await _alert(hass, devices["upstairs"], "setup_failed", "cleared", urgent=True)
+    assert calls[-1].data["message"] == "setup_failed cleared"
+
+
 async def test_unticked_alerts_and_other_robots_are_ignored(
     hass: HomeAssistant, tmp_path: Path, devices: dict[str, str]
 ) -> None:

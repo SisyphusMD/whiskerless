@@ -49,6 +49,7 @@ from .const import (
     CONF_LAST_VISIT,
     CONF_REMINDERS,
     CONF_SERIAL,
+    CONF_SETUP_FAILED,
     CONF_WEIGHT_HISTORY,
     DEFAULT_NAME,
     DOMAIN,
@@ -117,6 +118,49 @@ def async_report_setup_failure(hass: HomeAssistant, entry: ConfigEntry) -> None:
 def async_clear_setup_failure(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Forget the failed-setup clock once the robot has answered."""
     hass.data.get(_SETUP_FAILURES, {}).pop(entry.entry_id, None)
+
+
+@callback
+def async_report_setup_crash(hass: HomeAssistant, entry: ConfigEntry, err: Exception) -> None:
+    """Say that setup failed outright, which otherwise only the log ever records.
+
+    Home Assistant does not retry a setup that raised, so the robots go unwatched
+    until someone looks. Remembered once sent, so a restart that fails the same way
+    says nothing new, and the setup that finally succeeds says it is running again.
+    """
+    _when_started(hass, entry, raised=True, details={"error": type(err).__name__})
+
+
+@callback
+def async_clear_setup_crash(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Close a crash reported by an earlier setup, now that one has succeeded."""
+    _when_started(hass, entry, raised=False, details={})
+
+
+def _when_started(
+    hass: HomeAssistant, entry: ConfigEntry, *, raised: bool, details: dict[str, Any]
+) -> None:
+    # Integrations set up before automations are armed, so an event fired now would
+    # reach no blueprint. The flag is written only as the event goes out: one stored
+    # by a boot that stopped before starting would silence the next boot's alert.
+    @callback
+    def fire(_hass: HomeAssistant) -> None:
+        if bool(entry.options.get(CONF_SETUP_FAILED)) is raised:
+            return
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, CONF_SETUP_FAILED: raised}
+        )
+        _fire(
+            hass,
+            entry.data[CONF_SERIAL],
+            entry.data.get(CONF_NAME) or DEFAULT_NAME,
+            Alert.SETUP_FAILED,
+            "raised" if raised else "cleared",
+            describe(Alert.SETUP_FAILED, raised, details),
+            details,
+        )
+
+    async_at_started(hass, fire)
 
 
 def _fire(
