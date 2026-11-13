@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from typing import Any
 
 from awesomeversion import AwesomeVersion
@@ -11,7 +10,6 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import restore_state
 from homeassistant.loader import async_get_integration
 
 from whiskerless.devices.litter_robot_4 import derive
@@ -31,6 +29,7 @@ from .const import (
     LOGGER,
 )
 from .coordinator import SIGHTING_OPTIONS, WhiskerlessConfigEntry, WhiskerlessCoordinator
+from .restore import move_stored_state, stored_state
 
 # Option key recording which version last swept the entity registry.
 _SWEPT_BY = "retired_entities_swept_by"
@@ -201,7 +200,7 @@ def _seed_missing_gauge(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> N
     entity_id = registry.async_get_entity_id(
         domain, DOMAIN, f"{entry.data[CONF_SERIAL]}_{key}"
     )
-    stored = restore_state.async_get(hass).last_states.get(entity_id) if entity_id else None
+    stored = stored_state(hass, entity_id)
     if stored is None:
         return
     extra = stored.extra_data.as_dict() if stored.extra_data else {}
@@ -238,7 +237,6 @@ def _recheck_sightings(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> No
     the rules may revert that.
     """
     registry = er.async_get(hass)
-    last_states = restore_state.async_get(hass).last_states
     # From entry data, not runtime_data: this runs BEFORE the coordinator is
     # built, so the coordinator reads the post-sweep flags and a re-proving
     # report can re-sight in the same session.
@@ -274,7 +272,7 @@ def _recheck_sightings(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> No
         # evidence table's call: a restored visit duration is not, because the
         # builds that recorded one did so from evidence since proven wrong.
         if derive.sighting_stands(capability, Evidence.RESTORED) and _reproved(
-            capability, serial, registry, last_states, options
+            hass, capability, serial, registry, options
         ):
             options[seen_key] = str(Evidence.RESTORED)
             continue
@@ -295,10 +293,10 @@ def _recheck_sightings(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> No
 
 
 def _reproved(
+    hass: HomeAssistant,
     capability: Capability,
     serial: str,
     registry: er.EntityRegistry,
-    last_states: Mapping[str, restore_state.StoredState],
     options: dict[str, Any],
 ) -> bool:
     """Whether this capability's own past reports still prove it."""
@@ -308,7 +306,7 @@ def _reproved(
         return True
     for domain, key in _RESTORE_PROOF.get(capability, ()):
         entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{serial}_{key}")
-        stored = last_states.get(entity_id) if entity_id else None
+        stored = stored_state(hass, entity_id)
         if stored is None:
             continue
         # A sensor unavailable at the last shutdown still carries its real
@@ -475,13 +473,10 @@ def _rename_entities(hass: HomeAssistant, entry: WhiskerlessConfigEntry) -> None
         except ValueError:
             LOGGER.debug("Could not rename %s to %s; leaving it alone", entity_id, target)
             continue
-        # The restore cache is keyed by entity_id, so without this the entity
-        # comes back `unknown` after the rename: a button forgets when it was
-        # last pressed, and the hopper gauge forgets a reading the detection
-        # sweep reads as proof the hardware exists.
-        cached = restore_state.async_get(hass).last_states
-        if entity_id in cached:
-            cached[target] = cached.pop(entity_id)
+        # Without this the entity comes back `unknown` after the rename: a
+        # button forgets when it was last pressed, and the hopper gauge forgets
+        # a reading the detection sweep reads as proof the hardware exists.
+        move_stored_state(hass, entity_id, target)
         LOGGER.warning(
             "Renamed %s to %s — update any automation or dashboard that used the old id",
             entity_id,

@@ -2276,3 +2276,59 @@ reads. The second removes the poll entirely but needs a GitHub-side token that c
 to Forgejo.
 
 **Applies to dreame-valetudo too.** Its `ci.yml` has the same job.
+
+## Added 2026-11-10
+
+### #94 — The integration suite has only ever run against Core 2026.2 — **open**
+
+`ci.yml`'s `homeassistant` job pins Python 3.13, and the test harness has needed 3.14 since
+Core 2026.3, so pip resolves it back to the release that carries Core 2026.2.3. Every Core
+change since is invisible to CI. Core 2026.11 replaced `RestoreStateData.last_states`, every
+config entry failed setup on it, and CI stayed green throughout. `hacs.json` advertises
+2025.3.0 as the floor, and nothing tests that either.
+
+What the suite does on the newest harness (Python 3.14, checked 2026-11-10):
+
+- **The harness itself moved.** `pytest-homeassistant-custom-component` stopped at 0.13.375
+  (Core 2026.10.4). From 2026.11 Home Assistant publishes its own `pytest-homeassistant`,
+  pinned to the matching Core, with the same layout (`common`, `syrupy`,
+  `enable_custom_integrations`). The `test-ha` extra needs it on 3.14 and the old one on 3.13.
+  MQTT's config flow now imports `hassio`, so `aiohasupervisor` has to be installed too; it
+  is not in the new harness's base requirements.
+- **194 teardown errors**, all `Lingering timer ... MQTT._async_start_misc_periodic`. A test
+  that uses nothing but the harness's `mqtt_mock` reproduces it on both 3.14 harnesses, so it
+  is not this integration, but the leg cannot gate until it is understood.
+- **Two snapshot tests.** A device now carries `config_entry_id` and `config_subentry_id` in
+  place of `config_entries`, and `aliases` is a list.
+- **`device_registry.async_get_device` stops working in Core 2027.8.0.** Two tests call it
+  and fail outright. `alerts.py` and `coordinator.py` call it as well, which only logs a
+  warning for a custom integration today. Its replacement, `async_get_device_by_identifier`,
+  does not exist before 2026.10, so it needs the either-side treatment `restore.py` gives the
+  restore cache.
+- **`test_a_visit_needs_a_body_not_just_weight`** (2026.11 only). A registry entry enabled
+  mid-session is given an `unavailable`, restored state at once, where the test asserts none.
+- **Strict mypy.** `async_show_form(data_schema=...)` is typed as `probatio.schema.Schema`
+  in 2026.11: two errors in `config_flow.py`, runtime unaffected.
+
+Wanted: a second leg on the newest harness, so a Core release that breaks setup turns CI red
+the day it ships, with the 3.13 leg kept as the oldest Core the suite can still reach.
+`tests/integration/test_restore_cache.py` stands in for the other cache shape meanwhile, which
+covers that one change and nothing else.
+
+**Not a dreame-valetudo item.** It ships no Home Assistant integration.
+
+### #95 — A crash during setup raises no alert — **discuss**
+
+`async_setup_entry` reports a failed setup only for `ConfigEntryNotReady`, the robot that
+cannot be reached. Any other exception leaves the entry in `setup_error`, which Home Assistant
+does not retry, with no coordinator and no publisher, so nothing is ever sent. The Core 2026.11
+break (#94) sat that way for five days: every entity unavailable, and no notification to say
+so, because the thing that sends them was the thing that had failed.
+
+The integration cannot promise to report its own crash, but the common case is reachable:
+catch the exception at the top of setup, fire one `whiskerless_alert` saying the integration
+failed to start, and re-raise. Open questions are what the blueprint does with it (it is not a
+robot condition, and it cannot clear itself), and whether a repair issue is the better
+surface, since Home Assistant shows those without any automation.
+
+**Not a dreame-valetudo item.** It ships no Home Assistant integration.
