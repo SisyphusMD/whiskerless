@@ -2279,7 +2279,7 @@ to Forgejo.
 
 ## Added 2026-11-10
 
-### #94 — The integration suite has only ever run against Core 2026.2 — **open**
+### #94 — The integration suite has only ever run against Core 2026.2 — **DONE 2026-11-13**
 
 `ci.yml`'s `homeassistant` job pins Python 3.13, and the test harness has needed 3.14 since
 Core 2026.3, so pip resolves it back to the release that carries Core 2026.2.3. Every Core
@@ -2314,6 +2314,13 @@ Wanted: a second leg on the newest harness, so a Core release that breaks setup 
 the day it ships, with the 3.13 leg kept as the oldest Core the suite can still reach.
 `tests/integration/test_restore_cache.py` stands in for the other cache shape meanwhile, which
 covers that one change and nothing else.
+
+**Done:** a second leg, `homeassistant-current` in CI and `integration-current-gate` in both
+release workflows, runs the suite on `pytest-homeassistant` pinned to the newest Core (Python
+3.14), which Renovate moves the day a Core ships. The MQTT timer is cancelled by a test fixture,
+the device lookup moved to `registry.py` (either side of 2026.10), the visit test asserts no visit
+time rather than no state, and each leg keeps its own snapshot set. Mypy still runs on the 3.13
+leg only, because of the schema typing above.
 
 **Not a dreame-valetudo item.** It ships no Home Assistant integration.
 

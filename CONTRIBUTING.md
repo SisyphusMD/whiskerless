@@ -39,6 +39,19 @@ VIRTUAL_ENV=.venv-ha uv pip install -e '.[test-ha]' \
   --explicit-package-bases custom_components/whiskerless
 ```
 
+That is the oldest Home Assistant the suite can reach. CI also runs it on the newest, which
+needs Python 3.14 and Home Assistant's own harness:
+
+```bash
+uv venv --python 3.14 .venv-ha-current
+VIRTUAL_ENV=.venv-ha-current uv pip install -e '.[test-ha-current]'
+.venv-ha-current/bin/python -m pytest -p no:respx tests/integration
+```
+
+The two keep separate snapshot sets, `tests/integration/snapshots_oldest_core/` and
+`snapshots_current_core/`, because Home Assistant changes how registry entries serialize
+between releases. Update a set with `--snapshot-update` in that leg's own environment.
+
 CI gates four coverage numbers, so check them before opening a PR:
 
 | Scope | Floor | Why |

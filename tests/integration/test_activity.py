@@ -13,6 +13,7 @@ from datetime import timedelta
 
 import pytest
 from custom_components.whiskerless.const import CONF_HOPPER_SEEN
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -202,7 +203,10 @@ async def test_a_visit_needs_a_body_not_just_weight(
         await hass.async_block_till_done()
 
     assert hass.states.get(VISIT_DURATION) is None, "a phantom must not create the sensor"
-    assert hass.states.get(LAST_VISIT) is None
+    # No visit time recorded. From Core 2026.11 a registered entity not yet added holds an
+    # `unavailable` placeholder where older Core held nothing; neither is a visit.
+    last_visit = hass.states.get(LAST_VISIT)
+    assert last_visit is None or last_visit.state == STATE_UNAVAILABLE
 
 
 async def test_excess_weight_is_reported_after_thirty_minutes(

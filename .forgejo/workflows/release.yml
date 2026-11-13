@@ -220,6 +220,48 @@ jobs:
       - name: Coverage gate (config flow)
         run: coverage report --include='custom_components/whiskerless/config_flow.py' --fail-under=100
 
+  integration-current-gate:
+    name: Qualify the integration on the newest Home Assistant
+    runs-on: ubuntu-latest
+    steps:
+      # Plain `mypy` and `pytest` cover the LIBRARY only — conftest auto-skips tests/integration
+      # when Home Assistant is absent — so without this job an integration regression could reach
+      # HACS with a green release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Retried in-step: a transient versions-manifest fetch failure took all five CI
+      # jobs down together on 2026-08-17, and Forgejo exposes no rerun endpoint, so
+      # recovery has to happen inside the job. The guard is `!= 'success'`, not
+      # `== 'failure'`: if a runner ever leaves `outcome` unset, an equality test would
+      # silently skip the retry AND `continue-on-error` would have swallowed the first
+      # failure, letting later steps run against whatever interpreter happened to be
+      # present. This way an unknown outcome retries, and a failed retry fails the job.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: setup_python_2
+        continue-on-error: true
+        with:
+          python-version: "3.14.10"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.setup_python_2.outcome != 'success'
+        with:
+          python-version: "3.14.10"
+      - name: Install
+        # Home Assistant's own harness, pinned to one Core release so Renovate bumps it the day a
+        # Core ships. That is the point of this leg: the 3.13 leg can only reach Core 2026.2.3,
+        # so Core 2026.11 broke every config entry with CI green.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test-ha-current]"
+      # No mypy here: Core 2026.11 types a config flow's schema as its own validator, which the
+      # voluptuous schemas every integration still passes do not satisfy. The 3.13 leg type-checks.
+      - name: Pytest (integration, newest Core)
+        # `-p no:respx`: respx's plugin imports httpx before Home Assistant can alias it, and
+        # plugin load order is arbitrary.
+        run: >-
+          pytest -p no:respx tests/integration
+          --cov --cov-report=term-missing --cov-fail-under=99
+
   mirror-gate:
     name: Qualify the mirror's macOS checks on the source commit (no write credential)
     runs-on: ubuntu-latest
@@ -295,7 +337,7 @@ jobs:
 
   tag:
     name: Authorize and push the release
-    needs: [gate, integration-gate, mirror-gate, candidate-gate]
+    needs: [gate, integration-gate, integration-current-gate, mirror-gate, candidate-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Fresh checkout with no persisted credential

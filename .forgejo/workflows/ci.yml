@@ -286,6 +286,48 @@ jobs:
       - name: Coverage gate (config flow)
         run: coverage report --include='custom_components/whiskerless/config_flow.py' --fail-under=100
 
+  homeassistant-current:
+    name: Test the integration on the newest Home Assistant
+    # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
+    # forks too, so without this a fork's PR would run its own code — and reach this
+    # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
+    # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Retried in-step: a transient versions-manifest fetch failure took all five CI
+      # jobs down together on 2026-08-17, and Forgejo exposes no rerun endpoint, so
+      # recovery has to happen inside the job. The guard is `!= 'success'`, not
+      # `== 'failure'`: if a runner ever leaves `outcome` unset, an equality test would
+      # silently skip the retry AND `continue-on-error` would have swallowed the first
+      # failure, letting later steps run against whatever interpreter happened to be
+      # present. This way an unknown outcome retries, and a failed retry fails the job.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: setup_python_4
+        continue-on-error: true
+        with:
+          python-version: "3.14.10"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.setup_python_4.outcome != 'success'
+        with:
+          python-version: "3.14.10"
+      - name: Install
+        # Home Assistant's own harness, pinned to one Core release so Renovate bumps it the day a
+        # Core ships. That is the point of this leg: the 3.13 leg can only reach Core 2026.2.3,
+        # so Core 2026.11 broke every config entry with CI green.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test-ha-current]"
+      # No mypy here: Core 2026.11 types a config flow's schema as its own validator, which the
+      # voluptuous schemas every integration still passes do not satisfy. The 3.13 leg type-checks.
+      - name: Pytest (integration, newest Core)
+        # `-p no:respx`: respx's plugin imports httpx before Home Assistant can alias it, and
+        # plugin load order is arbitrary.
+        run: >-
+          pytest -p no:respx tests/integration
+          --cov --cov-report=term-missing --cov-fail-under=99
+
   # Compile-check the RELEASE path, on every push — the sibling has carried this for months and it
   # is what catches a packaging break before a tag rather than during one. Nothing else here builds
   # linux.Dockerfile, runs nfpm, or installs the Homebrew formula, so before this the first
@@ -455,7 +497,7 @@ jobs:
   macos:
     # By the time the Linux suites finish, the mirrored macOS workflow normally has too. This keeps
     # the shared public GitHub API budget and the self-hosted runner slot out of a needless poll.
-    needs: [quality, quality-floor, hygiene, dependency-floors, homeassistant, build]
+    needs: [quality, quality-floor, hygiene, dependency-floors, homeassistant, homeassistant-current, build]
     # GitHub's mirror runs the same commit on native Apple Silicon hosts. Waiting by exact head
     # SHA prevents a newer green branch run from qualifying an older pull request revision.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

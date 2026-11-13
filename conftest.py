@@ -19,6 +19,24 @@ except ImportError:
     # Skip the whole directory (its package __init__ imports Home Assistant).
     collect_ignore = ["tests/integration"]
 
+# From Core 2026.11 the harness is Home Assistant's own `pytest-homeassistant`, which needs Python
+# 3.14; the older Core the 3.13 leg tests is only reachable through the community package. The two
+# share one layout, so the tests import the community name and it resolves to whichever is here.
+try:
+    import pytest_homeassistant_custom_component  # noqa: F401
+except ImportError:
+    try:
+        import pytest_homeassistant.common
+        import pytest_homeassistant.syrupy
+    except ImportError:
+        pass
+    else:
+        import sys
+
+        sys.modules["pytest_homeassistant_custom_component"] = sys.modules["pytest_homeassistant"]
+        sys.modules["pytest_homeassistant_custom_component.common"] = pytest_homeassistant.common
+        sys.modules["pytest_homeassistant_custom_component.syrupy"] = pytest_homeassistant.syrupy
+
 
 @pytest.fixture(autouse=True)
 def _isolated_profile_store(
