@@ -86,7 +86,7 @@ test-ha = [
 #   pip install -e '.[test-ha-current]' && pytest -p no:respx tests/integration
 test-ha-current = [
     # MQTT's config flow imports hassio, which needs this; the harness leaves it to an extra.
-    "aiohasupervisor==0.8.1",
+    "aiohasupervisor==0.11.0",
     "pytest-cov>=5.0",
     "pytest-homeassistant==2026.11.1",
 ]
