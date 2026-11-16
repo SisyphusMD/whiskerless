@@ -494,6 +494,72 @@ jobs:
           test -f homebrew-smoke-result/homebrew-smoke-passed
           echo "build OK: frozen bundle, .deb + .rpm installed and run, and a real Linuxbrew formula install"
 
+  hassfest:
+    name: hassfest (HA manifest validation)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate the manifest with hassfest
+        # Home Assistant's own image, the one its hassfest action runs. Copied in rather than
+        # bind-mounted as that action does: this job runs in a container, so a mount of the
+        # workspace would reach the daemon as an empty directory.
+        run: |
+          set -euo pipefail
+          # renovate: datasource=docker depName=ghcr.io/home-assistant/hassfest
+          HASSFEST="ghcr.io/home-assistant/hassfest:latest@sha256:da6522993280166fe072704989a2b4c33e639e8ceb69c8ab6ad7ec5045c1a1e3"
+          cid=""
+          trap 'test -z "$cid" || docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          cid=$(docker create "image-mirror.lan.bryantserver.com/$HASSFEST")
+          docker cp . "$cid":/github/workspace
+          docker start -a "$cid"
+
+  hacs:
+    name: HACS (repository validation)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate the mirror the way HACS will
+        # HACS installs from the GitHub mirror and judges the repository there (description, topics,
+        # issues, brands, hacs.json, the manifest), so this checks the mirror at this exact commit.
+        env:
+          GH_READ: ${{ secrets.GH_REPO_READ_PAT }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # renovate: datasource=docker depName=ghcr.io/hacs/action
+          HACS="ghcr.io/hacs/action:main@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2"
+          : "${GH_READ:?a read-only GitHub token is required; this must never call GitHub unauthenticated}"
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          auth=(-H "Authorization: Bearer $GH_READ" -H "Accept: application/vnd.github+json")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${auth[@]}" "$api" || echo 000)
+          case "$code" in
+            404) echo "::error::$GITHUB_REPOSITORY has no GitHub mirror yet, and HACS can only install from one" >&2; exit 1 ;;
+            401) echo "::error::GitHub rejected GH_REPO_READ_PAT (401); it is expired or revoked" >&2; exit 1 ;;
+          esac
+          # The push mirror is asynchronous, so the commit can reach GitHub a little after this
+          # job starts. Validating before it lands would judge a different commit, or none.
+          deadline=$(( $(date +%s) + 1200 ))
+          until curl -fsS -o /dev/null --max-time 30 "${auth[@]}" "$api/commits/$SHA"; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::${SHA:0:12} did not reach the GitHub mirror within 20 minutes" >&2
+              exit 1
+            fi
+            sleep 20
+          done
+          # INPUT_REPOSITORY, not REPOSITORY: without it the action takes this for a pull request
+          # from a fork and skips the repository-level checks.
+          docker run --rm -e INPUT_GITHUB_TOKEN="$GH_READ" -e INPUT_REPOSITORY="$GITHUB_REPOSITORY" \
+            -e INPUT_CATEGORY=integration -e REPOSITORY_REF="$SHA" \
+            "image-mirror.lan.bryantserver.com/$HACS" 2>&1 | tee "$RUNNER_TEMP/hacs.log"
+          checks=$(sed -nE 's/.*All \(([0-9]+)\) checks passed.*/\1/p' "$RUNNER_TEMP/hacs.log")
+          if [ "${checks:-0}" -lt 10 ]; then
+            echo "::error::HACS ran ${checks:-0} checks; the full set is 10, so some were skipped" >&2
+            exit 1
+          fi
+
   macos:
     # By the time the Linux suites finish, the mirrored macOS workflow normally has too. This keeps
     # the shared public GitHub API budget and the self-hosted runner slot out of a needless poll.
