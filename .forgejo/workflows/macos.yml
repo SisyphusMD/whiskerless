@@ -5,8 +5,9 @@ name: macOS (shadow)
 #
 # SHADOW until the two have agreed for about a week. Every step after the Python setup is
 # continue-on-error and the last step reports the verdict, so a failing check never turns a commit
-# red or holds up a Renovate merge. GitHub's copies stay the gate (CI / macos and the release
-# mirror gates) until the switch, which moves them here.
+# red. GitHub's copies stay the gate (CI / macos and the release mirror gates) until the switch,
+# which moves them here. Renovate merges by itself and waits for every status, this one included,
+# as it already waits for CI / macos; so while a VM is down, Renovate's merges wait for it.
 #
 # Push to every branch, like GitHub's: a prerelease can be cut from any branch, and the gate will
 # need a verdict for that exact commit. No pull_request trigger: a same-repository branch already
