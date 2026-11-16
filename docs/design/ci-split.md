@@ -63,8 +63,10 @@ runner already is; it is not a request to emulate.
 Each of these is in the test's exception list, with the same reason recorded there:
 
 - **macOS anything** — `ci-macos.yml`, `formula-macos.yml`, `release-macos.yml`,
-  and the macOS legs of `install-matrix.yml`. Forgejo has no macOS runner, and the
-  `.pkg` must be signed and notarized on a Mac.
+  and the macOS legs of `install-matrix.yml`. Forgejo had no macOS runner, and the
+  `.pkg` must be signed and notarized on a Mac. It has one now and runs the tests
+  and the formula smoke on macOS too (`macos.yml`); those two copies go once both
+  agree.
 - **arm64 anything** — `release-linux-arm64.yml`, and the `linux-arm64` leg of
   `install-matrix.yml`. No arm64 hardware here, and the alternative is the
   emulation described above.
