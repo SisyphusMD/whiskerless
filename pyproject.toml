@@ -98,7 +98,7 @@ test-ha-current = [
 Homepage = "https://github.com/SisyphusMD/whiskerless"
 Documentation = "https://github.com/SisyphusMD/whiskerless/tree/main/docs"
 Source = "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
-Issues = "https://github.com/SisyphusMD/whiskerless/issues"
+Issues = "https://forgejo.bryantserver.com/SisyphusMD/whiskerless/issues"
 
 [project.scripts]
 whiskerless = "whiskerless.cli:main"

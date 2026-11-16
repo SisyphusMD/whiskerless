@@ -1072,8 +1072,8 @@ def test_the_integration_manifest_carries_what_hacs_requires() -> None:
     )
     for key in ("domain", "name", "documentation", "issue_tracker", "version", "codeowners"):
         assert manifest.get(key), f"manifest.json is missing {key}, which HACS requires"
-    assert manifest["issue_tracker"].startswith("https://github.com/SisyphusMD/whiskerless"), (
-        "issues go to GitHub, not the primary forge"
+    assert manifest["issue_tracker"].startswith("https://forgejo.bryantserver.com/SisyphusMD/whiskerless"), (
+        "issues go to Forgejo, where anyone can sign in with GitHub; the GitHub mirror takes none"
     )
 
 
