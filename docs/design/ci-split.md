@@ -70,7 +70,8 @@ Each of these is in the test's exception list, with the same reason recorded the
   emulation described above.
 - **`hassfest.yml`** — a GitHub-ecosystem action the Forgejo runner cannot fetch;
   it resolves actions from `data.forgejo.org`, which does not carry
-  `home-assistant/actions`.
+  `home-assistant/actions`. Forgejo CI now runs the same two checks from their
+  images (`hassfest` and `hacs` in `ci.yml`); this copy goes once both agree.
 - **`ci-pr.yml`** — pull requests are on GitHub by project policy, so Forgejo
   never sees the event.
 - **`retry-infra-failures.yml`** — it re-runs GitHub workflow runs through the
