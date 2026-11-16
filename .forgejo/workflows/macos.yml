@@ -62,28 +62,13 @@ jobs:
           # The formula smoke builds an sdist, and hatchling needs the tag history for a version.
           fetch-depth: 0
           persist-credentials: false
-      # setup-python's macOS builds are compiled for GitHub's tool cache path and work nowhere else,
-      # and its install script then writes into the framework it has just installed as root, which
-      # GitHub's runner user may do as an admin. The VMs' image does neither yet. So: provide the
-      # path, let the first attempt install the framework and stop at that write, hand the
-      # framework to the job user, and let the second attempt finish (a reinstall keeps that
-      # ownership). The job user has passwordless sudo, so this grants it nothing new.
-      - name: Provide the tool cache path setup-python expects
-        run: |
-          sudo mkdir -p /Users/runner/hostedtoolcache
-          sudo chown "$(id -u):$(id -g)" /Users/runner /Users/runner/hostedtoolcache
+      # Retried in-step, and the one thing allowed to fail this job: everything after it would
+      # otherwise pip-install into the image's own interpreter.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         id: setup_python_1
         continue-on-error: true
         with:
           python-version: "3.15.2"
-      - name: Hand the installed framework to the job user
-        if: steps.setup_python_1.outcome != 'success'
-        run: |
-          [ ! -d /Library/Frameworks/Python.framework ] \
-            || sudo chown -R "$(id -u):$(id -g)" /Library/Frameworks/Python.framework
-      # The one step allowed to fail this job: everything after it would otherwise pip-install into
-      # the image's own interpreter.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.setup_python_1.outcome != 'success'
         with:
