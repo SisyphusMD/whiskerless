@@ -254,6 +254,17 @@
         "/-compat$/"
       ],
       "groupName": "distro compatibility floors"
+    },
+    {
+      "description": "Forgejo serves only the v3 artifact protocol. upload-artifact and download-artifact v4 and later throw GHESNotSupportedError on any server whose GITHUB_SERVER_URL is not github.com, which is every run here, and bottles.yml and release-macos.yml pass the bottles and the signed .pkg between jobs through them. PR CI never runs those two workflows, so a major bump arrives green and breaks only the next release. Both stay below v4.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "actions/upload-artifact",
+        "actions/download-artifact"
+      ],
+      "allowedVersions": "<4"
     }
   ],
   "customManagers": [
