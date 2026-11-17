@@ -523,8 +523,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate the mirror the way HACS will
-        # HACS installs from the GitHub mirror and judges the repository there (description, topics,
-        # issues, brands, hacs.json, the manifest), so this checks the mirror at this exact commit.
+        # Home Assistant's Marketplace (HACS before 2026.11) installs from the GitHub mirror and
+        # judges the repository there (description, topics, brands, hacs.json, the manifest), so
+        # this checks the mirror at this exact commit with the image hacs/action itself runs.
+        # `issues` is the one check skipped: the mirror is read-only with issues off on purpose, and
+        # the manifest's issue_tracker sends reports to Forgejo. The Marketplace catalog does not
+        # accept a skipped check, so listing there would first need issues on in the mirror.
         env:
           GH_READ: ${{ secrets.GH_REPO_READ_PAT }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -553,10 +557,10 @@ jobs:
           # INPUT_REPOSITORY, not REPOSITORY: without it the action takes this for a pull request
           # from a fork and skips the repository-level checks.
           docker run --rm -e INPUT_GITHUB_TOKEN="$GH_READ" -e INPUT_REPOSITORY="$GITHUB_REPOSITORY" \
-            -e INPUT_CATEGORY=integration -e REPOSITORY_REF="$SHA" \
+            -e INPUT_CATEGORY=integration -e INPUT_IGNORE=issues -e REPOSITORY_REF="$SHA" \
             "image-mirror.lan.bryantserver.com/$HACS" 2>&1 | tee "$RUNNER_TEMP/hacs.log"
           checks=$(sed -nE 's/.*All \(([0-9]+)\) checks passed.*/\1/p' "$RUNNER_TEMP/hacs.log")
-          if [ "${checks:-0}" -lt 10 ]; then
-            echo "::error::HACS ran ${checks:-0} checks; the full set is 10, so some were skipped" >&2
+          if [ "${checks:-0}" -lt 9 ]; then
+            echo "::error::HACS ran ${checks:-0} checks; the full set less issues is 9, so others were skipped" >&2
             exit 1
           fi

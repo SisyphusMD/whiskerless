@@ -1,6 +1,7 @@
 {
   "domain": "whiskerless",
   "name": "Whiskerless",
+  "categories": ["pets"],
   "codeowners": ["@SisyphusMD"],
   "config_flow": true,
   "dependencies": ["mqtt"],
