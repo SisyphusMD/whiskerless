@@ -11,7 +11,7 @@
 Whisker **Litter-Robot 4** — no cloud account, no internet round-trip, no
 third-party servers. Your robot talks to *your* broker, and that's it.
 
-> **Primary repository**: developed at [forgejo.bryantserver.com/SisyphusMD/whiskerless](https://forgejo.bryantserver.com/SisyphusMD/whiskerless). The [GitHub copy](https://github.com/SisyphusMD/whiskerless) is a read-only mirror (HACS installs from it). **Please file issues and pull requests on [GitHub](https://github.com/SisyphusMD/whiskerless/issues)** — the Forgejo repository does not take external issues.
+> **Primary repository**: developed at [forgejo.bryantserver.com/SisyphusMD/whiskerless](https://forgejo.bryantserver.com/SisyphusMD/whiskerless). The [GitHub copy](https://github.com/SisyphusMD/whiskerless) is a read-only mirror (HACS installs from it). **Please file issues and pull requests on [Forgejo](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/issues)**, where you can sign in with your GitHub account; the GitHub mirror does not take them.
 
 > **Status: beta.** The local protocol was recovered by reverse-engineering and
 > validated against a real robot. Re-provisioning, telemetry, and settings are

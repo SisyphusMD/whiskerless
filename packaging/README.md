@@ -33,44 +33,28 @@ Every job runs on our own runners, which reach everything (both Forgejo
 instances, including the **internal** NAS, GitHub and PyPI). GitHub only
 receives the release.
 
-0. **The mirror gates the cut.** Forgejo has no macOS runner, so nothing here can
-   build the Homebrew formula on a Mac — and that build is the one that broke
-   silently for a whole release candidate (`cryptography`'s Rust extension,
-   stripped by cargo into a Mach-O dyld refuses; the Linux smoke passed
-   throughout). `mirror-gate` therefore blocks `tag` until **`Homebrew formula (macOS)` is
-   green on GitHub for the commit the release is cut from** — see
-   `packaging/check-mirror-ci.sh`. Note "cut from", not "tagged": the tag job
+0. **The macOS run gates the cut.** The release jobs never build the Homebrew
+   formula on a Mac, and that build is the one that broke silently for a whole
+   release candidate (`cryptography`'s Rust extension, stripped by cargo into a
+   Mach-O dyld refuses; the Linux smoke passed throughout). `macos-gate`
+   therefore blocks `tag` until **`macos.yml` is fully green for the commit the
+   release is cut from**, on macOS 15 and the newest macOS — see
+   `packaging/check-forgejo-ci.sh`. Note "cut from", not "tagged": the tag job
    stamps version strings and commits, so the tagged tree is a *child* of the
    gated SHA, and for a prerelease that child is never pushed to a branch at all,
    so no branch workflow could ever evaluate it. Gating the parent is sound
    because the tag job's own intent check already refuses unless the diff is
    exactly the version-stamped files — none of which is the formula, or any code
-   the formula compiles. The job holds **no write credential** by design — that is
-   the property that matters, since it cannot push anything — and the mirror is
-   public, so it needs no credential at all to read.
+   the formula compiles. The job holds **no credential** by design: it cannot push
+   anything, and the run status it reads is public.
 
-   The check it waits on lives in its **own** workflow
-   (`.github/workflows/formula-macos.yml`), keyed per commit with
-   `cancel-in-progress: false`, rather than alongside the macOS test matrix.
-   That is load-bearing: `ci-macos.yml` cancels superseded runs, which is right
-   for a fast matrix and wrong here — a cancelled run reads as not-green, so any
-   push landing during a release cut used to kill the very run the release was
-   waiting on. Split out, each commit's verdict stands on its own and survives
-   whatever lands after it, so pushing during a release is safe again.
+   `macos.yml` is keyed per commit and never cancels a superseded run (except on
+   a Renovate branch, whose commits are never released). That is load-bearing: a
+   cancelled run reads as not-green, so a push landing during a release cut would
+   otherwise kill the very run the release is waiting on.
 
-   **`GH_REPO_READ_PAT` is required.** Unauthenticated GitHub allows 60 API requests
-   an hour *per IP*, shared with everything else leaving this network — exhaust it and
-   a poll answers 403 rather than answering, so a gate built on it stops deciding
-   anything while still reporting success. A token with **no scopes at all** lifts that
-   to 5,000/hour on a public repo, so requiring it costs nothing the read-only design
-   was protecting. Every GitHub call in the release path now refuses to run without a
-   credential; `tests/release/release-scripts.sh` and the standard's own
-   `test-github-auth.sh` hold that line.
-
-   It **waits** rather than failing
-   fast, because the push-mirror is asynchronous — a release dispatched moments
-   after a push finds no run at all for a while. A `cancelled` run counts as
-   not-green, which matters: pushing again cancels the previous run.
+   It **waits** rather than failing fast, because a release dispatched moments
+   after a push can find the run still queued, or not created yet.
 
 1. **Cut it on Forgejo** — run the **Release** workflow (`.forgejo/workflows/release.yml`)
    from the Forgejo UI and pick `patch` / `minor` / `major`. (First release on a
@@ -338,27 +322,10 @@ container images, and the delete is by version.
 
 ## Transient runner failures
 
-GitHub's hosted runners sometimes fail before any of our steps run — observed 2026-08-11, a
-`Set up job` phase that could not parse `actions/checkout`'s own manifest on the macos-26 beta
-image, while the same pinned SHA loaded fine on three other runners in the same matrix.
-
-`retry-infra-failures.yml` handles those without a human, and deliberately handles nothing else:
-
-- It re-runs **only** when every failed step is a phase the runner owns before ours begin
-  (`Set up job` / `Set up runner`). A failing test always fails one of our named steps, so it can
-  never be laundered into a green build here. `Complete job` is excluded on purpose: it fails after
-  artifacts are uploaded, and artifacts are immutable within a run, so a retry could not succeed.
-- The two exceptions are steps of ours that the runner's *network* failed, each matched exactly:
-  a resolver failure naming a host CI is known to reach, in the failed step's closing lines; and an
-  **edge ban**. Hosted runners borrow recycled cloud addresses, and one the cluster's CrowdSec
-  banned gets HTTP 403 from Forgejo for everything (observed, dreame-valetudo v0.3.0-rc.48). Every
-  job that reaches Forgejo therefore runs `packaging/forgejo-preflight.sh` first, as its own
-  `Check this runner can reach Forgejo` step: an anonymous read Forgejo itself never refuses. Only
-  that step failing with that script's marker is retried; a 403 later in the job may be a revoked
-  token and stays red. A repo invariant keeps every Forgejo-reaching job covered.
-- It retries **once** (`run_attempt == 1`). A fault that recurs is not transient and stays red.
-- Every invocation is the flake record: how often this workflow appears in the Actions tab is the
-  number to watch. A cluster means a runner image regressed, not that we got unlucky.
+Nothing retries an infra failure automatically. A job that dies before any of our steps run (a
+runner fault, not a test) is rerun by hand from the Actions tab; one that recurs is not transient and
+gets fixed at the runner. The GitHub-side retry workflow and its edge-ban preflight went with the
+GitHub-hosted runners they existed for.
 
 ## Secrets
 
@@ -369,7 +336,7 @@ image, while the same pinned SHA loaded fine on three other runners in the same 
 | `CLUSTER_FORGEJO_REPO_WRITE_PAT` | Forgejo PAT, repo write (push the release commit/tag + create/append the Forgejo release). You already use this on `archiver`. |
 | `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release and append every asset to it). |
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write: creates the GitHub release and appends every asset to it. Same PAT used as the GitHub push-mirror password. |
-| `GH_REPO_READ_PAT` | **Required.** GitHub PAT with **no scopes** — read-only public data. Used by the mirror gate, the republish guard, the tag's mirror confirmation and the install-matrix wait, all of which refuse to call GitHub unauthenticated: 60 requests/hour per IP is shared with everything else leaving this network. |
+| `GH_REPO_READ_PAT` | **Required.** GitHub PAT with **no scopes** — read-only public data. Used by the republish guard, the tag's mirror confirmation and the install-matrix wait, all of which refuse to call GitHub unauthenticated: 60 requests/hour per IP is shared with everything else leaving this network. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`), named `whiskerless-forgejo-ci` and **scoped to this project**, not the account — a token that can publish to every project the account owns has no business on a self-hosted runner. PyPI accepts OIDC only from GitHub Actions, GitLab.com, Google Cloud and ActiveState, so a token is the only option that keeps publishing on Forgejo; see the rejection rationale in project-rules's VARIANCE.md. |
 | `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. Held at the **org** level, not on this repo. |
 | `CLUSTER_FORGEJO_REGISTRY_PUSH_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. Held at the **org** level and shared with the sister repos' container pushes — one scope covers every package type. Needed because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with a 403 rather than anything obvious. |

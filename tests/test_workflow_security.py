@@ -92,7 +92,7 @@ def _gate_lines() -> list[str]:
         line
         for workflow in _FORGEJO
         for line in workflow.read_text().splitlines()
-        if "check-mirror-ci.sh" in line and not line.lstrip().startswith("#")
+        if "check-forgejo-ci.sh" in line and not line.lstrip().startswith("#")
     ]
 
 
@@ -150,10 +150,10 @@ def test_the_macos_release_writes_only_through_the_named_release_tokens() -> Non
         assert f"secrets.{token}" in publish, token
 
 
-def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
+def test_gated_workflows_are_safe_to_gate_on() -> None:
     """A workflow a release gate reads has to answer for one commit, the same way, every time.
 
-    The gate takes the first SUCCESSFUL run for a commit, whichever branch pushed it. That is only
+    The gate takes a fully SUCCESSFUL run for a commit, whichever branch pushed it. That is only
     sound while a gated workflow does identical work on every branch: then two runs for one commit
     differ solely by scheduling or infrastructure, and a green one is evidence the commit builds.
     Add a branch condition and it stops being true — a run that skipped the real work on a topic
@@ -168,15 +168,17 @@ def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
     still bypass it. This test pins the exception to exactly that shape, so it cannot widen.
     """
     lines = _gate_lines()
-    assert lines, "no mirror-gated workflows found"
+    assert lines, "no gated workflows found"
     # Every call site has to name its workflow file inline. One that wrapped onto the next line, or
-    # passed the path through a variable, would be gated on without any check below seeing it.
-    named = [line for line in lines if ".github/workflows/" in line]
-    assert named == lines, "a check-mirror-ci.sh call site does not name its workflow file inline"
-    gated = {line.split(".github/workflows/")[1].split()[0].strip('"') for line in named}
+    # passed the name through a variable, would be gated on without any check below seeing it.
+    call = re.compile(r'check-forgejo-ci\.sh "\$\{\{ github\.sha \}\}" ([A-Za-z0-9._-]+\.yml)\s*$')
+    named = [line for line in lines if call.search(line)]
+    assert named == lines, "a check-forgejo-ci.sh call site does not name its workflow file inline"
+    gated = {call.search(line).group(1) for line in named}
+    assert gated == {"macos.yml"}, f"the release gates read {sorted(gated)}, not the macOS run"
 
     for name in sorted(gated):
-        path = _ROOT / ".github" / "workflows" / name
+        path = _ROOT / ".forgejo" / "workflows" / name
         assert path.is_file(), f"{name} is gated on but does not exist"
         document = yaml.safe_load(path.read_text())
 
@@ -192,7 +194,7 @@ def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
         # outright, and that commit is never released (see the docstring).
         renovate = "startsWith(github.ref, 'refs/heads/renovate/')"
         concurrency = document["concurrency"]
-        prefix = name.removesuffix(".yml").replace("ci-macos", "macos-ci")
+        prefix = name.removesuffix(".yml")
         assert concurrency["group"] == f"{prefix}-${{{{ {renovate} && github.ref || github.sha }}}}", \
             f"{name} is gated on but its concurrency group is not per-commit: {concurrency}"
         assert concurrency.get("cancel-in-progress") == f"${{{{ {renovate} }}}}", \
@@ -216,11 +218,16 @@ def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
         for condition in _conditions(document):
             assert "github.ref" not in condition and "head_branch" not in condition, \
                 f"{name} gates work on the branch: {condition}"
-        # Branch logic inside a script skips the work just as effectively as a step-level `if`.
-        for job in jobs.values():
+        # Branch logic inside a script skips the work just as effectively as a step-level `if`, and
+        # a script reads the ref through the environment ($GITHUB_REF and friends) as easily as
+        # through an expression. The scope job is the one sanctioned reader, checked above.
+        ref = re.compile(r"github[._](ref|ref_name|head_ref|base_ref)\b", re.IGNORECASE)
+        for job_name, job in jobs.items():
+            if job_name == "scope":
+                continue
             for step in job.get("steps") or []:
                 run = step.get("run", "") if isinstance(step, dict) else ""
-                assert "github.ref" not in run, f"{name} branches on the ref inside a run block"
+                assert not ref.search(run), f"{name}:{job_name} branches on the ref inside a run block"
 
     # The one release path that can start on any branch must not start on a Renovate one, or a
     # scoped-out run would qualify the commit it tags.
@@ -932,20 +939,38 @@ def test_every_setup_python_pins_an_exact_interpreter() -> None:
     assert not loose, loose
 
 
+# Pull-request jobs that run for every pull request, outsiders' included, and why that is safe.
+_UNGATED_ON_PULL_REQUESTS: dict[tuple[str, str], str] = {}
+
+
 def test_trust_gates_also_exclude_agit_pull_requests() -> None:
     # An AGit pull request (pushed to refs/for/<branch>, no fork) reports this repository as its
     # head, so the head-repository check alone lets it through. When a maintainer reopens an
     # outsider's PR, Forgejo runs this branch's workflows WITH secrets against the PR's commit.
+    #
+    # Every job of a pull-request-triggered workflow, not only the ones that already carry a
+    # head-repository check: a job with no gate at all runs an outsider's commit just the same.
     missing = []
+    present = set()
     for path in _FORGEJO:
-        jobs = (yaml.safe_load(path.read_text()) or {}).get("jobs") or {}
-        for job, spec in jobs.items():
-            condition = " ".join(str((spec or {}).get("if", "")).split())
-            if "pull_request.head.repo.full_name == github.repository" not in condition:
+        document = yaml.safe_load(path.read_text()) or {}
+        triggers = document.get("on") or document.get(True) or {}
+        if not ({"pull_request", "pull_request_target"} & set(triggers if isinstance(triggers, (dict, list)) else [triggers])):
+            continue
+        for job, spec in (document.get("jobs") or {}).items():
+            present.add((path.name, job))
+            if (path.name, job) in _UNGATED_ON_PULL_REQUESTS:
                 continue
-            if "github.event.pull_request.flow == 0" not in condition:
+            condition = " ".join(str((spec or {}).get("if", "")).split())
+            if not (
+                "pull_request.head.repo.full_name == github.repository" in condition
+                and "github.event.pull_request.flow == 0" in condition
+            ):
                 missing.append(f"{path.name}:{job}")
     assert not missing, (
-        f"trust gates that let AGit pull requests through: {missing}. "
-        "Require github.event.pull_request.flow == 0 beside the head-repository check."
+        f"pull-request jobs that let an outside or AGit pull request through: {missing}. "
+        "Gate them on the head-repository check AND github.event.pull_request.flow == 0, or record "
+        "why one is safe ungated in _UNGATED_ON_PULL_REQUESTS."
     )
+    stale = sorted(f"{w}:{j}" for w, j in _UNGATED_ON_PULL_REQUESTS if (w, j) not in present)
+    assert not stale, f"_UNGATED_ON_PULL_REQUESTS excuses jobs that no longer exist: {stale}"
