@@ -141,7 +141,7 @@ ignore = [
 allowed-confusables = ["–", "×"]  # EN DASH in prose/ranges, MULTIPLICATION SIGN in ratios
 
 [tool.ruff.lint.per-file-ignores]
-# Vendored from project-standard. Shared files carry no project-specific noqa codes (a code the
+# Vendored from project-rules. Shared files carry no project-specific noqa codes (a code the
 # sibling does not enable would fail RUF100 there), so the exemption lives with the rule set that
 # needs it. The lazy PyInstaller import is deliberate: it is a release-build dependency only.
 "packaging/check-glibc-floor.py" = ["PLC0415"]

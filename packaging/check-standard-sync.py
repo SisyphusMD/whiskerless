@@ -59,7 +59,7 @@ def main() -> int:
         print(f"DRIFTED  {rel}", file=sys.stderr)
     print(
         "\nA vendored standard file was edited in place. Make the change in "
-        "SisyphusMD/project-standard, re-vendor BOTH projects, and land them together — that is the "
+        "SisyphusMD/project-rules, re-vendor BOTH projects, and land them together — that is the "
         "whole point of the lock.",
         file=sys.stderr,
     )
