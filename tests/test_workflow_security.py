@@ -379,8 +379,8 @@ def test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure
     assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", str(checkout["uses"])), (
         f"the checkout is not actions/checkout pinned to a full commit: {checkout['uses']!r}"
     )
-    assert checkout["with"] == {"ref": "main"}, (
-        f"the checkout takes inputs beyond a main pin: {checkout['with']!r}"
+    assert checkout["with"] == {"ref": "main", "persist-credentials": False}, (
+        f"the checkout takes inputs beyond a main pin and no persisted token: {checkout['with']!r}"
     )
 
     inputs = triggers["workflow_dispatch"]["inputs"]
@@ -974,6 +974,21 @@ def test_trust_gates_also_exclude_agit_pull_requests() -> None:
     )
     stale = sorted(f"{w}:{j}" for w, j in _UNGATED_ON_PULL_REQUESTS if (w, j) not in present)
     assert not stale, f"_UNGATED_ON_PULL_REQUESTS excuses jobs that no longer exist: {stale}"
+
+
+def test_publish_checkouts_leave_no_credential_behind() -> None:
+    # A persisted checkout credential sits in the workspace's git config for every later step,
+    # third-party build and upload actions included. No job here pushes this repository: the tap
+    # jobs push another one with their own explicit header, which a persisted one never reaches.
+    loose = []
+    for name in ("publish.yml", "prune-rcs.yml"):
+        document = yaml.safe_load((_ROOT / ".forgejo" / "workflows" / name).read_text())
+        for job, spec in document["jobs"].items():
+            for step in spec.get("steps") or []:
+                is_checkout = str(step.get("uses", "")).startswith("actions/checkout@")
+                if is_checkout and (step.get("with") or {}).get("persist-credentials") is not False:
+                    loose.append(f"{name}:{job}")
+    assert not loose, f"checkouts that persist the job token: {loose}"
 
 
 def test_artifact_actions_are_the_forgejo_forks() -> None:

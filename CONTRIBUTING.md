@@ -227,18 +227,18 @@ A GitHub sign-in has no Forgejo password, so push over HTTPS with an access toke
 Forgejo settings. Push again with the same topic to update the pull request.
 
 CI runs on this project's own runners, which are also trusted with its release credentials, so it
-does not run on a pull request sent this way. A maintainer reads the change, then opens it again as
-a pull request from a branch here, and that runs the whole suite: lint, strict type-checking of both the
-library and the integration, both test suites at their 99% floors, the `safety.py` and
-`config_flow.py` 100% gates, the declared dependency floors, hassfest, the HACS checks,
-shellcheck, documentation links, and the same tests plus the Homebrew formula on macOS 15 and on
-the newest macOS.
+does not run on a pull request sent this way, or on one from a fork. A maintainer reads the change,
+then pushes it to a branch here and opens it again as a pull request from that branch, and that runs
+the whole suite: lint, strict type-checking of both the library and the integration, both test
+suites at their 99% floors, the `safety.py` and `config_flow.py` 100% gates, the declared dependency
+floors, hassfest, the HACS checks, shellcheck, documentation links, and the same tests plus the
+Homebrew formula on macOS 15 and on the newest macOS.
 
 **What that does not cover**, so you are not surprised by a later failure:
 
-- **The install matrix.** 25 install channels across five distributions run on
-  Forgejo and at release time, not per-PR — a packaging change can pass here and fail
-  there.
+- **The install matrix.** 25 install channels across five distributions run at release time
+  or when a maintainer dispatches them, never on a pull request, so a packaging change can pass
+  every check above and still fail there.
 - **Bottles and the macOS `.pkg`.** Both are built only at release time. The macOS jobs on
   every push test the code and the Homebrew formula, not those.
 - **Hardware.** Nothing in CI touches a robot. The BLE transport is faked at the `bleak`

@@ -988,6 +988,23 @@ def test_the_integration_manifest_carries_what_hacs_requires() -> None:
     )
 
 
+def test_the_hacs_job_skips_only_the_check_a_read_only_mirror_cannot_pass() -> None:
+    # The mirror has issues off on purpose (they go to Forgejo), so `issues` is the one check
+    # the job may skip; any other skip would hide a real defect in what the Marketplace installs.
+    workflow = yaml.safe_load((REPO / ".forgejo" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    script = "".join(str(step.get("run", "")) for step in workflow["jobs"]["hacs"]["steps"])
+    commands = [
+        line.strip()
+        for line in script.replace("\\\n", " ").splitlines()
+        if not line.strip().startswith("#")
+    ]
+    (docker,) = [line for line in commands if line.startswith("docker run")]
+    assert re.findall(r"-e INPUT_IGNORE=(\S+)", docker) == ["issues"], docker
+    assert any('"${checks:-0}" -lt 9 ]' in line for line in commands), (
+        "the floor must be the full set of ten less issues"
+    )
+
+
 def test_the_manifest_keys_are_ordered_the_way_hassfest_wants() -> None:
     """domain and name first, everything else alphabetical. Adding a key in the
     wrong place is a hassfest failure in CI, and this says why before it runs."""
