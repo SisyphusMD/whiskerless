@@ -109,7 +109,9 @@ jobs:
           KEYCHAIN="${RUNNER_TEMP:-/tmp}/build.keychain"
           echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
           security create-keychain -p "" "$KEYCHAIN"
-          security default-keychain -s "$KEYCHAIN"
+          # Every job starts with no default keychain and an empty search list, so both are set here.
+          security list-keychains -d user -s "$KEYCHAIN"
+          security default-keychain -d user -s "$KEYCHAIN"
           security unlock-keychain -p "" "$KEYCHAIN"
           echo "$APP_CERT_P12" | base64 -d > app.p12
           echo "$INSTALLER_CERT_P12" | base64 -d > installer.p12
