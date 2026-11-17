@@ -113,7 +113,7 @@ COPY --from=pypi-uvx /passed /passed
 # Deliberately two rungs and not three: with the floor below and Fedora above, a middle release is
 # interpolation rather than evidence, since a package that installs on both neighbours installs here.
 # renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
-FROM rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834 AS rpm-base
+FROM rockylinux/rockylinux:10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8 AS rpm-base
 COPY packaging/retry.sh /retry
 RUN set -eux; \
     /retry 5 dnf install -y -q openssl >/dev/null; \

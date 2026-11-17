@@ -63,11 +63,15 @@ runner already is; it is not a request to emulate.
 Each of these is in the test's exception list, with the same reason recorded there:
 
 - **macOS anything** — `ci-macos.yml`, `formula-macos.yml`, `release-macos.yml`,
-  and the macOS legs of `install-matrix.yml`. Forgejo has no macOS runner, and the
-  `.pkg` must be signed and notarized on a Mac.
+  and the macOS legs of `install-matrix.yml`. Forgejo had no macOS runner, and the
+  `.pkg` must be signed and notarized on a Mac. It has one now and runs the tests
+  and the formula smoke on macOS too (`macos.yml`); those two copies go once both
+  agree.
 - **arm64 anything** — `release-linux-arm64.yml`, and the `linux-arm64` leg of
-  `install-matrix.yml`. No arm64 hardware here, and the alternative is the
-  emulation described above.
+  `install-matrix.yml`. There was no arm64 hardware here, and the alternative
+  was the emulation described above. There is now: Forgejo builds and
+  install-tests the same tags natively too (`release-arm64.yml`,
+  `install-matrix-arm64.yml`), and these copies go once both agree.
 - **`hassfest.yml`** — a GitHub-ecosystem action the Forgejo runner cannot fetch;
   it resolves actions from `data.forgejo.org`, which does not carry
   `home-assistant/actions`. Forgejo CI now runs the same two checks from their

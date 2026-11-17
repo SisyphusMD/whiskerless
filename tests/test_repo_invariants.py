@@ -618,7 +618,7 @@ def test_the_wait_is_one_definition_used_by_both_matrices() -> None:
     before failing a release that was fine. Two COPIES of this would drift, and
     the drift shows up as one forge passing a half-published release.
 
-    The script is vendored from project-standard, so everything project-specific
+    The script is vendored from project-rules, so everything project-specific
     comes from project.env and asset-roles.sh; this pins that both callers use it
     the same way and that the derivation lands on formulae this repository ships."""
     for path in (INSTALL_MATRIX, INSTALL_MATRIX_LINUX):
@@ -768,7 +768,7 @@ def test_the_renderer_refuses_a_template_it_cannot_fully_render() -> None:
 
 def _checksum_markers() -> set[str]:
     # Read out of the templates, never assumed: the two projects spell this marker differently on
-    # purpose (project-standard VARIANCE.md, "The formula's checksum marker"), and a hardcoded
+    # purpose (project-rules VARIANCE.md, "The formula's checksum marker"), and a hardcoded
     # spelling would make this a silent no-op for whichever project does not use it.
     found = {
         match
@@ -2377,7 +2377,7 @@ def test_release_creation_waits_for_pypi() -> None:
     The integration manifest pins `whiskerless==<version>`, which HA then resolves from PyPI, so a
     release published first is an update offer nobody can complete. The sibling deliberately does
     NOT have this edge — nothing watches its release feed and then resolves the version elsewhere —
-    and that asymmetry is recorded in project-standard/VARIANCE.md rather than being drift.
+    and that asymmetry is recorded in project-rules/VARIANCE.md rather than being drift.
     """
     publish = yaml.safe_load(
         (REPO / ".forgejo" / "workflows" / "publish.yml").read_text(encoding="utf-8")
@@ -2587,7 +2587,7 @@ def test_every_bottle_wait_agrees_with_the_matrix() -> None:
 # Every test below carries the name of its twin in the sibling's tests/python/test_release_config.py,
 # so one grep finds both. They were missing here while the sibling enforced them; a guard in one repo
 # and not the other is how the two drift. Where a clause does not port, the docstring says why, and
-# deliberate differences live in project-standard/VARIANCE.md.
+# deliberate differences live in project-rules/VARIANCE.md.
 CI = REPO / ".forgejo" / "workflows" / "ci.yml"
 CI_PR = REPO / ".github" / "workflows" / "ci-pr.yml"
 PUBLISH = REPO / ".forgejo" / "workflows" / "publish.yml"

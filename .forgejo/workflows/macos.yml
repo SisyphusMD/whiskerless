@@ -1,0 +1,144 @@
+name: macOS (shadow)
+
+# The native macOS legs on our own Mac: the oldest supported macOS (15) and the newest (27), each
+# in its own VM. They run what GitHub's ci-macos.yml and formula-macos.yml run, on the same commits.
+#
+# SHADOW until the two have agreed for about a week. Every step after the Python setup is
+# continue-on-error and the last step reports the verdict, so a failing check never turns a commit
+# red. GitHub's copies stay the gate (CI / macos and the release mirror gates) until the switch,
+# which moves them here. Renovate merges by itself and waits for every status, this one included,
+# as it already waits for CI / macos; so while a VM is down, Renovate's merges wait for it.
+#
+# Push to every branch, like GitHub's: a prerelease can be cut from any branch, and the gate will
+# need a verdict for that exact commit. No pull_request trigger: a same-repository branch already
+# runs on push, and a fork's code must not run on these machines.
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+# Keyed per commit and never cancelled, because the gates read one verdict per SHA; except on a
+# Renovate branch, whose commits are never released and are replaced by each rebase.
+concurrency:
+  group: macos-${{ startsWith(github.ref, 'refs/heads/renovate/') && github.ref || github.sha }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/renovate/') }}
+
+jobs:
+  scope:
+    name: Does this push need a Mac
+    # packaging/macos-scope.sh: a Renovate branch that changes only Linux-side files skips the
+    # macOS job below; main, tags and every other branch always run in full.
+    runs-on: ubuntu-latest
+    outputs:
+      macos: ${{ steps.scope.outputs.macos }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the scope is measured from where the branch left main.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide
+        id: scope
+        run: |
+          scope="$(bash packaging/macos-scope.sh "$GITHUB_REF")"
+          echo "macos=$scope" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS ${{ matrix.tier }} (${{ matrix.runner }})
+    needs: scope
+    if: needs.scope.outputs.macos != 'false'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-vm
+            tier: floor
+          - runner: macos-27-vm
+            tier: current
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The formula smoke builds an sdist, and hatchling needs the tag history for a version.
+          fetch-depth: 0
+          persist-credentials: false
+      # Retried in-step, and the one thing allowed to fail this job: everything after it would
+      # otherwise pip-install into the image's own interpreter.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: setup_python_1
+        continue-on-error: true
+        with:
+          python-version: "3.15.2"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.setup_python_1.outcome != 'success'
+        with:
+          python-version: "3.15.2"
+      # First, while the VM is as clean as a user's Mac: the VM checks itself against its image
+      # before every job, and the test dependencies below would otherwise already be installed.
+      - name: Homebrew formula builds and runs
+        id: formula
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          # From a pristine export: hatchling sweeps untracked files beside the source into the sdist.
+          work="$(mktemp -d)"
+          git archive --format=tar HEAD | tar -x -C "$work"
+          (cd "$work" && python -m build --sdist --outdir "$GITHUB_WORKSPACE/dist")
+          version="$(python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")"
+          bash packaging/test-homebrew-formula.sh "v${version}" dist/whiskerless-*.tar.gz
+      - name: Install native test dependencies
+        id: deps
+        continue-on-error: true
+        run: |
+          brew install bash shellcheck
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,ble]"
+      - name: Lint and type-check
+        id: lint
+        continue-on-error: true
+        run: |
+          ruff check $(git ls-files '*.py' | tr '\n' ' ')
+          mypy
+      - name: Pytest (library)
+        id: pytest
+        continue-on-error: true
+        run: pytest -q
+      - name: Check shell scripts
+        id: shellcheck
+        continue-on-error: true
+        run: git ls-files '*.sh' | xargs shellcheck
+      - name: Run the release scripts' tests on BSD userland
+        id: release_scripts
+        continue-on-error: true
+        run: |
+          for t in tests/release/*.sh; do
+            echo "== $t =="
+            bash "$t"
+          done
+      - name: Import the BLE stack on this platform
+        id: ble
+        continue-on-error: true
+        run: python -c "import bleak; from whiskerless.ble.transport import scan; print('bleak backend imports')"
+      - name: Shadow verdict
+        if: always()
+        env:
+          TIER: ${{ matrix.tier }}
+          FORMULA: ${{ steps.formula.outcome }}
+          DEPS: ${{ steps.deps.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          PYTEST: ${{ steps.pytest.outcome }}
+          SHELLCHECK: ${{ steps.shellcheck.outcome }}
+          RELEASE_SCRIPTS: ${{ steps.release_scripts.outcome }}
+          BLE: ${{ steps.ble.outcome }}
+        run: |
+          ci=success
+          for o in "$DEPS" "$LINT" "$PYTEST" "$SHELLCHECK" "$RELEASE_SCRIPTS" "$BLE"; do
+            [ "$o" = success ] || ci=failure
+          done
+          formula="$FORMULA"
+          echo "SHADOW-VERDICT tier=$TIER ci=$ci formula=$formula (deps=$DEPS lint=$LINT pytest=$PYTEST shellcheck=$SHELLCHECK release-scripts=$RELEASE_SCRIPTS ble=$BLE)"
+          if [ "$ci" != success ] || [ "$formula" != success ]; then
+            echo "::warning::macOS $TIER shadow: ci=$ci formula=$formula (not gating; GitHub's run is the gate)"
+          fi

@@ -204,7 +204,7 @@ The reasoning, written down so it is not re-argued:
   nothing. Same question asked twice, two different correct answers — see its `CONTRIBUTING.md`.
 
 **Consequence to keep in mind:** code can flow from this repo into the sibling, never the other way.
-Anything genuinely reusable should be written here, or in the shared `project-standard`, rather than
+Anything genuinely reusable should be written here, or in the shared `project-rules`, rather than
 there.
 
 ## Where issues and pull requests go

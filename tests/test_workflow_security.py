@@ -933,3 +933,22 @@ def test_every_setup_python_pins_an_exact_interpreter() -> None:
                 if not re.fullmatch(r"\d+\.\d+\.\d+", version):
                     loose.append(f"{path.name} {job_name}: {version!r}")
     assert not loose, loose
+
+
+def test_trust_gates_also_exclude_agit_pull_requests() -> None:
+    # An AGit pull request (pushed to refs/for/<branch>, no fork) reports this repository as its
+    # head, so the head-repository check alone lets it through. When a maintainer reopens an
+    # outsider's PR, Forgejo runs this branch's workflows WITH secrets against the PR's commit.
+    missing = []
+    for path in _FORGEJO:
+        jobs = (yaml.safe_load(path.read_text()) or {}).get("jobs") or {}
+        for job, spec in jobs.items():
+            condition = " ".join(str((spec or {}).get("if", "")).split())
+            if "pull_request.head.repo.full_name == github.repository" not in condition:
+                continue
+            if "github.event.pull_request.flow == 0" not in condition:
+                missing.append(f"{path.name}:{job}")
+    assert not missing, (
+        f"trust gates that let AGit pull requests through: {missing}. "
+        "Require github.event.pull_request.flow == 0 beside the head-repository check."
+    )

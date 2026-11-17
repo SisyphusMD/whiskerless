@@ -21,7 +21,9 @@ jobs:
     # forks too, so without this a fork's PR would run its own code — and reach this
     # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
     # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # flow == 0 also turns away AGit PRs (pushed to refs/for/<branch>): they report this repo as
+    # their head, and a maintainer reopening one runs this branch's workflows with secrets.
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,7 +74,7 @@ jobs:
     # forks too, so without this a fork's PR would run its own code — and reach this
     # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
     # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,7 +121,7 @@ jobs:
     # forks too, so without this a fork's PR would run its own code — and reach this
     # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
     # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,7 +173,7 @@ jobs:
 
       - name: Vendored standard has not drifted
         # A shared helper improved by editing the copy here never reaches the sibling project —
-        # which is how these two drifted apart in the first place. Change it in project-standard,
+        # which is how these two drifted apart in the first place. Change it in project-rules,
         # re-vendor both, land them together.
         run: python3 packaging/check-standard-sync.py
 
@@ -192,7 +194,7 @@ jobs:
     # forks too, so without this a fork's PR would run its own code — and reach this
     # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
     # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -237,7 +239,7 @@ jobs:
     # forks too, so without this a fork's PR would run its own code — and reach this
     # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
     # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -292,7 +294,7 @@ jobs:
     # forks too, so without this a fork's PR would run its own code — and reach this
     # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
     # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -340,7 +342,7 @@ jobs:
     name: Compile-check the release path (bundle, packages, formula)
     # trusted-ref gate, the same one the other jobs use: do not build and run PR-supplied code on
     # the self-hosted runner.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -458,7 +460,7 @@ jobs:
           # renovate: datasource=docker depName=rocky-8-compat packageName=rockylinux/rockylinux
           RHEL_FLOOR_IMAGE="rockylinux/rockylinux:8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6"
           # renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
-          RHEL_CURRENT_IMAGE="rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834"
+          RHEL_CURRENT_IMAGE="rockylinux/rockylinux:10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8"
           # renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
           OPENSUSE_IMAGE="opensuse/leap:16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d"
           export DEBIAN_FLOOR_IMAGE DEBIAN_CURRENT_IMAGE
@@ -496,7 +498,7 @@ jobs:
 
   hassfest:
     name: hassfest (HA manifest validation)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -509,7 +511,7 @@ jobs:
         run: |
           set -euo pipefail
           # renovate: datasource=docker depName=ghcr.io/home-assistant/hassfest
-          HASSFEST="ghcr.io/home-assistant/hassfest:latest@sha256:da6522993280166fe072704989a2b4c33e639e8ceb69c8ab6ad7ec5045c1a1e3"
+          HASSFEST="ghcr.io/home-assistant/hassfest:latest@sha256:b200bb178c5c62f984c2c705c820bd991e5308d6cba6987d24c7d643919ab5cc"
           cid=""
           trap 'test -z "$cid" || docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           cid=$(docker create "image-mirror.lan.bryantserver.com/$HASSFEST")
@@ -518,7 +520,7 @@ jobs:
 
   hacs:
     name: HACS (repository validation)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - name: Validate the mirror the way HACS will
@@ -566,7 +568,7 @@ jobs:
     needs: [quality, quality-floor, hygiene, dependency-floors, homeassistant, homeassistant-current, build]
     # GitHub's mirror runs the same commit on native Apple Silicon hosts. Waiting by exact head
     # SHA prevents a newer green branch run from qualifying an older pull request revision.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

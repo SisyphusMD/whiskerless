@@ -101,7 +101,7 @@ jobs:
               || rm -f "annotations/$job.json"
           done
           # The discriminator itself lives in packaging/triage-infra-failure.py, vendored from
-          # project-standard and shared with the sibling project — none of that reasoning is
+          # project-rules and shared with the sibling project — none of that reasoning is
           # specific to this repository, and it is tested there against the cases that must REFUSE
           # to retry.
           python3 packaging/triage-infra-failure.py jobs.json logs annotations >> "$GITHUB_OUTPUT"

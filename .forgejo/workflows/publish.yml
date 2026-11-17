@@ -761,6 +761,18 @@ jobs:
             -d "{\"ref\":\"main\",\"inputs\":{\"tag\":\"$GITHUB_REF_NAME\"}}" \
             "https://api.github.com/repos/SisyphusMD/whiskerless/actions/workflows/install-matrix.yml/dispatches"
           echo "dispatched the macOS + arm64 install matrix for $GITHUB_REF_NAME"
+      - name: Dispatch the arm64 shadow matrix here at this tag
+        # Shadow: the arm64 leg on our own runner, until it matches GitHub's.
+        continue-on-error: true
+        env:
+          TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 --retry 3 --retry-connrefused --retry-max-time 180 \
+            -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+            -d "{\"ref\":\"main\",\"inputs\":{\"tag\":\"$GITHUB_REF_NAME\"}}" \
+            "https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless/actions/workflows/install-matrix-arm64.yml/dispatches"
+          echo "dispatched the arm64 shadow install matrix for $GITHUB_REF_NAME"
 
   prune-rcs:
     name: Prune the candidates this release supersedes

@@ -52,7 +52,7 @@ deadline="${REVENDOR_CLONE_SECONDS:-300}"
 GIT_TERMINAL_PROMPT=0 git \
   -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 -c advice.detachedHead=false \
   clone --quiet --depth 1 --branch "$want" \
-  https://forgejo.bryantserver.com/SisyphusMD/project-standard.git "$work/standard" &
+  https://forgejo.bryantserver.com/SisyphusMD/project-rules.git "$work/standard" &
 clone=$!
 
 # A shell watchdog rather than coreutils `timeout`, which a default macOS install does not have.

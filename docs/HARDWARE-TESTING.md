@@ -9,7 +9,7 @@ artifacts behave the same way.
 There is no bench runner here. The sibling `dreame-valetudo` ships one because its campaign drives
 destructive flashes that must be gated and evidenced by code; whiskerless writes configuration over
 BLE and sends MQTT commands, so its qualification is an operator following this document with a
-capture running. That divergence is intended and belongs in `project-standard/VARIANCE.md`.
+capture running. That divergence is intended and belongs in `project-rules/VARIANCE.md`.
 
 Host qualification is separate and automatic. CI covers the Linux package matrix, the native macOS
 matrix, the Homebrew bottles and the install matrix on every RC. The bench proves only what those

@@ -7,7 +7,7 @@
 # manylinux_2_28 image, the build image IS the declared floor and no distro can sit between them —
 # check-glibc-floor.py enforces the floor statically during the build.
 # renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
-FROM rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834 AS smoke
+FROM rockylinux/rockylinux:10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8 AS smoke
 
 # The version the binary was frozen at; installed-smoke.sh checks the binary reports it.
 ARG EXPECT_VERSION

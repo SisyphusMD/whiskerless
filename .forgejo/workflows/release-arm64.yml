@@ -1,0 +1,104 @@
+name: Release build (Linux arm64, shadow)
+
+# SHADOW of .github/workflows/release-linux-arm64.yml, which still builds and publishes the arm64
+# assets. This builds the same tag the same way on our own native arm64 runner, publishes nothing,
+# and compares its build with the copies GitHub's runner appends to the release. When the two have
+# agreed on a release candidate, this job takes over the upload and GitHub's copy goes.
+#
+# Its own workflow, not a job in publish.yml, so a busy or missing arm64 runner can never keep a
+# release looking unfinished. Every step that can fail is continue-on-error and the last one
+# reports the verdict, so this run is green whatever it found; read the SHADOW-VERDICT lines.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: release-arm64-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Only for a release tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the tag
+        run: |
+          set -euo pipefail
+          . packaging/release-common.sh
+          rel_validate_tag "${GITHUB_REF_NAME}"
+
+  arm64:
+    name: Build the arm64 assets and compare them with GitHub's
+    needs: guard
+    runs-on: ubuntu-26.04-arm
+    steps:
+      # Even the preparation may not fail this job.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: checkout
+        continue-on-error: true
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        id: buildx
+        if: steps.checkout.outcome == 'success'
+        continue-on-error: true
+        with:
+          # BuildKit has its own registry client and does not inherit dockerd's mirror.
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/docker.io"]
+            [registry."ghcr.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/ghcr.io"]
+            [registry."quay.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/quay.io"]
+            [registry."registry.k8s.io"]
+              mirrors = ["image-mirror.lan.bryantserver.com/registry.k8s.io"]
+            [registry."public.ecr.aws"]
+              mirrors = ["image-mirror.lan.bryantserver.com/public.ecr.aws"]
+      - name: Build the arm64 assets natively, package them, and smoke them
+        id: build
+        if: steps.buildx.outcome == 'success'
+        continue-on-error: true
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          # The manylinux builder's dnf installs, through the NAS artifact cache.
+          DNF_MIRROR: https://artifacts.lan.bryantserver.com
+        run: |
+          set -euo pipefail
+          bash packaging/build-linux-arch.sh arm64 "$GITHUB_REF_NAME"
+          mapfile -t ASSETS < <(ls whiskerless-*-linux-arm64 ./*_arm64.deb ./*.aarch64.rpm)
+          [ "${#ASSETS[@]}" -eq 3 ] || {
+            echo "::error::expected 3 arm64 artifacts, found ${#ASSETS[@]}: ${ASSETS[*]-}" >&2
+            exit 1
+          }
+          # The checksum file GitHub's job writes, the same way, so its name list is compared too.
+          sums="SHA256SUMS-aarch64"
+          sha256sum "${ASSETS[@]}" | sed 's| \./| |' > "$sums"
+          awk '$2 ~ /~/ { name = $2; gsub(/~/, ".", name); print $1 "  " name }' "$sums" >> "$sums.alt"
+          [ -s "$sums.alt" ] && cat "$sums.alt" >> "$sums"
+          rm -f "$sums.alt"
+          printf '%s\n' "${ASSETS[@]}" "$sums" > arm64-assets.txt
+      - name: Compare with the arm64 assets GitHub's runner appended
+        id: compare
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        env:
+          FORGE: https://forgejo.bryantserver.com
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq rpm >/dev/null
+          mapfile -t assets < arm64-assets.txt
+          bash packaging/compare-arch-build.sh "$GITHUB_REF_NAME" "${assets[@]}"
+      - name: Shadow verdict
+        if: always()
+        env:
+          BUILD: ${{ steps.checkout.outcome != 'success' && 'checkout-failed' || steps.buildx.outcome != 'success' && 'buildx-failed' || steps.build.outcome }}
+          COMPARE: ${{ steps.compare.outcome }}
+        run: |
+          echo "SHADOW-VERDICT arm64 release build: build=$BUILD compare=$COMPARE"
+          if [ "$BUILD" != success ] || [ "$COMPARE" != success ]; then
+            echo "::warning::arm64 shadow build=$BUILD compare=$COMPARE (GitHub's build is still the one published)"
+          fi
