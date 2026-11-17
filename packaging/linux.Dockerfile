@@ -1,6 +1,6 @@
 # Builds the self-contained whiskerless binary for the NATIVE platform, then exports just that
-# binary. Driven by build-linux-arch.sh through buildx, which both forges call: amd64 on Forgejo,
-# arm64 on GitHub's native arm runner. `--platform` names the architecture the host already is and
+# binary. Driven by build-linux-arch.sh through buildx, which both release workflows call: amd64 on the
+# cluster, arm64 on the native arm64 runner. `--platform` names the architecture the host already is and
 # that script refuses the mismatch, so this never runs under emulation. buildx rather than
 # `docker run` because the Forgejo job is itself containerised and a bind mount of the workspace
 # does not reach the daemon. nfpm packages the exported binary into the .deb/.rpm OUTSIDE this

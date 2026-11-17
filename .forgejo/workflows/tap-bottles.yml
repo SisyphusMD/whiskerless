@@ -3,7 +3,7 @@ name: Refresh the tap's bottle block
 # The paired half of rebuilding bottles, and the reason it exists is that the
 # pairing is not automatic and its absence is silent.
 #
-# `bottles.yml` (on GitHub) builds the bottles and attaches them to the release.
+# `bottles.yml` builds the bottles and attaches them to the release.
 # A separate job writes the `bottle do` block naming their sha256s. On a tag push
 # those chain correctly. But bottles.yml is deliberately DISPATCHABLE so a failed
 # platform can be rebuilt without cutting a new candidate — and a rebuild
@@ -141,10 +141,11 @@ jobs:
           [ -n "$pushed" ] || { echo "::error::could not push the tap after 5 attempts"; exit 1; }
       - name: Refresh the NAS copy of those bottles
         # A rebuild replaces the bottles on the public Forgejo release with different bytes, and the
-        # NAS copy made at tag time is then stale. publish.yml's nas-bottles job cannot help: it is
-        # tag-triggered and a rebuild emits no tag. So the repair has to happen here, beside the tap
-        # refresh, for the same reason this workflow exists at all — the pairing is not automatic
-        # and its absence is silent. `replace` because that is exactly what a rebuild produces.
+        # NAS copy made at tag time is then stale. bottles.yml uploads to the NAS itself, but a
+        # bottle replaced on the public release by any other path reaches the NAS only through
+        # here. So the repair happens beside the tap refresh, for the same reason this workflow
+        # exists at all — the pairing is not automatic and its absence is silent. `replace` because
+        # that is exactly what a rebuild produces.
         run: |
           set -euo pipefail
           chmod +x packaging/fetch-release-assets.sh packaging/forgejo-release.sh

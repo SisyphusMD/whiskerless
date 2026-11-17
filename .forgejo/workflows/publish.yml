@@ -1,10 +1,10 @@
 name: Publish
 
-# Runs on the Forgejo source when a v* tag lands (from release.yml). It is the
-# only place that can reach everything (Forgejo, the internal NAS, GitHub, PyPI),
-# so it orchestrates the releases. The GitHub mirror's release-macos.yml appends
-# the signed .pkg to the GitHub + public-Forgejo releases; the `nas-bridge` job here
-# then bridges that .pkg over to the internal NAS (which GitHub can't reach).
+# Runs on the Forgejo source when a v* tag lands (from release.yml): publishes to PyPI,
+# builds the amd64 binary, .deb and .rpm, and creates the release on all three registries
+# (Forgejo, the internal NAS, GitHub). The same tag starts release-arm64.yml (the arm64 set),
+# release-macos.yml (the signed .pkg) and bottles.yml, each appending to all three registries;
+# the reconcile job here heals any registry a copy failed to reach.
 on:
   # Dispatchable so a partly-failed publish can be finished without cutting a new
   # release. rc.27 lost its GitHub assets to a mirror-timing failure and there was
@@ -169,7 +169,7 @@ jobs:
         with:
           python-version: "3.15.2"
       # NO QEMU. This runner is amd64 and builds only amd64; arm64 is built on a native arm64
-      # runner (.github/workflows/release-linux-arm64.yml). buildx is still used because its
+      # runner (release-arm64.yml). buildx is still used because its
       # context and output are client-side streams, which dodges the workspace-visibility problem
       # a bind mount hits when the job itself runs in a container — not because anything emulates.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -195,10 +195,10 @@ jobs:
         run: |
           set -euo pipefail
           # The build-time pins live in packaging/release-pins.env and the script sources them
-          # itself — one file, because the arm64 half of this release is built on GitHub and two
-          # inline copies would drift the first time one was bumped.
+          # itself — one file, because the arm64 half of this release is built by another workflow
+          # and two inline copies would drift the first time one was bumped.
           #
-          # amd64 ONLY. arm64 is built natively by .github/workflows/release-linux-arm64.yml and
+          # amd64 ONLY. arm64 is built natively by release-arm64.yml and
           # appended to this release afterwards — this runner is amd64, and emulating arm64 here
           # is what broke rc.18's Linux assets. build-linux-arch.sh refuses a host/target mismatch
           # rather than silently emulating, so that cannot come back by accident.
@@ -210,8 +210,8 @@ jobs:
           set -uo pipefail
           chmod +x packaging/forgejo-release.sh packaging/github-release.sh
           # The amd64 artifacts this runner built. The arm64 ones are appended to this same
-          # release by the native arm64 job on GitHub, the way the macOS .pkg already is — so a
-          # glob for them here would either match nothing or race that job.
+          # release by release-arm64.yml, the way the macOS .pkg is — so a glob for them here
+          # would either match nothing or race that job.
           mapfile -t ASSETS < <(ls whiskerless-*-linux-x86_64 ./*_amd64.deb ./*.x86_64.rpm)
           # `ls` failing inside a process substitution cannot fail the step, so a missing artifact
           # would publish a short asset list and a checksum file to match — a release that looks
@@ -231,7 +231,7 @@ jobs:
           # doing only alongside an apt/dnf repository (backlog #75).
           #
           # The .pkg is absent here on purpose — it does not exist yet at this
-          # point in the pipeline, being built later on GitHub's macOS runners.
+          # point in the pipeline, being built later by release-macos.yml.
           # Both spellings, because GitHub's asset API rewrites `~` to `.` in the
           # uploaded FILENAME (documented in packaging/README.md) while Forgejo
           # serves the canonical name. One manifest has to verify against either,
@@ -285,9 +285,9 @@ jobs:
       - name: Collect BOTH architectures, then publish
         # A repository is not a release page: whatever lands there is what `apt install`
         # hands people immediately, with no way to tell the set is short. publish-registry.sh
-        # refuses a partial set for that reason, and since arm64 moved to a native GitHub
-        # runner this job's own workspace holds only half of it — so it reads the full set
-        # off the release both forges publish to, and fails rather than publishing half.
+        # refuses a partial set for that reason, and since arm64 is built by its own
+        # workflow this job's own workspace holds only half of it — so it reads the full set
+        # off the release, and fails rather than publishing half.
         run: |
           set -euo pipefail
           chmod +x packaging/publish-registry.sh packaging/fetch-release-assets.sh
@@ -409,7 +409,7 @@ jobs:
     # installing it) and the release must exist (the bottles are its assets).
     needs: [guard, homebrew-tap, releases]
     # `releases` going red does not mean the bottles are missing — they are
-    # appended by the GitHub workflow, to a release that may well have been
+    # appended by bottles.yml, to a release that may well have been
     # created successfully before some later host failed. #76 again.
     if: ${{ !cancelled() && needs.guard.result == 'success' }}
     runs-on: ubuntu-latest
@@ -529,122 +529,6 @@ jobs:
           done
           [ -n "$pushed" ] || { echo "::error::could not push the tap after 5 attempts"; exit 1; }
 
-  nas-bridge:
-    name: Bridge the GitHub-built assets → NAS
-    needs: [guard, releases]
-    # Runs even when `releases` went red. It needs exactly one thing — the GitHub-built
-    # assets on the public Forgejo release — and that has nothing to do with whether
-    # GitHub accepted its copy. rc.27 proved the cost of coupling them: GitHub's release
-    # step timed out waiting for a mirrored tag, the job failed, and the NAS was left
-    # permanently short its .pkg for a reason entirely unrelated to the NAS.
-    if: ${{ !cancelled() && needs.guard.result == 'success' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Wait for the GitHub-built assets on the public Forgejo release, then copy to NAS
-        run: |
-          # -e stays ON. Only the FETCH is allowed to fail softly, and an `|| partial=true`
-          # OR-list is exempt from -e anyway — dropping -e for it also stopped the NAS upload
-          # itself from failing the job, which would have reported a green bridge over a failed
-          # copy and let prune-rcs delete candidates against it.
-          set -euo pipefail
-          chmod +x packaging/fetch-release-assets.sh packaging/forgejo-release.sh
-          # Everything GitHub builds lands on the GitHub + public-Forgejo releases and stops
-          # there, because the NAS is internal and no GitHub runner can reach it. That is now
-          # two workflows' worth: the notarized .pkg (release-macos.yml) and the whole arm64
-          # Linux set (release-linux-arm64.yml, which builds natively rather than emulating).
-          #   arm64 .pkg + arm64 binary + arm64 .deb + aarch64 .rpm + its checksums
-          #
-          # Named by suffix rather than by a substring like `arm64`, which would also match the
-          # Homebrew bottles bottles.yml appends to this same release. Those are NOT kept off the
-          # NAS — the nas-bottles job carries them — but they must not be picked up HERE: they land
-          # about thirteen minutes later, and waiting would hold reconcile and prune-rcs, which are
-          # ordered after this job and read none of them.
-          select='.assets[]? | select(
-                    (.name | endswith("-macos-arm64.pkg"))
-                    or (.name | endswith("-linux-arm64"))
-                    or (.name | endswith("_arm64.deb"))
-                    or (.name | endswith(".aarch64.rpm"))
-                    or (.name == "SHA256SUMS-aarch64")
-                  ) | .browser_download_url'
-          # Upload what DID arrive before going red: a half-copied NAS beats an empty one, and
-          # prune-rcs reads this job's verdict before deleting candidates either way. An earlier
-          # version claimed to do this and did not — it downloaded and exited, so the NAS got
-          # nothing at all.
-          # NOT `mapfile < <(cmd) || partial=true`: mapfile reports on its own read from the
-          # process substitution, which succeeds even when the command inside exits 1 — so a
-          # short set would have uploaded quietly and reported success, the exact failure this
-          # flag exists to prevent. Redirect to a file so the status is the fetcher's own.
-          partial=false
-          packaging/fetch-release-assets.sh "$GITHUB_REF_NAME" 5 "$select" > fetched.txt \
-            || partial=true
-          mapfile -t fetched < fetched.txt
-          [ "${#fetched[@]}" -gt 0 ] || { echo "::error::nothing arrived to bridge to the NAS"; exit 1; }
-          bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
-          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
-            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${fetched[@]}"
-          if [ "$partial" = true ]; then
-            echo "::error::the NAS release is incomplete for $GITHUB_REF_NAME"
-            exit 1
-          fi
-
-  nas-bottles:
-    name: Bridge the bottles → NAS
-    # A SEPARATE job rather than widening nas-bridge, because the two wait on different things.
-    # nas-bridge needs only `releases` and finishes in about a minute; the bottles are appended to
-    # this same release asynchronously by bottles.yml on GitHub, thirteen minutes or so later.
-    # Teaching the bridge to wait for them would hold reconcile — which is ordered after it — and
-    # prune-rcs behind the bottle build, for assets neither of them reads. This runs after the
-    # bottle block instead, in parallel with the install matrix, so it costs nothing on the path.
-    #
-    # Bottles are bridged but still NOT reconciled, and those are different questions. Reconcile
-    # compares bytes across registries, and a bottle's gzip header carries its build timestamp, so
-    # a rebuilt one differs legitimately and the quorum would call a healthy release a conflict.
-    # Copying is not comparing: the NAS can hold a complete copy without joining that quorum, and
-    # their integrity is already pinned by the sha256 the tap's `bottle do` block records.
-    needs: [guard, homebrew-bottles]
-    if: ${{ !cancelled() && needs.guard.result == 'success' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Copy the bottles and their manifests to the NAS release
-        run: |
-          set -euo pipefail
-          chmod +x packaging/fetch-release-assets.sh packaging/forgejo-release.sh
-          # Both halves: the archives users pour, and the .json manifests that record which sha256
-          # belongs to which platform. A NAS holding archives it cannot describe is not a mirror.
-          select='.assets[]? | select(
-                    (.name | endswith(".bottle.tar.gz"))
-                    or (.name | endswith(".bottle.json"))
-                  ) | .browser_download_url'
-          # Same split the bottle wait above makes, doubled: a candidate bottles one formula, a
-          # release bottles both, and this selects each archive AND its manifest. A fixed 6 would
-          # call a stable release complete on half its bottles — and this job runs even when
-          # homebrew-bottles went red, so a partial set is a state it can actually observe.
-          case "$GITHUB_REF_NAME" in
-            *-rc.*) expected=6 ;;
-            *)      expected=12 ;;
-          esac
-          partial=false
-          packaging/fetch-release-assets.sh "$GITHUB_REF_NAME" "$expected" "$select" > fetched.txt \
-            || partial=true
-          mapfile -t fetched < fetched.txt
-          [ "${#fetched[@]}" -gt 0 ] || { echo "::error::no bottles arrived to bridge"; exit 1; }
-          bash packaging/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md
-          # `replace`, matching bottles.yml, and for the same reason the quorum excludes these: a
-          # rebuilt bottle has a new gzip timestamp, so a re-dispatch legitimately produces
-          # different bytes under the same name. The immutable default would reject them and leave
-          # the NAS holding the superseded copy — refusing the repair this job exists to perform.
-          REL_REPLACE_POLICY=replace \
-          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
-            "${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}" "$GITHUB_REF_NAME" notes.md "${fetched[@]}"
-          if [ "$partial" = true ]; then
-            echo "::error::the NAS is missing bottles for $GITHUB_REF_NAME"
-            exit 1
-          fi
-
   reconcile:
     name: Reconcile releases across registries (heal history)
     # `always()`: this exists precisely for the case where publishing to one of the three
@@ -652,24 +536,22 @@ jobs:
     # situation it is for. A conflict the script cannot decide is reported for a human rather than
     # overwritten, and the next release retries every tag. That heal is warn-only by design
     # (reconcile-releases.sh exits 0), so one unhealable historical tag cannot block every future
-    # prune. What turns the job red is this tag's GitHub-qualified arm64 .pkg never arriving, and
-    # prune-rcs, which needs this job, then keeps the candidates rather than sweeping against a
-    # short release.
+    # prune. What turns the job red is this tag's .pkg or arm64 set never arriving, and prune-rcs,
+    # which needs this job, then keeps the candidates rather than sweeping against a short release.
     #
-    # But it is ORDERED after nas-bridge, which is not the same as gated on it. Reconcile heals a
-    # registry from a two-registry content quorum, and the assets GitHub builds — the .pkg and,
-    # since arm64 went native, the whole arm64 Linux set — reach only ONE registry until the
-    # bridge copies them to the NAS. Sweeping before that, there is no quorum to heal from: an
-    # arm64 set that failed to upload to GitHub would stay missing, and prune-rcs (which needs
-    # this job) would then delete the candidates that still had it.
-    needs: [guard, releases, nas-bridge]
+    # It WAITS for those first, which is not the same as being gated on them. Reconcile heals a
+    # registry from a two-registry content quorum, and the .pkg and the arm64 set come from their
+    # own workflows (release-macos.yml, release-arm64.yml), so sweeping before they land would find
+    # nothing to heal: an arm64 set that reached one registry and failed the others would stay
+    # missing, and prune-rcs would then delete the candidates that still had it.
+    needs: [guard, releases]
     if: ${{ always() && needs.guard.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # all tags needed for the reconcile loop
-      - name: Require the current release's GitHub-built arm64 .pkg, then reconcile every tag
+      - name: Require the current release's .pkg and arm64 set, then reconcile every tag
         # A remote filename or byte count is not evidence that an artifact is intact. This downloads
         # each recognised asset, accepts bytes only when at least two registries agree on the
         # SHA-256, and fills that content into any registry MISSING it. A registry already serving
@@ -685,26 +567,41 @@ jobs:
         run: |
           set -uo pipefail
           API=https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
-          # The native GitHub build installs and exercises the signed Apple Silicon package
-          # before publishing it here. Its presence is therefore the cross-forge qualification
-          # gate, not merely an asset-availability convenience.
+          # release-macos.yml installs and exercises the signed Apple Silicon package before
+          # publishing it here, so its presence is the qualification gate, not merely an
+          # asset-availability convenience; the arm64 set is waited for so the quorum includes it.
           fail=0
           qualified=false
           # A wall clock, and every request bounded: an API that accepts and then stalls would
-          # otherwise hold this runner far past the 30 minutes the error below promises.
-          deadline=$(( $(date +%s) + 1800 ))
-          while [ "$(date +%s)" -lt "$deadline" ]; do
-            qualified=$(curl -sf --connect-timeout 10 --max-time 30 "$API/releases/tags/$GITHUB_REF_NAME" | jq -r '
+          # otherwise hold this runner far past the 60 minutes the error below promises. Sixty,
+          # because the .pkg and the macOS bottle share one macOS 15 VM and queue behind each other.
+          deadline=$(( $(date +%s) + 3600 ))
+          # Both internal registries, not just the public one. Each producer uploads to the public
+          # Forgejo first, then GitHub, then the NAS, and reconcile snapshots every registry once and
+          # heals only from two matching copies. Starting at the first upload would leave a stalled
+          # GitHub copy with nothing to heal from; waiting for the NAS guarantees two.
+          NAS_API=https://forgejo.lan.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless
+          has_set() {
+            curl -sf --connect-timeout 10 --max-time 30 -H "Authorization: token $2" "$1/releases/tags/$GITHUB_REF_NAME" | jq -r '
               [.assets[]?.name] as $names |
-              # By SUFFIX, not exact name: .pkg filenames carry the version, and this gate must
-              # not have to know how the version is spelled to recognise the arch it qualifies.
+              # By SUFFIX, not exact name: filenames carry the version, and this gate must not
+              # have to know how the version is spelled to recognise the arch it qualifies.
               ($names | any(endswith("-macos-arm64.pkg")))
-            ' 2>/dev/null || echo false)
-            [ "$qualified" = true ] && break
+              and ($names | any(endswith("_arm64.deb")))
+              and ($names | any(endswith(".aarch64.rpm")))
+              and ($names | any(endswith("-linux-arm64")))
+              and ($names | any(. == "SHA256SUMS-aarch64"))
+            ' 2>/dev/null || echo false
+          }
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            if [ "$(has_set "$API" "$CLUSTER_TOKEN")" = true ] && [ "$(has_set "$NAS_API" "$NAS_TOKEN")" = true ]; then
+              qualified=true
+              break
+            fi
             sleep 10
           done
           [ "$qualified" = true ] || {
-            echo "::error::current tag's GitHub-qualified arm64 .pkg was not published within 30m"
+            echo "::error::current tag's .pkg and arm64 set were not all published to the public Forgejo and the NAS within 60m"
             fail=1
           }
           chmod +x packaging/reconcile-releases.sh packaging/forgejo-release.sh packaging/github-release.sh
@@ -713,7 +610,7 @@ jobs:
           exit "$fail"
 
   install-matrix:
-    name: Hand the finished release to both install matrices
+    name: Hand the finished release to the install matrix
     # Everything the matrix installs FROM has to exist first: the release assets, both package
     # registries, the NAS copy, and a tap carrying this version's bottle block. Waiting for that
     # from a job started by the tag push cost more than it looks — the waiter and the publisher
@@ -724,7 +621,9 @@ jobs:
     # until the release is actually installable, so a copy reconcile heals while the matrix is
     # waiting is still picked up. Blocking on it put those 13 minutes on the critical path of every
     # release to buy nothing.
-    needs: [guard, releases, registry, nas-bridge, homebrew-tap, homebrew-bottles]
+    # The arm64 set and the .pkg come from their own workflows, which no `needs` can name;
+    # wait-for-release.sh holds the matrix until they are on the release.
+    needs: [guard, releases, registry, homebrew-tap, homebrew-bottles]
     # Runs even when a producer reported failure, which is not laxness but the point: a destination
     # can fail its upload and `reconcile` can then heal the release across registries, leaving a
     # COMPLETE release whose handoff had already been skipped — a release with no install matrix at
@@ -745,45 +644,14 @@ jobs:
             -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
             -d "{\"ref\":\"main\",\"inputs\":{\"tag\":\"$GITHUB_REF_NAME\"}}" \
             "https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless/actions/workflows/install-matrix.yml/dispatches"
-          echo "dispatched the Linux install matrix for $GITHUB_REF_NAME"
-      - name: Dispatch the macOS + arm64 matrix on GitHub at this tag
-        env:
-          TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
-        run: |
-          set -euo pipefail
-          # The other half of the same matrix, started the same way. It runs on GitHub because the
-          # hardware is there — native macOS and arm64 — not because it is a different kind of test,
-          # so it should not be started by a different kind of trigger.
-          curl -fsS --max-time 60 --retry 3 --retry-connrefused --retry-max-time 180 \
-            -X POST -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            -d "{\"ref\":\"main\",\"inputs\":{\"tag\":\"$GITHUB_REF_NAME\"}}" \
-            "https://api.github.com/repos/SisyphusMD/whiskerless/actions/workflows/install-matrix.yml/dispatches"
-          echo "dispatched the macOS + arm64 install matrix for $GITHUB_REF_NAME"
-      - name: Dispatch the arm64 shadow matrix here at this tag
-        # Shadow: the arm64 leg on our own runner, until it matches GitHub's.
-        continue-on-error: true
-        env:
-          TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
-        run: |
-          set -euo pipefail
-          curl -fsS --max-time 60 --retry 3 --retry-connrefused --retry-max-time 180 \
-            -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
-            -d "{\"ref\":\"main\",\"inputs\":{\"tag\":\"$GITHUB_REF_NAME\"}}" \
-            "https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless/actions/workflows/install-matrix-arm64.yml/dispatches"
-          echo "dispatched the arm64 shadow install matrix for $GITHUB_REF_NAME"
+          echo "dispatched the install matrix for $GITHUB_REF_NAME"
 
   prune-rcs:
     name: Prune the candidates this release supersedes
     # Last, not after `releases`: the sweep deletes a candidate only once its
-    # stable exists on all three hosts, and nas-bridge is what finishes the set.
-    # Run any earlier and this release would find its own stable half-published
+    # stable exists on all three hosts, and reconcile (below) is what confirms the
+    # set. Run any earlier and this release would find its own stable half-published
     # and keep every rc, turning the automatic pass into a silent no-op.
-    #
-    # Both, now that nas-bridge runs through a failed `releases`: pruning candidates
-    # while this release is itself incomplete on some host is exactly the silent
-    # no-op above, or worse.
     #
     # homebrew-bottles too, since #15: the sweep now deletes registry packages as
     # well as releases, and it must not start while this release is still
@@ -797,7 +665,7 @@ jobs:
     # repositories, so running while that upload is still in flight reads a not-yet-published
     # stable as a reason to keep every candidate — and then exits 0. Nothing re-runs the sweep,
     # so the leftovers would sit there until some later stable happened to win the race.
-    needs: [releases, registry, nas-bridge, homebrew-tap, homebrew-bottles, reconcile]
+    needs: [releases, registry, homebrew-tap, homebrew-bottles, reconcile]
     # An rc publishes through this same workflow, and its own stable does not
     # exist yet, so the sweep would enumerate every host to print zero. Skip it
     # rather than pay for the round trip.

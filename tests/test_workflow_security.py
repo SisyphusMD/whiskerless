@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[1]
-_MACOS = _ROOT / ".github" / "workflows" / "release-macos.yml"
+_MACOS = _ROOT / ".forgejo" / "workflows" / "release-macos.yml"
 # Both spellings: a forge accepts `.yaml` too, and a workflow that escaped this glob would be
 # exempt from every check below while still running.
 _FORGEJO = tuple(
@@ -136,21 +136,18 @@ def test_forgejo_workflows_do_not_use_unsupported_permissions_field() -> None:
             assert isinstance(job, dict) and "permissions" not in job, f"{workflow.name}:{name}"
 
 
-def test_github_token_defaults_read_only_and_only_macos_publish_can_write() -> None:
-    """Every scope, not just `contents`.
-
-    A grep for the literal `contents: write` stays green while a job quietly takes `write-all` or
-    `issues: write`, which is the same failure with a different word.
-    """
+def test_the_macos_release_writes_only_through_the_named_release_tokens() -> None:
+    """The .pkg reaches the releases through the scoped PATs the publish job names, never through
+    a widened built-in token: Forgejo ignores `permissions:`, so a block here would only suggest a
+    restriction nothing enforces."""
     document = yaml.safe_load(_MACOS.read_text())
-    assert document["permissions"] == {"contents": "read"}
-
+    assert "permissions" not in document
     for name, job in document["jobs"].items():
-        permissions = job.get("permissions")
-        if permissions is None:
-            continue
-        assert name == "publish", f"{name} widens the token beyond the read-only default"
-        assert permissions == {"contents": "write"}, f"{name}: {permissions}"
+        assert "permissions" not in job, f"{name} declares permissions Forgejo does not enforce"
+    publish = yaml.dump(document["jobs"]["publish"])
+    assert "secrets.GITHUB_TOKEN" not in _MACOS.read_text()
+    for token in ("GH_REPO_WRITE_PAT", "CLUSTER_FORGEJO_REPO_WRITE_PAT", "NAS_FORGEJO_REPO_WRITE_PAT"):
+        assert f"secrets.{token}" in publish, token
 
 
 def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
@@ -284,7 +281,7 @@ def test_the_prune_job_never_runs_on_a_prerelease_tag() -> None:
     )
 
     needs = prune["needs"]
-    for required in ("homebrew-tap", "reconcile", "registry", "nas-bridge"):
+    for required in ("homebrew-tap", "reconcile", "registry"):
         assert required in needs, f"prune does not wait for {required}: {needs}"
 
 

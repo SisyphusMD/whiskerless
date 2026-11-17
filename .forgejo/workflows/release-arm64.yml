@@ -1,50 +1,71 @@
-name: Release build (Linux arm64, shadow)
+name: Release (Linux arm64)
 
-# SHADOW of .github/workflows/release-linux-arm64.yml, which still builds and publishes the arm64
-# assets. This builds the same tag the same way on our own native arm64 runner, publishes nothing,
-# and compares its build with the copies GitHub's runner appends to the release. When the two have
-# agreed on a release candidate, this job takes over the upload and GitHub's copy goes.
+# arm64 Linux artifacts, built NATIVELY on our arm64 runner. Architecture picks the runner label:
+# amd64 on the cluster, arm64 here, macOS on the Mac VMs, and nothing anywhere is emulated.
 #
-# Its own workflow, not a job in publish.yml, so a busy or missing arm64 runner can never keep a
-# release looking unfinished. Every step that can fail is continue-on-error and the last one
-# reports the verdict, so this run is green whatever it found; read the SHADOW-VERDICT lines.
+# What emulation cost, for the record: buildkit runs an emulated guest binary through an injected
+# emulator, so a onefile app's parent process is /dev/.buildkit_qemu_emulator rather than the app.
+# PyInstaller 6.22.1 added a parent-executable check, and every emulated arm64 self-test and
+# package smoke started failing — it cost this project's rc.18 Linux assets and the sibling's
+# rc.13. The pin that works around it can be lifted once a candidate proves this path.
+#
+# APPENDS to the release publish.yml already created, exactly as release-macos.yml does. It does
+# not rely on creating one: publish.yml publishes amd64 immediately, and these arrive after. A failure here leaves a
+# release missing its arm64 assets — which reconcile repairs on the next release and prune-rcs
+# refuses to prune around — rather than blocking the release outright.
+
 on:
   push:
-    tags: ["v*.*.*"]
+    tags: ["v*.*.*", "v*.*.*-*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build arm64 artifacts for, e.g. v0.2.0-rc.36"
+        required: true
+        type: string
 
+# Keyed per tag, so a dispatched rebuild of one tag never displaces another tag's publish.
 concurrency:
-  group: release-arm64-${{ github.ref }}
+  group: release-arm64-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  guard:
-    name: Only for a release tag
-    runs-on: ubuntu-latest
+  build:
+    name: Build + publish arm64 ${{ inputs.tag || github.ref_name }}
+    runs-on: ubuntu-26.04-arm
+    env:
+      # The tag reaches every `run:` below as an ENVIRONMENT VALUE, never as `${{ }}` inside the
+      # script. Actions substitutes an expression into the script TEXT before any shell parses it,
+      # so a tag is not data there — it is source. Git allows quotes, semicolons and backticks in a
+      # ref name, and `v1.2.3";id;"` matches this workflow's own `v*.*.*` trigger, so the tag that
+      # runs here can be chosen by whoever can push one. That script would execute with the package
+      # signing key in scope. As `$TAG` it is a string, and the quoting is the shell's problem.
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      # `refs/tags/` is not decoration. This job runs with the signing key in scope, and the
+      # dispatch input is a free-text ref — a branch name would check out that branch's copy of
+      # build-linux-arch.sh and run it with the key in the environment. Resolving only under
+      # refs/tags/ means a dispatch can rebuild an existing tag and nothing else: no such ref
+      # exists for a branch, so the checkout fails instead of executing it. release-macos.yml,
+      # which holds the Apple identity, resolves its dispatch the same way.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
-      - name: Check the tag
+
+      # The same tag grammar every other release step enforces, before anything reads the key.
+      # A tag can be named freely even though it cannot be a branch, and this job should build
+      # only things that are actually releases.
+      - name: Validate the tag before the signing key comes into scope
         run: |
           set -euo pipefail
+          # shellcheck source=/dev/null
           . packaging/release-common.sh
-          rel_validate_tag "${GITHUB_REF_NAME}"
+          rel_validate_tag "$TAG"
 
-  arm64:
-    name: Build the arm64 assets and compare them with GitHub's
-    needs: guard
-    runs-on: ubuntu-26.04-arm
-    steps:
-      # Even the preparation may not fail this job.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        id: checkout
-        continue-on-error: true
-        with:
-          persist-credentials: false
+      # build-linux-arch.sh exports the binary with `--output type=local`, which the default
+      # docker driver does not support — only the docker-container one this installs.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        id: buildx
-        if: steps.checkout.outcome == 'success'
-        continue-on-error: true
         with:
           # BuildKit has its own registry client and does not inherit dockerd's mirror.
           buildkitd-config-inline: |
@@ -58,47 +79,67 @@ jobs:
               mirrors = ["image-mirror.lan.bryantserver.com/registry.k8s.io"]
             [registry."public.ecr.aws"]
               mirrors = ["image-mirror.lan.bryantserver.com/public.ecr.aws"]
-      - name: Build the arm64 assets natively, package them, and smoke them
-        id: build
-        if: steps.buildx.outcome == 'success'
-        continue-on-error: true
+
+      - name: Build the arm64 binary, package it, and prove the package carries it
         env:
+          # Step-local: the key is needed by exactly this step.
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           # The manylinux builder's dnf installs, through the NAS artifact cache.
           DNF_MIRROR: https://artifacts.lan.bryantserver.com
         run: |
           set -euo pipefail
-          bash packaging/build-linux-arch.sh arm64 "$GITHUB_REF_NAME"
+          # The same pins the amd64 half uses, from the same file, sourced by the script itself.
+          bash packaging/build-linux-arch.sh arm64 "$TAG"
+
+      - name: Append the arm64 assets to the three releases
+        env:
+          GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
+          CLUSTER_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+          NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}
+        run: |
+          set -euo pipefail
+          chmod +x packaging/github-release.sh packaging/forgejo-release.sh packaging/changelog-section.sh
+          bash packaging/changelog-section.sh "${TAG#v}" > notes.md
+          # BEFORE anything that can create the release. This workflow is triggered by the tag
+          # independently of publish.yml, and the release helpers create the release when it is
+          # missing — so publishing here first would let HACS advertise a version whose pinned
+          # library is not yet installable. Same wait release-macos.yml makes, for the same reason.
+          bash packaging/wait-for-pypi.sh "${TAG#v}"
+          # This half's checksums, hashed on the machine that built the bytes. Named for `uname -m`,
+          # which prints aarch64 here — the arm64 spelling in the artifact names is Debian's, not
+          # the kernel's, and the point of the name is that `sha256sum -c --ignore-missing
+          # SHA256SUMS-$(uname -m)` works unedited on the machine doing the verifying.
           mapfile -t ASSETS < <(ls whiskerless-*-linux-arm64 ./*_arm64.deb ./*.aarch64.rpm)
+          # `ls` failing inside a process substitution cannot fail the step, so a missing artifact
+          # would publish a short asset list and a checksum file to match — a release that looks
+          # healthy and is not. Three is the whole per-arch set: binary, .deb, .rpm.
           [ "${#ASSETS[@]}" -eq 3 ] || {
             echo "::error::expected 3 arm64 artifacts, found ${#ASSETS[@]}: ${ASSETS[*]-}" >&2
             exit 1
           }
-          # The checksum file GitHub's job writes, the same way, so its name list is compared too.
           sums="SHA256SUMS-aarch64"
           sha256sum "${ASSETS[@]}" | sed 's| \./| |' > "$sums"
+          # Same dual spelling as the amd64 half: GitHub's asset API rewrites `~` to `.` in the
+          # uploaded filename while Forgejo serves the canonical one, so a `~` artifact is listed
+          # under both names with the same hash and --ignore-missing skips the one you did not get.
           awk '$2 ~ /~/ { name = $2; gsub(/~/, ".", name); print $1 "  " name }' "$sums" >> "$sums.alt"
           [ -s "$sums.alt" ] && cat "$sums.alt" >> "$sums"
           rm -f "$sums.alt"
-          printf '%s\n' "${ASSETS[@]}" "$sums" > arm64-assets.txt
-      - name: Compare with the arm64 assets GitHub's runner appended
-        id: compare
-        if: steps.build.outcome == 'success'
-        continue-on-error: true
-        env:
-          FORGE: https://forgejo.bryantserver.com
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq && sudo apt-get install -y -qq rpm >/dev/null
-          mapfile -t assets < arm64-assets.txt
-          bash packaging/compare-arch-build.sh "$GITHUB_REF_NAME" "${assets[@]}"
-      - name: Shadow verdict
-        if: always()
-        env:
-          BUILD: ${{ steps.checkout.outcome != 'success' && 'checkout-failed' || steps.buildx.outcome != 'success' && 'buildx-failed' || steps.build.outcome }}
-          COMPARE: ${{ steps.compare.outcome }}
-        run: |
-          echo "SHADOW-VERDICT arm64 release build: build=$BUILD compare=$COMPARE"
-          if [ "$BUILD" != success ] || [ "$COMPARE" != success ]; then
-            echo "::warning::arm64 shadow build=$BUILD compare=$COMPARE (GitHub's build is still the one published)"
+          echo "checksums:"; cat "$sums"
+          ASSETS+=("$sums")
+          # All three registries get the same bytes, the NAS directly now that the build runs where
+          # it can reach it. Attempted independently so one failing does not hide the others'
+          # result, the shape publish.yml uses for the same reason.
+          failed=""
+          packaging/forgejo-release.sh forgejo.bryantserver.com \
+            "$CLUSTER_TOKEN" "$TAG" notes.md "${ASSETS[@]}" \
+            || failed="$failed forgejo.bryantserver.com"
+          packaging/github-release.sh "$GH_TOKEN" \
+            "$TAG" notes.md "${ASSETS[@]}" || failed="$failed github.com"
+          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
+            "$NAS_TOKEN" "$TAG" notes.md "${ASSETS[@]}" \
+            || failed="$failed forgejo.lan.bryantserver.com"
+          if [ -n "$failed" ]; then
+            echo "::error::arm64 asset publishing failed for:$failed"
+            exit 1
           fi

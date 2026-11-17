@@ -2,8 +2,8 @@
 # Build, package, sign and smoke ONE architecture's Linux release artifacts.
 #   build-linux-arch.sh <amd64|arm64> <tag>
 #
-# Called by BOTH forges, which is the whole point: architecture decides where a job runs — amd64 on
-# the self-hosted Forgejo runner, arm64 on GitHub's native arm runner, nothing emulated anywhere —
+# Called by BOTH release workflows, which is the whole point: architecture decides where a job runs —
+# amd64 on the cluster runner, arm64 on the native arm64 runner, nothing emulated anywhere —
 # and two inline copies of this logic would drift the first time one was edited. The build recipe
 # itself already lived in linux.Dockerfile and nfpm.yaml; this is the orchestration around it.
 #

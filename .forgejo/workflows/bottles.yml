@@ -1,0 +1,185 @@
+name: Bottles (Homebrew)
+
+# Prebuilt kegs for the tap, so `brew install` stops compiling cryptography.
+# Without them Homebrew builds every resource from source, and cryptography's
+# Rust extension drags in `rust` → `llvm`: ~2.4 GB downloaded and several minutes
+# of compiling on every user's machine, for a package that is otherwise pure
+# Python.
+#
+# Every leg runs natively on our own runners: the macOS 15 VM, the arm64 Linux VM and the
+# amd64 cluster. A bottle is by definition a from-source build (~18 minutes on arm64), so
+# nothing here is emulated. The append job uploads every leg's bottle and manifest from this
+# run's artifacts, which are run-scoped, so one matrix in one run is how the set stays together.
+#
+# Ordering is enforced rather than assumed. A bottle is produced by INSTALLING
+# the published formula, so build-bottles.sh waits for publish.yml's first tap
+# pass; publish.yml's `homebrew-bottles` job then waits for the assets this
+# uploads and writes the `bottle do` block in a second pass.
+on:
+  push:
+    tags: ["v*.*.*"]
+  # Dispatchable for the same reason as ci.yml and publish.yml (#74): Forgejo has
+  # no rerun API, so one leg failing on infrastructure must not cost a whole
+  # candidate. Re-running is safe — the release helpers replace an asset rather
+  # than duplicating it.
+  #
+  # The tag is an INPUT rather than the dispatch ref, because those are two
+  # different things when the reason for re-running is a fix to the build script
+  # itself: a dispatch at the tag would faithfully re-run the broken version of
+  # this workflow. Dispatching from a branch runs the CURRENT scripts against the
+  # named release, which is what recovery actually needs. Nothing about the
+  # bottle's contents comes from this checkout — it is built by installing the
+  # published formula, which points at the published sdist.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build bottles for, e.g. v0.2.0-rc.28"
+        required: true
+        type: string
+
+env:
+  # The push trigger has no inputs; the dispatch trigger has no meaningful ref.
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: Bottle ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # One platform failing must not cancel the others: a partial set is still
+      # worth publishing, and the missing leg can be dispatched on its own.
+      fail-fast: false
+      matrix:
+        include:
+          # ONE BOTTLE PER ARCH, not per macOS release. Homebrew pours an older
+          # bottle when none matches the running OS — verified on a macOS 27
+          # machine, which poured `arm64_tahoe` (26) bottles — so building the
+          # oldest supported release covers every newer one. macOS 15 is that
+          # floor. (macOS 16–25 do not exist; Apple went 15 → 26 → 27.)
+          # No Intel leg: Intel Macs are not supported.
+          - runner: macos-15-vm
+            label: arm64_sequoia
+            kind: macos
+          - runner: ubuntu-latest
+            label: x86_64_linux
+            kind: linux
+          - runner: ubuntu-26.04-arm
+            label: arm64_linux
+            kind: linux
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the bottles (macOS — the VM's own Homebrew)
+        if: ${{ matrix.kind == 'macos' }}
+        run: bash packaging/build-bottles.sh "$TAG" "$GITHUB_WORKSPACE/bottles"
+      - name: Build the bottles (Linux — the pinned linuxbrew image)
+        # Not the runner's Homebrew: the Linux runners have none, and installing it from the
+        # upstream one-liner would be the only unpinned thing in this pipeline. This is the same
+        # image, at the same digest, that the Linux formula smoke already proves the formula in —
+        # so the bottle is built where the formula is known to work.
+        if: ${{ matrix.kind == 'linux' }}
+        run: |
+          set -euo pipefail
+          # renovate: datasource=docker depName=homebrew/brew
+          IMAGE="homebrew/brew:latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd"
+          # Copied in and out rather than bind-mounted: this job may itself run in a container,
+          # whose workspace path means nothing to the Docker daemon, so a mount would be empty.
+          #
+          # No HOMEBREW_CURL_RETRIES here, and that is a measured choice rather than an oversight.
+          # Raising it to 8 made every platform in one run sit for over an hour without finishing a
+          # single bottle, against about fourteen minutes for the whole run without it: the count
+          # multiplies the wait whenever ghcr is broadly slow, which is exactly when it gets used.
+          # The failure it would guard — one dependency blob that stays unavailable past Homebrew's
+          # own three tries — costs a single platform, which a dispatch of this workflow rebuilds.
+          name="bottles-${GITHUB_RUN_ID:-local}-${{ matrix.label }}"
+          docker rm -f "$name" >/dev/null 2>&1 || true
+          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          docker create --name "$name" -e TAG "$IMAGE" sleep infinity >/dev/null
+          docker start "$name" >/dev/null
+          docker cp . "$name:/tmp/repo"
+          # The image runs as `linuxbrew`; `docker cp` leaves the copy owned by root.
+          docker exec -u root "$name" chown -R linuxbrew: /tmp/repo
+          # umask stated, not inherited: the cluster daemon's exec runs with 000, and Bundler then
+          # refuses to touch the world-writable gem directory it created itself a moment earlier.
+          docker exec "$name" bash -lc 'umask 022 && bash /tmp/repo/packaging/build-bottles.sh "$TAG" /tmp/out'
+          docker cp "$name:/tmp/out" bottles
+      - uses: actions/upload-artifact@c6a366c94c3e0affe28c06c8df20a878f24da3cf # v3.2.2
+        with:
+          name: bottle-${{ matrix.label }}
+          path: bottles/*
+
+  publish:
+    name: Append the bottles to the three releases
+    needs: build
+    # `!cancelled()`, not the default: `needs` alone skips this job the moment ANY
+    # matrix leg fails, which would throw away the bottles that did build
+    # and force all three platforms to succeed in one run. Publishing what arrived
+    # is what makes dispatching a single failed leg later actually work. A missing
+    # platform is still caught where it matters — bottle-block.py refuses to write
+    # a block that is not the full set.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # One download per leg, each allowed to miss: a failed leg uploaded nothing, and the legs
+      # that did build must still be published.
+      - uses: actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0
+        continue-on-error: true
+        with:
+          name: bottle-arm64_sequoia
+          path: bottles
+      - uses: actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0
+        continue-on-error: true
+        with:
+          name: bottle-x86_64_linux
+          path: bottles
+      - uses: actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0
+        continue-on-error: true
+        with:
+          name: bottle-arm64_linux
+          path: bottles
+      - name: Release notes from CHANGELOG
+        run: bash packaging/changelog-section.sh "${TAG#v}" > notes.md
+      - name: Append the bottles + their manifests to the three releases
+        # The .json manifests ride along deliberately: publish.yml's second tap
+        # pass reads them back off the Forgejo release to build the block, and
+        # they are the only record of which sha256 belongs to which platform.
+        env:
+          GH_TOKEN: ${{ secrets.GH_REPO_WRITE_PAT }}
+          CLUSTER_TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+          NAS_TOKEN: ${{ secrets.NAS_FORGEJO_REPO_WRITE_PAT }}
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          files=(bottles/*)
+          [ "${#files[@]}" -gt 0 ] || { echo "::error::no leg produced a bottle"; exit 1; }
+          ls -l bottles/
+          chmod +x packaging/github-release.sh packaging/forgejo-release.sh
+          # Each destination is attempted whatever the others did, and failures are
+          # re-raised at the end — the same shape the main release job uses, for
+          # the same reason (#76). Forgejo is the bottle block's root_url, so letting a
+          # transient failure elsewhere skip it would guarantee the tap pass times out for a
+          # reason that has nothing to do with the tap. The NAS is a direct destination now that
+          # the build runs where it can reach it, so no bridge job copies these any more.
+          #
+          # BOTTLES ONLY, and replaceable on purpose. Every other asset is immutable once
+          # published, which is what makes the cross-registry quorum meaningful — but a bottle is
+          # not byte-reproducible (its gzip header carries the build timestamp), so a dispatched
+          # rebuild after a partial run legitimately produces different bytes. Under the default
+          # `immutable` the first already-published platform raised a conflict and the recovery
+          # run this workflow documents could not complete.
+          export REL_REPLACE_POLICY=replace
+          failed=""
+          packaging/forgejo-release.sh forgejo.bryantserver.com \
+            "$CLUSTER_TOKEN" "$TAG" notes.md "${files[@]}" || failed="$failed forgejo.bryantserver.com"
+          packaging/github-release.sh "$GH_TOKEN" \
+            "$TAG" notes.md "${files[@]}" || failed="$failed github.com"
+          packaging/forgejo-release.sh forgejo.lan.bryantserver.com \
+            "$NAS_TOKEN" "$TAG" notes.md "${files[@]}" || failed="$failed forgejo.lan.bryantserver.com"
+          if [ -n "$failed" ]; then
+            echo "::error::bottle publishing failed for:$failed"
+            exit 1
+          fi
