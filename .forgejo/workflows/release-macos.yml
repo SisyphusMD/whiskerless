@@ -145,7 +145,7 @@ jobs:
           bash packaging/test-macos-package.sh
           "whiskerless-${TAG#v}-macos-${{ matrix.arch }}.pkg"
           "${{ matrix.arch }}" "${TAG#v}"
-      - uses: actions/upload-artifact@c6a366c94c3e0affe28c06c8df20a878f24da3cf # v3.2.2
+      - uses: https://code.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5
         with:
           name: pkg-${{ matrix.arch }}
           path: whiskerless-*-macos-${{ matrix.arch }}.pkg
@@ -172,7 +172,7 @@ jobs:
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
-      - uses: actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0
+      - uses: https://code.forgejo.org/forgejo/download-artifact@769f970437aa3291b13f35dc23fc87967d7fb19f # v7
         with:
           name: pkg-${{ matrix.arch }}
           path: .
@@ -196,7 +196,7 @@ jobs:
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
-      - uses: actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0
+      - uses: https://code.forgejo.org/forgejo/download-artifact@769f970437aa3291b13f35dc23fc87967d7fb19f # v7
         with:
           name: pkg-arm64
           path: pkgs

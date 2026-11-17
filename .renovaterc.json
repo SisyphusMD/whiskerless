@@ -256,15 +256,18 @@
       "groupName": "distro compatibility floors"
     },
     {
-      "description": "Forgejo serves only the v3 artifact protocol. upload-artifact and download-artifact v4 and later throw GHESNotSupportedError on any server whose GITHUB_SERVER_URL is not github.com, which is every run here, and bottles.yml and release-macos.yml pass the bottles and the signed .pkg between jobs through them. PR CI never runs those two workflows, so a major bump arrives green and breaks only the next release. Both stay below v4.",
-      "matchManagers": [
-        "github-actions"
-      ],
+      "description": "Forgejo's forks of upload-artifact and download-artifact: GitHub's own v4 and later throw GHESNotSupportedError off github.com. Only the forks' bare major tags (v5, v7) carry Forgejo's patch; the upstream vX.Y.Z tags mirrored beside them still refuse Forgejo, so nothing else is allowed. Never automerged, digest moves included: bottles.yml and release-macos.yml pass the bottles and the signed .pkg between jobs through them and PR CI never runs either workflow, so green here proves nothing. Prove a bump with a release-path run in a private proof repo first. Grouped because the upload and download must speak the same artifact protocol.",
       "matchDepNames": [
-        "actions/upload-artifact",
-        "actions/download-artifact"
+        "https://code.forgejo.org/forgejo/upload-artifact",
+        "https://code.forgejo.org/forgejo/download-artifact"
       ],
-      "allowedVersions": "<4"
+      "allowedVersions": "/^v\\d+$/",
+      "groupName": "forgejo artifact actions",
+      "automerge": false,
+      "separateMajorMinor": false,
+      "prBodyNotes": [
+        "PR CI never runs `bottles.yml` or `release-macos.yml`, the only users of these actions, so green here says nothing about them. Before merging, run both workflows end to end with this pair in a private proof repo with every publish step removed, on every runner label they use, and check the bottles and the signed .pkg arrive where the later jobs read them."
+      ]
     }
   ],
   "customManagers": [
