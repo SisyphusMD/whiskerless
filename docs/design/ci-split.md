@@ -3,8 +3,8 @@
 **Architecture picks the runner, and nothing is emulated.** Every job belongs on
 Forgejo, on a runner that is natively the architecture it tests: `ubuntu-latest`
 for Linux amd64, `ubuntu-26.04-arm` for Linux arm64, and `macos-15-vm` /
-`macos-27-vm` for the macOS floor and current macOS. A job still on GitHub is one
-that has not moved yet.
+`macos-27-vm` for the macOS floor and current macOS. A job still on GitHub has not
+moved yet, or is tied to one that has not.
 
 `tests/test_repo_invariants.py::test_github_only_runs_what_only_github_can_run`
 holds what is left on GitHub to that rule: a job in `.github/workflows/` on a
@@ -61,7 +61,8 @@ runner already is; it is not a request to emulate.
 
 ## What legitimately lives on GitHub
 
-Each of these is in the test's exception list, with the same reason recorded there:
+The macOS and arm64 jobs pass that test on their runner labels alone; the others are in its
+exception list, with the same reason recorded there:
 
 - **The macOS release jobs** — `release-macos.yml` and the macOS legs of
   `install-matrix.yml`. They are here because they have not moved yet: the `.pkg`
@@ -86,7 +87,7 @@ Each of these is in the test's exception list, with the same reason recorded the
 
 Ask what hardware it needs, then put it in `.forgejo/workflows/` on that runner.
 Nothing new goes in `.github/workflows/`; the jobs there are release jobs that
-have not moved yet.
+have not moved yet, or jobs tied to them by run-scoped artifacts.
 
 GitHub-only jobs carry `if: ${{ github.server_url == 'https://github.com' }}`.
 Keep it. This instance records no runs at all for `.github/workflows/` — every run
