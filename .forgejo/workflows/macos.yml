@@ -1,17 +1,14 @@
-name: macOS (shadow)
+name: macOS
 
-# The native macOS legs on our own Mac: the oldest supported macOS (15) and the newest (27), each
-# in its own VM. They run what GitHub's ci-macos.yml and formula-macos.yml run, on the same commits.
+# The native macOS legs, each in its own VM on our own Mac: the oldest supported macOS (15) and the
+# newest (27). They run the test suite and the Homebrew formula smoke on every pushed commit, and
+# both jobs are required checks on main. The release workflows refuse a commit whose run here is not
+# fully green (packaging/check-forgejo-ci.sh). Renovate merges by itself and waits for every status,
+# so while a VM is down, Renovate's merges wait for it.
 #
-# SHADOW until the two have agreed for about a week. Every step after the Python setup is
-# continue-on-error and the last step reports the verdict, so a failing check never turns a commit
-# red. GitHub's copies stay the gate (CI / macos and the release mirror gates) until the switch,
-# which moves them here. Renovate merges by itself and waits for every status, this one included,
-# as it already waits for CI / macos; so while a VM is down, Renovate's merges wait for it.
-#
-# Push to every branch, like GitHub's: a prerelease can be cut from any branch, and the gate will
-# need a verdict for that exact commit. No pull_request trigger: a same-repository branch already
-# runs on push, and a fork's code must not run on these machines.
+# Push to every branch: a prerelease can be cut from any branch, and its gate needs a verdict for
+# that exact commit. No pull_request trigger: a same-repository branch already runs on push, and an
+# outside pull request's code must not run on these machines.
 on:
   push:
     branches: ["**"]
@@ -62,8 +59,8 @@ jobs:
           # The formula smoke builds an sdist, and hatchling needs the tag history for a version.
           fetch-depth: 0
           persist-credentials: false
-      # Retried in-step, and the one thing allowed to fail this job: everything after it would
-      # otherwise pip-install into the image's own interpreter.
+      # Retried in-step: a transient versions-manifest fetch failure is the commonest way this job
+      # dies before testing anything, and Forgejo has no automatic retry.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         id: setup_python_1
         continue-on-error: true
@@ -77,7 +74,6 @@ jobs:
       # before every job, and the test dependencies below would otherwise already be installed.
       - name: Homebrew formula builds and runs
         id: formula
-        continue-on-error: true
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip build
@@ -89,7 +85,6 @@ jobs:
           bash packaging/test-homebrew-formula.sh "v${version}" dist/whiskerless-*.tar.gz
       - name: Install native test dependencies
         id: deps
-        continue-on-error: true
         run: |
           brew install bash shellcheck
           echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
@@ -97,21 +92,17 @@ jobs:
           python -m pip install -e ".[dev,ble]"
       - name: Lint and type-check
         id: lint
-        continue-on-error: true
         run: |
           ruff check $(git ls-files '*.py' | tr '\n' ' ')
           mypy
       - name: Pytest (library)
         id: pytest
-        continue-on-error: true
         run: pytest -q
       - name: Check shell scripts
         id: shellcheck
-        continue-on-error: true
         run: git ls-files '*.sh' | xargs shellcheck
       - name: Run the release scripts' tests on BSD userland
         id: release_scripts
-        continue-on-error: true
         run: |
           for t in tests/release/*.sh; do
             echo "== $t =="
@@ -119,26 +110,4 @@ jobs:
           done
       - name: Import the BLE stack on this platform
         id: ble
-        continue-on-error: true
         run: python -c "import bleak; from whiskerless.ble.transport import scan; print('bleak backend imports')"
-      - name: Shadow verdict
-        if: always()
-        env:
-          TIER: ${{ matrix.tier }}
-          FORMULA: ${{ steps.formula.outcome }}
-          DEPS: ${{ steps.deps.outcome }}
-          LINT: ${{ steps.lint.outcome }}
-          PYTEST: ${{ steps.pytest.outcome }}
-          SHELLCHECK: ${{ steps.shellcheck.outcome }}
-          RELEASE_SCRIPTS: ${{ steps.release_scripts.outcome }}
-          BLE: ${{ steps.ble.outcome }}
-        run: |
-          ci=success
-          for o in "$DEPS" "$LINT" "$PYTEST" "$SHELLCHECK" "$RELEASE_SCRIPTS" "$BLE"; do
-            [ "$o" = success ] || ci=failure
-          done
-          formula="$FORMULA"
-          echo "SHADOW-VERDICT tier=$TIER ci=$ci formula=$formula (deps=$DEPS lint=$LINT pytest=$PYTEST shellcheck=$SHELLCHECK release-scripts=$RELEASE_SCRIPTS ble=$BLE)"
-          if [ "$ci" != success ] || [ "$formula" != success ]; then
-            echo "::warning::macOS $TIER shadow: ci=$ci formula=$formula (not gating; GitHub's run is the gate)"
-          fi

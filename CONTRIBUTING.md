@@ -6,7 +6,7 @@ fixes, and new-device support are all welcome.
 ## Dev setup
 
 ```bash
-git clone https://github.com/SisyphusMD/whiskerless
+git clone https://forgejo.bryantserver.com/SisyphusMD/whiskerless
 cd whiskerless
 python -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev,ble]'
@@ -209,23 +209,38 @@ there.
 
 ## Where issues and pull requests go
 
-**GitHub.** Open them at [SisyphusMD/whiskerless](https://github.com/SisyphusMD/whiskerless) — it is also the mirror HACS installs from, so it is where users already are.
+**Forgejo.** Open them at [SisyphusMD/whiskerless](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/issues). You can sign in there with
+your GitHub account; there is no separate sign-up. The [GitHub repository](https://github.com/SisyphusMD/whiskerless) is a
+read-only mirror (HACS installs from it) and does not take issues or pull requests.
 
-Forgejo (`forgejo.bryantserver.com/SisyphusMD/whiskerless`) is the source of truth and runs the full CI
-suite on every push to `main`, but it is not where contributions arrive — outside contributors have
-no account there, and its runner holds this project's release credentials. Every job in
-`.forgejo/workflows/ci.yml` therefore carries a fork-trust gate and deliberately **skips** a pull
-request from a fork rather than running untrusted code beside those secrets.
+A new account waits for a maintainer to activate it. Once it is active you can open issues, and
+send a pull request with [AGit](https://forgejo.org/docs/latest/user/git-cli/agit-support/): new
+accounts cannot create repositories, so there is no fork. Clone from Forgejo (the GitHub mirror
+cannot take the push), commit on a branch, and push it as a pull request against `main`:
 
-So a fork PR is tested on **GitHub-hosted runners**, which hold none of our secrets, by
-`.github/workflows/ci-pr.yml`. You get lint, strict type-checking of both the library and the integration, both test suites at their 99% floors, the `safety.py` and `config_flow.py` 100% gates, the declared dependency floors, shellcheck, and documentation links.
+```sh
+git clone https://forgejo.bryantserver.com/SisyphusMD/whiskerless.git
+git push origin HEAD:refs/for/main -o topic=<short-name>
+```
+
+A GitHub sign-in has no Forgejo password, so push over HTTPS with an access token from your
+Forgejo settings. Push again with the same topic to update the pull request.
+
+CI runs on this project's own runners, which are also trusted with its release credentials, so it
+does not run on a pull request sent this way. A maintainer reads the change, then opens it again as
+a pull request from a branch here, and that runs the whole suite: lint, strict type-checking of both the
+library and the integration, both test suites at their 99% floors, the `safety.py` and
+`config_flow.py` 100% gates, the declared dependency floors, hassfest, the HACS checks,
+shellcheck, documentation links, and the same tests plus the Homebrew formula on macOS 15 and on
+the newest macOS.
 
 **What that does not cover**, so you are not surprised by a later failure:
 
 - **The install matrix.** 25 install channels across five distributions run on
   Forgejo and at release time, not per-PR — a packaging change can pass here and fail
   there.
-- **macOS and bottles.** Both need runners this workflow does not use.
+- **Bottles and the macOS `.pkg`.** Both are built only at release time. The macOS jobs on
+  every push test the code and the Homebrew formula, not those.
 - **Hardware.** Nothing in CI touches a robot. The BLE transport is faked at the `bleak`
   boundary and no runner has a radio, so provisioning changes need a bench run.
 - **Safety classification is not a style question.** Any new command must be classified in

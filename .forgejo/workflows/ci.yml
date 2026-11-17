@@ -4,10 +4,9 @@ on:
   pull_request:
   push:
     branches: [main]
-  # Forgejo has no rerun API and no equivalent of GitHub's retry-infra-failures
-  # workflow, so without this a transient runner fault — `actions/setup-python`
-  # failing to fetch its versions manifest took all five jobs down on
-  # 2026-08-17 — leaves main red with no way back except an unrelated commit.
+  # Nothing retries an infra failure automatically, so without this a transient runner
+  # fault (`actions/setup-python` failing to fetch its versions manifest took all five jobs
+  # down on 2026-08-17) leaves main red until someone dispatches a fresh run.
   workflow_dispatch:
 
 concurrency:
@@ -19,8 +18,8 @@ jobs:
     name: Lint, type-check, test (library, current)
     # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
     # forks too, so without this a fork's PR would run its own code — and reach this
-    # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
-    # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
+    # machine's secrets and caches — on the owner's hardware. A maintainer reads an outside
+    # change and opens it again from a branch here, which runs everything. Ported from dreame-valetudo.
     # flow == 0 also turns away AGit PRs (pushed to refs/for/<branch>): they report this repo as
     # their head, and a maintainer reopening one runs this branch's workflows with secrets.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
@@ -72,8 +71,8 @@ jobs:
     name: Lint, type-check, test (library, 3.11 floor)
     # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
     # forks too, so without this a fork's PR would run its own code — and reach this
-    # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
-    # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
+    # machine's secrets and caches — on the owner's hardware. A maintainer reads an outside
+    # change and opens it again from a branch here, which runs everything. Ported from dreame-valetudo.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
@@ -119,8 +118,8 @@ jobs:
     name: Shell scripts and documentation links
     # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
     # forks too, so without this a fork's PR would run its own code — and reach this
-    # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
-    # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
+    # machine's secrets and caches — on the owner's hardware. A maintainer reads an outside
+    # change and opens it again from a branch here, which runs everything. Ported from dreame-valetudo.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
@@ -192,8 +191,8 @@ jobs:
     name: Test the dependency floors the package advertises
     # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
     # forks too, so without this a fork's PR would run its own code — and reach this
-    # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
-    # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
+    # machine's secrets and caches — on the owner's hardware. A maintainer reads an outside
+    # change and opens it again from a branch here, which runs everything. Ported from dreame-valetudo.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
@@ -237,8 +236,8 @@ jobs:
     name: Type-check + test the integration
     # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
     # forks too, so without this a fork's PR would run its own code — and reach this
-    # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
-    # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
+    # machine's secrets and caches — on the owner's hardware. A maintainer reads an outside
+    # change and opens it again from a branch here, which runs everything. Ported from dreame-valetudo.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
@@ -292,8 +291,8 @@ jobs:
     name: Test the integration on the newest Home Assistant
     # Trusted-ref gate: this Forgejo runner is self-hosted, and `pull_request` fires for
     # forks too, so without this a fork's PR would run its own code — and reach this
-    # machine's secrets and caches — on the owner's hardware. Fork PRs are covered by
-    # GitHub's hosted runners instead (.github/workflows/ci-pr.yml). Ported from dreame-valetudo.
+    # machine's secrets and caches — on the owner's hardware. A maintainer reads an outside
+    # change and opens it again from a branch here, which runs everything. Ported from dreame-valetudo.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
     runs-on: ubuntu-latest
     steps:
@@ -381,7 +380,7 @@ jobs:
           # shellcheck source=/dev/null
           . packaging/release-pins.env
           # amd64 only: this runner is amd64 and nothing here is emulated. The arm64 leg builds
-          # natively on GitHub at release time.
+          # natively on the arm64 runner at release time.
           rm -rf out
           docker buildx build --platform linux/amd64 \
             --build-arg PYTHON_BUILD_IMAGE="$MANYLINUX" \
@@ -561,40 +560,3 @@ jobs:
             echo "::error::HACS ran ${checks:-0} checks; the full set is 10, so some were skipped" >&2
             exit 1
           fi
-
-  macos:
-    # By the time the Linux suites finish, the mirrored macOS workflow normally has too. This keeps
-    # the shared public GitHub API budget and the self-hosted runner slot out of a needless poll.
-    needs: [quality, quality-floor, hygiene, dependency-floors, homeassistant, homeassistant-current, build]
-    # GitHub's mirror runs the same commit on native Apple Silicon hosts. Waiting by exact head
-    # SHA prevents a newer green branch run from qualifying an older pull request revision.
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.flow == 0)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The step below runs a script from this checkout against a PR-controlled ref; leaving the
-          # repository token in git config would hand that script a WRITE credential the job has no
-          # use for. The release mirror gate withholds it for the same reason.
-          persist-credentials: false
-      - name: Resolve the mirrored commit
-        id: mirrored
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            sha=$(python3 -c 'import json, os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"]))["pull_request"]["head"]["sha"])')
-          else
-            sha="$GITHUB_SHA"
-          fi
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - name: Require native macOS CI for this exact commit
-        env:
-          # Optional and read-only. Unauthenticated GitHub allows 60 requests an hour PER IP, shared
-          # with everything else egressing from this network — including the sibling repository's
-          # copy of this same gate, which polls the same API for the same reason. A token needs NO
-          # scopes for a public repo and lifts the limit to 5,000/hour; exhausting it turns this gate
-          # into a timeout that blames the mirror for a commit nothing was wrong with. The job holds
-          # no WRITE credential either way, which is the property that matters.
-          MIRROR_CI_TOKEN: ${{ secrets.GH_REPO_READ_PAT }}
-        # Only the fast macOS matrix, not the formula build: this decides whether CI may call itself
-        # green, and the release gates separately require the formula job before a tag is allowed.
-        run: bash packaging/check-mirror-ci.sh "${{ steps.mirrored.outputs.sha }}" .github/workflows/ci-macos.yml
