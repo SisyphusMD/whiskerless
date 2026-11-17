@@ -460,7 +460,7 @@ jobs:
           # renovate: datasource=docker depName=rocky-8-compat packageName=rockylinux/rockylinux
           RHEL_FLOOR_IMAGE="rockylinux/rockylinux:8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6"
           # renovate: datasource=docker depName=rocky-10-current packageName=rockylinux/rockylinux
-          RHEL_CURRENT_IMAGE="rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834"
+          RHEL_CURRENT_IMAGE="rockylinux/rockylinux:10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8"
           # renovate: datasource=docker depName=opensuse-leap-16-current packageName=opensuse/leap
           OPENSUSE_IMAGE="opensuse/leap:16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d"
           export DEBIAN_FLOOR_IMAGE DEBIAN_CURRENT_IMAGE
