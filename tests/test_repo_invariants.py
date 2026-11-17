@@ -538,6 +538,24 @@ def test_the_candidate_gate_checks_out_the_tags_it_reasons_about() -> None:
     assert checkout["with"]["fetch-depth"] == 0, "candidate-gate would run on a tagless checkout"
 
 
+def test_a_stable_cut_waits_while_install_legs_run_where_the_gate_cannot_see() -> None:
+    """The candidate gate reads Forgejo only. While GitHub's install-matrix.yml still carries the
+    macOS and arm64 install legs, a stable would be qualified on amd64 installs alone, so release.yml
+    refuses before the gate runs. Pinned here so the refusal cannot be dropped or softened while that
+    file exists; once the legs move to Forgejo and the file goes, this test stops applying."""
+    if not (REPO / ".github" / "workflows" / "install-matrix.yml").exists():
+        return
+    release = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    steps = release["jobs"]["candidate-gate"]["steps"]
+    names = [step.get("name", "") for step in steps]
+    refusal = "Refuse while part of the install matrix runs where this gate cannot see"
+    assert refusal in names, "the stable cut no longer refuses while GitHub runs part of the matrix"
+    step = steps[names.index(refusal)]
+    assert names.index(refusal) < names.index("Require the last rc's install matrix to be green")
+    assert "if" not in step and not step.get("continue-on-error"), "the refusal can be skipped"
+    assert "[ -e .github/workflows/install-matrix.yml ]" in step["run"] and "exit 1" in step["run"]
+
+
 def test_every_install_matrix_records_which_tag_it_tested() -> None:
     """The gate has to recognise a run for the candidate, and Forgejo keeps that in one place.
 

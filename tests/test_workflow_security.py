@@ -221,11 +221,16 @@ def test_gated_workflows_are_safe_to_gate_on() -> None:
         for condition in _conditions(document):
             assert "github.ref" not in condition and "head_branch" not in condition, \
                 f"{name} gates work on the branch: {condition}"
-        # Branch logic inside a script skips the work just as effectively as a step-level `if`.
-        for job in jobs.values():
+        # Branch logic inside a script skips the work just as effectively as a step-level `if`, and
+        # a script reads the ref through the environment ($GITHUB_REF and friends) as easily as
+        # through an expression. The scope job is the one sanctioned reader, checked above.
+        ref = re.compile(r"github[._](ref|ref_name|head_ref|base_ref)\b", re.IGNORECASE)
+        for job_name, job in jobs.items():
+            if job_name == "scope":
+                continue
             for step in job.get("steps") or []:
                 run = step.get("run", "") if isinstance(step, dict) else ""
-                assert "github.ref" not in run, f"{name} branches on the ref inside a run block"
+                assert not ref.search(run), f"{name}:{job_name} branches on the ref inside a run block"
 
     # The one release path that can start on any branch must not start on a Renovate one, or a
     # scoped-out run would qualify the commit it tags.
@@ -937,20 +942,38 @@ def test_every_setup_python_pins_an_exact_interpreter() -> None:
     assert not loose, loose
 
 
+# Pull-request jobs that run for every pull request, outsiders' included, and why that is safe.
+_UNGATED_ON_PULL_REQUESTS: dict[tuple[str, str], str] = {}
+
+
 def test_trust_gates_also_exclude_agit_pull_requests() -> None:
     # An AGit pull request (pushed to refs/for/<branch>, no fork) reports this repository as its
     # head, so the head-repository check alone lets it through. When a maintainer reopens an
     # outsider's PR, Forgejo runs this branch's workflows WITH secrets against the PR's commit.
+    #
+    # Every job of a pull-request-triggered workflow, not only the ones that already carry a
+    # head-repository check: a job with no gate at all runs an outsider's commit just the same.
     missing = []
+    present = set()
     for path in _FORGEJO:
-        jobs = (yaml.safe_load(path.read_text()) or {}).get("jobs") or {}
-        for job, spec in jobs.items():
-            condition = " ".join(str((spec or {}).get("if", "")).split())
-            if "pull_request.head.repo.full_name == github.repository" not in condition:
+        document = yaml.safe_load(path.read_text()) or {}
+        triggers = document.get("on") or document.get(True) or {}
+        if not ({"pull_request", "pull_request_target"} & set(triggers if isinstance(triggers, (dict, list)) else [triggers])):
+            continue
+        for job, spec in (document.get("jobs") or {}).items():
+            present.add((path.name, job))
+            if (path.name, job) in _UNGATED_ON_PULL_REQUESTS:
                 continue
-            if "github.event.pull_request.flow == 0" not in condition:
+            condition = " ".join(str((spec or {}).get("if", "")).split())
+            if not (
+                "pull_request.head.repo.full_name == github.repository" in condition
+                and "github.event.pull_request.flow == 0" in condition
+            ):
                 missing.append(f"{path.name}:{job}")
     assert not missing, (
-        f"trust gates that let AGit pull requests through: {missing}. "
-        "Require github.event.pull_request.flow == 0 beside the head-repository check."
+        f"pull-request jobs that let an outside or AGit pull request through: {missing}. "
+        "Gate them on the head-repository check AND github.event.pull_request.flow == 0, or record "
+        "why one is safe ungated in _UNGATED_ON_PULL_REQUESTS."
     )
+    stale = sorted(f"{w}:{j}" for w, j in _UNGATED_ON_PULL_REQUESTS if (w, j) not in present)
+    assert not stale, f"_UNGATED_ON_PULL_REQUESTS excuses jobs that no longer exist: {stale}"
