@@ -1,0 +1,39 @@
+# CodeRabbit-style review on the house LLM; main's protection requires its `AI review` status.
+# pull_request_target and issue_comment both run this file and the script from main, so a PR
+# cannot change how it is reviewed. A reply on the PR re-runs the review, which can withdraw a
+# finding. Canonical copy: SisyphusMD/project-rules; repos get a copy.
+name: AI review
+on:
+  pull_request_target:
+    # edited: the description is reviewed too (a `No tests:` reason is the reviewer's call).
+    types: [opened, edited, synchronize, reopened]
+  issue_comment:
+    types: [created]
+concurrency:
+  # One review per PR at a time, never cancelled: the reviewer's own comment also lands in this
+  # group, and cancelling would stop a review between saving its findings and its status.
+  group: ai-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  review:
+    name: Review
+    # Replies on PRs only, and never the reviewer's own comment.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request && github.event.comment.user.login != 'forgejo-actions')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Review the PR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # read:issue only, for linked issues in other repos.
+          ISSUE_READ_TOKEN: ${{ secrets.ISSUE_READ_TOKEN }}
+          FORGEJO_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          # Keyless proxy in forgejo-runner (bryantserver/k8s apps/forgejo/runner/llm-proxy).
+          LLM_URL: http://studio-llm.forgejo-runner.svc.cluster.local:8080/v1/chat/completions
+          MODEL: qwen3.8-flash-next
+        run: python3 -I .forgejo/scripts/ai-review.py

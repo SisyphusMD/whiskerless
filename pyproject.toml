@@ -118,6 +118,8 @@ src = ["src", "tests", "custom_components"]
 # `ruff check $(git ls-files '*.py' | tr '\n' ' ')`, in both projects, and ruff honours an exclude
 # for a file named on the command line only under force-exclude.
 force-exclude = true
+# The canonical gate scripts follow project-rules' Ruff configuration.
+extend-exclude = [".forgejo/scripts"]
 
 [tool.ruff.per-file-target-version]
 "custom_components/**" = "py313"

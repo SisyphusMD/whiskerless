@@ -972,7 +972,7 @@ def test_no_workflow_runs_on_github() -> None:
 
 # --- what HACS demands of the manifest ----------------------------------------------
 #
-# HACS's validation (`hacs` in ci.yml) checks this, and found `issue_tracker` missing the
+# HACS's validation (`hacs` in tests.yml) checks this, and found `issue_tracker` missing the
 # first time it ran — eight of its nine checks passed and that one did not, which is
 # how a repository ends up looking installable while HACS declines it. The action is
 # the authority; this is here so the requirement is visible in the tree and fails
@@ -991,7 +991,7 @@ def test_the_integration_manifest_carries_what_hacs_requires() -> None:
 def test_the_hacs_job_skips_only_the_check_a_read_only_mirror_cannot_pass() -> None:
     # The mirror has issues off on purpose (they go to Forgejo), so `issues` is the one check
     # the job may skip; any other skip would hide a real defect in what the Marketplace installs.
-    workflow = yaml.safe_load((REPO / ".forgejo" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    workflow = yaml.safe_load((REPO / ".forgejo" / "workflows" / "tests.yml").read_text(encoding="utf-8"))
     script = "".join(str(step.get("run", "")) for step in workflow["jobs"]["hacs"]["steps"])
     commands = [
         line.strip()
@@ -1548,11 +1548,11 @@ def test_ci_can_be_redispatched_without_an_unrelated_commit() -> None:
     hosted action failing to fetch its own manifest - leaves main red and the only way back is an
     unrelated commit, which is a lie in the history about what changed and why.
     """
-    document = yaml.safe_load((REPO / ".forgejo" / "workflows" / "ci.yml").read_text())
+    document = yaml.safe_load((REPO / ".forgejo" / "workflows" / "tests.yml").read_text())
     # PyYAML resolves a bare `on:` to the boolean True under YAML 1.1.
     triggers = document.get("on") or document.get(True) or {}
     assert "workflow_dispatch" in triggers, (
-        f"ci.yml cannot be redispatched, so an infrastructure fault strands main: {sorted(triggers)}"
+        f"tests.yml cannot be redispatched, so an infrastructure fault strands main: {sorted(triggers)}"
     )
 
 
@@ -1570,8 +1570,8 @@ def test_ci_supersedes_itself_and_publishing_never_does() -> None:
         assert isinstance(value, dict), f"{name} declares no workflow-level concurrency: {value!r}"
         return value
 
-    ci = concurrency("ci.yml")
-    assert "github.ref" in str(ci["group"]), f"ci.yml does not group per ref: {ci['group']}"
+    ci = concurrency("tests.yml")
+    assert "github.ref" in str(ci["group"]), f"tests.yml does not group per ref: {ci['group']}"
     assert ci.get("cancel-in-progress") is True, "a superseded CI run should not keep a runner"
 
     publish = concurrency("publish.yml")
@@ -1744,7 +1744,7 @@ def test_native_macos_suites_run_on_our_own_macs_for_every_pushed_commit() -> No
     assert not swallowed, f"macos.yml swallows failures in {swallowed}"
     # The old cross-forge wait is gone: nothing in CI may poll GitHub for a macOS verdict.
     ci = yaml.safe_load(CI.read_text())
-    assert "macos" not in ci["jobs"], "ci.yml still carries the job that waited on GitHub's Mac"
+    assert "macos" not in ci["jobs"], "tests.yml still carries the job that waited on GitHub's Mac"
     assert "check-mirror-ci" not in CI.read_text()
 
 def test_the_macos_release_gate_reads_a_fully_green_run_for_the_exact_commit() -> None:
@@ -2317,7 +2317,7 @@ def test_every_bottle_wait_agrees_with_the_matrix() -> None:
 # so one grep finds both. They were missing here while the sibling enforced them; a guard in one repo
 # and not the other is how the two drift. Where a clause does not port, the docstring says why, and
 # deliberate differences live in project-rules/VARIANCE.md.
-CI = REPO / ".forgejo" / "workflows" / "ci.yml"
+CI = REPO / ".forgejo" / "workflows" / "tests.yml"
 PUBLISH = REPO / ".forgejo" / "workflows" / "publish.yml"
 PRERELEASE = REPO / ".forgejo" / "workflows" / "prerelease.yml"
 RELEASE_MACOS = REPO / ".forgejo" / "workflows" / "release-macos.yml"
@@ -2457,7 +2457,7 @@ def test_stable_release_pushes_commit_and_tag_atomically() -> None:
 
 
 def test_every_release_path_gates_coverage_not_just_ci() -> None:
-    """ci.yml runs on a branch; a release is cut from a tag. A non-regression gate that lives only
+    """tests.yml runs on a branch; a release is cut from a tag. A non-regression gate that lives only
     in CI does not constrain what a release is allowed to ship, which is how a coverage regression
     could ship while every branch build stayed green.
 
@@ -2500,7 +2500,7 @@ def test_claimed_python_floor_is_installed_and_fully_tested() -> None:
     assert 'pip install -e ".[dev,ble]"' in floor_job
     assert "--cov-fail-under=99" in floor_job, "the floor job runs less than the full suite"
 
-    # Unscoped by file, unlike the sibling's: 3.11.0 is pinned in ci.yml and the
+    # Unscoped by file, unlike the sibling's: 3.11.0 is pinned in tests.yml and the
     # prerelease floor gate here, and one rule holding all of them is the stronger form.
     floor_rules = [
         rule
@@ -2639,7 +2639,7 @@ def test_ci_and_both_release_gates_use_one_pinned_toolchain() -> None:
     install the dev toolchain from pyproject.toml rather than as literals (VARIANCE.md, "Layout and
     dependencies"), so there is no second copy to compare.
 
-    Forgejo's ci.yml never runs an outside pull request's code (its AGit trust gate), so it calls
+    Forgejo's tests.yml never runs an outside pull request's code (its AGit trust gate), so it calls
     the vendored script like both release gates do, and the pin lives in that one script.
     """
     for workflow in (CI, RELEASE_WORKFLOW, PRERELEASE):
@@ -2719,7 +2719,7 @@ def test_every_channel_proves_itself_with_an_exported_file() -> None:
 def test_no_forgejo_workflow_repins_pyinstaller_inline() -> None:
     """The inline-repin clause of the sibling's test_pyinstaller_floats_again_on_both_forgejo_workflows.
 
-    The Linux pin lives in release-pins.env, which both forges' build jobs source - ci.yml too, so
+    The Linux pin lives in release-pins.env, which both forges' build jobs source - tests.yml too, so
     what CI compile-checks is what a release builds with. A literal VERSION assignment in either
     Forgejo workflow would be a second copy, the drift that file prevents; `--build-arg
     PYINSTALLER="$PYINSTALLER"` is how the sourced value reaches the build and must stay. The rest
@@ -2828,7 +2828,7 @@ def test_every_shipped_python_file_is_linted() -> None:
     lint = "ruff check $(git ls-files '*.py' | tr '\\n' ' ')"
     required = {
         REPO / ".forgejo" / "workflows" / name
-        for name in ("ci.yml", "release.yml", "prerelease.yml")
+        for name in ("tests.yml", "release.yml", "prerelease.yml")
     }
     workflows = sorted(
         [*(REPO / ".forgejo" / "workflows").glob("*.yml"), *(REPO / ".github" / "workflows").glob("*.yml")]
@@ -2842,8 +2842,10 @@ def test_every_shipped_python_file_is_linted() -> None:
         ]
         if lines:
             linting.add(workflow)
+        canonical_ci = REPO / ".forgejo" / "workflows" / "ci.yml"
+        expected = "/tmp/lint/bin/ruff check ." if workflow == canonical_ci else lint
         for line in lines:
-            assert line == lint, f"{workflow.name} lints an enumerated or filtered set: {line}"
+            assert line == expected, f"{workflow.name} lints an enumerated or filtered set: {line}"
     assert required <= linting, (
         f"no longer runs ruff: {sorted(p.name for p in required - linting)}"
     )
@@ -2923,7 +2925,7 @@ def test_the_package_smoke_base_is_one_pin_with_the_qualification_image() -> Non
     """The pre-publish smoke installs on the SAME image the distro matrices qualify against, under
     one Renovate identity, so they cannot move on separate schedules.
 
-    Two matrices pin it: the pre-merge one in ci.yml, as in the sibling, and the post-publish install
+    Two matrices pin it: the pre-merge one in tests.yml, as in the sibling, and the post-publish install
     matrix. Both formats, because the .rpm smoke makes the same claim about Rocky 10.
     """
     smoke = (REPO / "packaging" / "package-smoke.Dockerfile").read_text()

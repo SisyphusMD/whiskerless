@@ -419,7 +419,7 @@ def test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure
 def test_every_release_gate_runs_the_release_script_suite() -> None:
     """The release scripts are shell, so the Python gate above says nothing about them.
 
-    ci.yml runs `tests/release/*.sh` on every push, which proves them on a branch. It does not prove
+    tests.yml runs `tests/release/*.sh` on every push, which proves them on a branch. It does not prove
     them on the commit being tagged, and the release workflows are exactly where that matters: the rc
     sweep deletes across three registries, and the release helpers are what publish. A gate that
     stops at pytest would tag a commit whose shell half was last checked somewhere else.
@@ -533,7 +533,17 @@ def test_no_job_pip_installs_into_whatever_interpreter_it_finds() -> None:
                     body = body.replace("\\\n", " ")
                 # Bounded to one shell command: `install` after a `;`, `&&`, `||` or a comment is a
                 # different program, and demanding a Python for it would be a false alarm.
-                return bool(re.search(r"\bpip3?\b[^;&|#\n]*\binstall\b", body))
+                # The shared CI lint step installs into the venv it creates itself.
+                venv_created = False
+                for line in body.splitlines():
+                    command = line.strip()
+                    if command == "python3 -I -m venv /tmp/lint":
+                        venv_created = True
+                    if venv_created:
+                        command = command.removeprefix("/tmp/lint/bin/pip install ")
+                    if re.search(r"\bpip3?\b[^;&|#\n]*\binstall\b", command):
+                        return True
+                return False
 
             first_pip = next(
                 (i for i, step in enumerate(steps) if installs_with_pip(step)),
@@ -940,7 +950,14 @@ def test_every_setup_python_pins_an_exact_interpreter() -> None:
 
 
 # Pull-request jobs that run for every pull request, outsiders' included, and why that is safe.
-_UNGATED_ON_PULL_REQUESTS: dict[tuple[str, str], str] = {}
+_UNGATED_ON_PULL_REQUESTS: dict[tuple[str, str], str] = {
+    ("ci.yml", "issue-link"): "runs the base commit's issue-link script",
+    ("ci.yml", "tests-with-code"): "runs the base commit's script against the PR diff",
+    ("ci.yml", "diff-size"): "runs the base commit's script against the PR diff",
+    ("ci.yml", "lint"): "runs pinned linters and compiles Python without importing the PR code",
+    ("ci.yml", "secrets"): "scans PR history with pinned gitleaks",
+    ("ai-review.yml", "review"): "runs the base workflow's review script on PR data",
+}
 
 
 def test_trust_gates_also_exclude_agit_pull_requests() -> None:
@@ -955,11 +972,15 @@ def test_trust_gates_also_exclude_agit_pull_requests() -> None:
     for path in _FORGEJO:
         document = yaml.safe_load(path.read_text()) or {}
         triggers = document.get("on") or document.get(True) or {}
-        if not ({"pull_request", "pull_request_target"} & set(triggers if isinstance(triggers, (dict, list)) else [triggers])):
+        events = set(triggers if isinstance(triggers, (dict, list)) else [triggers])
+        if not ({"pull_request", "pull_request_target"} & events):
             continue
         for job, spec in (document.get("jobs") or {}).items():
             present.add((path.name, job))
             if (path.name, job) in _UNGATED_ON_PULL_REQUESTS:
+                assert "pull_request" not in events, (
+                    f"{path.name}:{job} must use the base-branch workflow for pull requests"
+                )
                 continue
             condition = " ".join(str((spec or {}).get("if", "")).split())
             if not (

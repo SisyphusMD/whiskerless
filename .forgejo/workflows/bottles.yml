@@ -18,7 +18,7 @@ name: Bottles (Homebrew)
 on:
   push:
     tags: ["v*.*.*"]
-  # Dispatchable for the same reason as ci.yml and publish.yml (#74): Forgejo has
+  # Dispatchable for the same reason as tests.yml and publish.yml (#74): Forgejo has
   # no rerun API, so one leg failing on infrastructure must not cost a whole
   # candidate. Re-running is safe — the release helpers replace an asset rather
   # than duplicating it.
