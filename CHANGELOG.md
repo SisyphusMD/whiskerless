@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Forgejo pull requests get the standard project checks and a private vulnerability reporting
+  address is listed in `SECURITY.md`.
 - The macOS package is now tested on macOS 15 and macOS 27 before each release (previously
   macOS 15 and 26).
 - Sends a notification when the integration fails to start, and another once it is running

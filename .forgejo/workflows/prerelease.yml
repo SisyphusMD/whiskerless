@@ -120,17 +120,17 @@ jobs:
           python -m pip install -e ".[dev,ble]"
           ruff check $(git ls-files '*.py' | tr '\n' ' ')
           mypy
-          # The same coverage floors ci.yml holds — without them a coverage
+          # The same coverage floors tests.yml holds — without them a coverage
           # regression could pass the release gate and only go red after the tag.
           pytest -q --cov=whiskerless --cov-report=term-missing --cov-config=pyproject.toml --cov-fail-under=99
           coverage report --include='*/safety.py' --fail-under=100
           python -c "import whiskerless, sys; sys.exit(0 if whiskerless.__version__ == '${VERSION}' else 1)"
-          # The release scripts get the same integration suite ci.yml runs. Without it the rc
+          # The release scripts get the same integration suite tests.yml runs. Without it the rc
           # sweep and the release helpers are only ever proven on a branch, never on the commit
           # being tagged. The sibling gates on this too.
           # `build`, so release-scripts.sh exercises the tap section instead of skipping it.
           # project-rules conventions/shell-and-workflows.md, section 4: a gate that only really runs
-          # in ci.yml does not constrain a release.
+          # in tests.yml does not constrain a release.
           python3 -m pip install --upgrade build
           for t in tests/release/*.sh; do bash "$t"; done
 
@@ -145,7 +145,7 @@ jobs:
     name: Qualify the library floor (Python 3.11)
     runs-on: ubuntu-latest
     steps:
-      # ci.yml only runs on main pushes and pull requests, but a prerelease can
+      # tests.yml only runs on main pushes and pull requests, but a prerelease can
       # be dispatched from any branch — so this is the only thing standing
       # between a 3.12-only API on a feature branch and a PyPI upload.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

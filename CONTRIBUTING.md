@@ -3,6 +3,15 @@
 Thanks for helping un-cloud Whisker devices! Bug reports, protocol captures, docs
 fixes, and new-device support are all welcome.
 
+Read the [SisyphusMD project rules][project-rules] before contributing. Every pull request closes
+an issue. Rule 9 excludes AI attribution, including a `Co-Authored-By` trailer for an assistant.
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+Files listed in `STANDARD.lock` are checked by `packaging/check-standard-sync.py`. Change them in
+project-rules and re-vendor them here.
+
+[project-rules]: https://forgejo.bryantserver.com/SisyphusMD/project-rules/src/branch/main/RULES.md
+
 ## Dev setup
 
 ```bash
@@ -226,10 +235,9 @@ git push origin HEAD:refs/for/main -o topic=<short-name>
 A GitHub sign-in has no Forgejo password, so push over HTTPS with an access token from your
 Forgejo settings. Push again with the same topic to update the pull request.
 
-CI runs on this project's own runners, which are also trusted with its release credentials, so it
-does not run on a pull request sent this way, or on one from a fork. A maintainer reads the change,
-then pushes it to a branch here and opens it again as a pull request from that branch, and that runs
-the whole suite: lint, strict type-checking of both the library and the integration, both test
+AGit and fork pull requests receive the standard gates. Repository test jobs execute code only
+after a maintainer reviews the change and opens a pull request from a branch here. That runs lint,
+strict type-checking of both the library and the integration, both test
 suites at their 99% floors, the `safety.py` and `config_flow.py` 100% gates, the declared dependency
 floors, hassfest, the HACS checks, shellcheck, documentation links, and the same tests plus the
 Homebrew formula on macOS 15 and on the newest macOS.
@@ -247,6 +255,31 @@ Homebrew formula on macOS 15 and on the newest macOS.
   `safety.py` with a test. Do not add an override flag for `NEVER_SEND_OPCODES`.
 
 The sibling project works the same way, for the same reasons — see its `CONTRIBUTING.md`.
+
+## Required checks
+
+The standard gate contexts are `CI / Issue link (pull_request_target)`,
+`CI / Tests with code (pull_request_target)`, `CI / Diff size (pull_request_target)`,
+`CI / Lint (pull_request_target)`, `CI / Secrets (pull_request_target)` and `AI review`.
+Each needs a passing and a failing run on a real pull request before it is added to protection.
+
+The repository workflow in `.forgejo/workflows/tests.yml` publishes the existing checks:
+
+- `CI / Compile-check the release path (bundle, packages, formula) (pull_request)`
+- `CI / Lint, type-check, test (library, 3.11 floor) (pull_request)`
+- `CI / Lint, type-check, test (library, current) (pull_request)`
+- `CI / Shell scripts and documentation links (pull_request)`
+- `CI / Test the dependency floors the package advertises (pull_request)`
+- `CI / Test the integration on the newest Home Assistant (pull_request)`
+- `CI / Type-check + test the integration (pull_request)`
+- `macOS / macOS floor (macos-15-vm) (push)`
+- `macOS / macOS current (macos-27-vm) (push)`
+
+## Break-glass
+
+Rule 20 governs urgent merges during a runner or review-model outage. With Forgejo available,
+the maintainer can remove the unavailable required context for that merge, restore it immediately
+afterward, and record the exception on the issue.
 
 ## What this project promises not to break
 
