@@ -1,0 +1,32 @@
+# The GitHub copy is a read-only mirror of the Forgejo repository, and GitHub cannot turn pull
+# requests off, so new ones are closed with a pointer to Forgejo.
+name: Mirror lockdown
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+  schedule:
+    - cron: "17 9 * * *"
+
+permissions: {}
+
+jobs:
+  lockdown:
+    # Forgejo also reads .github/workflows in a repo without .forgejo/workflows, where this would
+    # close the real pull requests, and a fork that enables Actions would close its own.
+    if: github.server_url == 'https://github.com' && github.repository_owner == 'SisyphusMD'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: dessant/repo-lockdown@17c2cc64a91eff426f242b05dd523c6f098889b6 # v5.0.2
+        with:
+          process-only: prs
+          # The schedule sweeps every unlocked PR, closed ones included; older threads, already
+          # answered on Forgejo, stay as they are.
+          exclude-pr-created-before: "2026-11-17T00:00:00Z"
+          pr-comment: >
+            Thanks for this. This GitHub repository is a read-only mirror, so pull requests here
+            are closed without review. Please open it on Forgejo instead:
+            https://forgejo.bryantserver.com/${{ github.repository }} (you can sign in there
+            with your GitHub account; see CONTRIBUTING.md for how to send a change).

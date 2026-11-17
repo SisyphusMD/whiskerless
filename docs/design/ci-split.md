@@ -1,11 +1,10 @@
 # Which forge runs what
 
-**Architecture picks the runner, and nothing is emulated.** Every job belongs on
+**Architecture picks the runner, and nothing is emulated.** Build, test and release jobs run on
 Forgejo, on a runner that is natively the architecture it tests: `ubuntu-latest`
 for Linux amd64, `ubuntu-26.04-arm` for Linux arm64, and `macos-15-vm` /
-`macos-27-vm` for the macOS floor and current macOS. Nothing runs on GitHub, and
-`tests/test_repo_invariants.py::test_no_workflow_runs_on_github` fails the suite if a
-workflow file reappears under `.github/workflows/`.
+`macos-27-vm` for the macOS floor and current macOS. GitHub runs the mirror lockdown workflow.
+The `test_only_mirror_lockdown_runs_on_github` invariant checks the workflow directory.
 
 Forgejo (`forgejo.bryantserver.com`) is the primary repo and its runners are ours.
 GitHub is a read-only mirror that HACS installs from, and one of the three
@@ -58,7 +57,7 @@ runner already is; it is not a request to emulate.
 ## Adding a job
 
 Ask what hardware it needs, then put it in `.forgejo/workflows/` on that runner.
-Nothing goes in `.github/workflows/`.
+`.github/workflows/` holds the mirror lockdown workflow.
 
 ## How the gate finds a matrix run
 
