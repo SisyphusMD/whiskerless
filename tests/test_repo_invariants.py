@@ -959,15 +959,13 @@ def test_no_in_page_anchor_targets_a_heading_with_an_apostrophe() -> None:
 
 
 # --- which forge runs what ----------------------------------------------------------
-#
-# Every job runs on this project's own runners. GitHub is a mirror that receives the release, and
-# a workflow file left under .github/workflows would run on GitHub-hosted runners again.
+# GitHub runs only mirror lockdown. Build and release jobs run on Forgejo.
 
 
-def test_no_workflow_runs_on_github() -> None:
+def test_only_mirror_lockdown_runs_on_github() -> None:
     workflows = REPO / ".github" / "workflows"
     found = sorted(p.name for p in [*workflows.glob("*.yml"), *workflows.glob("*.yaml")])
-    assert found == [], f"GitHub workflows are back: {found}; they belong in .forgejo/workflows"
+    assert found == ["mirror-lockdown.yml"], f"Unexpected GitHub mirror workflows: {found}"
 
 
 # --- what HACS demands of the manifest ----------------------------------------------

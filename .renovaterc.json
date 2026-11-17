@@ -22,11 +22,12 @@
   },
   "packageRules": [
     {
-      "description": "The standard gate workflows are copied from SisyphusMD/project-rules, where Renovate updates their pins.",
+      "description": "The standard gate and mirror workflows are copied from SisyphusMD/project-rules, where Renovate updates their pins.",
       "matchFileNames": [
         ".forgejo/workflows/ci.yml",
         ".forgejo/workflows/ai-review.yml",
-        ".forgejo/workflows/issue-archive.yml"
+        ".forgejo/workflows/issue-archive.yml",
+        ".github/workflows/mirror-lockdown.yml"
       ],
       "enabled": false
     },
