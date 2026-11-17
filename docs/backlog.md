@@ -1873,7 +1873,7 @@ there, in the serial here — which is what makes renaming safe to offer at all.
 
 **Done in both repos.** Whiskerless went from 13 hits to 3; dreame-valetudo from 4 to 0 (all four
 were in the dnf/signing section, written the same day). The convention is now recorded in
-`project-standard/CONVENTIONS.md` so the next document does not reintroduce it.
+`project-rules/conventions/code.md` so the next document does not reintroduce it.
 
 The three remaining hits here are deliberate and should stay: they are quoted CLI **output** —
 the menu labels `I already have one — I will give you the files` and `my network is not listed`,
@@ -2171,7 +2171,7 @@ built around, so the design has to come first.
   sketch, because "provision from HA" sounds like it removes both.
 
 **Not a dreame-valetudo item.** It has no Home Assistant surface at all, which
-`project-standard/VARIANCE.md` already records as the one channel whiskerless has and it does not.
+`project-rules/VARIANCE.md` already records as the one channel whiskerless has and it does not.
 
 
 ### #90 — Tell "the robot is not on the broker" apart from "the robot is not answering" — **discuss**

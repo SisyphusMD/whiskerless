@@ -173,7 +173,7 @@ jobs:
 
       - name: Vendored standard has not drifted
         # A shared helper improved by editing the copy here never reaches the sibling project —
-        # which is how these two drifted apart in the first place. Change it in project-standard,
+        # which is how these two drifted apart in the first place. Change it in project-rules,
         # re-vendor both, land them together.
         run: python3 packaging/check-standard-sync.py
 
