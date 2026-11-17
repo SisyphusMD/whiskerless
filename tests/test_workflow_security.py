@@ -974,3 +974,26 @@ def test_trust_gates_also_exclude_agit_pull_requests() -> None:
     )
     stale = sorted(f"{w}:{j}" for w, j in _UNGATED_ON_PULL_REQUESTS if (w, j) not in present)
     assert not stale, f"_UNGATED_ON_PULL_REQUESTS excuses jobs that no longer exist: {stale}"
+
+
+def test_artifact_actions_stay_on_v3() -> None:
+    # v4 and later refuse any server that is not github.com (GHESNotSupportedError), and the two
+    # workflows that use them never run on a pull request, so a v4 line would pass review and fail
+    # only the next release. Both halves are pinned: the workflow lines (by their version comment,
+    # which is what Renovate reads; the SHA beside it is Renovate's to move) and Renovate's ceiling.
+    uses = re.compile(r"uses:\s*actions/(?:upload|download)-artifact@")
+    lines = [
+        line
+        for path in _FORGEJO
+        for line in path.read_text().splitlines()
+        if uses.search(line)
+    ]
+    assert lines, "no artifact steps found; update this test if they were removed on purpose"
+    for line in lines:
+        assert re.search(r"#\s*v3\.", line), line
+    held = {"actions/upload-artifact", "actions/download-artifact"}
+    rules = json.loads((_ROOT / ".renovaterc.json").read_text())["packageRules"]
+    assert any(
+        held <= set(rule.get("matchDepNames", [])) and rule.get("allowedVersions") == "<4"
+        for rule in rules
+    )
