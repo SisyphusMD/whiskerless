@@ -74,7 +74,6 @@ an invariant test holds that line.
   and the gate reads `runs/{id}/jobs` to recognise a re-dispatch (which runs from
   main, on purpose, so a fix to the scripts is what re-runs).
 
-
 ## One matrix, three platforms
 
 `install-matrix.yml` runs every Linux channel on amd64 and on arm64, and the `.pkg`,

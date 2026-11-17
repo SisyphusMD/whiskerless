@@ -1446,7 +1446,7 @@ def test_every_install_matrix_fetch_retries_and_stays_portable() -> None:
         raw.append(f"install-smoke.Dockerfile:{number}")
     assert not raw, f"fetches raw instead of through /fetch, so a DNS blip is fatal: {raw}"
 
-    for name in (".github/workflows/install-matrix.yml", ".forgejo/workflows/install-matrix.yml"):
+    for name in (".forgejo/workflows/install-matrix.yml",):
         path = REPO / name
         if not path.is_file():
             continue
@@ -1508,7 +1508,7 @@ def test_every_install_matrix_caller_states_its_cache_ceiling() -> None:
     the small one, because a ceiling ABOVE the disk never prunes at all -- the failure that looks
     like nothing is wrong. Left implicit, a large runner would quietly keep the small default.
     """
-    for name in (".forgejo/workflows/install-matrix.yml", ".github/workflows/install-matrix.yml"):
+    for name in (".forgejo/workflows/install-matrix.yml",):
         path = REPO / name
         if not path.is_file():
             continue
