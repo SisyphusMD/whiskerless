@@ -3,8 +3,8 @@
 #   install-matrix-arch.sh <amd64|arm64>
 # env: TAG (e.g. v0.2.0-rc.36), VERSION (TAG without the v), FORGE (base URL)
 #
-# Called by BOTH forges, for the same reason build-linux-arch.sh is: architecture decides where a
-# job runs — amd64 on the self-hosted Forgejo runner, arm64 on GitHub's native arm runner — and the
+# Called by BOTH install legs, for the same reason build-linux-arch.sh is: architecture decides where
+# a job runs — amd64 on the cluster runner, arm64 on the native arm64 runner — and the
 # channel list is the one thing that must not differ between them. Two inline copies in two
 # workflow files on two forges is a divergence with a schedule, not a risk.
 #
@@ -79,7 +79,7 @@ CHANNELS=(
 )
 
 # Told, not measured. This script runs on two very different machines - a self-hosted amd64 runner
-# with a large volume, and GitHub's arm64 hosted runner with roughly 14 GB - and neither can be
+# with a large volume, and the arm64 VM whose four shards share one small disk - and neither can be
 # read from here: the self-hosted job talks to a separate dind daemon over TCP, so a `df` in this
 # container measures the wrong filesystem entirely and would do it silently. The caller knows which
 # runner it is on, so the caller says. The default is the small one, because a ceiling ABOVE the

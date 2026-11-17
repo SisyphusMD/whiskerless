@@ -29,9 +29,9 @@ New artifacts follow this scheme rather than inventing another spelling.
 
 ## How a release flows
 
-Only `forgejo.bryantserver.com` can reach everything (itself, the **internal**
-NAS, GitHub, PyPI); GitHub can't reach the NAS. So the public Forgejo orchestrates
-and bridges.
+Every job runs on our own runners, which reach everything (both Forgejo
+instances, including the **internal** NAS, GitHub and PyPI). GitHub only
+receives the release.
 
 0. **The macOS run gates the cut.** The release jobs never build the Homebrew
    formula on a Mac, and that build is the one that broke silently for a whole
@@ -66,26 +66,20 @@ and bridges.
    **creates the release on all three** (Forgejo, NAS, GitHub) with the CHANGELOG
    section as the notes. amd64 only, natively: architecture decides the forge here
    and nothing is emulated (`docs/design/ci-split.md`).
-3. **GitHub `release-linux-arm64.yml`** (mirrored tag, `ubuntu-24.04-arm`): the
-   same build, for arm64, on real arm64 silicon. It **appends** its artifacts to
-   the releases step 2 created rather than making its own, so a failure here costs
-   a release its arm64 half instead of blocking the whole thing. Both steps run
-   `packaging/build-linux-arch.sh`, which refuses to run for an architecture its
-   host is not.
-4. **GitHub `release-macos.yml`** (mirrored tag, GitHub's free macOS runners — the
-   one job that genuinely needs a Mac): builds the **signed + notarized `.pkg`** and
-   appends it to the **GitHub** and **public-Forgejo** releases (all it can reach).
-5. **Forgejo `publish.yml` `nas-bridge` job**: the NAS is internal, so no GitHub
-   runner can reach it. This waits for everything GitHub built — the arm64 `.pkg`
-   and the four arm64 files — on the public Forgejo release, then **copies them to
-   the internal NAS** release. Bottles are not among them **here** — they arrive later, and waiting would hold reconcile
-   and prune-rcs behind a build neither reads. The `nas-bottles` job copies them once they
-   land, so the NAS still ends up a complete mirror; what bottles stay out of is reconcile's
-   byte-quorum, which is a different question (see `packaging/asset-roles.sh`).
-6. **GitHub `bottles.yml`** (mirrored tag): builds the three **Homebrew bottles**
-   and appends them, with their manifests, to the GitHub + public-Forgejo
-   releases.
-6. **Forgejo `publish.yml` `homebrew-bottles` job**: waits for those manifests,
+3. **`release-arm64.yml`** (the same tag, our native arm64 runner): the same
+   build, for arm64, on real arm64 silicon. It **appends** its artifacts to all
+   three releases step 2 created rather than making its own, so a failure here
+   costs a release its arm64 half instead of blocking the whole thing. Both steps
+   run `packaging/build-linux-arch.sh`, which refuses to run for an architecture
+   its host is not.
+4. **`release-macos.yml`** (the same tag, the macOS 15 VM): builds the **signed +
+   notarized `.pkg`**, installs it again on the newest-macOS VM, and appends it to
+   all three releases.
+5. **`bottles.yml`** (the same tag): builds the three **Homebrew bottles** (macOS
+   15, Linux amd64, Linux arm64) and appends them, with their manifests, to all
+   three releases. Bottles stay out of reconcile's byte-quorum, which is a
+   different question from mirroring (see `packaging/asset-roles.sh`).
+6. **`publish.yml` `homebrew-bottles` job**: waits for those manifests,
    then re-renders the tap formula with a `bottle do` block — the second of two
    tap passes.
 
@@ -99,18 +93,18 @@ write the same release in any order.
 |---|---|---|
 | `whiskerless` on PyPI | `publish.yml` | any Python 3.11+ |
 | `whiskerless-linux-x86_64` | `publish.yml` | Linux, no Python needed |
-| `whiskerless-linux-arm64` | `release-linux-arm64.yml` | Linux arm64 (Pi, arm servers) |
+| `whiskerless-linux-arm64` | `release-arm64.yml` | Linux arm64 (Pi, arm servers) |
 | `whiskerless_<v>_amd64.deb` | `publish.yml` | Debian / Ubuntu |
-| `whiskerless_<v>_arm64.deb` | `release-linux-arm64.yml` | Debian / Ubuntu on arm |
+| `whiskerless_<v>_arm64.deb` | `release-arm64.yml` | Debian / Ubuntu on arm |
 | `whiskerless-<v>.x86_64.rpm` | `publish.yml` | Fedora / RHEL |
-| `whiskerless-<v>.aarch64.rpm` | `release-linux-arm64.yml` | Fedora / RHEL on arm |
+| `whiskerless-<v>.aarch64.rpm` | `release-arm64.yml` | Fedora / RHEL on arm |
 | `whiskerless-macos-arm64.pkg` | `release-macos.yml` | macOS, signed + notarized |
 | `whiskerless{,-rc}-<v>.<platform>.bottle.tar.gz` | `bottles.yml` | Homebrew, poured not compiled |
 | `SHA256SUMS-x86_64` | `publish.yml` | checksums for the amd64 Linux artifacts |
-| `SHA256SUMS-aarch64` | `release-linux-arm64.yml` | checksums for the arm64 Linux artifacts |
+| `SHA256SUMS-aarch64` | `release-arm64.yml` | checksums for the arm64 Linux artifacts |
 
-Architecture decides the forge, and nothing is emulated: amd64 builds on the
-self-hosted Forgejo runner, arm64 and macOS on GitHub's native runners. That
+Architecture picks the runner, and nothing is emulated: amd64 builds on the
+cluster runner, arm64 on the native arm64 runner, macOS on the macOS 15 VM. That
 split is why there are two checksum files — each is written by the machine that
 built those bytes, and published assets are immutable, so the amd64 file cannot
 be reopened when the arm64 job lands.
@@ -213,8 +207,8 @@ and `prune-rcs` collects them with the release they belong to. Homebrew fetches
 upload.
 
 The Linux legs build inside the **pinned** `homebrew/brew` image rather than the
-runner's own Homebrew: GitHub documents no Homebrew on the arm64 Ubuntu image,
-and that image is already what the Linux formula smoke proves the formula in.
+runner's own Homebrew: the Linux runners carry none, and that image is already
+what the Linux formula smoke proves the formula in.
 
 ## apt / dnf repositories
 
@@ -340,19 +334,21 @@ GitHub-hosted runners they existed for.
 | Secret | What it is |
 |---|---|
 | `CLUSTER_FORGEJO_REPO_WRITE_PAT` | Forgejo PAT, repo write (push the release commit/tag + create/append the Forgejo release). You already use this on `archiver`. |
-| `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release + receive the bridged `.pkg`). |
-| `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write **and Actions: read & write** (Forgejo creates the GitHub release with it, and dispatches the macOS/arm64 install matrix with it — dispatch is an Actions permission, not a Contents one, and without it the dispatch 403s while the release itself still publishes). Same PAT used as the GitHub push-mirror password, so grant the extra permission by editing the token rather than regenerating it. |
+| `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release and append every asset to it). |
+| `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write: creates the GitHub release and appends every asset to it. Same PAT used as the GitHub push-mirror password. |
 | `GH_REPO_READ_PAT` | **Required.** GitHub PAT with **no scopes** — read-only public data. Used by the republish guard, the tag's mirror confirmation and the install-matrix wait, all of which refuse to call GitHub unauthenticated: 60 requests/hour per IP is shared with everything else leaving this network. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`), named `whiskerless-forgejo-ci` and **scoped to this project**, not the account — a token that can publish to every project the account owns has no business on a self-hosted runner. PyPI accepts OIDC only from GitHub Actions, GitLab.com, Google Cloud and ActiveState, so a token is the only option that keeps publishing on Forgejo; see the rejection rationale in project-rules's VARIANCE.md. |
 | `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. Held at the **org** level, not on this repo. |
 | `CLUSTER_FORGEJO_REGISTRY_PUSH_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. Held at the **org** level and shared with the sister repos' container pushes — one scope covers every package type. Needed because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with a 403 rather than anything obvious. |
 | `GPG_SIGNING_KEY` | The armoured private half of the package signing key (`CCE50015D058E9BF`). Written to a tmp file **outside** the workspace and `docker cp`'d in separately, so it is never part of a build context. |
 
-### On GitHub (`github.com/SisyphusMD/whiskerless` → Settings → Secrets and variables → Actions)
+### Apple signing (org-scoped on Forgejo, read only by `release-macos.yml`)
+
+The signed and notarized `.pkg` is built on the macOS 15 VM. Nothing is needed on
+GitHub: no workflow runs there.
 
 | Secret | What it is |
 |---|---|
-| `CLUSTER_FORGEJO_REPO_WRITE_PAT` | same Forgejo write PAT (the macOS job appends the `.pkg` to the public Forgejo release). **The NAS PAT is *not* needed here — GitHub can't reach the NAS.** |
 | `MACOS_APP_CERT_P12` | base64 of your **Developer ID Application** cert (`.p12`) |
 | `MACOS_INSTALLER_CERT_P12` | base64 of your **Developer ID Installer** cert (`.p12`) |
 | `MACOS_CERT_PASSWORD` | the `.p12` export password |
@@ -361,17 +357,6 @@ GitHub-hosted runners they existed for.
 | `MACOS_NOTARY_KEY_P8` | base64 of your App Store Connect API key (`.p8`) |
 | `MACOS_NOTARY_KEY_ID` | the API key's Key ID |
 | `MACOS_NOTARY_ISSUER` | the API key's Issuer ID (a UUID) |
-| `GPG_SIGNING_KEY` | The same armoured private key Forgejo holds (`CCE50015D058E9BF`). Needed here because the arm64 `.deb`/`.rpm` are built on GitHub's native arm runner, and a package signed on one architecture and not the other is worse than neither. Scoped to the **`linux-signing` environment** rather than the repository, so only `release-linux-arm64.yml` can read it. |
-
-(`GITHUB_TOKEN` for the GitHub release is provided automatically; the workflows
-that create or append to a release declare `permissions: contents: write`, without
-which it can read but not publish.)
-
-**The `linux-signing` environment** (Settings → Environments → New environment)
-exists only to hold that key. Each forge holds the signing material for what it
-builds — the Apple identity lives here on the same principle — and an environment
-is what keeps a repository-wide secret from being readable by every workflow that
-runs on this side.
 
 ### Getting the macOS bits (one-time, Apple Developer Program)
 

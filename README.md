@@ -188,7 +188,7 @@ Older systems might work, but that isn't promised until they are part of this te
 
 | Operating system | Minimum supported version | Also tested on |
 |---|---|---|
-| macOS, Apple Silicon | macOS 15 | macOS 26 |
+| macOS, Apple Silicon | macOS 15 | macOS 27 |
 | Debian / Raspberry Pi OS | Debian 12 / Raspberry Pi OS Bookworm | Debian 13 |
 | Ubuntu | Ubuntu 22.04 LTS | Ubuntu 26.04 LTS |
 | Fedora | Oldest maintained Fedora (currently 43) | Fedora 44 |

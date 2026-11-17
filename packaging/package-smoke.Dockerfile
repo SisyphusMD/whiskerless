@@ -1,5 +1,5 @@
 # Installs the exact .deb that is about to be published and runs it, on the architecture the runner
-# already is — amd64 on Forgejo, arm64 on GitHub's native arm runner. A buildx target rather than a
+# already is — amd64 on the cluster, arm64 on the native arm64 runner. A buildx target rather than a
 # `docker run` because the Forgejo job is itself containerised, so a bind mount of the workspace
 # never reaches the daemon.
 #

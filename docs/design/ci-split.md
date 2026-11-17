@@ -3,29 +3,25 @@
 **Architecture picks the runner, and nothing is emulated.** Every job belongs on
 Forgejo, on a runner that is natively the architecture it tests: `ubuntu-latest`
 for Linux amd64, `ubuntu-26.04-arm` for Linux arm64, and `macos-15-vm` /
-`macos-27-vm` for the macOS floor and current macOS. A job still on GitHub has not
-moved yet, or is tied to one that has not.
-
-`tests/test_repo_invariants.py::test_github_only_runs_what_only_github_can_run`
-holds what is left on GitHub to that rule: a job in `.github/workflows/` on a
-runner that is neither macOS nor arm64 fails the suite unless it is listed as an
-exception with its reason.
+`macos-27-vm` for the macOS floor and current macOS. Nothing runs on GitHub, and
+`tests/test_repo_invariants.py::test_no_workflow_runs_on_github` fails the suite if a
+workflow file reappears under `.github/workflows/`.
 
 Forgejo (`forgejo.bryantserver.com`) is the primary repo and its runners are ours.
-GitHub is a read-only mirror that HACS installs from. Its runners were used
-because Apple notarizes only from a Mac and nobody here had arm64 hardware; both
-now exist here, and the release jobs still on GitHub are moving off it.
+GitHub is a read-only mirror that HACS installs from, and one of the three
+registries every release is uploaded to. Its runners were used because Apple
+notarizes only from a Mac and nobody here had arm64 hardware; both now exist here.
 
 ## What the runners actually are
 
 Worth stating plainly, because a comment in `bottles.yml` claimed the opposite for
 months and would have sent anyone reading it to the wrong forge:
 
-| | Forgejo | GitHub |
-|---|---|---|
-| Linux x86_64 | **yes**, natively (`ubuntu-latest`) | yes |
-| Linux arm64 | **yes**, natively (`ubuntu-26.04-arm`) | yes |
-| macOS | **yes**: macOS 15 and the newest macOS (`macos-15-vm`, `macos-27-vm`) | yes |
+| | Runner |
+|---|---|
+| Linux x86_64 | `ubuntu-latest`, natively |
+| Linux arm64 | `ubuntu-26.04-arm`, natively |
+| macOS | macOS 15 and the newest macOS (`macos-15-vm`, `macos-27-vm`) |
 
 ## Why no emulation
 
@@ -59,41 +55,10 @@ and `--output type=local` for its result, not as `docker run -v`. That is what
 `--platform` still appears in those calls, but it now names the architecture the
 runner already is; it is not a request to emulate.
 
-## What legitimately lives on GitHub
-
-The macOS and arm64 jobs pass that test on their runner labels alone; the others are in its
-exception list, with the same reason recorded there:
-
-- **The macOS release jobs** — `release-macos.yml` and the macOS legs of
-  `install-matrix.yml`. They are here because they have not moved yet: the `.pkg`
-  must be signed and notarized on a Mac, and the Macs here now run the tests and
-  the formula smoke on every push (`macos.yml`, a required check). The release jobs
-  move next.
-- **arm64 anything** — `release-linux-arm64.yml`, and the `linux-arm64` leg of
-  `install-matrix.yml`. There was no arm64 hardware here, and the alternative
-  was the emulation described above. There is now: Forgejo builds and
-  install-tests the same tags natively too (`release-arm64.yml`,
-  `install-matrix-arm64.yml`), and these copies go once both agree.
-- **`bottles.yml`** — the one genuine judgement call, and the one place the rule
-  is bent. Two of its three tags need macOS or native arm64 anyway. The third,
-  `x86_64_linux`, could run on Forgejo, but the run's append job uploads every
-  leg's bottle and manifest from the artifacts of that same run, and artifacts are
-  run-scoped. Splitting that leg across forges would mean collecting bottles and
-  manifests across forges too, for one leg's worth of purity.
-- **The coordinating jobs of `install-matrix.yml`** (`wait`, `summary`) — they
-  exist to sequence and report the legs that must run on this forge.
-
 ## Adding a job
 
 Ask what hardware it needs, then put it in `.forgejo/workflows/` on that runner.
-Nothing new goes in `.github/workflows/`; the jobs there are release jobs that
-have not moved yet, or jobs tied to them by run-scoped artifacts.
-
-GitHub-only jobs carry `if: ${{ github.server_url == 'https://github.com' }}`.
-Keep it. This instance records no runs at all for `.github/workflows/` — every run
-in the repository's history comes from `.forgejo/workflows/` — but the guard costs
-nothing and is what makes a workflow safe to read from either side, including one
-whose actions Forgejo could not resolve.
+Nothing goes in `.github/workflows/`.
 
 ## How the gate finds a matrix run
 
@@ -109,18 +74,10 @@ an invariant test holds that line.
   and the gate reads `runs/{id}/jobs` to recognise a re-dispatch (which runs from
   main, on purpose, so a fix to the scripts is what re-runs).
 
-While the macOS and arm64 install legs still run in GitHub's `install-matrix.yml`,
-this gate cannot see them. So `release.yml` refuses a stable cut for as long as that
-file exists, and the refusal clears once it is gone.
+## One matrix, three platforms
 
-## The two halves
-
-| | Forgejo `install-matrix.yml` | GitHub `install-matrix.yml` |
-|---|---|---|
-| name | Install matrix (Linux amd64) | Install matrix (macOS + Linux arm64) |
-| Linux channels | every one, on amd64 | every one, on arm64 |
-| macOS channels | none | `.pkg`, bottle pour, PyPI via uvx |
-
-Both Linux halves call `packaging/install-matrix-arch.sh`, which owns the channel
-list. Two inline copies in two files on two forges is a divergence with a
-schedule, and an invariant test pins that they both call it.
+`install-matrix.yml` runs every Linux channel on amd64 and on arm64, and the `.pkg`,
+bottle pour and PyPI-via-uvx channels on both macOS VMs, in one run the gate reads
+once. Both Linux legs call `packaging/install-matrix-arch.sh`, which owns the channel
+list, so the two architectures cannot test different sets; an invariant test pins
+that they both call it.

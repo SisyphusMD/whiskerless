@@ -299,15 +299,6 @@ jobs:
           # passes hardest exactly when it is broken.
           fetch-depth: 0
           persist-credentials: false
-      - name: Refuse while part of the install matrix runs where this gate cannot see
-        # The gate below reads Forgejo's install matrix only. While the macOS and arm64 install legs
-        # still run on GitHub, their verdict is invisible to it, and a stable would be qualified on
-        # amd64 installs alone. Fails closed until that workflow moves here and the file goes.
-        run: |
-          if [ -e .github/workflows/install-matrix.yml ]; then
-            echo "::error::.github/workflows/install-matrix.yml still exists, so the macOS and arm64 install legs are not gated; move them to Forgejo before cutting a stable"
-            exit 1
-          fi
       - name: Require the last rc's install matrix to be green
         # The install matrix installs PUBLISHED artifacts, so it can only ever run
         # after a release and can never gate the one it tests. This is where it
