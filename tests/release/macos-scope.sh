@@ -47,20 +47,23 @@ expect false dockerfile-digest "$R" packaging/install-smoke.Dockerfile packaging
 expect false forgejo-only      "$R" .forgejo/workflows/ci.yml packaging/install-smoke.Dockerfile
 expect false release-pins      "$R" packaging/release-pins.env
 expect false standard-lock     "$R" STANDARD.lock packaging/release-pins.env
-expect false linux-workflows   "$R" .github/workflows/install-matrix.yml .github/workflows/release-linux-arm64.yml
-expect false hassfest          "$R" .github/workflows/hassfest.yml
+expect false linux-workflows   "$R" .forgejo/workflows/install-matrix.yml .forgejo/workflows/publish.yml
 
 # One relevant path among skippable ones is enough to run.
 expect true  python-dep        "$R" pyproject.toml
 expect true  lockfile          "$R" uv.lock .forgejo/workflows/ci.yml
-expect true  macos-workflow    "$R" .github/workflows/ci-macos.yml .forgejo/workflows/ci.yml
-expect true  formula-workflow  "$R" .github/workflows/formula-macos.yml
+# The macOS workflow is under .forgejo/, which is otherwise skippable; a change to it is what its
+# own run tests.
+expect true  macos-workflow    "$R" .forgejo/workflows/macos.yml
+expect true  macos-and-linux   "$R" .forgejo/workflows/macos.yml .forgejo/workflows/ci.yml
+# No GitHub workflows are left, so one appearing is an unknown path, and unknown paths run.
+expect true  github-workflow   "$R" .github/workflows/anything.yml
 expect true  formula           "$R" packaging/homebrew/thing.rb
 expect true  source            "$R" src/pkg/constants.py packaging/release-pins.env
 expect true  unknown-path      "$R" somewhere/new.txt
 # Anchored, so a Dockerfile in a subdirectory or a lookalike workflow name is not swept in.
 expect true  nested-dockerfile "$R" packaging/macos/build.Dockerfile
-expect true  lookalike         "$R" .github/workflows/release-macos.yml.bak
+expect true  lookalike         "$R" .forgejo/workflows/macos.yml.bak packaging/x.Dockerfile.bak
 expect true  no-change         "$R"
 
 # Never skipped, whatever they change.

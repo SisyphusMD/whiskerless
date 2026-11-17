@@ -11,9 +11,9 @@ neither macOS nor arm64 fails the suite unless it is listed as an exception with
 its reason.
 
 Forgejo (`forgejo.bryantserver.com`) is the primary repo and its runners are ours.
-GitHub is a read-only mirror that exists because HACS installs from it, because
-Apple will not let anyone else notarize, because nobody here has arm64 hardware,
-and because a handful of things are welded to the GitHub ecosystem.
+GitHub is a read-only mirror that HACS installs from. Its runners were used
+because Apple notarizes only from a Mac and nobody here had arm64 hardware; both
+now exist here, and the release jobs still on GitHub are moving off it.
 
 ## What the runners actually are
 
@@ -62,24 +62,16 @@ runner already is; it is not a request to emulate.
 
 Each of these is in the test's exception list, with the same reason recorded there:
 
-- **macOS anything** — `ci-macos.yml`, `formula-macos.yml`, `release-macos.yml`,
-  and the macOS legs of `install-matrix.yml`. Forgejo had no macOS runner, and the
-  `.pkg` must be signed and notarized on a Mac. It has one now and runs the tests
-  and the formula smoke on macOS too (`macos.yml`); those two copies go once both
-  agree.
+- **The macOS release jobs** — `release-macos.yml` and the macOS legs of
+  `install-matrix.yml`. Forgejo had no macOS runner, and the `.pkg` must be signed
+  and notarized on a Mac. It has macOS 15 and macOS 27 VMs now: the tests and the
+  formula smoke already run there on every push (`macos.yml`, a required check), and
+  the release jobs are moving there too.
 - **arm64 anything** — `release-linux-arm64.yml`, and the `linux-arm64` leg of
   `install-matrix.yml`. There was no arm64 hardware here, and the alternative
   was the emulation described above. There is now: Forgejo builds and
   install-tests the same tags natively too (`release-arm64.yml`,
   `install-matrix-arm64.yml`), and these copies go once both agree.
-- **`hassfest.yml`** — a GitHub-ecosystem action the Forgejo runner cannot fetch;
-  it resolves actions from `data.forgejo.org`, which does not carry
-  `home-assistant/actions`. Forgejo CI now runs the same two checks from their
-  images (`hassfest` and `hacs` in `ci.yml`); this copy goes once both agree.
-- **`ci-pr.yml`** — pull requests are on GitHub by project policy, so Forgejo
-  never sees the event.
-- **`retry-infra-failures.yml`** — it re-runs GitHub workflow runs through the
-  GitHub API. There is nothing for it to do anywhere else.
 - **`bottles.yml`** — the one genuine judgement call, and the one place the rule
   is bent. Two of its three tags need macOS or native arm64 anyway. The third,
   `x86_64_linux`, could run on Forgejo, but the run's append job uploads every
@@ -88,9 +80,6 @@ Each of these is in the test's exception list, with the same reason recorded the
   manifests across forges too, for one leg's worth of purity.
 - **The coordinating jobs of `install-matrix.yml`** (`wait`, `summary`) — they
   exist to sequence and report the legs that must run on this forge.
-- **The `scope` jobs of `ci-macos.yml` and `formula-macos.yml`** — they run
-  `packaging/macos-scope.sh` to decide whether a Renovate push may skip that run's
-  macOS job, and a job's `needs` cannot reach across forges.
 
 ## Adding a job
 

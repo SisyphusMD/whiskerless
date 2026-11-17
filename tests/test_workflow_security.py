@@ -92,7 +92,7 @@ def _gate_lines() -> list[str]:
         line
         for workflow in _FORGEJO
         for line in workflow.read_text().splitlines()
-        if "check-mirror-ci.sh" in line and not line.lstrip().startswith("#")
+        if "check-forgejo-ci.sh" in line and not line.lstrip().startswith("#")
     ]
 
 
@@ -153,10 +153,10 @@ def test_github_token_defaults_read_only_and_only_macos_publish_can_write() -> N
         assert permissions == {"contents": "write"}, f"{name}: {permissions}"
 
 
-def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
+def test_gated_workflows_are_safe_to_gate_on() -> None:
     """A workflow a release gate reads has to answer for one commit, the same way, every time.
 
-    The gate takes the first SUCCESSFUL run for a commit, whichever branch pushed it. That is only
+    The gate takes a fully SUCCESSFUL run for a commit, whichever branch pushed it. That is only
     sound while a gated workflow does identical work on every branch: then two runs for one commit
     differ solely by scheduling or infrastructure, and a green one is evidence the commit builds.
     Add a branch condition and it stops being true — a run that skipped the real work on a topic
@@ -171,15 +171,17 @@ def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
     still bypass it. This test pins the exception to exactly that shape, so it cannot widen.
     """
     lines = _gate_lines()
-    assert lines, "no mirror-gated workflows found"
+    assert lines, "no gated workflows found"
     # Every call site has to name its workflow file inline. One that wrapped onto the next line, or
-    # passed the path through a variable, would be gated on without any check below seeing it.
-    named = [line for line in lines if ".github/workflows/" in line]
-    assert named == lines, "a check-mirror-ci.sh call site does not name its workflow file inline"
-    gated = {line.split(".github/workflows/")[1].split()[0].strip('"') for line in named}
+    # passed the name through a variable, would be gated on without any check below seeing it.
+    call = re.compile(r'check-forgejo-ci\.sh "\$\{\{ github\.sha \}\}" ([A-Za-z0-9._-]+\.yml)\s*$')
+    named = [line for line in lines if call.search(line)]
+    assert named == lines, "a check-forgejo-ci.sh call site does not name its workflow file inline"
+    gated = {call.search(line).group(1) for line in named}
+    assert gated == {"macos.yml"}, f"the release gates read {sorted(gated)}, not the macOS run"
 
     for name in sorted(gated):
-        path = _ROOT / ".github" / "workflows" / name
+        path = _ROOT / ".forgejo" / "workflows" / name
         assert path.is_file(), f"{name} is gated on but does not exist"
         document = yaml.safe_load(path.read_text())
 
@@ -195,7 +197,7 @@ def test_mirror_gated_workflows_are_safe_to_gate_on() -> None:
         # outright, and that commit is never released (see the docstring).
         renovate = "startsWith(github.ref, 'refs/heads/renovate/')"
         concurrency = document["concurrency"]
-        prefix = name.removesuffix(".yml").replace("ci-macos", "macos-ci")
+        prefix = name.removesuffix(".yml")
         assert concurrency["group"] == f"{prefix}-${{{{ {renovate} && github.ref || github.sha }}}}", \
             f"{name} is gated on but its concurrency group is not per-commit: {concurrency}"
         assert concurrency.get("cancel-in-progress") == f"${{{{ {renovate} }}}}", \

@@ -234,7 +234,7 @@
       "allowedVersions": "/^3\\.11\\.0$/"
     },
     {
-      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here \u2014 a bump deletes the test rather than updating it, and nothing goes red. macos-15 is the macOS support floor in ci-macos.yml, paired with macos-26 as current. A runner-image bump must never move the floor: that deletes the oldest-macOS coverage instead of updating it, and nothing goes red. Renovate's github-runners datasource is documented inconsistently on whether it extracts `macos-15` whole or splits it into depName `macos` / version `15`, and no bump has ever been observed here to settle it, so BOTH shapes are clamped. Whichever one is wrong is inert; a missing rule loses the floor.",
+      "description": "DELIBERATELY OLD (see the block of rules sharing this prefix): this version is pinned low on purpose because something is tested against it. Renovate cannot know that newer is WORSE here \u2014 a bump deletes the test rather than updating it, and nothing goes red. macos-15 is the macOS support floor of the GitHub-hosted release jobs, paired with macos-26 as current. A runner-image bump must never move the floor: that deletes the oldest-macOS coverage instead of updating it, and nothing goes red. Renovate's github-runners datasource is documented inconsistently on whether it extracts `macos-15` whole or splits it into depName `macos` / version `15`, and no bump has ever been observed here to settle it, so BOTH shapes are clamped. Whichever one is wrong is inert; a missing rule loses the floor.",
       "matchDatasources": [
         "github-runners"
       ],
