@@ -1,0 +1,52 @@
+[
+ {
+  "color": "ededed",
+  "description": "Idea, not scheduled",
+  "name": "roadmap"
+ },
+ {
+  "color": "000000",
+  "description": "Waiting on another issue or PR",
+  "name": "status:blocked"
+ },
+ {
+  "color": "fbca04",
+  "description": "Someone is on it",
+  "name": "status:in-progress"
+ },
+ {
+  "color": "e99695",
+  "description": "Waiting on a decision",
+  "name": "status:needs-decision"
+ },
+ {
+  "color": "0e8a16",
+  "description": "Can be picked up",
+  "name": "status:ready"
+ },
+ {
+  "color": "b60205",
+  "description": "Something is wrong",
+  "name": "type:bug"
+ },
+ {
+  "color": "cccccc",
+  "description": "Upkeep",
+  "name": "type:chore"
+ },
+ {
+  "color": "d93f0b",
+  "description": "A choice for Cody",
+  "name": "type:decision"
+ },
+ {
+  "color": "0e8a16",
+  "description": "Something the project should do",
+  "name": "type:feature"
+ },
+ {
+  "color": "5319e7",
+  "description": "Time-boxed question",
+  "name": "type:spike"
+ }
+]

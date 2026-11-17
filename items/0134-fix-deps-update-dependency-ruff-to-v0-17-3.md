@@ -1,0 +1,121 @@
+# #134 fix(deps): update dependency ruff to v0.17.3
+
+- Kind: pull, state: closed, by renovate, created 2026-10-22T12:12:33-07:00
+- Labels: none; milestone: none
+- refs/pull/134/head -> main, merged: True
+
+This PR contains the following updates:
+
+| Package | Change | [Age](https://docs.renovatebot.com/merge-confidence/) | [Confidence](https://docs.renovatebot.com/merge-confidence/) |
+|---|---|---|---|
+| [ruff](https://docs.astral.sh/ruff) ([source](https://github.com/astral-sh/ruff), [changelog](https://github.com/astral-sh/ruff/blob/main/CHANGELOG.md)) | `==0.17.1` → `==0.17.3` | ![age](https://developer.mend.io/api/mc/badges/age/pypi/ruff/0.17.3?slim=true) | ![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/ruff/0.17.1/0.17.3?slim=true) |
+
+---
+
+### Release Notes
+
+<details>
+<summary>astral-sh/ruff (ruff)</summary>
+
+### [`v0.17.3`](https://github.com/astral-sh/ruff/blob/HEAD/CHANGELOG.md#0173)
+
+[Compare Source](https://github.com/astral-sh/ruff/compare/0.17.2...0.17.3)
+
+Released on 2026-10-26.
+
+##### Preview features
+
+- \[`suspicious`] Add `shared-clock-mock` ([#&#8203;29074](https://github.com/astral-sh/ruff/pull/29074))
+
+##### Bug fixes
+
+- \[`pyupgrade`] Avoid incorrect conversions to f-strings (`UP032`) ([#&#8203;25485](https://github.com/astral-sh/ruff/pull/25485))
+
+##### Performance
+
+- Buffer stdout in `ruff format` ([#&#8203;29631](https://github.com/astral-sh/ruff/pull/29631))
+- Specialize ASCII identifier lexing ([#&#8203;29503](https://github.com/astral-sh/ruff/pull/29503))
+- Speed up identifier and keyword lexing ([#&#8203;29463](https://github.com/astral-sh/ruff/pull/29463))
+
+##### Documentation
+
+- \[`flake8-bandit`] Describe what the rule actually checks for `httpx` (`S113`) ([#&#8203;27936](https://github.com/astral-sh/ruff/pull/27936))
+
+##### Contributors
+
+- [@&#8203;itsvedantkumar](https://github.com/itsvedantkumar)
+- [@&#8203;charliermarsh](https://github.com/charliermarsh)
+- [@&#8203;anishgirianish](https://github.com/anishgirianish)
+
+### [`v0.17.2`](https://github.com/astral-sh/ruff/blob/HEAD/CHANGELOG.md#0172)
+
+[Compare Source](https://github.com/astral-sh/ruff/compare/0.17.1...0.17.2)
+
+Released on 2026-10-22.
+
+##### Preview features
+
+- \[`complexity`] Add `unnecessary-regular-expression-compile` ([#&#8203;25533](https://github.com/astral-sh/ruff/pull/25533))
+
+##### Bug fixes
+
+- Avoid syntax errors for type variables with starred constraints (`UP040`, `UP046`, `UP047`, `RUF053`) ([#&#8203;28362](https://github.com/astral-sh/ruff/pull/28362))
+- \[`pydocstyle`] Treat backslash-escaped `*args` and `**kwargs` as documented (`D417`) ([#&#8203;29536](https://github.com/astral-sh/ruff/pull/29536))
+- \[`pylint`] Avoid false positive on starred elements (`PLE0643`) ([#&#8203;29483](https://github.com/astral-sh/ruff/pull/29483))
+- \[`pylint`] Mark fixes unsafe when deleting comments (`PLR5501`, `PLW0120`) ([#&#8203;29414](https://github.com/astral-sh/ruff/pull/29414))
+- \[`pyupgrade`] Mark fix unsafe when deleting comments (`UP035`) ([#&#8203;29413](https://github.com/astral-sh/ruff/pull/29413))
+
+##### Performance
+
+- Avoid intermediate names in lint name resolution ([#&#8203;29506](https://github.com/astral-sh/ruff/pull/29506))
+- Prefilter bidirectional Unicode checks by UTF-8 leading bytes ([#&#8203;29561](https://github.com/astral-sh/ruff/pull/29561))
+- Share postfix parsing and reduce expression copies ([#&#8203;29480](https://github.com/astral-sh/ruff/pull/29480))
+
+##### Configuration
+
+- \[`pylint`] Add a configurable allowlist for `magic-value-comparison` (`PLR2004`) ([#&#8203;18961](https://github.com/astral-sh/ruff/pull/18961))
+
+##### Documentation
+
+- Clarify documentation and correct stale guidance ([#&#8203;29374](https://github.com/astral-sh/ruff/pull/29374))
+- \[`pyupgrade`] Remove mentions of variance related to fix safety (`UP040`, `UP047`) ([#&#8203;29592](https://github.com/astral-sh/ruff/pull/29592))
+
+##### Contributors
+
+- [@&#8203;fixfon](https://github.com/fixfon)
+- [@&#8203;MichaReiser](https://github.com/MichaReiser)
+- [@&#8203;zaniebot](https://github.com/zaniebot)
+- [@&#8203;FrancescoPezzella](https://github.com/FrancescoPezzella)
+- [@&#8203;anishgirianish](https://github.com/anishgirianish)
+- [@&#8203;rajveer3x](https://github.com/rajveer3x)
+- [@&#8203;charliermarsh](https://github.com/charliermarsh)
+- [@&#8203;LckyLike](https://github.com/LckyLke)
+- [@&#8203;DaniBodor](https://github.com/DaniBodor)
+
+</details>
+
+---
+
+### Configuration
+
+📅 **Schedule**: (UTC)
+
+- Branch creation
+  - At any time (no schedule defined)
+- Automerge
+  - At any time (no schedule defined)
+
+🚦 **Automerge**: Enabled.
+
+♻ **Rebasing**: Whenever PR is behind base branch, or you tick the rebase/retry checkbox.
+
+🔕 **Ignore**: Close this PR and you won't be reminded about this update again.
+
+---
+
+ - [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check this box
+
+---
+
+This PR has been generated by [Mend Renovate CLI](https://github.com/renovatebot/renovate).
+<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0NC4xNTEuMiIsInVwZGF0ZWRJblZlciI6IjQ0LjE5Mi4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6WyJwYXRjaC11cGRhdGUiXX0=-->
