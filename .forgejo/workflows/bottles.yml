@@ -104,7 +104,7 @@ jobs:
           # refuses to touch the world-writable gem directory it created itself a moment earlier.
           docker exec "$name" bash -lc 'umask 022 && bash /tmp/repo/packaging/build-bottles.sh "$TAG" /tmp/out'
           docker cp "$name:/tmp/out" bottles
-      - uses: actions/upload-artifact@c6a366c94c3e0affe28c06c8df20a878f24da3cf # v3.2.2
+      - uses: https://code.forgejo.org/forgejo/upload-artifact@cb8afe72b42edc798abfb8fcb556cf660d894245 # v5
         with:
           name: bottle-${{ matrix.label }}
           path: bottles/*
@@ -126,17 +126,17 @@ jobs:
           persist-credentials: false
       # One download per leg, each allowed to miss: a failed leg uploaded nothing, and the legs
       # that did build must still be published.
-      - uses: actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0
+      - uses: https://code.forgejo.org/forgejo/download-artifact@769f970437aa3291b13f35dc23fc87967d7fb19f # v7
         continue-on-error: true
         with:
           name: bottle-arm64_sequoia
           path: bottles
-      - uses: actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0
+      - uses: https://code.forgejo.org/forgejo/download-artifact@769f970437aa3291b13f35dc23fc87967d7fb19f # v7
         continue-on-error: true
         with:
           name: bottle-x86_64_linux
           path: bottles
-      - uses: actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0
+      - uses: https://code.forgejo.org/forgejo/download-artifact@769f970437aa3291b13f35dc23fc87967d7fb19f # v7
         continue-on-error: true
         with:
           name: bottle-arm64_linux

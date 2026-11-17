@@ -976,24 +976,43 @@ def test_trust_gates_also_exclude_agit_pull_requests() -> None:
     assert not stale, f"_UNGATED_ON_PULL_REQUESTS excuses jobs that no longer exist: {stale}"
 
 
-def test_artifact_actions_stay_on_v3() -> None:
-    # v4 and later refuse any server that is not github.com (GHESNotSupportedError), and the two
-    # workflows that use them never run on a pull request, so a v4 line would pass review and fail
-    # only the next release. Both halves are pinned: the workflow lines (by their version comment,
-    # which is what Renovate reads; the SHA beside it is Renovate's to move) and Renovate's ceiling.
-    uses = re.compile(r"uses:\s*actions/(?:upload|download)-artifact@")
+def test_artifact_actions_are_the_forgejo_forks() -> None:
+    # GitHub's upload-artifact and download-artifact v4 and later throw GHESNotSupportedError on
+    # any server that is not github.com, and their v3 is end-of-life. Forgejo's forks drop that
+    # check; only their bare major tags (v5, v7) carry it, while the upstream vX.Y.Z tags mirrored
+    # beside them do not. The two workflows that use them never run on a pull request, so a wrong
+    # line would pass review and fail only the next release. Both halves are pinned: the workflow
+    # lines (full URL, a commit, and the major tag Renovate reads) and Renovate's matching rule.
+    forks = {
+        "upload": "https://code.forgejo.org/forgejo/upload-artifact",
+        "download": "https://code.forgejo.org/forgejo/download-artifact",
+    }
     lines = [
-        line
+        line.strip()
         for path in _FORGEJO
         for line in path.read_text().splitlines()
-        if uses.search(line)
+        if re.search(r"(?:upload|download)-artifact", line) and "uses:" in line
     ]
     assert lines, "no artifact steps found; update this test if they were removed on purpose"
+    seen = set()
     for line in lines:
-        assert re.search(r"#\s*v3\.", line), line
-    held = {"actions/upload-artifact", "actions/download-artifact"}
+        m = re.fullmatch(
+            r"(?:- )?uses: (?P<url>\S+)@(?P<sha>[0-9a-f]{40}) # (?P<tag>v\d+)", line
+        )
+        assert m and m["url"] in forks.values(), f"not a pinned Forgejo artifact fork: {line}"
+        seen.add(m["url"])
+    assert seen == set(forks.values()), f"expected both forks in use, found {sorted(seen)}"
+    # One upload and one download version everywhere: the pair must agree on the v4+ protocol.
+    assert len({line for line in lines if "upload-artifact" in line}) == 1, lines
+    assert len({line for line in lines if "download-artifact" in line}) == 1, lines
     rules = json.loads((_ROOT / ".renovaterc.json").read_text())["packageRules"]
-    assert any(
-        held <= set(rule.get("matchDepNames", [])) and rule.get("allowedVersions") == "<4"
+    assert not any(
+        {"actions/upload-artifact", "actions/download-artifact"} & set(rule.get("matchDepNames", []))
         for rule in rules
-    )
+    ), "a Renovate rule still names the GitHub artifact actions"
+    assert any(
+        set(forks.values()) <= set(rule.get("matchDepNames", []))
+        and rule.get("allowedVersions") == "/^v\\d+$/"
+        and rule.get("automerge") is False
+        for rule in rules
+    ), "Renovate must hold the forks to their bare major tags and never automerge them"
