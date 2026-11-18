@@ -2,6 +2,7 @@
 # Push an annotated release tag atomically with its commit's branch, then best-effort nudge the
 # push-mirrors to propagate it immediately.
 #   push-tag.sh <tag> <token> <branch-ref>
+#   push-tag.sh <tag> <token> --merged-commit <verified-merge-sha>
 #
 # Used by release.yml's tag job only. prerelease.yml is dispatchable from any branch, so its own
 # push step is kept inline rather than handing the repo-write PAT to a script whose content would
@@ -12,9 +13,17 @@
 # later force-push retarget the version silently. Mirror-sync is warn-only: a scope refusal or
 # hiccup there must never fail a release whose refs already fanned out via sync_on_commit.
 set -euo pipefail
-tag="${1:?usage: push-tag.sh <tag> <token> <branch-ref>}"
-token="${2:?usage: push-tag.sh <tag> <token> <branch-ref>}"
-branch_ref="${3:?usage: push-tag.sh <tag> <token> <branch-ref>}"
+tag="${1:?usage: push-tag.sh <tag> <token> <branch-ref> | --merged-commit <sha>}"
+token="${2:?usage: push-tag.sh <tag> <token> <branch-ref> | --merged-commit <sha>}"
+branch_ref="${3:?usage: push-tag.sh <tag> <token> <branch-ref> | --merged-commit <sha>}"
+target="$(git rev-parse HEAD)"
+if [ "$branch_ref" = --merged-commit ]; then
+  target="${4:?--merged-commit needs the verified merge SHA}"
+  if ! [[ "$target" =~ ^[0-9a-f]{40}$ && "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    echo "::error::Expected a stable release tag and the full verified merge SHA"
+    exit 1
+  fi
+fi
 
 # Sourced for PROJECT_REPO_SLUG, which the mirror check below needs. Optional on purpose: this
 # script's own job is pushing the tag, and a project without the file should still be able to
@@ -34,12 +43,25 @@ fi
 [ -z "${PROJECT_REPO_SLUG:-}" ] || \
   : "${GH_REPO_READ_PAT:?a read-only GitHub token is required: the mirror probe must not run unauthenticated, whose 60-requests-per-hour-per-IP ceiling every runner shares}"
 [ "$(git cat-file -t "refs/tags/$tag")" = tag ]
-[ "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse HEAD)" ]
+[ "$(git rev-parse "refs/tags/$tag^{commit}")" = "$target" ]
 test -z "$(git status --porcelain)"
 
 AUTH_B64=$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')
-git -c "http.extraheader=Authorization: Basic ${AUTH_B64}" push --atomic origin \
-  "HEAD:${branch_ref}" "$tag"
+auth="http.extraheader=Authorization: Basic ${AUTH_B64}"
+if [ "$branch_ref" = --merged-commit ]; then
+  tag_ref="refs/tags/$tag"
+  # A retry may have a different annotation object. A non-forced push cannot replace
+  # the authoritative tag. Read its peeled commit to distinguish a replay from a conflict.
+  git -c "$auth" push origin "$tag_ref:$tag_ref" \
+    || echo "::warning::Tag push did not report success. Checking the primary's tag."
+  advertised=$(git -c "$auth" ls-remote origin "$tag_ref" "$tag_ref^{}")
+  peeled=$(awk -v ref="$tag_ref^{}" '$2 == ref {print $1}' <<< "$advertised")
+  [ "$peeled" = "$target" ] || { echo "::error::Remote tag does not identify the verified release"; exit 1; }
+  pushed_tag_object=$(awk -v ref="$tag_ref" '$2 == ref {print $1}' <<< "$advertised")
+  [[ "$pushed_tag_object" =~ ^[0-9a-f]{40}$ ]]
+else
+  git -c "$auth" push --atomic origin "HEAD:${branch_ref}" "$tag"
+fi
 
 # Fire the sync, then verify the OUTCOME on the mirror itself.
 #
@@ -59,7 +81,7 @@ git -c "http.extraheader=Authorization: Basic ${AUTH_B64}" push --atomic origin 
 # every runner shares one, so a bare probe answers 403 rather than answering, and a check that
 # cannot decide is indistinguishable from one that was never run.
 mirror_ref_json="${TMPDIR:-/tmp}/mirror-ref-$$.json"
-want_obj=$(git rev-parse "refs/tags/${tag}")
+want_obj="${pushed_tag_object:-$(git rev-parse "refs/tags/${tag}")}"
 mirror_has_tag() {
   [ -n "${PROJECT_REPO_SLUG:-}" ] || return 2   # nothing to check against
   code=$(curl -sS -o "$mirror_ref_json" -w '%{http_code}' --max-time 30 \

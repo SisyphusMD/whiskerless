@@ -56,11 +56,17 @@ receives the release.
    It **waits** rather than failing fast, because a release dispatched moments
    after a push can find the run still queued, or not created yet.
 
-1. **Cut it on Forgejo** — run the **Release** workflow (`.forgejo/workflows/release.yml`)
-   from the Forgejo UI and pick `patch` / `minor` / `major`. (First release on a
-   fresh repo: dispatch `minor` → `0.1.0`.) It advances the CHANGELOG, bumps every
-   version string, runs the test gate, commits, tags, and pushes. Git push-mirror
-   fans the commit + tag out to GitHub and the NAS Forgejo.
+1. **Prepare and merge the release on Forgejo.** Run **Prepare Release** from `main`
+   with a release issue number and choose `patch` / `minor` / `major`. The workflow promotes
+   the changelog, checks the existing qualification gates, stamps the version files,
+   and opens a release PR. Merge it while it is up to date with `main` and all checks
+   are green. An update to the prepared head invalidates its qualification. If `main` moved, close the stale PR, retire its branch with approval,
+   and run Prepare Release again for the same issue. If it already merged, revert
+   the stale promotion through a PR before preparing again.
+
+   Run **Publish Release** from `main` with the merged PR number. The workflow tags
+   that exact commit and starts the existing artifact publishers. The changelog lists the
+   latest bump per dependency since the previous release.
 2. **Forgejo `publish.yml`** (tag-triggered): publishes the library to **PyPI**,
    builds the **amd64 Linux artifacts** — raw binary, `.deb`, `.rpm` — and
    **creates the release on all three** (Forgejo, NAS, GitHub) with the CHANGELOG
@@ -333,7 +339,7 @@ GitHub-hosted runners they existed for.
 
 | Secret | What it is |
 |---|---|
-| `CLUSTER_FORGEJO_REPO_WRITE_PAT` | Forgejo PAT, repo write (push the release commit/tag + create/append the Forgejo release). You already use this on `archiver`. |
+| `CLUSTER_FORGEJO_REPO_WRITE_PAT` | Forgejo PAT, repo write (push the release branch and tag, and create/append the Forgejo release). You already use this on `archiver`. |
 | `NAS_FORGEJO_REPO_WRITE_PAT` | PAT on the NAS Forgejo, repo write (create the NAS release and append every asset to it). |
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write: creates the GitHub release and appends every asset to it. Same PAT used as the GitHub push-mirror password. |
 | `GH_REPO_READ_PAT` | **Required.** GitHub PAT with **no scopes** — read-only public data. Used by the republish guard, the tag's mirror confirmation and the install-matrix wait, all of which refuse to call GitHub unauthenticated: 60 requests/hour per IP is shared with everything else leaving this network. |

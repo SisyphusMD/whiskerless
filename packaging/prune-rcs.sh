@@ -50,8 +50,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # For ignored_asset (release-common) over _IGNORED_ASSETS (asset-roles) — one definition of which
 # assets sit outside the cross-registry quorum, shared with reconcile. extglob because the role
 # patterns use `!(...)`. Sourced rather than reimplemented, and sourced at all because an undefined
-# ignored_asset returns 127, the `||` beside it fires, every bottle counts toward the signature, the
-# NAS never carries bottles, and the sweep then keeps every candidate forever while reporting success.
+# ignored_asset returns 127, the `||` beside it fires and every bottle counts toward the signature.
+# A bottle set that differs across registries would then prevent otherwise eligible pruning.
 shopt -s extglob
 # shellcheck source=/dev/null
 . "$here/project.env"
@@ -461,9 +461,8 @@ stable_present_everywhere() {
         end' <<<"$json" 2>/dev/null)" \
       || { echo "::warning::prune: stable $stem does not serve a clean, non-empty asset set on $registry; keeping its rc" >&2
            ok=0; continue; }
-    # Assets outside the quorum are dropped BEFORE the signature is built. Homebrew bottles reach
-    # GitHub and the cluster Forgejo but never the NAS, by design — comparing raw sets would make
-    # every bottled stable look permanently half-fanned-out and keep its candidates forever.
+    # Ignore bottles before building the signature. The bottle workflows synchronize those
+    # separately, so differences in their asset lists do not affect the release quorum.
     names="$(while IFS= read -r _n; do
       [ -n "$_n" ] || continue
       ignored_asset "$_n" || printf '%s\n' "$_n"

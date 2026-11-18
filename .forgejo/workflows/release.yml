@@ -1,13 +1,7 @@
-name: Release
+name: Prepare Release
 
-# Cut a stable release from main: pick the bump in the Forgejo UI. This advances the CHANGELOG,
-# bumps every version string, runs the test gate, then commits + tags. The tag triggers publish.yml
-# (PyPI + Linux binary + the forgejo/nas/github releases) and, on the GitHub mirror, the macOS .pkg
-# job. For a build to put on hardware first, use prerelease.yml instead.
-#
-# Split in two: `gate` decides what the release IS and proves the tree is green while holding no
-# credential; `tag` is the only job handed the write token, and it re-derives the same stamp from a
-# fresh checkout and refuses to push unless the bytes hash to what the gate qualified.
+# The qualification jobs hold no write credential. The prepare job reproduces
+# the qualified tree before opening the release PR.
 on:
   workflow_dispatch:
     inputs:
@@ -16,6 +10,10 @@ on:
         required: true
         type: choice
         options: [patch, minor, major]
+      issue:
+        description: "Forgejo release issue number"
+        required: true
+        type: string
 
 concurrency:
   # Shared with prerelease.yml: stable and rc tag creation must not interleave, or both derive
@@ -33,10 +31,13 @@ jobs:
       date: ${{ steps.ver.outputs.date }}
       intent_sha256: ${{ steps.intent.outputs.sha256 }}
     steps:
-      - name: Refuse non-main dispatches
+      - name: Validate dispatch inputs
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          ISSUE: ${{ inputs.issue }}
         run: |
-          if [ "${{ github.ref_name }}" != "main" ]; then
-            echo "::error::Release must be dispatched from main; got '${{ github.ref_name }}'"
+          if ! [[ "$RELEASE_REF" == refs/heads/main && "$ISSUE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Dispatch from main with a numeric release issue"
             exit 1
           fi
 
@@ -316,8 +317,9 @@ jobs:
           [ -n "$version" ] || { echo "::error::could not compute the version being promoted"; exit 1; }
           bash packaging/check-rc-install-matrix.sh "$version"
 
-  tag:
-    name: Authorize and push the release
+  prepare:
+    name: Open the qualified release PR
+    if: github.ref == 'refs/heads/main'
     needs: [gate, integration-gate, integration-current-gate, macos-gate, candidate-gate]
     runs-on: ubuntu-latest
     steps:
@@ -359,32 +361,82 @@ jobs:
           [ "$ACTUAL_INTENT_SHA256" = "$QUALIFIED_INTENT_SHA256" ] \
             || { echo "::error::release bytes differ from the qualified intent"; exit 1; }
 
-      - name: Commit and tag the reproduced release
+      - name: Commit the reproduced release
         env:
           VERSION: ${{ needs.gate.outputs.version }}
-          TAG: ${{ needs.gate.outputs.tag }}
         run: |
           set -euo pipefail
           git config user.name "forgejo-actions[bot]"
           git config user.email "forgejo-actions[bot]@users.noreply.bryantserver.com"
-          git add CHANGELOG.md README.md pyproject.toml src/whiskerless/__init__.py \
+          git add -- CHANGELOG.md README.md pyproject.toml src/whiskerless/__init__.py \
             custom_components/whiskerless/manifest.json
           git commit -m "release: ${VERSION}"
           python3 packaging/stamp-version.py "$VERSION" --check
-          git tag -a -m "release: ${VERSION}" "$TAG"
 
-      # ATOMIC, via the shared helper this repo already vendors and — until now — never called.
-      # Two sequential pushes have a window between them: a network or server failure after the
-      # first advances main with the release commit and no tag, and the re-run then meets an
-      # already-promoted CHANGELOG and version. `push --atomic` makes both refs land or neither.
-      # The helper also refuses to push unless the tag is an annotated object pointing at HEAD with
-      # a clean tree, which the inline version never checked. The sibling has used it throughout.
-      - name: Push the commit and tag atomically
+      - name: Open the release pull request
         env:
           TAG: ${{ needs.gate.outputs.tag }}
+          ISSUE: ${{ inputs.issue }}
+          ISSUE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
-          # Read-only, and separate from the write credential above: the helper's mirror probe
-          # refuses to call GitHub unauthenticated, whose 60-per-hour-per-IP ceiling every runner
-          # shares. Checked before the push, so a missing one cannot leave the tag pushed.
-          GH_REPO_READ_PAT: ${{ secrets.GH_REPO_READ_PAT }}
-        run: bash packaging/push-tag.sh "$TAG" "$TOKEN" "${{ github.ref_name }}"
+        run: |
+          set -euo pipefail
+          : "${TOKEN:?missing repository write token}"
+          api="$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY"
+          auth=(-H "Authorization: token $TOKEN")
+          issue_response=$(curl -fsS --max-time 30 -H "Authorization: token $ISSUE_TOKEN" "$api/issues/$ISSUE")
+          jq -e '.state == "open" and .pull_request == null' <<< "$issue_response" >/dev/null \
+            || { echo "::error::Select an open release issue"; exit 1; }
+
+          branch="release/$TAG"
+          remote_ref="refs/heads/$branch"
+          git_auth="http.extraheader=Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          base=$(git rev-parse HEAD^)
+          remote_main=$(git -c "$git_auth" ls-remote --exit-code origin refs/heads/main | cut -f1)
+          [ "$remote_main" = "$base" ] \
+            || { echo "::error::main moved during qualification. Run Prepare Release again."; exit 1; }
+          # A previous attempt may have pushed the same qualified tree before the PR request failed.
+          # Compare the existing commit before reusing it. An unrelated branch never gets replaced.
+          advertised=$(git -c "$git_auth" ls-remote origin "$remote_ref")
+          if [ -n "$advertised" ]; then
+            git -c "$git_auth" fetch --no-tags origin "$remote_ref"
+            if [ "$(git rev-parse "FETCH_HEAD^{tree}")" != "$(git rev-parse "HEAD^{tree}")" ] \
+              || [ "$(git rev-parse "FETCH_HEAD^")" != "$base" ]; then
+              echo "::error::Existing release branch differs. Check the open PR and retire the stale branch."
+              exit 1
+            fi
+            candidate=$(git rev-parse FETCH_HEAD)
+          else
+            git -c "$git_auth" push origin "HEAD:$remote_ref"
+            candidate=$(git rev-parse HEAD)
+          fi
+
+          # Updating or rebasing the PR changes its SHA and invalidates this qualification.
+          qualification_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_NUMBER"
+          status=$(jq -n --arg url "$qualification_url" \
+            '{state:"success",context:"Release / Qualified candidate",target_url:$url,description:"Exact release tree qualified"}')
+          curl -fsS --max-time 30 "${auth[@]}" -H 'Content-Type: application/json' \
+            --data "$status" "$api/statuses/$candidate" >/dev/null
+
+          echo "Qualified release commit: $candidate"
+
+          pull_issues=$(curl -fsS --max-time 30 "${auth[@]}" --get \
+            --data-urlencode 'state=open' --data-urlencode "head=$branch" \
+            --data-urlencode 'page=1' --data-urlencode 'limit=50' "$api/pulls")
+          existing=$(jq -c --arg branch "$branch" --arg repo "$GITHUB_REPOSITORY" \
+            '.[] | select(.head.label == $branch and .head.repo.full_name == $repo and .base.ref == "main")' \
+            <<< "$pull_issues")
+          if [ -n "$existing" ]; then
+            jq -e --arg prefix "Closes #$ISSUE." --arg branch "$branch" --arg sha "$candidate" \
+              '.flow == 0 and .head.ref == $branch and .head.sha == $sha and (.body | startswith($prefix))' \
+              <<< "$existing" >/dev/null \
+              || { echo "::error::Existing release PR points to a different candidate or issue"; exit 1; }
+            jq -er '.html_url' <<< "$existing"
+            exit 0
+          fi
+          body=$(printf 'Closes #%s. The prepared release passed qualification.\n\nNo tests: %s\n' \
+            "$ISSUE" 'The workflow replays the exact changelog and version stamps that passed qualification.')
+          payload=$(jq -n --arg head "$branch" --arg title "Release $TAG" --arg body "$body" \
+            '{head:$head,base:"main",title:$title,body:$body}')
+          curl -fsS --max-time 30 "${auth[@]}" -H 'Content-Type: application/json' \
+            --data "$payload" "$api/pulls" | jq -er '.html_url'

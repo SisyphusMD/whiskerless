@@ -3,10 +3,10 @@
 # directory, and print what arrived.
 #   fetch-release-assets.sh <tag> <expected-count> <jq-select-expression>
 #
-# The release page is the rendezvous between the two forges. Architecture decides where a job runs
-# (amd64 here, arm64 and macOS on GitHub), so work that needs BOTH halves — the apt/dnf repositories,
-# which must never serve a half-architecture set, and the NAS, which no GitHub runner can reach —
-# cannot read the other half from a workspace. It reads it from the release instead.
+# The public Forgejo release carries assets from separate workflows on different runners. The
+# apt/dnf publisher cannot rely on its own workspace for both Linux architectures. It fetches both
+# from the release before refreshing the repositories. The tap refresh also reads the macOS bottles
+# from this release when it copies them to the NAS.
 #
 # Downloads whatever DID arrive before reporting a shortfall, and exits 1 in that case. A caller that
 # wants the partial set uploaded anyway runs this with `|| partial=true`; one that must not act on an
@@ -31,9 +31,9 @@ api="https://forgejo.bryantserver.com/api/v1/repos/${PROJECT_REPO_SLUG}"
 # stalling CDN blow update-tap.sh's stated bound.
 #
 # The window has to outlast wait-for-pypi.sh plus the build that follows it, NOT just the slowest
-# upload. Half of these assets come from the mirrored-tag workflows, and those spend their own PyPI
-# window before building a single byte, so anything at or under PYPI_WAIT_SECONDS gives up on assets
-# that were always going to arrive late and moves the failure instead of removing it. Apple's
+# upload. Assets from the other tag-triggered release workflows can
+# spend their own PyPI window before uploading, so anything at or under PYPI_WAIT_SECONDS gives up on
+# assets that were always going to arrive late and moves the failure instead of removing it. Apple's
 # notarization of the .pkg sits inside the same window.
 urls=""
 window="${RELEASE_ASSET_WAIT_SECONDS:-5400}"

@@ -1,0 +1,90 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: "Merged release pull request number"
+        required: true
+        type: string
+
+concurrency:
+  # Serialize stable and release-candidate tag creation.
+  group: release-cut
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and tag the merged release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the exact merged release
+        id: release
+        env:
+          PR: ${{ inputs.pull_request }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[1-9][0-9]*$ ]] || { echo "::error::Enter the merged release PR number"; exit 1; }
+          git fetch --tags origin refs/heads/main:refs/remotes/origin/main
+          main=$(git rev-parse refs/remotes/origin/main)
+          api="$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY"
+          auth=(-H "Authorization: token $TOKEN")
+          pr=$(curl -fsS --max-time 30 "${auth[@]}" "$api/pulls/$PR")
+          jq -e '.flow == 0' <<< "$pr" >/dev/null
+          verified=$(python3 -I packaging/verify-release-pr.py "$GITHUB_REPOSITORY" "$PR" "$main" <<< "$pr")
+          candidate=$(jq -er '.head.sha' <<< "$pr")
+          candidate_base=$(git rev-parse "$candidate^")
+          url_prefix="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/"
+          qualification=$(curl -fsS --max-time 30 "${auth[@]}" "$api/commits/$candidate/status?limit=50")
+          run=$(jq -er --arg prefix "$url_prefix" '
+            .statuses[] | select(.context == "Release / Qualified candidate" and .status == "success")
+            | select(.target_url | startswith($prefix))
+            | .target_url | ltrimstr($prefix) | select(test("^[1-9][0-9]*$"))
+          ' <<< "$qualification") || { echo "::error::This PR head did not pass Prepare Release"; exit 1; }
+          runs=$(curl -fsS --max-time 30 "${auth[@]}" "$api/actions/runs?page=1&limit=1&run_number=$run")
+          run_id=$(jq -er --arg base "$candidate_base" '
+            .workflow_runs[0] | select(.workflow_id == "release.yml" and .status == "success"
+            and .trigger_event == "workflow_dispatch" and .commit_sha == $base
+            and (.event_payload | fromjson | .ref == "refs/heads/main")) | .id
+          ' <<< "$runs") || { echo "::error::No successful Prepare Release run for this candidate"; exit 1; }
+          jobs=$(curl -fsS --max-time 30 "${auth[@]}" "$api/actions/runs/$run_id/jobs")
+          job=$(jq -er '.[] | select(.name == "Open the qualified release PR" and .status == "success") | .id' <<< "$jobs")
+          log=$(curl -fsS --max-time 30 "${auth[@]}" "$api/actions/jobs/$job/logs")
+          grep -F "Qualified release commit: $candidate" <<< "$log" >/dev/null \
+            || { echo "::error::Prepare Release did not produce this candidate"; exit 1; }
+          printf '%s\n' "$verified" >> "$GITHUB_OUTPUT"
+
+      - name: Check the qualified version stamps
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          MERGE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          set -euo pipefail
+          checkout=$(mktemp -d "$RUNNER_TEMP/release-tree.XXXXXX")
+          git worktree add --detach "$checkout" "$MERGE_COMMIT"
+          trap 'git worktree remove "$checkout"' EXIT
+          (cd "$checkout" && python3 packaging/stamp-version.py "${TAG#v}" --check)
+          bash packaging/check-rc-install-matrix.sh "${TAG#v}"
+
+      - name: Push only the verified release tag
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          MERGE_COMMIT: ${{ steps.release.outputs.commit }}
+          TOKEN: ${{ secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT }}
+          GH_REPO_READ_PAT: ${{ secrets.GH_REPO_READ_PAT }}
+        run: |
+          set -euo pipefail
+          if ! git show-ref --verify --quiet "refs/tags/$TAG"; then
+            git -c user.name='forgejo-actions[bot]' \
+              -c user.email='forgejo-actions[bot]@users.noreply.bryantserver.com' \
+              tag -a -m "release: ${TAG#v}" "$TAG" "$MERGE_COMMIT"
+          fi
+          bash packaging/push-tag.sh "$TAG" "$TOKEN" --merged-commit "$MERGE_COMMIT"
