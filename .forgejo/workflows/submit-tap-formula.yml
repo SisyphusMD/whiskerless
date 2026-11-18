@@ -1,0 +1,88 @@
+name: Submit Tap formula changes
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      phase:
+        type: string
+        required: true
+      artifact:
+        type: string
+        required: true
+
+jobs:
+  submit:
+    name: Submit the tap PR and wait until it lands
+    runs-on: ubuntu-latest
+    timeout-minutes: 125
+    steps:
+      - uses: https://code.forgejo.org/forgejo/download-artifact@769f970437aa3291b13f35dc23fc87967d7fb19f # v7
+        with:
+          name: ${{ inputs.artifact }}
+          path: tap-artifact/Formula
+
+      - name: Read the verified tap helper
+        env:
+          HELPER: c8bb9a5b3a54c841375a5a3b619c98a377cb75be
+        run: |
+          set -euo pipefail
+          tap="$RUNNER_TEMP/tap"
+          git clone --branch main "https://forgejo.bryantserver.com/SisyphusMD/homebrew-tap.git" "$tap"
+          mkdir -p "$RUNNER_TEMP/tap-helpers"
+          for script in open-release-formula-pr.py check-release-formulae.py; do
+            git -C "$tap" show "$HELPER:.forgejo/scripts/$script" > "$RUNNER_TEMP/tap-helpers/$script"
+          done
+
+      - name: Open the exact formula PR
+        id: pr
+        env:
+          TAG: ${{ inputs.tag }}
+          PHASE: ${{ inputs.phase }}
+          TOKEN: ${{ secrets.tap-token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/tap"
+          project="${GITHUB_REPOSITORY#*/}"
+          result=$(python3 -I "$RUNNER_TEMP/tap-helpers/open-release-formula-pr.py" \
+            "$project" "$TAG" "$PHASE" "$GITHUB_WORKSPACE/tap-artifact")
+          jq -er '
+            select(.state == "pending" or .state == "landed" or .state == "superseded")
+            | "state=" + .state, "url=" + (.url // ""), "paths=" + ((.paths // []) | join(" "))
+          ' <<< "$result" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the exact formula files on primary main
+        if: steps.pr.outputs.state == 'pending'
+        env:
+          PR_URL: ${{ steps.pr.outputs.url }}
+          PR_PATHS: ${{ steps.pr.outputs.paths }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for the tap pull request to land: $PR_URL"
+          cd "$RUNNER_TEMP/tap"
+          read -r -a formulae <<< "$PR_PATHS"
+          if (( ${#formulae[@]} == 0 )); then
+            echo "::error::The tap submitter returned a pending PR without any changed formula paths."
+            exit 1
+          fi
+          for attempt in {1..240}; do
+            if git fetch --quiet --no-tags origin refs/heads/main:refs/remotes/origin/main; then
+              matches=1
+              for formula in "${formulae[@]}"; do
+                [[ "$formula" =~ ^Formula/(dreame-valetudo|whiskerless)(-rc)?\.rb$ ]]
+                if ! git show "origin/main:$formula" | cmp -s - "$GITHUB_WORKSPACE/tap-artifact/$formula"; then
+                  matches=0
+                  break
+                fi
+              done
+              if [ "$matches" = 1 ]; then
+                echo "The exact formula files are on the tap's primary main."
+                exit 0
+              fi
+            fi
+            sleep 30
+          done
+          echo "::error::Tap PR files did not land: $PR_URL"
+          exit 1

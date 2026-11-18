@@ -1379,21 +1379,37 @@ def test_renovate_never_edits_a_vendored_file() -> None:
     )
 
 
-def test_every_job_that_writes_the_tap_shares_one_concurrency_group() -> None:
-    """Two tap writers running at once both clone the same tip.
+def test_tap_publisher_isolates_credentials_and_waits_for_landed_formulae() -> None:
+    publish = yaml.safe_load(PUBLISH.read_text())["jobs"]
+    for name in ("homebrew-tap", "homebrew-bottles"):
+        unprivileged = publish[f"render-{name}"]
+        submit = publish[name]
+        assert unprivileged["steps"][-1]["uses"].startswith("https://code.forgejo.org/forgejo/upload-artifact@")
+        assert "CLUSTER_FORGEJO_TAP_WRITE_PAT" not in str(unprivileged)
+        assert set(submit["needs"]) == {"guard", f"render-{name}"}
+        assert submit["uses"] == "./.forgejo/workflows/submit-tap-formula.yml"
+        assert set(submit["secrets"]) == {"tap-token"}
 
-    The loser pushes a non-fast-forward, and the tap keeps whichever formula won the race — a
-    published tap missing the formula the release just built, with every job green. Mirrored from
-    dreame-valetudo, which writes the same tap from the same three jobs.
-    """
-    publish = yaml.safe_load((REPO / ".forgejo" / "workflows" / "publish.yml").read_text())
-    for job in ("homebrew-tap", "homebrew-bottles"):
-        assert job in publish["jobs"], job
-        group = publish["jobs"][job].get("concurrency", {}).get("group")
-        assert group == "tap-write", f"{job} writes the tap outside the shared group: {group}"
+    assert "homebrew-tap" in publish["render-homebrew-bottles"]["needs"]
+    assert "homebrew-bottles" in publish["prune-rcs"]["needs"]
+    assert "homebrew-bottles" in publish["install-matrix"]["needs"]
+    bottles = yaml.safe_load(PUBLISH.with_name("bottles.yml").read_text())["jobs"]
+    assert bottles["build"]["needs"] == "wait-for-tap"
+    helper = PUBLISH.with_name("submit-tap-formula.yml").read_text()
+    assert re.search(r"^          HELPER: [0-9a-f]{40}$", helper, re.MULTILINE)
+    assert set(yaml.safe_load(helper)[True]["workflow_call"]) == {"inputs"}
+    assert "open-release-formula-pr.py" in helper
+    assert "secrets.tap-token" in helper
+    assert 'git show "origin/main:$formula"' in helper
+    assert "cmp -s" in helper
+    assert "Tap PR files did not land" in helper
 
-    bottles = yaml.safe_load((REPO / ".forgejo" / "workflows" / "tap-bottles.yml").read_text())
-    assert bottles.get("concurrency", {}).get("group") == "tap-write", bottles.get("concurrency")
+    repair = yaml.safe_load(PUBLISH.with_name("tap-bottles.yml").read_text())["jobs"]
+    assert "CLUSTER_FORGEJO_TAP_WRITE_PAT" not in str(repair["render"])
+    assert repair["render"]["needs"] == "guard"
+    assert repair["update-tap"]["needs"] == "render"
+    assert set(repair["update-tap"]["secrets"]) == {"tap-token"}
+    assert repair["refresh-nas"]["needs"] == "update-tap"
 
 
 def test_publishing_refuses_to_ship_unsigned_packages() -> None:
@@ -2082,7 +2098,7 @@ def test_tap_pass_one_does_not_wait_on_the_release_build() -> None:
     weight, and the day it points at a release asset this assertion is the thing that says so.
     """
     publish = yaml.safe_load((REPO / ".forgejo" / "workflows" / "publish.yml").read_text(encoding="utf-8"))
-    tap = publish["jobs"]["homebrew-tap"]
+    tap = publish["jobs"]["render-homebrew-tap"]
     needs = tap["needs"] if isinstance(tap["needs"], list) else [tap["needs"]]
 
     url = next(
@@ -2911,12 +2927,12 @@ def test_publish_attempts_every_registry_and_always_runs_repair_jobs() -> None:
     # additionally requiring the ref guard to have passed — see test_no_publish_job_outruns_the_ref
     # _guard for why the bare form was not enough. They differ on CANCELLATION, deliberately:
     # reconcile only heals releases that already exist, so finishing is still the right move, while
-    # homebrew-tap pushes a formula to the tap and an operator who cancelled a release must not get
+    # homebrew-tap submits a formula to the tap and an operator who cancelled a release must not get
     # one published regardless. Asserted per job rather than as a shared spelling, because that is
     # the distinction a future edit is most likely to flatten. Read from the parsed `if:`, because
     # both jobs explain their condition in a comment that would satisfy a text search on its own.
     jobs = yaml.safe_load(text)["jobs"]
-    for name, override in (("homebrew-tap", "!cancelled()"), ("reconcile", "always()")):
+    for name, override in (("render-homebrew-tap", "!cancelled()"), ("reconcile", "always()")):
         condition = str(jobs[name].get("if") or "")
         assert override in condition, name
         assert "needs.guard.result == 'success'" in condition, name

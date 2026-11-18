@@ -27,6 +27,20 @@ accepted: GitHub's asset API rewrites `~` to `.` in the uploaded FILENAME only
 `dpkg`/`dnf` order by — are unaffected, and Forgejo serves the canonical names.
 New artifacts follow this scheme rather than inventing another spelling.
 
+## Homebrew formula pull requests
+
+After PyPI publishes the source archive, the release workflow renders the formulae
+without a write credential. A separate job opens a reviewed PR on the primary tap
+and waits for the exact files on its main branch. Bottle builders wait for the
+matching source formula before allocating native build runners. After bottle
+manifests publish, the second tap PR adds the bottle checksums. Install and cleanup
+jobs keep waiting until those exact formula files are available.
+
+If tap review exceeds the wait budget, finish the PR and rerun the affected
+publisher jobs. If the separate Bottles workflow timed out waiting for the
+formula, dispatch it again with the same tag. Use Tap Bottles from main to
+repair the declarations after rebuilding bottles for an existing tag.
+
 ## How a release flows
 
 Every job runs on our own runners, which reach everything (both Forgejo
@@ -85,9 +99,9 @@ receives the release.
    15, Linux amd64, Linux arm64) and appends them, with their manifests, to all
    three releases. Bottles stay out of reconcile's byte-quorum, which is a
    different question from mirroring (see `packaging/asset-roles.sh`).
-6. **`publish.yml` `homebrew-bottles` job**: waits for those manifests,
-   then re-renders the tap formula with a `bottle do` block — the second of two
-   tap passes.
+6. **`publish.yml` bottle jobs**: `render-homebrew-bottles` waits for the
+   manifests and renders the `bottle do` block. `homebrew-bottles` opens
+   the second tap PR and waits for it to land.
 
 All three releases end up with the same notes; PyPI has the library. The release
 helpers are idempotent (create-or-reuse + replace assets), so the forges can
@@ -151,8 +165,8 @@ Apple notarization (which applies only to the separate `.pkg`) and covers macOS 
 amd64/arm64 from one file. The `-rc` formula is separate so a candidate can be validated through
 the real Homebrew path without the stable formula ever pointing at one.
 
-`publish.yml`'s `homebrew-tap` job renders them per tag via `update-tap.sh` and pushes to
-`SisyphusMD/homebrew-tap`. A prerelease tag writes only `whiskerless-rc`; a stable tag writes both,
+`publish.yml` renders them per tag via `update-tap.sh`. The `homebrew-tap` job opens the formula
+PR on `SisyphusMD/homebrew-tap`. A prerelease tag updates only `whiskerless-rc`. A stable tag updates both,
 re-pointing the rc formula at the stable release so that channel keeps resolving once its candidates
 are pruned.
 
@@ -344,7 +358,7 @@ GitHub-hosted runners they existed for.
 | `GH_REPO_WRITE_PAT` | GitHub PAT, Contents: read & write: creates the GitHub release and appends every asset to it. Same PAT used as the GitHub push-mirror password. |
 | `GH_REPO_READ_PAT` | **Required.** GitHub PAT with **no scopes** — read-only public data. Used by the republish guard, the tag's mirror confirmation and the install-matrix wait, all of which refuse to call GitHub unauthenticated: 60 requests/hour per IP is shared with everything else leaving this network. |
 | `PYPI_API_TOKEN` | PyPI API token (`pypi-…`), named `whiskerless-forgejo-ci` and **scoped to this project**, not the account — a token that can publish to every project the account owns has no business on a self-hosted runner. PyPI accepts OIDC only from GitHub Actions, GitLab.com, Google Cloud and ActiveState, so a token is the only option that keeps publishing on Forgejo; see the rejection rationale in project-rules's VARIANCE.md. |
-| `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the `homebrew-tap` job can push the rendered formulas. Held at the **org** level, not on this repo. |
+| `CLUSTER_FORGEJO_TAP_WRITE_PAT` | Forgejo PAT with write access to `SisyphusMD/homebrew-tap`, so the submit jobs can open formula and bottle PRs. Held at the **org** level, not on this repo. |
 | `CLUSTER_FORGEJO_REGISTRY_PUSH_PAT` | Forgejo PAT with **`write:package`**, for the apt/dnf registries and for `prune-rcs` deleting from them. Held at the **org** level and shared with the sister repos' container pushes — one scope covers every package type. Needed because Forgejo scopes packages on their own: the repo-write PAT above cannot upload or delete a package, and fails with a 403 rather than anything obvious. |
 | `GPG_SIGNING_KEY` | The armoured private half of the package signing key (`CCE50015D058E9BF`). Written to a tmp file **outside** the workspace and `docker cp`'d in separately, so it is never part of a build context. |
 
