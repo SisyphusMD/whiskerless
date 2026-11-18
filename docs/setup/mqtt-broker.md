@@ -1,12 +1,78 @@
 # Setting up the MQTT broker
 
-whiskerless points your Litter-Robot 4 at an MQTT broker **you** run, instead of
-Whisker's cloud. This guide stands up a minimal broker the robot can reach.
+whiskerless connects a supported robot to an MQTT broker **you** run.
 
 You don't need anything fancy — a single [Mosquitto](https://mosquitto.org/)
 instance on a Raspberry Pi, a NAS, a container, or the machine that runs Home
 Assistant is plenty. **If you already run Mosquitto for Home Assistant, you can
-reuse it** — just add the TLS listener described below.
+reuse it**. On Home Assistant OS, follow
+[Use the official Mosquitto broker app](#use-the-official-mosquitto-broker-app).
+
+## Use the official Mosquitto broker app
+
+Set this up once per household. Home Assistant keeps its usual MQTT login on port
+1883. On port 8883 the same broker accepts supported robots with a client
+certificate signed by the CA used during provisioning (`mutual`, the default,
+or `supplied` authentication in whiskerless). Trust only a CA dedicated
+to clients allowed on this broker. With externally issued client certificates,
+give each client its own certificate with a unique common name.
+
+1. **Check port 8883 first.** Open **Settings → Apps → Mosquitto broker → Log**.
+   If startup says `Certificates found: SSL is available`, the app already
+   creates a TLS listener on 8883. Adding another would prevent it from starting.
+   To keep that listener, one option is a
+   [broker on another host](#requiring-certificates-instead-recommended) for the
+   robots. Continue below if startup says `SSL is not enabled` and 8883 is free
+   of other listeners on the broker host.
+   On the **Configuration** tab, look under **Network**. The **Normal MQTT with
+   SSL** field (`8883/tcp`) should read `8883`. If the field is hidden, turn on
+   **Show disabled ports**. If the port needs changing, enter `8883`, select
+   **Save** in **Network**, and restart the app when prompted.
+2. **Prepare the files.** Run `whiskerless setup` on the provisioning computer.
+   Use the address the robot will use to reach Home Assistant. An existing setup
+   can be rerun to get the listener file. Using the Home Assistant OS file
+   shares (for example, through the Samba share app), copy the following files.
+
+   | From the provisioning computer | To Home Assistant OS |
+   | --- | --- |
+   | `ca/ca.crt` | `/ssl/whiskerless/` |
+   | `broker/server.crt` and `broker/server.key` | `/ssl/whiskerless/` |
+   | `broker/haos/whiskerless.conf` | `/share/mosquitto/` |
+
+   The source paths are under the directory printed by setup. Create the
+   destination folders as needed. Keep the CA signing key on the provisioning
+   computer. With externally issued certificates, use the broker certificate
+   and key from the issuer for `server.crt` and `server.key`.
+3. **Enable the file.** In **Mosquitto broker → Configuration → Options**,
+   expand **Customize**. Turn on **active**. The **folder** field defaults to
+   `mosquitto`. If it already names another folder, put `whiskerless.conf` in
+   that folder under `/share/`. The file handles certificate authentication on
+   the new listener. Leave **Require Client Certificate** at its existing setting.
+4. **Start the listener.** Select **Save** in **Options** and choose **Restart**
+   when prompted. If **Customize** was already active, restart the app from the
+   **Info** tab to load the new file. In **Log**, check that Mosquitto opened
+   port 8883. These steps use Mosquitto app version 7.1.3.
+
+**Add another robot.** From the same provisioning computer, follow the pairing
+instructions for the model being added (currently
+[Litter-Robot 4](../../README.md#provision-the-robot)). Each robot gets its own
+certificate from the same CA. Broker setup and restart are one-time steps.
+
+**Check the connection before pairing (optional).** In Home Assistant's MQTT
+integration, start listening to `whiskerless/setup-check`. On the provisioning
+computer, publish a test message using the broker address from setup in place
+of `mqtt.example.lan`. This example uses the default certificate paths.
+
+```sh
+mosquitto_pub -h mqtt.example.lan -p 8883 \
+  -t whiskerless/setup-check -m connected \
+  --cafile ~/whiskerless/ca/ca.crt --cert ~/whiskerless/client/client.crt \
+  --key ~/whiskerless/client/client.key
+```
+
+Seeing `connected` in Home Assistant confirms that the broker accepted the
+certificate and that Home Assistant received the message using its existing
+login. With custom topic permissions, choose a topic both clients can use.
 
 ## What the robot expects
 

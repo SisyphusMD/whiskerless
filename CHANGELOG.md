@@ -6,6 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- `whiskerless setup` now generates a Home Assistant OS Mosquitto listener for
+  setups that use client certificates. (#229)
+
 - Send Homebrew formula and bottle updates through verified tap PRs. (#224)
 
 - Prepare stable releases through a pull request and publish the exact merged commit. (#214)

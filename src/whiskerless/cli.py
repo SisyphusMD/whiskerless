@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import shutil
+import ssl
 import sys
 import tempfile
 from collections.abc import Callable, Sequence
@@ -822,6 +823,20 @@ async def _cmd_setup(args: argparse.Namespace) -> int:
         # A certificate is there and not ours to replace.
         print("  Fix the broker certificate above first — a robot provisioned now would\n"
               "  fail every handshake against it.\n")
+    if mode is not AuthMode.ANONYMOUS:
+        listener = store.write_haos_listener()
+        if made_files:
+            print(f"  Optional listener for Home Assistant OS Mosquitto: {listener}"
+                  "\n  If port 8883 is free, copy ca.crt, server.crt and server.key"
+                  " to /ssl/whiskerless/"
+                  "\n  and the listener to /share/mosquitto/whiskerless.conf"
+                  "\n  (or the app's configured Customize folder).")
+        else:
+            print("  Home Assistant OS listener for use once the broker certificate and key"
+                  f" are ready: {listener}")
+    elif saved is not None and saved.auth is not AuthMode.ANONYMOUS:
+        print("  A previously installed Home Assistant OS listener still requires a client"
+              " certificate. Robots using anonymous mode cannot connect to it.")
     return 0
 
 
@@ -1643,6 +1658,14 @@ def _refresh_server_cert(store: RobotProfileStore, host: str) -> bool:
         )
         return False
     if _names_host(pem, host) and pki.is_current(pem):
+        key = store.broker_dir / "server.key"
+        try:
+            ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(existing, key, password=b"")
+        except OSError as exc:
+            print(f"  ! Cannot use {key} with the broker certificate: {exc}\n"
+                  "    Restore the matching key from the broker or a backup and rerun setup.",
+                  file=sys.stderr)
+            return False
         return True
     # Ours and out of date is reissued rather than reported: this store can sign,
     # so the fix costs nothing, and advertising it for installation would send
