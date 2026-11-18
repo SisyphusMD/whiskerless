@@ -379,7 +379,12 @@ Once, before any robot:
 whiskerless setup
 ```
 
-It asks for your broker's address, offers to create a certificate authority, and
+Using the **Mosquitto broker** app on Home Assistant OS? Setup generates the
+listener file. Follow the [Mosquitto app setup guide][haos-broker] to install it.
+
+[haos-broker]: docs/setup/mqtt-broker.md#use-the-official-mosquitto-broker-app
+
+The setup command asks for the broker's address, offers to create a CA, and
 prints the three files to install on your broker. **Install them and restart the
 broker before going further** — that is why this is a separate command from
 `provision`: a robot in pairing mode is off your network until a provision

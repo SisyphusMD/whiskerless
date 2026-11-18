@@ -1566,6 +1566,82 @@ def test_setup_that_generates_points_at_the_files_it_made(
     assert "install the files above" in out
 
 
+def test_setup_generates_haos_listener_on_first_run_and_upgrade(
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    listener = store.broker_dir / "haos" / "whiskerless.conf"
+    directives = dict(
+        line.split(maxsplit=1) for line in listener.read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    assert directives == {
+        "listener": "8883",
+        "cafile": "/ssl/whiskerless/ca.crt",
+        "certfile": "/ssl/whiskerless/server.crt",
+        "keyfile": "/ssl/whiskerless/server.key",
+        "require_certificate": "true",
+        "use_identity_as_username": "true",
+    }
+    output = capsys.readouterr().out
+    assert str(listener) in output
+    assert "/share/mosquitto/whiskerless.conf" in output
+    assert "/ssl/whiskerless/" in output
+
+    # An existing installation has its certificates but no generated listener.
+    original = listener.read_bytes()
+    server_key = (store.broker_dir / "server.key").read_bytes()
+    listener.unlink()
+    with patch("whiskerless.cli.sys.stdin.isatty", lambda: False):
+        assert main(["setup"]) == 0
+    assert listener.read_bytes() == original
+    assert (store.broker_dir / "server.key").read_bytes() == server_key
+
+
+def test_haos_listener_with_externally_managed_certificates(
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _supplied_store(store, tmp_path)
+    listener = store.broker_dir / "haos" / "whiskerless.conf"
+    assert listener.is_file()
+    assert not (store.broker_dir / "server.key").exists()
+    assert "install the files above" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bad_key", ["missing", "mismatched", "malformed"])
+def test_setup_with_unusable_broker_key_withholds_haos_install_directions(
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    bad_key: str,
+) -> None:
+    cert, key = _ca_files(tmp_path)
+    assert key is not None
+    assert _setup_run("--ca", cert, "--ca-key", key) == 0
+    capsys.readouterr()
+    server_key = store.broker_dir / "server.key"
+    if bad_key == "missing":
+        server_key.unlink()
+    elif bad_key == "mismatched":
+        server_key.write_bytes(Path(key).read_bytes())
+    else:
+        server_key.write_bytes(b"\xffnot a PEM key")
+    assert _setup_run() == 0
+    output = capsys.readouterr()
+    assert "server.key" in output.err
+    assert "Restore the matching key" in output.err
+    assert "/share/mosquitto/" not in output.out
+
+
+def test_anonymous_setup_does_not_offer_certificate_only_haos_listener(
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert, _ = _ca_files(tmp_path)
+    assert _setup_run("--auth", "anonymous", "--ca", cert) == 0
+    assert not (store.broker_dir / "haos" / "whiskerless.conf").exists()
+    assert "/share/mosquitto/" not in capsys.readouterr().out
+
+
 def test_moving_the_broker_reissues_its_certificate(
     store: RobotProfileStore, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1581,10 +1657,13 @@ def test_moving_the_broker_reissues_its_certificate(
         assert main(["setup", "--host", "192.0.2.10"]) == 0
     first = (store.broker_dir / "server.crt").read_text()
     assert pki.certificate_common_name(first) == "192.0.2.10"
+    listener = store.broker_dir / "haos" / "whiskerless.conf"
+    before = listener.read_bytes()
 
     assert main(["setup", "--host", "192.0.2.99"]) == 0
     reissued = (store.broker_dir / "server.crt").read_text()
     assert pki.certificate_common_name(reissued) == "192.0.2.99"
+    assert listener.read_bytes() == before
     assert "reissued the broker certificate" in capsys.readouterr().out
 
 
@@ -2875,7 +2954,7 @@ def test_switching_to_supplied_while_the_signing_key_is_here_is_refused(
 
 
 def test_switching_to_anonymous_keeps_the_key_without_complaint(
-    store: RobotProfileStore, tmp_path: Path
+    store: RobotProfileStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`anonymous` says nothing about where the signing key lives, only that
     robots keep the certificate they shipped with."""
@@ -2885,6 +2964,7 @@ def test_switching_to_anonymous_keeps_the_key_without_complaint(
     assert _setup_run("--auth", "anonymous") == 0
     assert store.load_broker().auth is AuthMode.ANONYMOUS
     assert store.has_ca(), "the key was taken away"
+    assert "previously installed Home Assistant OS listener" in capsys.readouterr().out
 
 
 def test_reissue_in_supplied_mode_says_it_has_nothing_to_issue_with(
