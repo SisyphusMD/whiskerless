@@ -2,11 +2,9 @@
 # Block until this project's library is installable from PyPI at <version>.
 #   wait-for-pypi.sh <version>        e.g. 0.2.0-rc.1 (the tag's spelling, without the v)
 #
-# Every GitHub workflow that can CREATE a release has to call this first. They are triggered by the
-# mirrored tag, independently of Forgejo's publish.yml, and the release helpers create the release
-# when it is missing — so without this a slow or failed PyPI upload lets HACS offer an update whose
-# manifest pins a version pip cannot install. Two workflows need it now (the .pkg and the arm64
-# Linux set), which is why it is a script rather than a third inline copy.
+# Separate tag-triggered Forgejo workflows can publish assets before publish.yml finishes uploading
+# to PyPI. Call this before publishing from those workflows when the release would advertise a
+# library version that must already be installable, such as a Marketplace manifest's requirement.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null

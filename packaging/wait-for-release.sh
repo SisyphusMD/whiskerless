@@ -2,10 +2,8 @@
 # Block until a release is genuinely installable, then return.
 #   wait-for-release.sh <tag>        e.g. v1.4.0-rc.2
 #
-# One definition, called by BOTH install matrices — the Linux one on Forgejo and
-# the macOS one on GitHub. They start from the same tag push and would otherwise
-# each carry their own idea of "ready", which is the kind of drift that leaves one
-# forge testing a half-published release and reporting success.
+# The readiness job gates all legs of the Forgejo install matrix, so the Linux and macOS jobs
+# start from a fully published release.
 #
 # "Installable" is three things, and the second is the one that bites:
 #
@@ -26,9 +24,8 @@
 #
 #   3. The apt/dnf REGISTRY serves this version. The matrix installs from those
 #      repositories, and registry publishing is a separate job that waits for BOTH
-#      architectures to land — arm64 is built on the other forge now — so it can
-#      finish after the bottles. It used to be a step of the release job, which
-#      ordered it ahead of everything here by accident rather than by design.
+#      architectures to land, so it can finish after the bottles. This used to
+#      be a step of the release job, which happened to run before this matrix.
 #      Without this, a healthy release gets a red apt-repo leg for having been
 #      asked too early.
 #

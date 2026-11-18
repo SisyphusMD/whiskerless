@@ -71,9 +71,8 @@ version="${version/-rc./~rc.}"
 # short. So the COMPLETE set is required before anything is uploaded — every
 # architecture, both formats — rather than trusting the caller to pass it.
 #
-# The workflow builds amd64 fully before it starts arm64 and smoke-tests neither
-# until both are done, so "some of the packages exist" is a real state on disk
-# after a failed build, not a hypothetical.
+# The amd64 and arm64 workflows upload independently. Either architecture can
+# arrive while the other runner is still building or after its build failed.
 expected_files() {
   printf '%s\n' \
     "${PKG}_${version}_amd64.deb" \

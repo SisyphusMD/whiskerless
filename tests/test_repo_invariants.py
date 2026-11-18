@@ -524,8 +524,8 @@ INSTALL_MATRIX_LINUX = REPO / ".forgejo" / "workflows" / "install-matrix.yml"
 def test_a_stable_cut_is_gated_on_the_candidates_install_matrix() -> None:
     release = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
     assert "candidate-gate" in release["jobs"], "the candidate gate is gone"
-    assert "candidate-gate" in release["jobs"]["tag"]["needs"], (
-        "the tag job no longer waits on the candidate gate — a red candidate is promotable again"
+    assert "candidate-gate" in release["jobs"]["prepare"]["needs"], (
+        "the preparation job no longer waits on the candidate gate — a red candidate is promotable again"
     )
 
 
@@ -2343,7 +2343,7 @@ def _renovate() -> dict[str, Any]:
 def test_release_write_token_is_confined_to_a_job_that_reproduces_the_gate() -> None:
     for workflow in (RELEASE_WORKFLOW, PRERELEASE):
         text = workflow.read_text()
-        gate, tag = _job(text, "gate"), _job(text, "tag")
+        gate, tag = _job(text, "gate"), _job(text, "prepare" if workflow == RELEASE_WORKFLOW else "tag")
 
         # The job that runs third-party lint/test code holds no credential at all, and neither
         # checkout leaves one behind for a later step to pick up.
@@ -2369,9 +2369,10 @@ def test_release_write_token_is_confined_to_a_job_that_reproduces_the_gate() -> 
         assert '[ "$ACTUAL_INTENT_SHA256" = "$QUALIFIED_INTENT_SHA256" ]' in tag, workflow
         assert tag.index("QUALIFIED_INTENT_SHA256") < tag.index("CLUSTER_FORGEJO_REPO_WRITE_PAT")
 
-        # An annotated tag object: a lightweight ref could be retargeted to another commit later
-        # without leaving a trace of the version it was cut for.
-        assert "git tag -a -m" in tag, workflow
+        if workflow == PRERELEASE:
+            assert "git tag -a -m" in tag
+        else:
+            assert "git tag -a" not in tag
 
         # Forgejo has no `permissions:` field; it warns and ignores it, so it must never appear.
         assert "permissions:" not in text, workflow
@@ -2432,26 +2433,28 @@ def test_release_cutters_serialize_without_sharing_the_tag_publish_queue() -> No
     )
 
 
-def test_stable_release_pushes_commit_and_tag_atomically() -> None:
-    text = RELEASE_WORKFLOW.read_text()
-    step = text[text.index("      - name: Push the commit and tag atomically") :]
-    assert "packaging/push-tag.sh" in step
-    assert '"$TAG" "$TOKEN" "${{ github.ref_name }}"' in step
+def test_stable_release_prepares_a_pr_and_publishes_the_verified_tag() -> None:
+    prepare = RELEASE_WORKFLOW.read_text()
+    publish = RELEASE_WORKFLOW.with_name("publish-release.yml").read_text()
+    assert 'branch="release/$TAG"' in prepare
+    assert '"HEAD:$remote_ref"' in prepare
+    assert '"$api/pulls"' in prepare
+    assert '"$api/statuses/$candidate"' in prepare
+    assert "git tag -a" not in prepare
+    assert "packaging/push-tag.sh" not in prepare
 
-    script = (REPO / "packaging" / "push-tag.sh").read_text()
-    assert "push --atomic origin" in script
-    assert '"HEAD:${branch_ref}" "$tag"' in script
-    assert '[ "$(git cat-file -t "refs/tags/$tag")" = tag ]' in script
-    assert '[ "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse HEAD)" ]' in script
-    assert 'test -z "$(git status --porcelain)"' in script
-
-    # prerelease.yml is dispatchable from any branch, unlike release.yml's tag job which refuses
-    # non-main dispatches - so it does NOT hand the repo-write PAT to a script whose content would
-    # come from whatever ref was dispatched; its push stays inline. What that inline push must
-    # itself guarantee is pinned by test_workflow_security.py, in both projects.
-    prerelease = PRERELEASE.read_text()
-    prerelease_step = prerelease[prerelease.index("      - name: Push the prerelease tag") :]
-    assert "bash packaging/push-tag.sh" not in prerelease_step
+    verify = publish.index("packaging/verify-release-pr.py")
+    stamp = publish.index('git worktree add --detach "$checkout" "$MERGE_COMMIT"')
+    push = publish.index("packaging/push-tag.sh")
+    assert verify < stamp < push
+    assert "Release / Qualified candidate" in publish[verify:stamp]
+    assert "group: release-cut" in publish
+    assert "if: github.ref == 'refs/heads/main'" in publish
+    assert publish.count("secrets.CLUSTER_FORGEJO_REPO_WRITE_PAT") == 1
+    assert 'tag -a -m "release: ${TAG#v}" "$TAG" "$MERGE_COMMIT"' in publish
+    assert '"$TAG" "$TOKEN" --merged-commit "$MERGE_COMMIT"' in publish
+    assert "HEAD:" not in publish
+    assert "bash packaging/push-tag.sh" not in PRERELEASE.read_text()
 
 
 def test_every_release_path_gates_coverage_not_just_ci() -> None:
