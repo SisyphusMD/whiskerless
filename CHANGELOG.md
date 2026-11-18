@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Send Homebrew formula and bottle updates through verified tap PRs. (#224)
+
 - Prepare stable releases through a pull request and publish the exact merged commit. (#214)
 
 - Forgejo pull requests get the standard project checks and a private vulnerability reporting

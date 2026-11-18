@@ -13,7 +13,7 @@ name: Bottles (Homebrew)
 #
 # Ordering is enforced rather than assumed. A bottle is produced by INSTALLING
 # the published formula, so build-bottles.sh waits for publish.yml's first tap
-# pass; publish.yml's `homebrew-bottles` job then waits for the assets this
+# pass; publish.yml's `render-homebrew-bottles` job then waits for the assets this
 # uploads and writes the `bottle do` block in a second pass.
 on:
   push:
@@ -42,7 +42,47 @@ env:
   TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  wait-for-tap:
+    name: Wait for the release formula before allocating build runners
+    runs-on: ubuntu-latest
+    timeout-minutes: 165
+    steps:
+      - name: Wait for the exact released version on primary tap main
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]
+          project="${GITHUB_REPOSITORY#*/}"
+          version="${TAG#v}"
+          version=$(sed -E 's/-rc\.([0-9]+)$/rc\1/' <<< "$version")
+          stem="${project//-/_}-$version.tar.gz"
+          files=("$project-rc.rb")
+          if [[ "$TAG" != *-rc.* ]]; then
+            files+=("$project.rb")
+          fi
+          url=https://forgejo.bryantserver.com/SisyphusMD/homebrew-tap/raw/branch/main/Formula
+          deadline=$((SECONDS + 9600))
+          while (( SECONDS < deadline )); do
+            landed=1
+            for file in "${files[@]}"; do
+              if ! formula=$(curl -fsS --max-time 15 "$url/$file") \
+                || ! grep -E '^  url "https://files\.pythonhosted\.org/' <<< "$formula" | grep -F "/$stem\""; then
+                landed=0
+                break
+              fi
+            done
+            if [ "$landed" = 1 ]; then
+              echo "The formula for $TAG is ready on the primary tap."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::The tap formula for $TAG did not land"
+          exit 1
+
   build:
+    needs: wait-for-tap
     name: Bottle ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
     strategy:
