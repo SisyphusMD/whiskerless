@@ -9,7 +9,7 @@ This repository currently has no open or pending branches.
 
 ## Detected Dependencies
 
-<details><summary>github-actions (12)</summary>
+<details><summary>github-actions (14)</summary>
 <blockquote>
 
 <details><summary>.forgejo/workflows/bottles.yml (6)</summary>
@@ -20,48 +20,6 @@ This repository currently has no open or pending branches.
  - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`
  - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`
  - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`
-
-</details>
-
-<details><summary>.forgejo/workflows/ci.yml (37)</summary>
-
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `python 3.15.2`
- - `python 3.15.2`
- - `python 3.11.0`
- - `python 3.11.0`
- - `python 3.15.2`
- - `python 3.15.2`
- - `python 3.11.0`
- - `python 3.11.0`
- - `python 3.13.18`
- - `python 3.13.18`
- - `python 3.15.2`
- - `python 3.15.2`
- - `python 3.15.2`
- - `python 3.15.2`
 
 </details>
 
@@ -126,7 +84,13 @@ This repository currently has no open or pending branches.
 
 </details>
 
-<details><summary>.forgejo/workflows/publish.yml (25)</summary>
+<details><summary>.forgejo/workflows/publish-release.yml (1)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+
+</details>
+
+<details><summary>.forgejo/workflows/publish.yml (27)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -140,9 +104,11 @@ This repository currently has no open or pending branches.
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
  - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
  - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `python 3.15.2`
@@ -200,11 +166,61 @@ This repository currently has no open or pending branches.
 
 </details>
 
-<details><summary>.forgejo/workflows/tap-bottles.yml (5)</summary>
+<details><summary>.forgejo/workflows/submit-tap-formula.yml (1)</summary>
+
+ - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`
+
+</details>
+
+<details><summary>.forgejo/workflows/tap-bottles.yml (7)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
  - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `python 3.15.2`
+ - `python 3.15.2`
+
+</details>
+
+<details><summary>.forgejo/workflows/tests.yml (37)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `python 3.15.2`
+ - `python 3.15.2`
+ - `python 3.11.0`
+ - `python 3.11.0`
+ - `python 3.15.2`
+ - `python 3.15.2`
+ - `python 3.11.0`
+ - `python 3.11.0`
+ - `python 3.13.18`
+ - `python 3.13.18`
+ - `python 3.15.2`
+ - `python 3.15.2`
  - `python 3.15.2`
  - `python 3.15.2`
 
@@ -254,7 +270,15 @@ This repository currently has no open or pending branches.
 
 </details>
 
-<details><summary>.forgejo/workflows/ci.yml (11)</summary>
+<details><summary>.forgejo/workflows/release-macos.yml (3)</summary>
+
+ - `python/cpython 3.15.2`
+ - `python/cpython 3.15.2`
+ - `pyinstaller 6.22.3`
+
+</details>
+
+<details><summary>.forgejo/workflows/tests.yml (11)</summary>
 
  - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`
  - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`
@@ -267,14 +291,6 @@ This repository currently has no open or pending branches.
  - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`
  - `ghcr.io/home-assistant/hassfest latest@sha256:b200bb178c5c62f984c2c705c820bd991e5308d6cba6987d24c7d643919ab5cc`
  - `ghcr.io/hacs/action main@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2`
-
-</details>
-
-<details><summary>.forgejo/workflows/release-macos.yml (3)</summary>
-
- - `python/cpython 3.15.2`
- - `python/cpython 3.15.2`
- - `pyinstaller 6.22.3`
 
 </details>
 
@@ -324,7 +340,7 @@ This repository currently has no open or pending branches.
 
  - `pyinstaller 6.22.3`
  - `python/cpython 3.15.2`
- - `SisyphusMD/project-rules 0.3.0`
+ - `SisyphusMD/project-rules 0.3.1`
 
 </details>
 

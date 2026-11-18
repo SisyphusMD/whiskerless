@@ -192,7 +192,7 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 186 | issue | open | [Review: feat(bridge): optional bridge that keeps a local robot on Whisker's cloud (moved from GitHub #15)](items/0186-review-feat-bridge-optional-bridge-that-keeps-a-local-robot-.md) |
 | 187 | issue | open | [Review: feat(addon): optional robot broker for Home Assistant OS (moved from GitHub #16)](items/0187-review-feat-addon-optional-robot-broker-for-home-assistant-o.md) |
 | 188 | pull | open | [feat(evo): support the Litter-Robot EVO in the library, CLI and integration](items/0188-feat-evo-support-the-litter-robot-evo-in-the-library-cli-and.md) |
-| 189 | pull | open | [feat(bridge): optional bridge that keeps a local robot on Whisker's cloud](items/0189-feat-bridge-optional-bridge-that-keeps-a-local-robot-on-whis.md) |
+| 189 | pull | closed | [feat(bridge): optional bridge that keeps a local robot on Whisker's cloud](items/0189-feat-bridge-optional-bridge-that-keeps-a-local-robot-on-whis.md) |
 | 190 | pull | open | [feat(addon): optional robot broker for Home Assistant OS](items/0190-feat-addon-optional-robot-broker-for-home-assistant-os.md) |
 | 191 | issue | closed | [docs: three fixes found during a real-world install (uvx BLE extra, stale recovery note, CA keyUsage)](items/0191-docs-three-fixes-found-during-a-real-world-install-uvx-ble-e.md) |
 | 192 | issue | closed | [fix(lr4): firmware-aware decoding for ESP 1.4.x (status enums, is_cleaning, litter suppression, pic_firmware)](items/0192-fix-lr4-firmware-aware-decoding-for-esp-1-4-x-status-enums-i.md) |
@@ -217,4 +217,17 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 211 | issue | open | [Dependency updates (Renovate)](items/0211-dependency-updates-renovate.md) |
 | 212 | issue | closed | [Bring this repo under the project rules](items/0212-bring-this-repo-under-the-project-rules.md) |
 | 213 | pull | closed | [Adopt the SisyphusMD project rules](items/0213-adopt-the-sisyphusmd-project-rules.md) |
-| 214 | issue | open | [Release through a merged pull request](items/0214-release-through-a-merged-pull-request.md) |
+| 214 | issue | closed | [Release through a merged pull request](items/0214-release-through-a-merged-pull-request.md) |
+| 215 | issue | closed | [Lock down the read-only GitHub mirror](items/0215-lock-down-the-read-only-github-mirror.md) |
+| 216 | pull | closed | [Close pull requests opened on the GitHub mirror](items/0216-close-pull-requests-opened-on-the-github-mirror.md) |
+| 217 | issue | open | [Extract reusable Bluetooth provisioning from the LR4 setup flow](items/0217-extract-reusable-bluetooth-provisioning-from-the-lr4-setup-f.md) |
+| 218 | issue | open | [Require opt-in for unknown LR4 command types](items/0218-require-opt-in-for-unknown-lr4-command-types.md) |
+| 219 | issue | open | [Enforce verified value ranges for LR4 setting writes](items/0219-enforce-verified-value-ranges-for-lr4-setting-writes.md) |
+| 220 | pull | closed | [chore(deps): update dependency sisyphusmd/project-rules to v0.3.1 - autoclosed](items/0220-chore-deps-update-dependency-sisyphusmd-project-rules-to-v0-.md) |
+| 221 | issue | open | [Document community support for robot models maintainers do not own](items/0221-document-community-support-for-robot-models-maintainers-do-n.md) |
+| 222 | issue | open | [Prove unattended robot provisioning in CI](items/0222-prove-unattended-robot-provisioning-in-ci.md) |
+| 223 | pull | closed | [Publish the verified release pull request](items/0223-publish-the-verified-release-pull-request.md) |
+| 224 | issue | closed | [Publish Homebrew Tap updates through pull requests](items/0224-publish-homebrew-tap-updates-through-pull-requests.md) |
+| 225 | issue | closed | [Prove the standard checks before protecting whiskerless main](items/0225-prove-the-standard-checks-before-protecting-whiskerless-main.md) |
+| 226 | pull | closed | [WIP: Disposable draft to prove standard required checks](items/0226-wip-disposable-draft-to-prove-standard-required-checks.md) |
+| 227 | pull | closed | [Publish Whiskerless Homebrew formulae and bottles through tap PRs](items/0227-publish-whiskerless-homebrew-formulae-and-bottles-through-ta.md) |

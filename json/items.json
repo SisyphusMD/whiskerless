@@ -28,7 +28,7 @@
  },
  {
   "assignees": [],
-  "body": "This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.\n\nThis repository currently has no open or pending branches.\n\n## Detected Dependencies\n\n<details><summary>github-actions (12)</summary>\n<blockquote>\n\n<details><summary>.forgejo/workflows/bottles.yml (6)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/ci.yml (37)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/install-matrix.yml (7)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `ubuntu 26.04-arm`\n\n</details>\n\n<details><summary>.forgejo/workflows/macos.yml (6)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/prerelease.yml (27)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/prune-rcs.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n<details><summary>.forgejo/workflows/publish.yml (25)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-arm64.yml (3)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `ubuntu 26.04-arm`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-macos.yml (8)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/release.yml (18)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/tap-bottles.yml (5)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/warm-bottle-mirror.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n</blockquote>\n</details>\n\n<details><summary>pep621 (1)</summary>\n<blockquote>\n\n<details><summary>pyproject.toml (15)</summary>\n\n - `python >=3.11`\n - `aiomqtt >=2.0.0`\n - `cryptography >=43`\n - `bleak >=0.22.0`\n - `mypy ==2.4.1`\n - `pytest ==9.2.0`\n - `pytest-asyncio ==1.5.0`\n - `pytest-cov ==7.1.0`\n - `pyyaml ==6.0.3`\n - `ruff ==0.17.5`\n - `pytest-cov >=5.0`\n - `syrupy >=4.0`\n - `aiohasupervisor ==0.11.0`\n - `pytest-cov >=5.0`\n - `pytest-homeassistant ==2026.11.2`\n\n</details>\n\n</blockquote>\n</details>\n\n<details><summary>regex (9)</summary>\n<blockquote>\n\n<details><summary>.forgejo/workflows/bottles.yml (1)</summary>\n\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n\n</details>\n\n<details><summary>.forgejo/workflows/ci.yml (11)</summary>\n\n - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n - `ubuntu-22.04-compat 22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde`\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`\n - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`\n - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`\n - `ghcr.io/home-assistant/hassfest latest@sha256:b200bb178c5c62f984c2c705c820bd991e5308d6cba6987d24c7d643919ab5cc`\n - `ghcr.io/hacs/action main@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-macos.yml (3)</summary>\n\n - `python/cpython 3.15.2`\n - `python/cpython 3.15.2`\n - `pyinstaller 6.22.3`\n\n</details>\n\n<details><summary>packaging/homebrew-smoke.Dockerfile (1)</summary>\n\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n\n</details>\n\n<details><summary>packaging/install-smoke.Dockerfile (11)</summary>\n\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`\n - `ubuntu-22.04-compat 22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde`\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`\n - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`\n - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`\n - `opensuse-leap-15.6-compat 15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421`\n\n</details>\n\n<details><summary>packaging/package-smoke-rpm.Dockerfile (1)</summary>\n\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n\n</details>\n\n<details><summary>packaging/package-smoke.Dockerfile (1)</summary>\n\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n\n</details>\n\n<details><summary>packaging/release-pins.env (3)</summary>\n\n - `quay.io/pypa/manylinux_2_28 2026.11.14-1@sha256:834a11a02642a46e580b62f25f5b04588355092c8677eaf0393e3ea1997001a3`\n - `goreleaser/nfpm v2.49.0@sha256:9ea46a59c4d055ef7071b22f3520b53e8dad98e18043b2f881b53bd7ffec634e`\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n\n</details>\n\n<details><summary>packaging/release-pins.env (3)</summary>\n\n - `pyinstaller 6.22.3`\n - `python/cpython 3.15.2`\n - `SisyphusMD/project-rules 0.3.0`\n\n</details>\n\n</blockquote>\n</details>\n\n",
+  "body": "This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.\n\nThis repository currently has no open or pending branches.\n\n## Detected Dependencies\n\n<details><summary>github-actions (14)</summary>\n<blockquote>\n\n<details><summary>.forgejo/workflows/bottles.yml (6)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/install-matrix.yml (7)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `ubuntu 26.04-arm`\n\n</details>\n\n<details><summary>.forgejo/workflows/macos.yml (6)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/prerelease.yml (27)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/prune-rcs.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n<details><summary>.forgejo/workflows/publish-release.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n<details><summary>.forgejo/workflows/publish.yml (27)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-arm64.yml (3)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `ubuntu 26.04-arm`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-macos.yml (8)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/release.yml (18)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/submit-tap-formula.yml (1)</summary>\n\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/tap-bottles.yml (7)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/tests.yml (37)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/warm-bottle-mirror.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n</blockquote>\n</details>\n\n<details><summary>pep621 (1)</summary>\n<blockquote>\n\n<details><summary>pyproject.toml (15)</summary>\n\n - `python >=3.11`\n - `aiomqtt >=2.0.0`\n - `cryptography >=43`\n - `bleak >=0.22.0`\n - `mypy ==2.4.1`\n - `pytest ==9.2.0`\n - `pytest-asyncio ==1.5.0`\n - `pytest-cov ==7.1.0`\n - `pyyaml ==6.0.3`\n - `ruff ==0.17.5`\n - `pytest-cov >=5.0`\n - `syrupy >=4.0`\n - `aiohasupervisor ==0.11.0`\n - `pytest-cov >=5.0`\n - `pytest-homeassistant ==2026.11.2`\n\n</details>\n\n</blockquote>\n</details>\n\n<details><summary>regex (9)</summary>\n<blockquote>\n\n<details><summary>.forgejo/workflows/bottles.yml (1)</summary>\n\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-macos.yml (3)</summary>\n\n - `python/cpython 3.15.2`\n - `python/cpython 3.15.2`\n - `pyinstaller 6.22.3`\n\n</details>\n\n<details><summary>.forgejo/workflows/tests.yml (11)</summary>\n\n - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n - `ubuntu-22.04-compat 22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde`\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`\n - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`\n - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`\n - `ghcr.io/home-assistant/hassfest latest@sha256:b200bb178c5c62f984c2c705c820bd991e5308d6cba6987d24c7d643919ab5cc`\n - `ghcr.io/hacs/action main@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2`\n\n</details>\n\n<details><summary>packaging/homebrew-smoke.Dockerfile (1)</summary>\n\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n\n</details>\n\n<details><summary>packaging/install-smoke.Dockerfile (11)</summary>\n\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`\n - `ubuntu-22.04-compat 22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde`\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`\n - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`\n - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`\n - `opensuse-leap-15.6-compat 15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421`\n\n</details>\n\n<details><summary>packaging/package-smoke-rpm.Dockerfile (1)</summary>\n\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n\n</details>\n\n<details><summary>packaging/package-smoke.Dockerfile (1)</summary>\n\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n\n</details>\n\n<details><summary>packaging/release-pins.env (3)</summary>\n\n - `quay.io/pypa/manylinux_2_28 2026.11.14-1@sha256:834a11a02642a46e580b62f25f5b04588355092c8677eaf0393e3ea1997001a3`\n - `goreleaser/nfpm v2.49.0@sha256:9ea46a59c4d055ef7071b22f3520b53e8dad98e18043b2f881b53bd7ffec634e`\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n\n</details>\n\n<details><summary>packaging/release-pins.env (3)</summary>\n\n - `pyinstaller 6.22.3`\n - `python/cpython 3.15.2`\n - `SisyphusMD/project-rules 0.3.1`\n\n</details>\n\n</blockquote>\n</details>\n\n",
   "closed_at": null,
   "comments": [],
   "created_at": "2026-06-28T22:03:01-07:00",
@@ -3562,7 +3562,36 @@
   "base": "main",
   "body": "Refs #185.\n\nMoved from https://github.com/SisyphusMD/whiskerless/pull/14, opened by Stephan Garland (@stephanGarland on GitHub) on 2026-11-06, with his commits unchanged. **Not yet reviewed.** Sent as an AGit pull request so CI does not run unreviewed code; a maintainer re-opens it from a branch after review.\n\n---\n\nI split this work into three separate PRs as I wasn't sure if you'd want the bridge and broker.\n\n## What and why\n\nThe EVO provisions over the same BLE protocomm channel as the LR4 and uses the same MQTT envelope, but its register map is banked and different, so the LR4 driver can't talk to it. This PR adds it in two commits, which can be reviewed (or merged) separately: the library first, then the integration.\n\n**Library** (`devices/litter_robot_evo/`, laid out like `litter_robot_4`)\n- **Provisioning:** BLE now accepts the EVO's service UUID, name and `LRE-…` serial (on the EVO the long hyphenated label line is the serial). EVOs get their native `prod/robots/<serial>/…` topics; LR4 provisioning is unchanged.\n- **Protocol:** commands are `0xTTBBRRVVVV` (read or write, bank, register, value). A single message can read every readable register, and the robot answers in one reply.\n- **Commands:** separate screen and status-LED brightness, cycle delay, lockout, sleep schedule, the robot's clock, clean and empty cycles, change filter, drawer-level reset, power on/off. EVO commands are classified separately in `safety.py`, so LR4 behavior doesn't change.\n- **Also:** a `whiskerless evo` CLI subcommand and `docs/devices/litter-robot-evo/protocol.md`, with each fact marked proven, inferred or open.\n\n**Integration**\n- **Discovery and state:** EVOs are discovered on `prod/robots/<serial>/…`. The integration reads the robot's state at startup, on reconnect and after power-on, and sets the robot's clock each time, so its sleep schedule keeps correct time even without the cloud.\n- **Panel light:** the Whisker app only offers Low/Medium/High, which set the screen and status LED together. Here they're two separate sliders (1–100), plus a preset with an **Off** option that drops both to 1.\n- **Other entities:** cycle delay, control lock, Sleep mode and its times, the cycle and maintenance buttons, power, status, pet weight, cycle counts, and drawer and bonnet sensors.\n- **Blueprint:** keeps chosen night and day levels across a time window and puts them back after the robot reconnects (the Whisker cloud resends the app's preset when that happens). It never overrides a change made by hand.\n\nThe integration's library pin still needs a release that includes the driver.\n\nTested on a real EVO (robot firmware v4.7.0, IoT firmware v2.6.4):\n- provisioned with this branch and discovered by the integration;\n- every command marked proven was sent and checked against the robot's echo;\n- after an HA restart every entity filled in by itself;\n- a night boundary set the night level.\n\nNot done yet: remote reset, sending a paused empty cycle home without a panel press, cloud-free pet identification, and the weight-sensor scale.\n\n## Sibling repo\n\n- [ ] Ported to the sibling repo (link the PR)\n- [x] Not applicable, because: Whisker-specific device support.\n- [ ] Deliberate variance, recorded in `VARIANCE.md`\n\n## Checks\n\n- [x] Regression test that fails on the parent commit\n- [x] `STANDARD.lock` still in sync (no vendored file edited in place)\n\n- **Library:** 1634 tests pass at 99.28% coverage, with `safety.py` and the EVO modules at 100%.\n- **Integration:** the suite passes at 99.81%, with `config_flow.py` at 100% and LR4 snapshots unchanged.\n- **Lint and types:** ruff and mypy are clean.",
   "closed_at": null,
-  "comments": [],
+  "comments": [
+   {
+    "body": "EVO support depends on #217, which will extract the shared Bluetooth provisioning code while preserving the existing LR4 setup path. I’ll link the refactor PR here once it’s open.",
+    "created_at": "2026-11-17T14:53:31-08:00",
+    "id": 36611,
+    "updated_at": "2026-11-17T14:53:31-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "EVO support also depends on #218. It will make unknown LR4 command types require `allow_dangerous`, so EVO and LR4 can ship with the same safety rule.",
+    "created_at": "2026-11-17T15:03:38-08:00",
+    "id": 36641,
+    "updated_at": "2026-11-17T15:03:38-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "EVO support also depends on #219. LR4 and EVO should both allow verified setting values by default and require `allow_dangerous` for unverified values. Each model will use its own verified ranges.",
+    "created_at": "2026-11-17T15:06:27-08:00",
+    "id": 36653,
+    "updated_at": "2026-11-17T15:06:27-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Thanks for the EVO work, Stephan. Let’s plan to start with an opt-in preview from a whiskerless branch after #217, #218, and #219 land. I can split the patch into PRs for Bluetooth setup, the driver and command safety, Home Assistant, and the optional blueprint and examples while preserving your authorship.\n\nThe preview would start with Power off disabled. Unknown command types and unverified setting values would require `allow_dangerous`, and the docs and tests would use a clearly labeled synthetic serial.\n\nThe preview would need to be tested on a real EVO. I don’t own one, so I’d be relying on your help with that. Shared setup changes would also need an LR4 bench test. Listing EVO as community-supported would require a named EVO owner who can help reproduce bugs and test future changes.",
+    "created_at": "2026-11-17T16:26:05-08:00",
+    "id": 36726,
+    "updated_at": "2026-11-17T16:26:05-08:00",
+    "user": "cody"
+   }
+  ],
   "created_at": "2026-11-17T08:45:08-08:00",
   "head": "refs/pull/188/head",
   "kind": "pull",
@@ -3580,8 +3609,16 @@
   "assignees": [],
   "base": "main",
   "body": "Refs #186.\n\nMoved from https://github.com/SisyphusMD/whiskerless/pull/15, opened by Stephan Garland (@stephanGarland on GitHub) on 2026-11-06, with his commits unchanged. **Not yet reviewed.** Sent as an AGit pull request so CI does not run unreviewed code; a maintainer re-opens it from a branch after review.\n\n---\n\nI split this work into three separate PRs as I wasn't sure if you'd want the bridge and broker.\n\n## What and why\n\nTaking a robot off Whisker's cloud also takes away the Whisker app. With this bridge you can keep both. The robot stays on your local broker, and the bridge connects to Whisker's AWS IoT endpoint as the robot, relaying messages unchanged in both directions. The app keeps working, and every command the cloud sends is visible locally, which makes working out new commands much easier. It's inspired by [rethink](https://github.com/anszom/rethink)'s bridge mode; no rethink code is used.\n\n- **Library:** `whiskerless.bridge` works with any model; the local and cloud topic prefixes are configurable.\n- **Home Assistant:** a Cloud bridge entry with an on/off switch, a connection sensor, a traffic event (so messages show up in the logbook) and a send-message action. There's an example dashboard in `examples/cloud-bridge/`.\n- **Getting the robot's identity:** the Whisker app writes the robot's certificate and key over BLE during setup. `docs/setup/cloud-bridge.md` explains how to capture that on iOS or Android, and `scripts/cloud_identity.py` pulls the certificate and key out of the capture.\n- Messages you send toward the robot go through `safety.py`; traffic relayed from the cloud passes through untouched.\n\nTested on a real EVO: with the bridge running, the app stayed fully usable and every app action showed up on the local broker.\n\nPossible follow-up: the app gets that certificate and key from Whisker's API. If whiskerless could fetch it with the user's login, the BLE capture wouldn't be needed.\n\n## Sibling repo\n\n- [ ] Ported to the sibling repo (link the PR)\n- [x] Not applicable, because: it relays to Whisker's cloud specifically.\n- [ ] Deliberate variance, recorded in `VARIANCE.md`\n\n## Checks\n\n- [x] Regression test that fails on the parent commit\n- [x] `STANDARD.lock` still in sync (no vendored file edited in place)\n\nThe library suite passes at 99.19% and the integration suite at 99.78%, with `safety.py` and `config_flow.py` at 100%.",
-  "closed_at": null,
-  "comments": [],
+  "closed_at": "2026-11-17T23:05:29-08:00",
+  "comments": [
+   {
+    "body": "Thanks for building this and testing it on your EVO, Stephan. I’m closing this because a live cloud bridge is outside the scope of whiskerless. Keeping the app working would mean maintaining the cloud connection and handling commands it sends to the robot.\n\nWhich feature of the Whisker app were you trying to keep by building the bridge? I’d like to see if whiskerless can provide it locally.",
+    "created_at": "2026-11-17T23:05:29-08:00",
+    "id": 37194,
+    "updated_at": "2026-11-17T23:05:29-08:00",
+    "user": "cody"
+   }
+  ],
   "created_at": "2026-11-17T08:45:09-08:00",
   "head": "refs/pull/189/head",
   "kind": "pull",
@@ -3591,7 +3628,7 @@
   "milestone": null,
   "number": 189,
   "reviews": [],
-  "state": "open",
+  "state": "closed",
   "title": "feat(bridge): optional bridge that keeps a local robot on Whisker's cloud",
   "user": "cody"
  },
@@ -4229,7 +4266,7 @@
   "closed_at": "2026-11-17T14:33:07-08:00",
   "comments": [],
   "created_at": "2026-11-17T14:09:34-08:00",
-  "head": "ci/adopt-project-rules",
+  "head": "refs/pull/213/head",
   "kind": "pull",
   "labels": [],
   "merge_commit_sha": "9b0221debc7303be2cc356f29d133cc8616d3e08",
@@ -4244,8 +4281,16 @@
  {
   "assignees": [],
   "body": "Part of SisyphusMD/project-rules#86. Reuse the existing qualified stable release intent to open a release pull request. Add maintainer dispatch to tag the exact merged commit and retain the integration, native package and prerelease checks.\n\nDepends on SisyphusMD/project-rules#97.",
-  "closed_at": null,
-  "comments": [],
+  "closed_at": "2026-11-17T18:46:14-08:00",
+  "comments": [
+   {
+    "body": "Codex is implementing the two-step stable release on an isolated branch. Generated Renovate PR #220 confirmed issue-link and AI review pass, but existing tests still assert the legacy atomic main-and-tag push. The conversion will replace those assertions and retain the existing qualification and prerelease paths.",
+    "created_at": "2026-11-17T18:10:38-08:00",
+    "id": 36769,
+    "updated_at": "2026-11-17T18:10:38-08:00",
+    "user": "cody"
+   }
+  ],
   "created_at": "2026-11-17T14:18:45-08:00",
   "kind": "issue",
   "labels": [
@@ -4254,8 +4299,305 @@
   ],
   "milestone": null,
   "number": 214,
-  "state": "open",
+  "state": "closed",
   "title": "Release through a merged pull request",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "Part of SisyphusMD/project-rules#71. Copy the canonical mirror-lockdown workflow to close and lock GitHub pull requests. Verify the mirror can sync workflow files, then enable Actions limited to the pinned lockdown action.",
+  "closed_at": "2026-11-17T15:01:48-08:00",
+  "comments": [],
+  "created_at": "2026-11-17T14:35:06-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:in-progress",
+   "type:chore"
+  ],
+  "milestone": null,
+  "number": 215,
+  "state": "closed",
+  "title": "Lock down the read-only GitHub mirror",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #215\n\nCopy the project-rules workflow that redirects new GitHub pull requests to Forgejo. The GitHub mirror will enable only the pinned lockdown action after the workflow is mirrored.\n\nValidated the canonical file with actionlint and yamllint.",
+  "closed_at": "2026-11-17T15:01:48-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `aec13f94d3`: Clean, well-scoped PR that adds the mirror-lockdown workflow for the GitHub mirror, updates the Renovate exclusion, adjusts the repo invariant test, and updates the CI-split doc. The workflow is properly guarded (server_url + owner check, pinned action SHA, minimal permissions) and all hunks map to the linked issue.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-17T14:38:26-08:00",
+    "id": 36585,
+    "updated_at": "2026-11-17T14:38:26-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-17T14:37:51-08:00",
+  "head": "refs/pull/216/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "be0c1b3ff770ae1ac2b0c4ec5b5862db22520187",
+  "merged": true,
+  "milestone": null,
+  "number": 216,
+  "reviews": [],
+  "state": "closed",
+  "title": "Close pull requests opened on the GitHub mirror",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "Whiskerless’s Bluetooth setup code currently assumes every robot is an LR4. PR #188 adds EVO support by broadening the existing scanner and provisioning checks to accept either model. Extract the setup sequence both models can use so that each model can keep its own discovery and identity checks.\n\n- Keep the existing LR4 entry point, device selection, serial validation, and MQTT defaults.\n- Add regression tests for LR4 discovery and provisioning, including selection by explicit Bluetooth address.\n- Verify on a real LR4 that setup still works and the robot connects to the configured broker.\n\nThis is the prerequisite for #188. The EVO-specific changes stay in #188.",
+  "closed_at": null,
+  "comments": [],
+  "created_at": "2026-11-17T14:53:00-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:ready",
+   "type:chore"
+  ],
+  "milestone": null,
+  "number": 217,
+  "state": "open",
+  "title": "Extract reusable Bluetooth provisioning from the LR4 setup flow",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "The LR4 classifier currently treats unrecognized command types as no-ops, which lets them through by default. Require `allow_dangerous` for unknown types and add regression tests showing that known no-ops still pass and never-send commands remain blocked. This gives EVO support in #188 the same safety rule from day one.\n\nThis is a prerequisite for #188 alongside #217.",
+  "closed_at": null,
+  "comments": [],
+  "created_at": "2026-11-17T15:02:26-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:ready",
+   "type:bug"
+  ],
+  "milestone": null,
+  "number": 218,
+  "state": "open",
+  "title": "Require opt-in for unknown LR4 command types",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "Audit the LR4 settings that whiskerless allows at any value. Keep unconditional writes for settings whose full range is verified. For the rest, allow verified values by default and require `allow_dangerous` for unverified values. Add regression tests at the boundaries and confirm that never-send commands remain blocked.\n\nThis is a prerequisite for #188 alongside #217 and #218.",
+  "closed_at": null,
+  "comments": [],
+  "created_at": "2026-11-17T15:05:58-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:ready",
+   "type:bug"
+  ],
+  "milestone": null,
+  "number": 219,
+  "state": "open",
+  "title": "Enforce verified value ranges for LR4 setting writes",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "This PR contains the following updates:\n\n| Package | Update | Change |\n|---|---|---|\n| [SisyphusMD/project-rules](https://forgejo.bryantserver.com/SisyphusMD/project-rules) | patch | `0.3.0` → `0.3.1` |\n\n`refresh-pins.sh` re-vendors the standard at this tag on this branch, so the files and the lock should already agree with the pin. If the drift check still fails, the re-vendor did not run - check the task's output rather than re-vendoring by hand, because a manual fix here hides a broken automation.\n\n---\n\n### Release Notes\n\n<details>\n<summary>SisyphusMD/project-rules</summary>\n\n### [`v0.3.1`](https://forgejo.bryantserver.com/SisyphusMD/project-rules/compare/v0.3.0...v0.3.1)\n\n[Compare Source](https://forgejo.bryantserver.com/SisyphusMD/project-rules/compare/v0.3.0...v0.3.1)\n\n</details>\n\n---\n\n### Configuration\n\n📅 **Schedule**: (UTC)\n\n- Branch creation\n  - At any time (no schedule defined)\n- Automerge\n  - At any time (no schedule defined)\n\n🚦 **Automerge**: Disabled by config. Please merge this manually once you are satisfied.\n\n♻ **Rebasing**: Whenever PR is behind base branch, or you tick the rebase/retry checkbox.\n\n🔕 **Ignore**: Close this PR and you won't be reminded about this update again.\n\n---\n\n - [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check this box\n\n---\n\nRefs #211: standing issue for dependency updates.\n\nNo tests: dependency pins and their generated files are checked by the existing build and test jobs.\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0NC4yNTEuMCIsInVwZGF0ZWRJblZlciI6IjQ0LjI1MS4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6WyJwYXRjaC11cGRhdGUiXX0=-->\n",
+  "closed_at": "2026-11-17T19:07:19-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `da7f8c8d6c`: Straightforward Renovate re-vendor of project-rules v0.3.0→v0.3.1: updated STANDARD.lock hashes, comment rewording in several packaging scripts, a new --merged-commit mode in push-tag.sh, and a new verify-release-pr.py. All changes originate from the upstream tag; the existing sync check and build jobs cover them.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-17T15:09:49-08:00",
+    "id": 36663,
+    "updated_at": "2026-11-17T15:09:49-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-17T15:09:25-08:00",
+  "head": "refs/pull/220/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": null,
+  "merged": false,
+  "milestone": null,
+  "number": 220,
+  "reviews": [],
+  "state": "closed",
+  "title": "chore(deps): update dependency sisyphusmd/project-rules to v0.3.1 - autoclosed",
+  "user": "renovate"
+ },
+ {
+  "assignees": [],
+  "body": "Define community support for every robot model that the project maintainers do not own. Before listing a model as community-supported, name an owner of that hardware who agrees to reproduce device-specific issues and test future changes on a real unit. A preview can have a tester who tries builds before committing to ongoing support.\n\nDocument these responsibilities in `CONTRIBUTING.md` and identify community-supported models in the supported-models list. The project maintainer retains merge and release decisions. Changes to shared setup code still need hardware checks on affected models.\n\nThis policy applies across whiskerless, including the EVO proposal in #188.",
+  "closed_at": null,
+  "comments": [],
+  "created_at": "2026-11-17T15:19:39-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:ready",
+   "type:chore"
+  ],
+  "milestone": null,
+  "number": 221,
+  "state": "open",
+  "title": "Document community support for robot models maintainers do not own",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "Give whiskerless a repeatable Forgejo test that runs the real Bluetooth provisioning flow on a designated LR4 without anyone at the robot. This would help verify shared setup changes such as #217.\n\n- **Verify remote pairing.** Determine whether the stock LR4 honors a Connect hold over MQTT. Confirm success by detecting its BLE provisioning advertisement.\n- **Run real provisioning.** Use a manually dispatched Forgejo job to run one test at a time through an active ESPHome Bluetooth proxy. Require provisioning acknowledgments and fresh MQTT telemetry from the test robot.\n- **Prove recovery.** Simulate a failure after pairing clears Wi-Fi. Verify that a known-good build restores connectivity remotely and that CI reports the candidate as failed.\n\n**Done when** CI demonstrates successful provisioning and recovery from a failed run without anyone physically at the robot.",
+  "closed_at": null,
+  "comments": [],
+  "created_at": "2026-11-17T15:28:07-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:ready",
+   "type:spike"
+  ],
+  "milestone": null,
+  "number": 222,
+  "state": "open",
+  "title": "Prove unattended robot provisioning in CI",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #214.\n\nKeeps existing qualification and prerelease workflows. Prepare Release opens a normal issue-linked PR and records the exact prepared commit. Publish Release verifies the merged tree and successful preparation for that head, checks the version stamps and latest candidate, and pushes only its annotated tag.\n\nVendors project-rules v0.3.1. Local validation: 1,492 tests and 99.18% branch coverage, the safety-module coverage gate, workflow and drift checks, plus a bare-origin fixture proving branch-only preparation, retries, and rejection of an unqualified PR head.\n\nLarge diff: The qualification workflow, tag-only publisher, verified upstream helpers, and their tests must change together to keep a working release path in this commit.",
+  "closed_at": "2026-11-17T18:46:14-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `5235379eac`: Well-structured conversion of the release path from an atomic commit+tag push to a two-step Prepare Release (opens a PR) / Publish Release (verifies the merged tree and pushes only the annotated tag). The verification chain in the publish workflow is thorough, the vendored helpers are updated consistently, and the invariant/security tests are correctly adapted.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-17T18:41:32-08:00",
+    "id": 36791,
+    "updated_at": "2026-11-17T18:41:32-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-17T18:32:17-08:00",
+  "head": "refs/pull/223/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "42fbbc86dcb9995d1b19e1a15ab7b1bafd1794b2",
+  "merged": true,
+  "milestone": null,
+  "number": 223,
+  "reviews": [],
+  "state": "closed",
+  "title": "Publish the verified release pull request",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "Part of SisyphusMD/homebrew-tap#3. Isolate formula rendering from the tap write credential, submit the formula and bottles as normal pull requests, and wait until the intended files land before downstream install verification or pruning. Keep the existing manual bottle repair path.\n\nDepends on SisyphusMD/homebrew-tap#7.",
+  "closed_at": "2026-11-17T20:16:35-08:00",
+  "comments": [
+   {
+    "body": "PR #227 settled at 903e4d20c622907b490f952ca0035782cac540b6. All exact-head native and shared checks passed and both mirrors match. The first real Tap publisher proof is tracked under homebrew-tap #3 and requires the separately approved v0.2.0-rc.78.",
+    "created_at": "2026-11-17T20:17:28-08:00",
+    "id": 37059,
+    "updated_at": "2026-11-17T20:17:28-08:00",
+    "user": "cody"
+   }
+  ],
+  "created_at": "2026-11-17T18:50:19-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:in-progress",
+   "type:chore"
+  ],
+  "milestone": null,
+  "number": 224,
+  "state": "closed",
+  "title": "Publish Homebrew Tap updates through pull requests",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "Part of SisyphusMD/project-rules#71. Verify six standard gates reject deliberate failures on a disposable draft, using existing native CI and positive PR evidence. Never merge the draft or publish a tag. Apply protection only after the converted release path is proven.",
+  "closed_at": "2026-11-17T20:41:06-08:00",
+  "comments": [
+   {
+    "body": "Draft #226 is proving the expected negative checks on ea52e5b0902da2a852c263479d0e7dfeb7c561a7. Do not merge or tag it.",
+    "created_at": "2026-11-17T19:54:49-08:00",
+    "id": 36994,
+    "updated_at": "2026-11-17T19:54:49-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Draft #226 at ea52e5b0902da2a852c263479d0e7dfeb7c561a7 verified the expected negative behavior for all shared gates, including the exact AI review refusal on the over-limit diff. Seven context diagnostics were captured. The draft is closed unmerged. The branch is retained pending cleanup approval.",
+    "created_at": "2026-11-17T19:56:46-08:00",
+    "id": 37011,
+    "updated_at": "2026-11-17T19:56:46-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Proof complete. PR #227 passed every shared gate at exact head a7373307e35e8303d5df59bdbc264359a04e5622. Draft #226 recorded each expected rejection at ea52e5b0902da2a852c263479d0e7dfeb7c561a7 and was closed without merging. The parent adoption issue still tracks the live release dependency and branch protection.",
+    "created_at": "2026-11-17T20:41:06-08:00",
+    "id": 37082,
+    "updated_at": "2026-11-17T20:41:06-08:00",
+    "user": "cody"
+   }
+  ],
+  "created_at": "2026-11-17T19:47:09-08:00",
+  "kind": "issue",
+  "labels": [],
+  "milestone": null,
+  "number": 225,
+  "state": "closed",
+  "title": "Prove the standard checks before protecting whiskerless main",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Do not merge. These are synthetic test fixtures that deliberately fail the standard shared gates. The missing issue reference is part of that exercise. Keep the draft outside main and never tag its commit.",
+  "closed_at": "2026-11-17T19:56:46-08:00",
+  "comments": [],
+  "created_at": "2026-11-17T19:54:48-08:00",
+  "head": "proof/required-check-failures",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": null,
+  "merged": false,
+  "milestone": null,
+  "number": 226,
+  "reviews": [],
+  "state": "closed",
+  "title": "WIP: Disposable draft to prove standard required checks",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #224.\n\nPin the verified homebrew-tap #11 merge at c8bb9a5b3a54c841375a5a3b619c98a377cb75be. Render without a tap credential and use the isolated submit job to wait for the exact changed paths on main. Build bottles after the source formula and keep the same-tag repair path with current tooling and original tagged templates. Preserve the standard lock.\n\n147 focused release and workflow tests, strict workflow YAML lint, the standard drift check, and Bash fixtures for exact waits passed. The real publisher proof still needs a separately approved release candidate.\n\nLarge diff: Keep the matching credential-isolated submit, bottle prerequisites, recovery dispatch and validation in one publisher change so releases keep their full source and bottle ordering.",
+  "closed_at": "2026-11-17T20:16:35-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `a7373307e3`: The PR correctly splits tap writes into credential-free render jobs and a credential-bearing submit workflow that opens a PR and waits for the exact files to land on main. Credential isolation, ordering (formula → bottles → prune/install), the pinned helper commit, path-traversal guard, and the updated tests all check out; docs and CHANGELOG are updated in the same PR.\n\n### Withdrawn\n\n- **F1** (blocking, `.forgejo/workflows/submit-tap-formula.yml:3`) Missing `secrets` declaration in `workflow_call` — token will be empty at runtime: The `on.workflow_call` block declares only `inputs`. All three callers pass `secrets: tap-token: …`, and the job body reads `${{ secrets.tap-token }}`. Under GitHub/Forgejo Actions semantics a reusable workflow receives only the secrets explicitly listed under `on.workflow_call.secrets`; without that declaration `secrets.tap-token` resolves to the empty string.\n  - Reviewer: Withdrawn. The author showed a concrete Forgejo pre-execution rejection (run #1806: `workflow_call only supports keys \"inputs\" and \"outputs\", but key \"secrets\" was found`) and the Forgejo 17 documentation for `jobs.<job_id>.secrets`. Forgejo passes the alias through the caller's `secrets:` key on the calling job, which all three callers here use. The test's `== {\"inputs\"}` assertion correctly locks the Forgejo schema.\n\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W3siaWQiOiAiRjEiLCAiZmlsZSI6ICIuZm9yZ2Vqby93b3JrZmxvd3Mvc3VibWl0LXRhcC1mb3JtdWxhLnltbCIsICJsaW5lIjogMywgInNldmVyaXR5IjogImJsb2NraW5nIiwgInN0YXR1cyI6ICJ3aXRoZHJhd24iLCAidGl0bGUiOiAiTWlzc2luZyBgc2VjcmV0c2AgZGVjbGFyYXRpb24gaW4gYHdvcmtmbG93X2NhbGxgIFx1MjAxNCB0b2tlbiB3aWxsIGJlIGVtcHR5IGF0IHJ1bnRpbWUiLCAiZGV0YWlsIjogIlRoZSBgb24ud29ya2Zsb3dfY2FsbGAgYmxvY2sgZGVjbGFyZXMgb25seSBgaW5wdXRzYC4gQWxsIHRocmVlIGNhbGxlcnMgcGFzcyBgc2VjcmV0czogdGFwLXRva2VuOiBcdTIwMjZgLCBhbmQgdGhlIGpvYiBib2R5IHJlYWRzIGAke3sgc2VjcmV0cy50YXAtdG9rZW4gfX1gLiBVbmRlciBHaXRIdWIvRm9yZ2VqbyBBY3Rpb25zIHNlbWFudGljcyBhIHJldXNhYmxlIHdvcmtmbG93IHJlY2VpdmVzIG9ubHkgdGhlIHNlY3JldHMgZXhwbGljaXRseSBsaXN0ZWQgdW5kZXIgYG9uLndvcmtmbG93X2NhbGwuc2VjcmV0c2A7IHdpdGhvdXQgdGhhdCBkZWNsYXJhdGlvbiBgc2VjcmV0cy50YXAtdG9rZW5gIHJlc29sdmVzIHRvIHRoZSBlbXB0eSBzdHJpbmcuIiwgInJlc3BvbnNlIjogIldpdGhkcmF3bi4gVGhlIGF1dGhvciBzaG93ZWQgYSBjb25jcmV0ZSBGb3JnZWpvIHByZS1leGVjdXRpb24gcmVqZWN0aW9uIChydW4gIzE4MDY6IGB3b3JrZmxvd19jYWxsIG9ubHkgc3VwcG9ydHMga2V5cyBcImlucHV0c1wiIGFuZCBcIm91dHB1dHNcIiwgYnV0IGtleSBcInNlY3JldHNcIiB3YXMgZm91bmRgKSBhbmQgdGhlIEZvcmdlam8gMTcgZG9jdW1lbnRhdGlvbiBmb3IgYGpvYnMuPGpvYl9pZD4uc2VjcmV0c2AuIEZvcmdlam8gcGFzc2VzIHRoZSBhbGlhcyB0aHJvdWdoIHRoZSBjYWxsZXIncyBgc2VjcmV0czpgIGtleSBvbiB0aGUgY2FsbGluZyBqb2IsIHdoaWNoIGFsbCB0aHJlZSBjYWxsZXJzIGhlcmUgdXNlLiBUaGUgdGVzdCdzIGA9PSB7XCJpbnB1dHNcIn1gIGFzc2VydGlvbiBjb3JyZWN0bHkgbG9ja3MgdGhlIEZvcmdlam8gc2NoZW1hLiJ9XQ== -->",
+    "created_at": "2026-11-17T19:59:43-08:00",
+    "id": 37019,
+    "updated_at": "2026-11-17T20:13:09-08:00",
+    "user": "forgejo-actions"
+   },
+   {
+    "body": "F1 applies GitHub’s declaration requirement to Forgejo. Our installed Forgejo actually rejected the suggested declaration before any job ran in Dreame run #1806. Its pre-execution diagnostic says `workflow_call only supports keys \"inputs\" and \"outputs\", but key \"secrets\" was found`. Forgejo 17 documents that a caller maps the selected secret under `jobs.<job_id>.secrets`, which makes that alias available to `secrets` in the called workflow. The helper and all three callers here use the same `tap-token` alias. Thus the test intentionally enforces the installed Forgejo schema, and the live release proof remains planned for verifying the runner paths.\n\nhttps://forgejo.org/docs/v17.0/user/actions/reference/#jobsjob_idsecrets\n\nhttps://forgejo.bryantserver.com/SisyphusMD/dreame-valetudo/actions/runs/1806",
+    "created_at": "2026-11-17T20:01:53-08:00",
+    "id": 37023,
+    "updated_at": "2026-11-17T20:01:53-08:00",
+    "user": "cody"
+   }
+  ],
+  "created_at": "2026-11-17T19:55:34-08:00",
+  "head": "refs/pull/227/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "903e4d20c622907b490f952ca0035782cac540b6",
+  "merged": true,
+  "milestone": null,
+  "number": 227,
+  "reviews": [],
+  "state": "closed",
+  "title": "Publish Whiskerless Homebrew formulae and bottles through tap PRs",
   "user": "cody"
  }
 ]

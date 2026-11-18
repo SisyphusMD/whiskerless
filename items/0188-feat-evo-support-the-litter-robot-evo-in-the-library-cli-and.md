@@ -52,3 +52,23 @@ Not done yet: remote reset, sending a paused empty cycle home without a panel pr
 - **Library:** 1634 tests pass at 99.28% coverage, with `safety.py` and the EVO modules at 100%.
 - **Integration:** the suite passes at 99.81%, with `config_flow.py` at 100% and LR4 snapshots unchanged.
 - **Lint and types:** ruff and mypy are clean.
+
+## cody, 2026-11-17T14:53:31-08:00
+
+EVO support depends on #217, which will extract the shared Bluetooth provisioning code while preserving the existing LR4 setup path. I’ll link the refactor PR here once it’s open.
+
+## cody, 2026-11-17T15:03:38-08:00
+
+EVO support also depends on #218. It will make unknown LR4 command types require `allow_dangerous`, so EVO and LR4 can ship with the same safety rule.
+
+## cody, 2026-11-17T15:06:27-08:00
+
+EVO support also depends on #219. LR4 and EVO should both allow verified setting values by default and require `allow_dangerous` for unverified values. Each model will use its own verified ranges.
+
+## cody, 2026-11-17T16:26:05-08:00
+
+Thanks for the EVO work, Stephan. Let’s plan to start with an opt-in preview from a whiskerless branch after #217, #218, and #219 land. I can split the patch into PRs for Bluetooth setup, the driver and command safety, Home Assistant, and the optional blueprint and examples while preserving your authorship.
+
+The preview would start with Power off disabled. Unknown command types and unverified setting values would require `allow_dangerous`, and the docs and tests would use a clearly labeled synthetic serial.
+
+The preview would need to be tested on a real EVO. I don’t own one, so I’d be relying on your help with that. Shared setup changes would also need an LR4 bench test. Listing EVO as community-supported would require a named EVO owner who can help reproduce bugs and test future changes.
