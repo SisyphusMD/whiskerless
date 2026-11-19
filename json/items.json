@@ -3532,28 +3532,28 @@
  {
   "assignees": [],
   "body": "Stephan Garland (@stephanGarland on GitHub) opened this as https://github.com/SisyphusMD/whiskerless/pull/15 on 2026-11-06. Moved here unreviewed when the GitHub copy became read-only; the pull request that refs this issue carries his commits unchanged. Not yet reviewed.",
-  "closed_at": null,
+  "closed_at": "2026-11-18T08:37:49-08:00",
   "comments": [],
   "created_at": "2026-11-17T08:45:01-08:00",
   "kind": "issue",
   "labels": [],
   "milestone": null,
   "number": 186,
-  "state": "open",
+  "state": "closed",
   "title": "Review: feat(bridge): optional bridge that keeps a local robot on Whisker's cloud (moved from GitHub #15)",
   "user": "cody"
  },
  {
   "assignees": [],
   "body": "Stephan Garland (@stephanGarland on GitHub) opened this as https://github.com/SisyphusMD/whiskerless/pull/16 on 2026-11-06. Moved here unreviewed when the GitHub copy became read-only; the pull request that refs this issue carries his commits unchanged. Not yet reviewed.",
-  "closed_at": null,
+  "closed_at": "2026-11-18T08:37:50-08:00",
   "comments": [],
   "created_at": "2026-11-17T08:45:02-08:00",
   "kind": "issue",
   "labels": [],
   "milestone": null,
   "number": 187,
-  "state": "open",
+  "state": "closed",
   "title": "Review: feat(addon): optional robot broker for Home Assistant OS (moved from GitHub #16)",
   "user": "cody"
  },
@@ -3585,10 +3585,10 @@
     "user": "cody"
    },
    {
-    "body": "Thanks for the EVO work, Stephan. Let’s plan to start with an opt-in preview from a whiskerless branch after #217, #218, and #219 land. I can split the patch into PRs for Bluetooth setup, the driver and command safety, Home Assistant, and the optional blueprint and examples while preserving your authorship.\n\nThe preview would start with Power off disabled. Unknown command types and unverified setting values would require `allow_dangerous`, and the docs and tests would use a clearly labeled synthetic serial.\n\nThe preview would need to be tested on a real EVO. I don’t own one, so I’d be relying on your help with that. Shared setup changes would also need an LR4 bench test. Listing EVO as community-supported would require a named EVO owner who can help reproduce bugs and test future changes.",
+    "body": "Thanks for the EVO work, @stephanGarland. Let’s plan to start with an opt-in preview from a whiskerless branch after #217, #218, and #219 land. I can split the patch into PRs for Bluetooth setup, the driver and command safety, Home Assistant, and the optional blueprint and examples while preserving your authorship.\n\nThe preview would start with Power off disabled. Unknown command types and unverified setting values would require `allow_dangerous`, and the docs and tests would use a clearly labeled synthetic serial.\n\nThe preview would need to be tested on a real EVO. I don’t own one, so I’d be relying on your help with that. Shared setup changes would also need an LR4 bench test. Listing EVO as community-supported would require a named EVO owner who can help reproduce bugs and test future changes.",
     "created_at": "2026-11-17T16:26:05-08:00",
     "id": 36726,
-    "updated_at": "2026-11-17T16:26:05-08:00",
+    "updated_at": "2026-11-18T06:15:18-08:00",
     "user": "cody"
    }
   ],
@@ -3612,10 +3612,10 @@
   "closed_at": "2026-11-17T23:05:29-08:00",
   "comments": [
    {
-    "body": "Thanks for building this and testing it on your EVO, Stephan. I’m closing this because a live cloud bridge is outside the scope of whiskerless. Keeping the app working would mean maintaining the cloud connection and handling commands it sends to the robot.\n\nWhich feature of the Whisker app were you trying to keep by building the bridge? I’d like to see if whiskerless can provide it locally.",
+    "body": "Thanks for building this and testing it on your EVO, @stephanGarland. I’m closing this because a live cloud bridge is outside the scope of whiskerless. Keeping the app working would mean maintaining the cloud connection and handling commands it sends to the robot.\n\nWhich feature of the Whisker app were you trying to keep by building the bridge? I’d like to see if whiskerless can provide it locally.",
     "created_at": "2026-11-17T23:05:29-08:00",
     "id": 37194,
-    "updated_at": "2026-11-17T23:05:29-08:00",
+    "updated_at": "2026-11-18T06:15:19-08:00",
     "user": "cody"
    }
   ],
@@ -3636,13 +3636,20 @@
   "assignees": [],
   "base": "main",
   "body": "Refs #187.\n\nMoved from https://github.com/SisyphusMD/whiskerless/pull/16, opened by Stephan Garland (@stephanGarland on GitHub) on 2026-11-06, with his commits unchanged. **Not yet reviewed.** Sent as an AGit pull request so CI does not run unreviewed code; a maintainer re-opens it from a branch after review.\n\n---\n\nI split this work into three separate PRs as I wasn't sure if you'd want the bridge and broker.\n\n## What and why\n\nThe robot connects to its broker on port 8883 without a username or password. Home Assistant OS's Mosquitto add-on requires both, so on HAOS the robot can't use it, even though the README currently suggests it can.\n\nThis adds an optional **Whiskerless robot broker** add-on (this repo also becomes an add-on repository; HACS is unaffected). It's a small Mosquitto with a TLS listener for the robot, and it bridges the robot's topics into the Mosquitto add-on, so the integration sees them as usual.\n\n`docs/setup/robot-broker.md` covers when you need it and when you don't. It also covers what to do when something else already uses port 8883: the robot's port can't be changed, so you redirect its traffic with a NAT rule on your router. The robot then needs a fixed IP, since the rule matches on it.\n\nTested on a real EVO on a separate VLAN, with another service holding port 8883 on the host.\n\n## Sibling repo\n\n- [ ] Ported to the sibling repo (link the PR)\n- [x] Not applicable, because: Valetudo can log in with a username and password, so it can use the Mosquitto add-on directly.\n- [ ] Deliberate variance, recorded in `VARIANCE.md`\n\n## Checks\n\n- [ ] Regression test that fails on the parent commit (docs and a shell add-on; `run.sh` passes shellcheck)\n- [x] `STANDARD.lock` still in sync (no vendored file edited in place)",
-  "closed_at": null,
+  "closed_at": "2026-11-18T08:31:19-08:00",
   "comments": [
    {
     "body": "_@b12e on GitHub, 2026-11-09:_\n\n>  Home Assistant OS's Mosquitto add-on requires both, so on HAOS the robot can't use it, even though the README currently suggests it can.\r\n\r\nNo, it doesn't. But you need to change some config.\r\n\r\nI'm running the Mosquitto's add-on on HAOS for all other MQTT things and the Litter Robot is publishing to the very same broker without issue.\r\n\r\nin the Mosquitto addon settings in HA -> Settings -> Apps -> Mosquitto -> Config via UI:\r\n<img width=\"1035\" height=\"335\" alt=\"afbeelding\" src=\"https://github.com/user-attachments/assets/d7f8cbb9-6525-4e6d-9d17-f7fc34f98058\" />\r\n\r\nor as YAML:\r\n```yaml\r\ncustomize:\r\n  active: true\r\n  folder: mosquitto\r\n```\r\n\r\nAnd then a new file (modify to your own needs) in `/share/mosquitto/` (can access via SSH or via the VS Code addon) (I named it `whiskerless.conf`):\r\n\r\n```nginx\r\nlistener 8883\r\nprotocol mqtt\r\n\r\ncafile   /ssl/whiskerless/ca.crt\r\ncertfile /ssl/whiskerless/server.crt\r\nkeyfile  /ssl/whiskerless/server.key\r\n\r\nrequire_certificate true\r\nuse_identity_as_username true\r\n```\r\n\r\nRemember to point to the correct path for your certs.",
     "created_at": "2026-11-17T08:59:24-08:00",
     "id": 35908,
     "updated_at": "2026-11-17T08:59:24-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Thanks for testing this on an EVO with another service already using port 8883, @stephanGarland. The HAOS guide was missing the custom listener that b12e described. With #230 merged, `whiskerless setup` on `main` generates the listener file, and the guide shows how to enable it in the official Mosquitto app.\n\nThat setup still needs port 8883 free at the broker address. The redirect in this PR handles that conflict on the same host. I’m closing this PR to keep the supported HAOS setup to one broker.\n\nhttps://forgejo.bryantserver.com/SisyphusMD/whiskerless/src/branch/main/docs/setup/mqtt-broker.md#user-content-use-the-official-mosquitto-broker-app",
+    "created_at": "2026-11-18T08:31:19-08:00",
+    "id": 37705,
+    "updated_at": "2026-11-18T08:31:19-08:00",
     "user": "cody"
    }
   ],
@@ -3655,7 +3662,7 @@
   "milestone": null,
   "number": 190,
   "reviews": [],
-  "state": "open",
+  "state": "closed",
   "title": "feat(addon): optional robot broker for Home Assistant OS",
   "user": "cody"
  },
@@ -4598,6 +4605,75 @@
   "reviews": [],
   "state": "closed",
   "title": "Publish Whiskerless Homebrew formulae and bottles through tap PRs",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "Default the Homebrew tap, standalone blueprint, CLI release checks, project help and package metadata to the primary. Retain the public GitHub integration repository for Marketplace/HACS and the full mirror.",
+  "closed_at": null,
+  "comments": [
+   {
+    "body": "The local patch uses Forgejo for the tap, CLI lookups, help and notification blueprint. The GitHub mirror still supplies the Home Assistant integration for Marketplace and HACS. The notification blueprint passes all eight tests on Home Assistant 2026.11.2. The three v0.2.0-rc.78 bottles on the primary match the formula. Stable v0.1.3 predates the first stable formula. Landing waits for successful public tap access and artifact downloads, which currently return HTTP 500.",
+    "created_at": "2026-11-18T06:53:22-08:00",
+    "id": 37534,
+    "updated_at": "2026-11-18T06:53:22-08:00",
+    "user": "cody"
+   }
+  ],
+  "created_at": "2026-11-18T06:33:50-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:blocked",
+   "type:chore"
+  ],
+  "milestone": null,
+  "number": 228,
+  "state": "open",
+  "title": "Use Forgejo for installs and updates outside Marketplace",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "## What\n\nHave `whiskerless setup` generate the listener configuration for the official Home Assistant OS Mosquitto broker app and show where to copy it and the three broker certificate files. Document the setup in the same PR. This came up while reviewing #190.\n\n## Why\n\nThe current guide asks the person setting up the broker to translate a generic Mosquitto example into Home Assistant settings. The broker only needs to recognize a client certificate signed by the configured CA. The listener can be set up once for any supported robot that uses that authentication method.\n\n## Done when\n\n- [ ] The generated configuration uses the broker certificate, its private key and the trusted CA certificate. It requires a trusted client certificate. Generating it needs no robot model or serial number.\n- [ ] The guide gives the file destinations and walks through the Mosquitto app using its English screen labels, including **Configuration → Options → Customize**, the **active** switch, the **folder** field, **Save** and **Restart**. It explains how to tell whether port 8883 already has a listener before applying the example.\n- [ ] The guide shows how to confirm the generated listener accepts a trusted client without an MQTT password and that Home Assistant can still use its existing login. Cover the generated configuration in tests.\n- [ ] “Add another robot” points to the supported model’s pairing instructions. A second robot provisioned with the same CA needs no broker edit, file copy or restart.",
+  "closed_at": "2026-11-18T07:49:46-08:00",
+  "comments": [],
+  "created_at": "2026-11-18T07:07:19-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:in-progress",
+   "type:feature"
+  ],
+  "milestone": null,
+  "number": 229,
+  "state": "closed",
+  "title": "Generate Home Assistant OS Mosquitto configuration in whiskerless setup",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "## What and why\n\nSetting up the official Home Assistant OS Mosquitto app previously meant translating a generic broker example into a custom listener by hand. `whiskerless setup` now writes `broker/haos/whiskerless.conf` on the provisioning computer for both certificate-based authentication modes, including on an existing setup. The guide walks through the Home Assistant controls and explains how to check whether port 8883 is already occupied. Once installed, the listener accepts another supported robot provisioned with a certificate from the same CA.\n\nCloses #229. Related to #190.\n\n## Sibling repo\n\n- [x] Not applicable. The listener is for robots provisioned with a whiskerless client certificate. Dreame Valetudo uses a different MQTT provisioning flow.\n\n## Checks\n\n- [x] The new setup tests failed on the parent commit because the listener file was missing. The library suite passed on Python 3.13 (1,500 passed) and Python 3.11 (1,499 passed, one interpreter-specific skip). Coverage exceeded 99% on both.\n- [x] All 41 files covered by `STANDARD.lock` matched. Ruff, strict mypy, documentation links and Markdown lint on changed lines passed.\n- [x] In an isolated instance of the official Mosquitto 7.1.3 image, two simulated robots authenticated with separate certificates and exchanged messages with a password-authenticated client on the same broker. It rejected an untrusted certificate, a missing certificate, an incorrect password and an anonymous connection on port 1883.\n",
+  "closed_at": "2026-11-18T07:49:45-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `c301e581de`: Clean PR that generates a Home Assistant OS Mosquitto listener config during setup, with thorough documentation, good test coverage of the new feature and its edge cases (bad key, anonymous/supplied modes, re-run), and a sensible cert/key validation guard. No blocking issues found.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-18T07:33:51-08:00",
+    "id": 37631,
+    "updated_at": "2026-11-18T07:33:51-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-18T07:33:00-08:00",
+  "head": "refs/pull/230/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "64d72210871d3755bdbc6f400f27d3843560398c",
+  "merged": true,
+  "milestone": null,
+  "number": 230,
+  "reviews": [],
+  "state": "closed",
+  "title": "Generate the Home Assistant OS Mosquitto listener during setup",
   "user": "cody"
  }
 ]

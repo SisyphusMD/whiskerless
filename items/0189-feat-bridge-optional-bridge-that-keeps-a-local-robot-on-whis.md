@@ -40,6 +40,6 @@ The library suite passes at 99.19% and the integration suite at 99.78%, with `sa
 
 ## cody, 2026-11-17T23:05:29-08:00
 
-Thanks for building this and testing it on your EVO, Stephan. I’m closing this because a live cloud bridge is outside the scope of whiskerless. Keeping the app working would mean maintaining the cloud connection and handling commands it sends to the robot.
+Thanks for building this and testing it on your EVO, @stephanGarland. I’m closing this because a live cloud bridge is outside the scope of whiskerless. Keeping the app working would mean maintaining the cloud connection and handling commands it sends to the robot.
 
 Which feature of the Whisker app were you trying to keep by building the bridge? I’d like to see if whiskerless can provide it locally.

@@ -1,6 +1,6 @@
 # #190 feat(addon): optional robot broker for Home Assistant OS
 
-- Kind: pull, state: open, by cody, created 2026-11-17T08:45:10-08:00
+- Kind: pull, state: closed, by cody, created 2026-11-17T08:45:10-08:00
 - Labels: none; milestone: none
 - refs/pull/190/head -> main, merged: False
 
@@ -68,3 +68,11 @@ use_identity_as_username true
 ```
 
 Remember to point to the correct path for your certs.
+
+## cody, 2026-11-18T08:31:19-08:00
+
+Thanks for testing this on an EVO with another service already using port 8883, @stephanGarland. The HAOS guide was missing the custom listener that b12e described. With #230 merged, `whiskerless setup` on `main` generates the listener file, and the guide shows how to enable it in the official Mosquitto app.
+
+That setup still needs port 8883 free at the broker address. The redirect in this PR handles that conflict on the same host. I’m closing this PR to keep the supported HAOS setup to one broker.
+
+https://forgejo.bryantserver.com/SisyphusMD/whiskerless/src/branch/main/docs/setup/mqtt-broker.md#user-content-use-the-official-mosquitto-broker-app

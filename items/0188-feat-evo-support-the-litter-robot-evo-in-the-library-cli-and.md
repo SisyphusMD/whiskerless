@@ -67,7 +67,7 @@ EVO support also depends on #219. LR4 and EVO should both allow verified setting
 
 ## cody, 2026-11-17T16:26:05-08:00
 
-Thanks for the EVO work, Stephan. Let’s plan to start with an opt-in preview from a whiskerless branch after #217, #218, and #219 land. I can split the patch into PRs for Bluetooth setup, the driver and command safety, Home Assistant, and the optional blueprint and examples while preserving your authorship.
+Thanks for the EVO work, @stephanGarland. Let’s plan to start with an opt-in preview from a whiskerless branch after #217, #218, and #219 land. I can split the patch into PRs for Bluetooth setup, the driver and command safety, Home Assistant, and the optional blueprint and examples while preserving your authorship.
 
 The preview would start with Power off disabled. Unknown command types and unverified setting values would require `allow_dangerous`, and the docs and tests would use a clearly labeled synthetic serial.
 

@@ -189,11 +189,11 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 183 | issue | closed | [Hold the artifact actions on v3 (v4+ refuses Forgejo)](items/0183-hold-the-artifact-actions-on-v3-v4-refuses-forgejo.md) |
 | 184 | pull | closed | [ci: hold the artifact actions below v4 (v4+ refuses Forgejo)](items/0184-ci-hold-the-artifact-actions-below-v4-v4-refuses-forgejo.md) |
 | 185 | issue | open | [Review: feat(evo): support the Litter-Robot EVO in the library, CLI and integration (moved from GitHub #14)](items/0185-review-feat-evo-support-the-litter-robot-evo-in-the-library-.md) |
-| 186 | issue | open | [Review: feat(bridge): optional bridge that keeps a local robot on Whisker's cloud (moved from GitHub #15)](items/0186-review-feat-bridge-optional-bridge-that-keeps-a-local-robot-.md) |
-| 187 | issue | open | [Review: feat(addon): optional robot broker for Home Assistant OS (moved from GitHub #16)](items/0187-review-feat-addon-optional-robot-broker-for-home-assistant-o.md) |
+| 186 | issue | closed | [Review: feat(bridge): optional bridge that keeps a local robot on Whisker's cloud (moved from GitHub #15)](items/0186-review-feat-bridge-optional-bridge-that-keeps-a-local-robot-.md) |
+| 187 | issue | closed | [Review: feat(addon): optional robot broker for Home Assistant OS (moved from GitHub #16)](items/0187-review-feat-addon-optional-robot-broker-for-home-assistant-o.md) |
 | 188 | pull | open | [feat(evo): support the Litter-Robot EVO in the library, CLI and integration](items/0188-feat-evo-support-the-litter-robot-evo-in-the-library-cli-and.md) |
 | 189 | pull | closed | [feat(bridge): optional bridge that keeps a local robot on Whisker's cloud](items/0189-feat-bridge-optional-bridge-that-keeps-a-local-robot-on-whis.md) |
-| 190 | pull | open | [feat(addon): optional robot broker for Home Assistant OS](items/0190-feat-addon-optional-robot-broker-for-home-assistant-os.md) |
+| 190 | pull | closed | [feat(addon): optional robot broker for Home Assistant OS](items/0190-feat-addon-optional-robot-broker-for-home-assistant-os.md) |
 | 191 | issue | closed | [docs: three fixes found during a real-world install (uvx BLE extra, stale recovery note, CA keyUsage)](items/0191-docs-three-fixes-found-during-a-real-world-install-uvx-ble-e.md) |
 | 192 | issue | closed | [fix(lr4): firmware-aware decoding for ESP 1.4.x (status enums, is_cleaning, litter suppression, pic_firmware)](items/0192-fix-lr4-firmware-aware-decoding-for-esp-1-4-x-status-enums-i.md) |
 | 193 | issue | closed | [feat(lr4): decode activity-stream events — pet weight, hopper dispense, hopper link (new reg 0x57)](items/0193-feat-lr4-decode-activity-stream-events-pet-weight-hopper-dis.md) |
@@ -231,3 +231,6 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 225 | issue | closed | [Prove the standard checks before protecting whiskerless main](items/0225-prove-the-standard-checks-before-protecting-whiskerless-main.md) |
 | 226 | pull | closed | [WIP: Disposable draft to prove standard required checks](items/0226-wip-disposable-draft-to-prove-standard-required-checks.md) |
 | 227 | pull | closed | [Publish Whiskerless Homebrew formulae and bottles through tap PRs](items/0227-publish-whiskerless-homebrew-formulae-and-bottles-through-ta.md) |
+| 228 | issue | open | [Use Forgejo for installs and updates outside Marketplace](items/0228-use-forgejo-for-installs-and-updates-outside-marketplace.md) |
+| 229 | issue | closed | [Generate Home Assistant OS Mosquitto configuration in whiskerless setup](items/0229-generate-home-assistant-os-mosquitto-configuration-in-whiske.md) |
+| 230 | pull | closed | [Generate the Home Assistant OS Mosquitto listener during setup](items/0230-generate-the-home-assistant-os-mosquitto-listener-during-set.md) |
