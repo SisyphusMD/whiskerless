@@ -2,8 +2,8 @@
 """CodeRabbit-style PR review on the house LLM, posted as the required `AI review` status.
 
 Env: FORGEJO_URL, REPO, TOKEN, PR (number), LLM_URL (chat-completions endpoint, keyless proxy),
-MODEL. Optional: MAX_DIFF_CHARS, STATUS_CONTEXT, BOT_LOGIN, ISSUE_READ_TOKEN (linked issues in
-other repos).
+MODEL. Optional: MAX_DIFF_CHARS, MAX_OUTPUT_TOKENS, STATUS_CONTEXT, BOT_LOGIN, ISSUE_READ_TOKEN
+(linked issues in other repos).
 
 Each run reads the PR, its diff and every human comment, plus the findings this reviewer left
 before (kept as JSON in one marker comment it edits in place). The model returns the full finding
@@ -168,19 +168,50 @@ def linked_issues(body):
     return "\n\n---\n\n".join(out) if out else "none named"
 
 
+# Hidden reasoning counts toward this cap: uncapped, one long review reasoned for 23,119 tokens
+# before a 438-token answer. It must stay small enough to finish inside the request timeout at
+# the slowest observed speed (59 tok/s, so about 11 minutes); a review that reaches it is stuck.
+MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "40000"))
+
+
+class CutOff(RuntimeError):
+    pass
+
+
 def ask_model(messages):
     body = {"model": os.environ["MODEL"], "messages": messages, "temperature": 0,
-            "max_tokens": 16000, "stream": False}
+            "max_tokens": MAX_OUTPUT_TOKENS, "stream": False}
     req = urllib.request.Request(os.environ["LLM_URL"], method="POST", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=900) as r:
         reply = json.loads(r.read())
-    text = reply["choices"][0]["message"].get("content") or ""
+    choice = reply["choices"][0]
+    usage = reply.get("usage") or {}
+    # Logged so the cap can be re-sized from real reviews; nothing else records it.
+    finish = choice.get("finish_reason")
+    print(f"model usage: {json.dumps(usage)} finish_reason={finish}")
+    # The token count decides only when the server does not say why it stopped.
+    if finish == "length" or (finish is None
+                              and (usage.get("completion_tokens") or 0) >= MAX_OUTPUT_TOKENS):
+        raise CutOff(f"the model's answer was cut off at {MAX_OUTPUT_TOKENS} output tokens")
+    text = choice["message"].get("content") or ""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        raise ValueError("no JSON object in the model's answer")
-    return json.loads(m.group(0))
+    # The server's reasoning parser can end early on a literal </think> the model quotes (from a
+    # diff of this very line), leaking the rest of its reasoning, braces and all, ahead of the
+    # verdict. Try the whole answer, then what follows each </think>; each attempt must parse as
+    # one object from its first brace to the end, so no draft or inner object can stand in for a
+    # malformed verdict.
+    parts = text.split("</think>")
+    for k in range(len(parts)):
+        segment = "</think>".join(parts[k:]).rstrip().removesuffix("```").rstrip()
+        start = segment.find("{")
+        if start < 0:
+            continue
+        try:
+            return json.loads(segment[start:])
+        except ValueError:
+            continue
+    raise ValueError("no JSON object in the model's answer")
 
 
 def validate(result, files, prior):
@@ -259,7 +290,13 @@ def main():
                                      {"role": "user", "content": user}]), changed_files(diff), prior)
     except SystemExit:
         raise
-    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, json.JSONDecodeError) as e:
+    except CutOff as e:
+        # The same prompt hits the same cap again, so a re-run cannot help.
+        set_status(sha, "error", f"Model output hit the {MAX_OUTPUT_TOKENS}-token cap: "
+                   "split the PR or raise MAX_OUTPUT_TOKENS")
+        sys.exit(f"review failed closed: {e}")
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, IndexError,
+            AttributeError) as e:
         set_status(sha, "error", f"Review could not run: {type(e).__name__}; re-run or reply to retry")
         sys.exit(f"review failed closed: {e}")
     body = render(result, sha)
