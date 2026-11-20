@@ -6,7 +6,7 @@ Wire grammar (PROVEN). A command payload published to ``…/command`` is JSON::
 
 Each ``data`` element is the literal ``"0x"`` plus exactly 8 hex digits:
 
-    char [3]   T   1 = register READ, 2 = macro / generic register WRITE
+    char [2:4] TT  01 = register READ, 02 = macro / generic register WRITE
     char [4:6] RR  register / opcode byte (0x00–0xFF)
     char [6:8] HH  value high byte
     char [8:10] LL value low byte → 16-bit value (HH << 8) | LL

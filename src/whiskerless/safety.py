@@ -22,11 +22,15 @@ That was asserted from the same brief and the robot contradicts it — writes to
 echoed unchanged, which is per-register handling, not a blind write path. What a
 write to a register with *no* handler does is simply untested, and unknown
 commands stay DANGEROUS because the cost of being wrong is asymmetric, not
-because the mechanism is known.
+because the mechanism is known. The same holds for a type byte other than
+``01`` or ``02``. It was assumed to be ignored, but never tried, and the one
+unknown field that was tried points the other way: an unknown panel press type
+is normalised to a short press and performed. So it needs ``allow_dangerous``,
+and never-send targets stay refused.
 
 The command grammar guarded here is the LR4 ESP wire format: a 10-character
-string ``0xTTRRVVVV`` where the second hex digit ``T`` is the type (1=read,
-2=write/macro), ``RR`` the register/opcode, and ``VVVV`` the 16-bit value.
+string ``0xTTRRVVVV`` where ``TT`` is the type (``01``=read, ``02``=write/macro),
+``RR`` the register/opcode, and ``VVVV`` the 16-bit value.
 """
 
 from __future__ import annotations
@@ -131,18 +135,17 @@ SAFE_SETTINGS_REGISTERS: frozenset[int] = frozenset(
 class Hazard(Enum):
     """How dangerous a parsed command is."""
 
-    NOOP = "noop"            # type byte is neither read nor write → silent no-op
     SAFE = "safe"            # read, report macro (value 0), or settings write
-    DANGEROUS = "dangerous"  # untraced / control-band / calibration / identity write
+    DANGEROUS = "dangerous"  # untraced / control-band / calibration / unknown type
     NEVER = "never"          # brick / reset-class — unconditionally refused
 
 
 class CommandType(Enum):
-    """The wire ``T`` nibble."""
+    """The wire ``TT`` type byte."""
 
     READ = 1
     WRITE = 2
-    NOOP = 0  # any other value is a firmware no-op
+    UNKNOWN = 0  # any other byte; reportedly ignored by the firmware, never tested
 
 
 def parse_code(code: str) -> tuple[CommandType, int, int]:
@@ -158,34 +161,37 @@ def parse_code(code: str) -> tuple[CommandType, int, int]:
             "8/6-digit elements are silently ignored by the firmware"
         )
     try:
-        type_nibble = int(raw[3], 16)
+        type_byte = int(raw[2:4], 16)
         register = int(raw[4:6], 16)
         value = int(raw[6:10], 16)
     except ValueError as exc:
         raise ProtocolError(f"non-hex digits in command {code!r}") from exc
 
     try:
-        ctype = CommandType(type_nibble)
+        ctype = CommandType(type_byte)
     except ValueError:
-        ctype = CommandType.NOOP
+        ctype = CommandType.UNKNOWN
     return ctype, register, value
 
 
 def classify(ctype: CommandType, register: int, value: int) -> Hazard:
     """Classify a parsed command into a :class:`Hazard`."""
-    if ctype is CommandType.NOOP:
-        return Hazard.NOOP
     if ctype is CommandType.READ:
         return Hazard.SAFE  # type-1 read builds a GET frame — structurally read-only
 
-    # type-2: macro dispatch or generic register write.
+    # An unknown type is checked against the never-send set as though it were a
+    # write: if the firmware does not ignore it, the opt-in must not unlock a reset.
     if register in NEVER_SEND_OPCODES or register in NEVER_SEND_REGISTERS:
         return Hazard.NEVER
+    if register == PANEL_BUTTON_REGISTER and value in PANEL_BUTTON_NEVER:
+        return Hazard.NEVER
+    if ctype is CommandType.UNKNOWN:
+        return Hazard.DANGEROUS
+
+    # type-2: macro dispatch or generic register write.
     if register == PANEL_BUTTON_REGISTER:
         # By value: the same register runs the globe, acknowledges an alarm, or
         # factory-resets the robot depending only on which bits are set.
-        if value in PANEL_BUTTON_NEVER:
-            return Hazard.NEVER
         if value in PANEL_BUTTON_SAFE:
             return Hazard.SAFE
         return Hazard.DANGEROUS
@@ -217,7 +223,8 @@ def assert_sendable(code: str, *, allow_dangerous: bool = False) -> Hazard:
         )
     if hazard is Hazard.DANGEROUS and not allow_dangerous:
         raise DangerousCommandError(
-            f"{code} is untraced/unverified (control-band, calibration, or "
-            "unknown opcode); pass allow_dangerous=True to override"
+            f"{code} is untraced/unverified (control-band, calibration, "
+            "unknown opcode or unknown command type); pass allow_dangerous=True "
+            "to override"
         )
     return hazard

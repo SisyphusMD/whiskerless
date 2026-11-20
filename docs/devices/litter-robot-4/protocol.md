@@ -33,16 +33,16 @@ A command is a small JSON object published to the `command` topic:
 ### The 10-character element
 
 ```
-  0x T R R V V V V
-     │ └┬┘ └──┬──┘
-     │  │     └── 16-bit value: (HH << 8) | LL
-     │  └──────── RR: register / opcode byte (0x00–0xFF)
-     └─────────── T: type — 1 = READ, 2 = WRITE / macro
+  0x T T R R V V V V
+     └┬┘ └┬┘ └──┬──┘
+      │   │     └── 16-bit value: (HH << 8) | LL
+      │   └──────── RR: register / opcode byte (0x00–0xFF)
+      └──────────── TT: type — 01 = READ, 02 = WRITE / macro
 ```
 
 | chars | field | meaning |
 |---|---|---|
-| `[3]` | **T** | `1` = register READ · `2` = macro / generic register WRITE · anything else = no-op |
+| `[2:4]` | **TT** | `01` = register READ · `02` = macro / generic register WRITE · anything else is untested (an unknown panel press type is [performed, not ignored](commands.md)), so whiskerless sends it only with `allow_dangerous` and never to a never-send target |
 | `[4:6]` | **RR** | register or opcode byte |
 | `[6:8]` | **HH** | value high byte |
 | `[8:10]` | **LL** | value low byte |

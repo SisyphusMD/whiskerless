@@ -160,8 +160,8 @@ whiskerless classifies every command before it can reach the wire
   sending any of them, and a plausible flash or OTA on the other side. Register `0x2D`
   is refused the same way at any value: the esphome-litter-robot UART reference names
   it the main board's factory reset, and that claim is reason enough without a trial.
-- **Dangerous (override required):** any untraced opcode, control-band register, or
-  calibration register — and two known panel presses, `0x02010101` (Power) and
+- **Dangerous (override required):** any untraced opcode, control-band register,
+  calibration register, or command type other than `01` and `02` — and two known panel presses, `0x02010101` (Power) and
   `0x02011001` (Connect/WiFi). Anything unrecognised defaults to "refuse unless you
   really mean it" because its effect is untested, not because a write is known to
   reach the register directly. See [protocol.md](protocol.md). Power and Connect are
