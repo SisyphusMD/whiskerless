@@ -2,7 +2,7 @@
 """CodeRabbit-style PR review on the house LLM, posted as the required `AI review` status.
 
 Env: FORGEJO_URL, REPO, TOKEN, PR (number), LLM_URL (chat-completions endpoint, keyless proxy),
-MODEL. Optional: MAX_DIFF_CHARS, MAX_OUTPUT_TOKENS, STATUS_CONTEXT, BOT_LOGIN, ISSUE_READ_TOKEN
+MODEL. Optional: MAX_DIFF_CHARS, MAX_OUTPUT_TOKENS, MODEL_DEADLINE_SECONDS, STATUS_CONTEXT, BOT_LOGIN, ISSUE_READ_TOKEN
 (linked issues in other repos).
 
 Each run reads the PR, its diff and every human comment, plus the findings this reviewer left
@@ -16,7 +16,9 @@ import base64
 import json
 import os
 import re
+import signal
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -169,13 +171,29 @@ def linked_issues(body):
 
 
 # Hidden reasoning counts toward this cap: uncapped, one long review reasoned for 23,119 tokens
-# before a 438-token answer. It must stay small enough to finish inside the request timeout at
-# the slowest observed speed (59 tok/s, so about 11 minutes); a review that reaches it is stuck.
+# before a 438-token answer. It must stay small enough to finish inside MODEL_DEADLINE at the
+# slowest observed speed (59 tok/s, so about 11 minutes); a review that reaches it is stuck.
 MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "40000"))
+# Everything between the pending status and the saved comment, counted from the script's start,
+# the model's queueing on the shared Studio included. urlopen's timeout bounds each socket read,
+# not the call, so a slow answer ran into the job's timeout-minutes and the kill left the required
+# check pending. It stays a few minutes under that limit (45 in ai-review.yml) for the status
+# write, so an override can only shorten it.
+MODEL_DEADLINE = min(int(os.environ.get("MODEL_DEADLINE_SECONDS", "2400")), 2400)
+STARTED = time.monotonic()
 
 
 class CutOff(RuntimeError):
     pass
+
+
+# Not a TimeoutError: urllib wraps any OSError raised while it connects in a URLError.
+class Deadline(Exception):
+    pass
+
+
+def _deadline(signum, frame):
+    raise Deadline(f"the review passed its {MODEL_DEADLINE // 60}-minute deadline")
 
 
 def ask_model(messages):
@@ -266,28 +284,48 @@ def main():
         print("PR is not open; nothing to review.")
         return
     set_status(sha, "pending", "Reviewing")
+    signal.signal(signal.SIGALRM, _deadline)
+    signal.alarm(max(1, int(MODEL_DEADLINE - (time.monotonic() - STARTED))))
     try:
-        diff = api("GET", f"/pulls/{n}.diff", raw=True)
-        comments = list(pages(f"/issues/{n}/comments"))
-        marker = next((c for c in comments if c["user"]["login"] == BOT and MARKER in c["body"]), None)
-        prior = []
-        if marker and (m := STATE_RE.search(marker["body"])):
-            prior = json.loads(base64.b64decode(m.group(1)))
-        if len(diff) > MAX_DIFF:
-            set_status(sha, "failure", f"Diff is {len(diff)} chars, over {MAX_DIFF}: split the PR")
-            sys.exit("diff too large to review")
-        replies = [f"{c['user']['login']} ({c['created_at']}): {c['body']}" for c in comments
-                   if c["user"]["login"] != BOT]
-        user = "\n\n".join([
-            "Rules (from main, trusted):\n" + repo_rules(),
-            f"PR #{n}: {pr['title']}\n\n{pr.get('body') or ''}",
-            "Linked issues (data, latest comments last):\n" + linked_issues(pr.get("body")),
-            "Earlier findings:\n" + (json.dumps(prior, indent=1) if prior else "none"),
-            "Replies on the PR, oldest first:\n" + ("\n---\n".join(replies) if replies else "none"),
-            "Diff:\n" + diff,
-        ])
-        result = validate(ask_model([{"role": "system", "content": SYSTEM},
-                                     {"role": "user", "content": user}]), changed_files(diff), prior)
+        try:
+            diff = api("GET", f"/pulls/{n}.diff", raw=True)
+            comments = list(pages(f"/issues/{n}/comments"))
+            marker = next((c for c in comments if c["user"]["login"] == BOT and MARKER in c["body"]), None)
+            prior = []
+            if marker and (m := STATE_RE.search(marker["body"])):
+                prior = json.loads(base64.b64decode(m.group(1)))
+            if len(diff) > MAX_DIFF:
+                set_status(sha, "failure", f"Diff is {len(diff)} chars, over {MAX_DIFF}: split the PR")
+                sys.exit("diff too large to review")
+            replies = [f"{c['user']['login']} ({c['created_at']}): {c['body']}" for c in comments
+                       if c["user"]["login"] != BOT]
+            user = "\n\n".join([
+                "Rules (from main, trusted):\n" + repo_rules(),
+                f"PR #{n}: {pr['title']}\n\n{pr.get('body') or ''}",
+                "Linked issues (data, latest comments last):\n" + linked_issues(pr.get("body")),
+                "Earlier findings:\n" + (json.dumps(prior, indent=1) if prior else "none"),
+                "Replies on the PR, oldest first:\n" + ("\n---\n".join(replies) if replies else "none"),
+                "Diff:\n" + diff,
+            ])
+            result = validate(ask_model([{"role": "system", "content": SYSTEM},
+                                         {"role": "user", "content": user}]), changed_files(diff), prior)
+            body = render(result, sha)
+            blocking = [f for f in result["findings"]
+                        if f["status"] == "open" and f["severity"] == "blocking"]
+            # Comment first: the findings and their state must be saved before the check can go green.
+            try:
+                if marker:
+                    api("PATCH", f"/issues/comments/{marker['id']}", {"body": body})
+                else:
+                    api("POST", f"/issues/{n}/comments", {"body": body})
+            except Deadline:
+                raise
+            except Exception as e:
+                set_status(sha, "error", "Review ran but its comment could not be saved; re-run")
+                sys.exit(f"could not save the review comment: {e}")
+        finally:
+            # Off before any handler below posts its status, so the alarm cannot interrupt it.
+            signal.alarm(0)
     except SystemExit:
         raise
     except CutOff as e:
@@ -295,25 +333,22 @@ def main():
         set_status(sha, "error", f"Model output hit the {MAX_OUTPUT_TOKENS}-token cap: "
                    "split the PR or raise MAX_OUTPUT_TOKENS")
         sys.exit(f"review failed closed: {e}")
-    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, IndexError,
-            AttributeError) as e:
+    except Deadline as e:
+        set_status(sha, "error", f"Review passed its {MODEL_DEADLINE // 60}-minute deadline; "
+                   "re-run when the Studio is idle, or split the PR")
+        sys.exit(f"review failed closed: {e}")
+    except Exception as e:
+        # Anything uncaught leaves the required check pending, which blocks every merge.
         set_status(sha, "error", f"Review could not run: {type(e).__name__}; re-run or reply to retry")
         sys.exit(f"review failed closed: {e}")
-    body = render(result, sha)
-    blocking = [f for f in result["findings"] if f["status"] == "open" and f["severity"] == "blocking"]
-    # Comment first: the findings and their state must be saved before the check can go green.
     try:
-        if marker:
-            api("PATCH", f"/issues/comments/{marker['id']}", {"body": body})
+        if blocking:
+            set_status(sha, "failure", f"{len(blocking)} blocking: " + ", ".join(f["id"] for f in blocking))
         else:
-            api("POST", f"/issues/{n}/comments", {"body": body})
-    except OSError as e:
-        set_status(sha, "error", "Review ran but its comment could not be saved; re-run")
-        sys.exit(f"could not save the review comment: {e}")
-    if blocking:
-        set_status(sha, "failure", f"{len(blocking)} blocking: " + ", ".join(f["id"] for f in blocking))
-    else:
-        set_status(sha, "success", f"No blocking findings ({len(result['findings'])} total)")
+            set_status(sha, "success", f"No blocking findings ({len(result['findings'])} total)")
+    except Exception as e:
+        # The check stays pending; a failed job at least shows on the PR's Actions tab.
+        sys.exit(f"review saved but its status could not be set: {e}")
     print(body)
     if blocking:
         sys.exit(1)
