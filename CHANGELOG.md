@@ -6,11 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-- Library: BLE provisioning now takes a model's `ProvisioningProfile`. `scan()`,
-  `read_device_mac()` and `ProvisioningConfig` need `profile=`; the LR4's is
-  `whiskerless.devices.litter_robot_4.provisioning.PROFILE`, which also holds the LR4 serial
-  check and service UUID that `ProvisioningConfig.check_serial` and `ble.messages` used to carry.
-  `whiskerless provision` is unchanged. (#217)
+- BLE provisioning now reads its model-specific details (serial check, service UUID, advertised
+  name) from a per-model profile, so a second robot model can be provisioned without changing
+  the BLE code. `whiskerless provision` is unchanged. (#217)
 
 - A settings write now needs `allow_dangerous` when its value is outside the range the setting
   can hold and was tested in, such as a clean-cycle wait of 0 or 31 minutes, a panel brightness level over 100,
@@ -104,6 +102,9 @@ much of the hopper work.
 - Library: `Hazard.NOOP` is removed and `CommandType.NOOP` is now `CommandType.UNKNOWN`. (#218)
 - Library: `safety.SAFE_SETTINGS_REGISTERS` is replaced by `SAFE_SETTING_VALUES`, a verified
   range per register, and panel brightness is checked per level. (#219)
+- Library: `scan()`, `read_device_mac()` and `ProvisioningConfig` now require `profile=`; the
+  LR4's is `whiskerless.devices.litter_robot_4.provisioning.PROFILE`, which also takes over the
+  serial check and service UUID that `ProvisioningConfig.check_serial` and `ble.messages` held. (#217)
 
 ### Added
 
