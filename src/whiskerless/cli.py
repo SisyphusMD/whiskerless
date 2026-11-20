@@ -64,7 +64,7 @@ from .robot_profiles import (
     Serial,
     looks_like_a_robot_serial,
 )
-from .safety import classify_code
+from .safety import Hazard, classify_code
 
 log = logging.getLogger("whiskerless")
 
@@ -344,6 +344,15 @@ async def _cmd_read(args: argparse.Namespace) -> int:
 
 async def _cmd_set(args: argparse.Namespace) -> int:
     batch = _build_setting(args.setting, args.value)
+    for command in batch:
+        if command.hazard is not Hazard.SAFE:
+            print(
+                f"{args.setting} {args.value} is outside the range verified for this setting, "
+                f"so nothing was sent (it would have been {command.code}). `whiskerless send` "
+                "with --allow-dangerous writes a raw code anyway",
+                file=sys.stderr,
+            )
+            return 1
     failed: Command | None = None
     async with _link(args) as link:
         for command in batch:

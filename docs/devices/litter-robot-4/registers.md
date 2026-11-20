@@ -7,9 +7,10 @@ robot. One flat namespace: a register's number is the same whether you read it
 **R** = readable · **W** = writable (in the validated settings bank) · confidence
 is **PROVEN** (live-tested), **HIGH** (firmware-decisive), or **MED/LOW**
 (inference). Only the **W** rows are exposed for writing; everything else is
-read/telemetry. (One stray: the safety guard's settings bank also passes `0x05`
-`isDebugModeActive` for a raw `send` — it has no table row, no command builder,
-and no recorded live validation, so treat a write there as unexplored.)
+read/telemetry. A **W** row is safe only inside its verified range (see
+[commands.md](commands.md#settings-safe-reversible)); a value past it needs `allow_dangerous`.
+`0x05` `isDebugModeActive` has no row and no recorded write, so any write to it needs
+`allow_dangerous` too.
 
 **What PROVEN has to mean here.** For a writable register: a write was observed to
 change the value *and* the new value observed coming back. For a read register: the
@@ -325,7 +326,7 @@ still exist, because the stock ESP firmware decides what reaches MQTT.
 | `0x30` | heartbeat: the PIC writes `0x63` every 5 s and flashes Connect white if the ESP does not acknowledge it | was unidentified |
 | `0x33` | WiFi state: `0x00` off, `0x11` pairing, `0x21` connecting, `0x22` connected, `0x23` error | was unidentified |
 | `0x2D` | **factory reset** when written `0x0001`; the PIC does not acknowledge it, it echoes the write back and reboots | refused at any value (`NEVER_SEND_REGISTERS`) |
-| `0x05` | debug mode, which they call a boolean (`const.py` has it as a 64800-tick countdown once armed): while on, the PIC emits `0x80`–`0x96` every second, including `0x84` ambient light (0–100), `0x89` **live scale weight in signed tenths of a pound**, and `0x8B`–`0x8D` mirroring the curtain lasers | the stray settings-bank entry above; whether stock ESP forwards `0x80`+ to MQTT is untested (backlog #91) |
+| `0x05` | debug mode, which they call a boolean (`const.py` has it as a 64800-tick countdown once armed): while on, the PIC emits `0x80`–`0x96` every second, including `0x84` ambient light (0–100), `0x89` **live scale weight in signed tenths of a pound**, and `0x8B`–`0x8D` mirroring the curtain lasers | never written here, so a write needs `allow_dangerous`; whether stock ESP forwards `0x80`+ to MQTT is untested (backlog #91) |
 | `0x34` | doubles as a command: writing `0x000A` starts a clean cycle, `0x000B` empties, `0x000C` enters filter replacement | would reopen the filter wizard (backlog #81); writes stay DANGEROUS |
 | `0x69` | calibrated litter level, the raw distance the hopper logic uses | new |
 | `0x76` | "CAL flag", the first register the ESP reads at boot | new, meaning unknown to them too |

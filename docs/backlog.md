@@ -2216,12 +2216,12 @@ ambient light, and `0x8B`–`0x8D` mirroring the curtain lasers. Today we only g
 weight at the end of a visit (`0x09`). A per-second scale would make calibration and
 the leftover-weight work much easier to check.
 
-`0x05` is already in the safe settings bank, but no write to it has been recorded, so
-this is its first test too. Their reference was written from the UART side, and the
+No write to `0x05` has been recorded, so this is its first test too, and the safety
+guard requires `allow_dangerous` for it (#219). Their reference was written from the UART side, and the
 stock ESP firmware decides what reaches MQTT. It may drop the `0x80` block as noise,
 the way it already drops the `0x30` heartbeat from its own logs.
 
-The trial: capture running, write `0x02050001`, read it back, then put a known weight in
+The trial: capture running, write `0x02050001` with `send --allow-dangerous`, read it back, then put a known weight in
 the globe and take it out. Then write `0x02050000` and confirm the burst stops. Outcomes:
 
 - **`0x80`+ arrives on `activity`.** Decode `0x89` against the known weight, check the
