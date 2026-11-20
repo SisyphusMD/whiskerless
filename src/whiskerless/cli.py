@@ -36,6 +36,7 @@ from .ble.provision import ProvisioningConfig
 from .ble.transport import DiscoveredRobot
 from .console import Console
 from .devices.litter_robot_4 import commands, const, derive
+from .devices.litter_robot_4 import provisioning as lr4_provisioning
 from .devices.litter_robot_4.calibration import (
     LITTER_MAX_SPAN_MM,
     LITTER_MIN_SPAN_MM,
@@ -863,7 +864,7 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
         # input and must still be rejected by check_serial, not quietly redirected into
         # the picker. Passing --serial at all skips the list, as documented.
         _pick_robot_to_provision(store) if args.serial is None else args.serial,
-        ble.ProvisioningConfig.check_serial,
+        lr4_provisioning.check_serial,
     )
     # The broker is asked ONCE, on the first robot, and remembered for the store.
     # Every robot here talks to the same broker behind the same CA — a genuinely
@@ -917,7 +918,8 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     store.assert_usable(broker)
     identity = _robot_identity(args, store, serial, broker.auth)
     config = ble.ProvisioningConfig(
-        serial=serial, host=host, ca_pem=ca_pem, wifi_ssid=ssid, wifi_pass=wifi_pass,
+        serial=serial, host=host, ca_pem=ca_pem, profile=lr4_provisioning.PROFILE,
+        wifi_ssid=ssid, wifi_pass=wifi_pass,
         client_cert=identity.cert_pem if identity else None,
         client_key=identity.key_pem if identity else None,
     )
@@ -949,7 +951,9 @@ async def _cmd_provision(args: argparse.Namespace) -> int:
     # The scan is the one stretch a first-time user stares at with nothing
     # moving — indistinguishable from hung without a liveness row.
     with _console.progress("scanning for robots over BLE"):
-        robots = await ble.scan(timeout=args.scan_timeout, address=args.address)
+        robots = await ble.scan(
+            profile=lr4_provisioning.PROFILE, timeout=args.scan_timeout, address=args.address
+        )
     if not robots:
         # HOLD, not tap. A tap toggles the robot's WiFi off (light goes white),
         # which looks like a dead robot and is the worse failure of the two.

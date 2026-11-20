@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Library: BLE provisioning now takes a model's `ProvisioningProfile`. `scan()`,
+  `read_device_mac()` and `ProvisioningConfig` need `profile=`; the LR4's is
+  `whiskerless.devices.litter_robot_4.provisioning.PROFILE`, which also holds the LR4 serial
+  check and service UUID that `ProvisioningConfig.check_serial` and `ble.messages` used to carry.
+  `whiskerless provision` is unchanged. (#217)
+
 - `whiskerless setup` now generates a Home Assistant OS Mosquitto listener for
   setups that use client certificates. (#229)
 

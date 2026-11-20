@@ -21,7 +21,7 @@ import pytest
 from whiskerless import pki
 from whiskerless.ble import messages as m
 from whiskerless.ble import provision as prov
-from whiskerless.ble.messages import PROV_SERVICE_UUID
+from whiskerless.ble.profile import ProvisioningProfile
 from whiskerless.ble.protobuf import (
     WIRE_LEN,
     _tag,
@@ -41,6 +41,8 @@ from whiskerless.ble.provision import (
     scan_networks,
 )
 from whiskerless.ble.transport import USER_DESC_UUID
+from whiskerless.devices.litter_robot_4.provisioning import PROFILE
+from whiskerless.devices.litter_robot_4.provisioning import SERVICE_UUID as PROV_SERVICE_UUID
 from whiskerless.exceptions import ProvisioningError
 
 pytest.importorskip("bleak", reason="the BLE extra is bench-only")
@@ -107,6 +109,7 @@ def _config(**kw: Any) -> ProvisioningConfig:
         "serial": SERIAL,
         "host": "192.168.1.10",
         "ca_pem": CA_PEM,
+        "profile": PROFILE,
         "wifi_ssid": "home",
         "wifi_pass": "secret",
         "wifi_wait": 0,
@@ -197,6 +200,38 @@ def test_explicit_topics_win_over_the_derived_ones() -> None:
     assert config.resolved_device_topic() == "d/e/f"
 
 
+# --- another model's profile -------------------------------------------------
+OTHER_UUID = "0000feed-0000-1000-8000-00805f9b34fb"
+OTHER = ProvisioningProfile(
+    model="Test Robot",
+    service_uuid=OTHER_UUID,
+    advertiser_name="TestRobot",
+    check_serial=lambda value: value.strip().upper(),
+    command_topic=lambda serial: f"test/{serial}/in",
+    device_topic=lambda serial: f"test/{serial}/out",
+)
+
+
+async def test_the_shared_sequence_uses_the_profile_it_is_given() -> None:
+    """Nothing LR4-specific may leak into the shared flow: the service check,
+    the serial rule and the default topics all come from the profile."""
+    robot = FakeRobot(service_uuid=OTHER_UUID)
+    with _bleak(robot):
+        result = await provision_robot(
+            "AA:BB:CC:DD:EE:FF", _config(serial=" ab12 ", profile=OTHER), dry_run=True
+        )
+    assert "DEVICE_ID_SET AB12" in result.steps
+    endpoints = next(s for s in result.steps if s.startswith("endpoints: host="))
+    assert "sub=test/AB12/in pub=test/AB12/out" in endpoints
+
+
+async def test_an_lr4_is_refused_when_another_model_is_being_provisioned() -> None:
+    with _bleak(FakeRobot()), pytest.raises(ProvisioningError, match="not a Test Robot"):
+        await provision_robot("AA:BB:CC:DD:EE:FF", _config(profile=OTHER), dry_run=True)
+    with _bleak(FakeRobot()), pytest.raises(ProvisioningError, match="not a Test Robot"):
+        await read_device_mac("AA:BB:CC:DD:EE:FF", profile=OTHER)
+
+
 # --- MAC formatting ----------------------------------------------------------
 def test_a_six_byte_id_is_formatted_as_a_mac() -> None:
     assert _format_mac(MAC) == "aa:bb:cc:dd:ee:ff"
@@ -215,7 +250,7 @@ def test_no_id_stays_none() -> None:
 async def test_the_preflight_refuses_a_device_that_is_not_an_lr4() -> None:
     robot = FakeRobot(service_uuid="0000ffff-0000-1000-8000-00805f9b34fb")
     with _bleak(robot), pytest.raises(ProvisioningError, match="not a Litter-Robot 4"):
-        await read_device_mac("AA:BB:CC:DD:EE:FF")
+        await read_device_mac("AA:BB:CC:DD:EE:FF", profile=PROFILE)
 
 
 # --- the real run ------------------------------------------------------------
@@ -262,7 +297,7 @@ async def test_a_rejected_write_stops_the_run_rather_than_half_configuring() -> 
 async def test_the_preflight_returns_the_robots_mac() -> None:
     robot = FakeRobot()
     with _bleak(robot):
-        assert await read_device_mac("AA:BB:CC:DD:EE:FF") is None  # empty body → no id
+        assert await read_device_mac("AA:BB:CC:DD:EE:FF", profile=PROFILE) is None  # empty body → no id
     assert robot.requests, "the preflight must actually ask"
 
 

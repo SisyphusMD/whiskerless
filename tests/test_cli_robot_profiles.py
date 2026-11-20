@@ -31,7 +31,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from whiskerless import pki
 from whiskerless.ble.messages import WifiNetwork
-from whiskerless.ble.provision import ProvisioningConfig, ProvisioningResult
+from whiskerless.ble.provision import ProvisioningResult
 from whiskerless.ble.transport import DiscoveredRobot
 from whiskerless.cli import (
     _ask,
@@ -45,6 +45,7 @@ from whiskerless.cli import (
     main,
 )
 from whiskerless.cli import _store as cli_store
+from whiskerless.devices.litter_robot_4 import provisioning as lr4_provisioning
 from whiskerless.devices.litter_robot_4.models import LitterRobot4State
 from whiskerless.devices.litter_robot_4.protocol import StateMessage
 from whiskerless.exceptions import ProvisioningError, RobotProfileError, WhiskerlessError
@@ -491,20 +492,20 @@ def test_the_model_number_is_not_accepted_as_a_serial() -> None:
     carries enough digits to pass every shape check — the hyphen is the tell."""
 
     with pytest.raises(ProvisioningError, match="looks like the model number"):
-        ProvisioningConfig.check_serial("LR4-0301-00-US")
+        lr4_provisioning.check_serial("LR4-0301-00-US")
     with pytest.raises(ProvisioningError, match="looks like the model number"):
-        ProvisioningConfig.check_serial("LR4C")
+        lr4_provisioning.check_serial("LR4C")
 
 
 def test_a_real_serial_is_normalized() -> None:
 
-    assert ProvisioningConfig.check_serial(" lr4c123456 ") == "LR4C123456"
+    assert lr4_provisioning.check_serial(" lr4c123456 ") == "LR4C123456"
 
 
 def test_another_model_is_refused_outright() -> None:
 
     with pytest.raises(ProvisioningError, match="only supports the LR4"):
-        ProvisioningConfig.check_serial("LR3C123456")
+        lr4_provisioning.check_serial("LR3C123456")
 
 
 # --- helper -------------------------------------------------------------------

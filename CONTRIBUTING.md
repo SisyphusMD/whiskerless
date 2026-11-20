@@ -80,8 +80,9 @@ class or unit without you meaning it takes the user's dashboards with it.
 src/whiskerless/                 # the PyPI library (codec, MQTT, BLE, safety, CLI)
   safety.py                      # the one safety chokepoint — every send goes through it
   mqtt.py                        # async MQTT transport (shared by all devices)
-  ble/                           # device-agnostic protocomm BLE provisioning
-  devices/litter_robot_4/        # LR4 protocol: const, codec, models, commands, client
+  ble/                           # the shared protocomm BLE provisioning sequence; never names a model
+  devices/litter_robot_4/        # LR4 protocol: const, codec, models, commands, client,
+                                 #   and its provisioning profile (discovery, serial, topics)
 custom_components/whiskerless/   # the HACS integration (depends on the library)
 docs/                            # protocol reference + setup + recovery guides
 examples/                        # example automations + dashboard cards

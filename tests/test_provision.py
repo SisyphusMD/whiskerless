@@ -11,7 +11,6 @@ import pytest
 from whiskerless.ble import provision as provision_module
 from whiskerless.ble.messages import (
     EP_PROV_CONFIG,
-    PROV_SERVICE_UUID,
     WifiConnectFailedReason,
     WifiStationState,
     parse_wifi_status,
@@ -20,16 +19,18 @@ from whiskerless.ble.messages import (
 from whiskerless.ble.protobuf import field_message, field_string, field_varint
 from whiskerless.ble.provision import (
     ProvisioningConfig,
-    _assert_lr4,
+    _assert_model,
     _verify_wifi,
 )
+from whiskerless.devices.litter_robot_4.provisioning import PROFILE
+from whiskerless.devices.litter_robot_4.provisioning import SERVICE_UUID as PROV_SERVICE_UUID
 from whiskerless.exceptions import ProvisioningError
 
 CA_PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
 
 
 def _config(serial: str) -> ProvisioningConfig:
-    return ProvisioningConfig(serial=serial, host="192.168.1.10", ca_pem=CA_PEM)
+    return ProvisioningConfig(serial=serial, host="192.168.1.10", ca_pem=CA_PEM, profile=PROFILE)
 
 
 def test_serial_lr4_accepted() -> None:
@@ -57,15 +58,15 @@ class _FakeClient:
     services: list[_FakeService]
 
 
-def test_assert_lr4_passes_on_provisioning_service() -> None:
+def test_assert_model_passes_on_the_lr4_provisioning_service() -> None:
     client = _FakeClient("AA:BB:CC:DD:EE:FF", [_FakeService(PROV_SERVICE_UUID.upper())])
-    _assert_lr4(client)  # type: ignore[arg-type]
+    _assert_model(client, PROFILE)  # type: ignore[arg-type]
 
 
-def test_assert_lr4_refuses_other_devices() -> None:
+def test_assert_model_refuses_other_devices_for_the_lr4() -> None:
     client = _FakeClient("AA:BB:CC:DD:EE:FF", [_FakeService("0000180a-0000-1000-8000-00805f9b34fb")])
     with pytest.raises(ProvisioningError, match="not a Litter-Robot 4"):
-        _assert_lr4(client)  # type: ignore[arg-type]
+        _assert_model(client, PROFILE)  # type: ignore[arg-type]
 
 
 # --- WiFi join verification ---------------------------------------------------

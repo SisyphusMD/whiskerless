@@ -6,6 +6,7 @@ BLE — no teardown, no UART, no reflash, fully reversible.
 
 from __future__ import annotations
 
+from .profile import ProvisioningProfile
 from .provision import (
     ProvisioningConfig,
     ProvisioningResult,
@@ -17,6 +18,7 @@ from .transport import DiscoveredRobot, scan
 __all__ = [
     "DiscoveredRobot",
     "ProvisioningConfig",
+    "ProvisioningProfile",
     "ProvisioningResult",
     "provision_robot",
     "read_device_mac",

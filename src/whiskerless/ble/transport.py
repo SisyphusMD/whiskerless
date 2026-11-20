@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import ProvisioningError
-from .messages import ADVERTISER_NAME, EP_MQTT, EP_PROV_CONFIG, PROV_SERVICE_UUID
+from .messages import EP_MQTT, EP_PROV_CONFIG
+from .profile import ProvisioningProfile
 
 #: Endpoints whose payloads are never logged. `prov-config` carries the WiFi
 #: passphrase in cleartext; `mqtt-config` carries the robot's private key.
@@ -94,12 +95,13 @@ class DiscoveredRobot:
 
 async def scan(
     *,
+    profile: ProvisioningProfile,
     timeout: float = 15.0,
     rounds: int = 3,
     address: str | None = None,
     settle: float = 1.5,
 ) -> list[DiscoveredRobot]:
-    """Scan for advertising LR4s, matched by protocomm service UUID (or name).
+    """Scan for robots of ``profile``'s model, matched by service UUID (or name).
 
     ``timeout`` is a CEILING, not a duration: the scan returns as soon as a
     robot answers.
@@ -108,11 +110,12 @@ async def scan(
     robot advertising in the same window is still offered rather than silently
     losing a race to whichever replied first.
 
-    The LR4 advertises sporadically at low RSSI, so an empty round is retried.
-    If ``address`` is given, only that device is returned (when seen).
+    Robots advertise sporadically at low RSSI, so an empty round is retried.
+    If ``address`` is given, only that device is returned (when seen), whatever
+    it advertises; the provisioning connection checks its service instead.
     """
     bleak = _require_bleak()
-    target = PROV_SERVICE_UUID.lower()
+    target = profile.service_uuid.lower()
 
     def _detector(
         _found: dict[str, DiscoveredRobot], _answered: asyncio.Event
@@ -135,7 +138,7 @@ async def scan(
             if address is not None:
                 if device.address.lower() != address.lower():
                     return
-            elif target not in uuids and name != ADVERTISER_NAME:
+            elif target not in uuids and name != profile.advertiser_name:
                 return
             _found[device.address] = DiscoveredRobot(device.address, name or "?", adv.rssi)
             _answered.set()
@@ -143,7 +146,9 @@ async def scan(
         return _detected
 
     for attempt in range(1, max(1, rounds) + 1):
-        log.info("scanning up to %.0fs for LR4 (attempt %d/%d)", timeout, attempt, rounds)
+        log.info(
+            "scanning up to %.0fs for %s (attempt %d/%d)", timeout, profile.model, attempt, rounds
+        )
         found: dict[str, DiscoveredRobot] = {}
         answered = asyncio.Event()
 

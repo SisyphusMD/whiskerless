@@ -27,11 +27,6 @@ EP_PROTO_VER = "proto-ver"
 EP_MQTT = "mqtt-config"
 EP_WHISKER = "whisker-config"
 
-# Intrinsic to every LR4's protocomm GATT service — the device-agnostic match
-# (stable across robots/hosts/OSes; far more reliable than the weak advert name).
-PROV_SERVICE_UUID = "b7ee1c20-dcfd-4208-8813-14845cac5212"
-ADVERTISER_NAME = "LitterRobot4"
-
 
 class CertificateType(IntEnum):
     CERT_AWS_ROOT_CERT = 1  # server-trust root CA — provision OUR CA here
