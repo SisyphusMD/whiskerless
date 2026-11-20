@@ -11,16 +11,23 @@ them in two parts:
 
 ## Install the blueprint
 
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FSisyphusMD%2Fwhiskerless%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fwhiskerless%2Flitter_robot_notifications.yaml)
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fforgejo.bryantserver.com%2FSisyphusMD%2Fwhiskerless%2Fraw%2Fbranch%2Fmain%2Fblueprints%2Fautomation%2Fwhiskerless%2Flitter_robot_notifications.yaml)
 
 Or import it by hand under **Settings → Automations & scenes → Blueprints → Import
 blueprint**, with this URL:
 
 ```text
-https://github.com/SisyphusMD/whiskerless/blob/main/blueprints/automation/whiskerless/litter_robot_notifications.yaml
+https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/blueprints/automation/whiskerless/litter_robot_notifications.yaml
 ```
 
-Then **Create automation** from it. Use it once for every robot (leave **Robots** empty),
+If you already use the blueprint, the existing import still works through the GitHub mirror.
+To switch it to Forgejo, edit `blueprint.source_url` in the installed blueprint YAML to the
+URL above. Keep the file in place, reload automations (**Developer tools > YAML > Automations**)
+so Home Assistant forgets the cached GitHub URL, then use **Re-import blueprint** on the
+Blueprints page.
+This preserves the path your existing automations use.
+
+For a new installation, **Create automation** from it. Use it once for every robot (leave **Robots** empty),
 or once per robot when different people care about different boxes.
 
 What it does:

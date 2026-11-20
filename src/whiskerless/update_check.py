@@ -4,7 +4,7 @@ Ported in contract, not in code, from dreame-valetudo's `update_check`: this pro
 upgrade commands are different, but the four properties that make such a nudge safe are the same.
 
   * **Never blocks and never fails loudly.** A short timeout, and every failure is swallowed — a
-    tool that cannot reach GitHub is still a working tool.
+    tool that cannot reach Forgejo is still a working tool.
   * **Cached once per day.** A marker in the store records the day and the version last seen, so
     the network is touched at most daily and the cached answer still drives the nudge between times.
   * **Detect and instruct, never self-update.** Upgrading across brew, apt, dnf, pipx and a raw
@@ -28,11 +28,11 @@ from pathlib import Path
 
 from . import __version__
 
-_LATEST_URL = "https://api.github.com/repos/SisyphusMD/whiskerless/releases/latest"
+_LATEST_URL = "https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless/releases/latest"
 #: Newest-first, prereleases included. `/releases/latest` EXCLUDES prereleases, so a machine on
 #: rc.35 could never be told about rc.36 — the whole candidate channel was invisible to the very
 #: people testing it, right up until the stable release appeared.
-_RELEASES_URL = "https://api.github.com/repos/SisyphusMD/whiskerless/releases?per_page=10"
+_RELEASES_URL = "https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless/releases?limit=10"
 _MARKER = ".update-check"
 #: Per CHANNEL. Both installs can share one WHISKERLESS_HOME, and a single marker was
 #: overwritten on every switch between them — so alternating the two refetched on every
@@ -152,8 +152,7 @@ def _fetch_latest(running: str = __version__) -> str | None:
         with urllib.request.urlopen(url, timeout=_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if isinstance(payload, list):
-            # Newest first is GitHub's documented order, but the winner is chosen by comparison
-            # rather than by position: a draft or a re-tagged release would otherwise decide it.
+            # A draft or a re-tagged release can precede the newest version.
             tags = [r["tag_name"] for r in payload if isinstance(r.get("tag_name"), str)
                     and not r.get("draft")]
             best: str | None = None
@@ -183,7 +182,7 @@ def check(root: Path, *, env: dict[str, str] | None = None) -> str | None:
     else:
         latest = _fetch_latest()
         if latest is None:
-            # Keep yesterday's answer rather than nothing: an unreachable GitHub should not make an
+            # Keep yesterday's answer rather than nothing: an unreachable Forgejo should not make an
             # out-of-date install look current.
             latest = cached[1] if cached and cached[2] == channel else None
             # Record the ATTEMPT even though it failed. Without this an offline machine retries on

@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Use Forgejo for CLI update checks, the Homebrew tap and notification blueprint imports (#228).
+
 - A raw command with a type other than read (`01`) or write (`02`) now needs `allow_dangerous`,
   and one aimed at a never-send target is refused outright. Until now only the type's second
   digit was read, so `0x11A30000`, a reset-class opcode, passed as a safe read and was sent
