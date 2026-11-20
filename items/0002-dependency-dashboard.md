@@ -249,7 +249,7 @@ This repository currently has no open or pending branches.
  - `pytest-asyncio ==1.5.0`
  - `pytest-cov ==7.1.0`
  - `pyyaml ==6.0.3`
- - `ruff ==0.17.5`
+ - `ruff ==0.17.6`
  - `pytest-cov >=5.0`
  - `syrupy >=4.0`
  - `aiohasupervisor ==0.11.0`
@@ -282,7 +282,7 @@ This repository currently has no open or pending branches.
 
  - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`
  - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`
- - `ubuntu-22.04-compat 22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde`
+ - `ubuntu-22.04-compat 22.04@sha256:f64b2ffc2f10ab8f8505aa56b2664bd846cbb9df87c7e2532e30f7667021c0e6`
  - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`
  - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`
  - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`
@@ -305,7 +305,7 @@ This repository currently has no open or pending branches.
  - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`
  - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`
  - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`
- - `ubuntu-22.04-compat 22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde`
+ - `ubuntu-22.04-compat 22.04@sha256:f64b2ffc2f10ab8f8505aa56b2664bd846cbb9df87c7e2532e30f7667021c0e6`
  - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`
  - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`
  - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`

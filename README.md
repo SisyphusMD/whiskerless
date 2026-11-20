@@ -221,8 +221,8 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 215 | issue | closed | [Lock down the read-only GitHub mirror](items/0215-lock-down-the-read-only-github-mirror.md) |
 | 216 | pull | closed | [Close pull requests opened on the GitHub mirror](items/0216-close-pull-requests-opened-on-the-github-mirror.md) |
 | 217 | issue | open | [Extract reusable Bluetooth provisioning from the LR4 setup flow](items/0217-extract-reusable-bluetooth-provisioning-from-the-lr4-setup-f.md) |
-| 218 | issue | open | [Require opt-in for unknown LR4 command types](items/0218-require-opt-in-for-unknown-lr4-command-types.md) |
-| 219 | issue | open | [Enforce verified value ranges for LR4 setting writes](items/0219-enforce-verified-value-ranges-for-lr4-setting-writes.md) |
+| 218 | issue | closed | [Require opt-in for unknown LR4 command types](items/0218-require-opt-in-for-unknown-lr4-command-types.md) |
+| 219 | issue | closed | [Enforce verified value ranges for LR4 setting writes](items/0219-enforce-verified-value-ranges-for-lr4-setting-writes.md) |
 | 220 | pull | closed | [chore(deps): update dependency sisyphusmd/project-rules to v0.3.1 - autoclosed](items/0220-chore-deps-update-dependency-sisyphusmd-project-rules-to-v0-.md) |
 | 221 | issue | open | [Document community support for robot models maintainers do not own](items/0221-document-community-support-for-robot-models-maintainers-do-n.md) |
 | 222 | issue | open | [Prove unattended robot provisioning in CI](items/0222-prove-unattended-robot-provisioning-in-ci.md) |
@@ -234,3 +234,14 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 228 | issue | open | [Use Forgejo for installs and updates outside Marketplace](items/0228-use-forgejo-for-installs-and-updates-outside-marketplace.md) |
 | 229 | issue | closed | [Generate Home Assistant OS Mosquitto configuration in whiskerless setup](items/0229-generate-home-assistant-os-mosquitto-configuration-in-whiske.md) |
 | 230 | pull | closed | [Generate the Home Assistant OS Mosquitto listener during setup](items/0230-generate-the-home-assistant-os-mosquitto-listener-during-set.md) |
+| 231 | pull | closed | [fix(deps): update dependency ruff to v0.17.6](items/0231-fix-deps-update-dependency-ruff-to-v0-17-6.md) |
+| 232 | issue | closed | [AI review: take the 40,000-token output cap and verdict-parse fix from project-rules](items/0232-ai-review-take-the-40-000-token-output-cap-and-verdict-parse.md) |
+| 233 | pull | closed | [AI review: 40,000-token output cap and verdict-parse fix](items/0233-ai-review-40-000-token-output-cap-and-verdict-parse-fix.md) |
+| 234 | issue | open | [Split cli.py into per-command modules](items/0234-split-cli-py-into-per-command-modules.md) |
+| 235 | pull | open | [Take each robot model's provisioning profile in the shared BLE setup](items/0235-take-each-robot-model-s-provisioning-profile-in-the-shared-b.md) |
+| 236 | issue | closed | [AI review: take the 40-minute deadline and 45-minute job limit from project-rules](items/0236-ai-review-take-the-40-minute-deadline-and-45-minute-job-limi.md) |
+| 237 | pull | closed | [AI review: 40-minute deadline inside a 45-minute job](items/0237-ai-review-40-minute-deadline-inside-a-45-minute-job.md) |
+| 238 | pull | closed | [Require opt-in for unknown LR4 command types](items/0238-require-opt-in-for-unknown-lr4-command-types.md) |
+| 239 | pull | closed | [chore(deps): update ubuntu-22.04-compat:22.04 docker digest to 252bffe](items/0239-chore-deps-update-ubuntu-22-04-compat-22-04-docker-digest-to.md) |
+| 240 | pull | closed | [Require opt-in for LR4 setting values outside their verified range](items/0240-require-opt-in-for-lr4-setting-values-outside-their-verified.md) |
+| 241 | pull | closed | [chore(deps): update ubuntu-22.04-compat:22.04 docker digest to f64b2ff](items/0241-chore-deps-update-ubuntu-22-04-compat-22-04-docker-digest-to.md) |

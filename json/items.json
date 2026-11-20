@@ -28,7 +28,7 @@
  },
  {
   "assignees": [],
-  "body": "This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.\n\nThis repository currently has no open or pending branches.\n\n## Detected Dependencies\n\n<details><summary>github-actions (14)</summary>\n<blockquote>\n\n<details><summary>.forgejo/workflows/bottles.yml (6)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/install-matrix.yml (7)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `ubuntu 26.04-arm`\n\n</details>\n\n<details><summary>.forgejo/workflows/macos.yml (6)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/prerelease.yml (27)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/prune-rcs.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n<details><summary>.forgejo/workflows/publish-release.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n<details><summary>.forgejo/workflows/publish.yml (27)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-arm64.yml (3)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `ubuntu 26.04-arm`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-macos.yml (8)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/release.yml (18)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/submit-tap-formula.yml (1)</summary>\n\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/tap-bottles.yml (7)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/tests.yml (37)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/warm-bottle-mirror.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n</blockquote>\n</details>\n\n<details><summary>pep621 (1)</summary>\n<blockquote>\n\n<details><summary>pyproject.toml (15)</summary>\n\n - `python >=3.11`\n - `aiomqtt >=2.0.0`\n - `cryptography >=43`\n - `bleak >=0.22.0`\n - `mypy ==2.4.1`\n - `pytest ==9.2.0`\n - `pytest-asyncio ==1.5.0`\n - `pytest-cov ==7.1.0`\n - `pyyaml ==6.0.3`\n - `ruff ==0.17.5`\n - `pytest-cov >=5.0`\n - `syrupy >=4.0`\n - `aiohasupervisor ==0.11.0`\n - `pytest-cov >=5.0`\n - `pytest-homeassistant ==2026.11.2`\n\n</details>\n\n</blockquote>\n</details>\n\n<details><summary>regex (9)</summary>\n<blockquote>\n\n<details><summary>.forgejo/workflows/bottles.yml (1)</summary>\n\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-macos.yml (3)</summary>\n\n - `python/cpython 3.15.2`\n - `python/cpython 3.15.2`\n - `pyinstaller 6.22.3`\n\n</details>\n\n<details><summary>.forgejo/workflows/tests.yml (11)</summary>\n\n - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n - `ubuntu-22.04-compat 22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde`\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`\n - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`\n - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`\n - `ghcr.io/home-assistant/hassfest latest@sha256:b200bb178c5c62f984c2c705c820bd991e5308d6cba6987d24c7d643919ab5cc`\n - `ghcr.io/hacs/action main@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2`\n\n</details>\n\n<details><summary>packaging/homebrew-smoke.Dockerfile (1)</summary>\n\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n\n</details>\n\n<details><summary>packaging/install-smoke.Dockerfile (11)</summary>\n\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`\n - `ubuntu-22.04-compat 22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde`\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`\n - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`\n - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`\n - `opensuse-leap-15.6-compat 15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421`\n\n</details>\n\n<details><summary>packaging/package-smoke-rpm.Dockerfile (1)</summary>\n\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n\n</details>\n\n<details><summary>packaging/package-smoke.Dockerfile (1)</summary>\n\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n\n</details>\n\n<details><summary>packaging/release-pins.env (3)</summary>\n\n - `quay.io/pypa/manylinux_2_28 2026.11.14-1@sha256:834a11a02642a46e580b62f25f5b04588355092c8677eaf0393e3ea1997001a3`\n - `goreleaser/nfpm v2.49.0@sha256:9ea46a59c4d055ef7071b22f3520b53e8dad98e18043b2f881b53bd7ffec634e`\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n\n</details>\n\n<details><summary>packaging/release-pins.env (3)</summary>\n\n - `pyinstaller 6.22.3`\n - `python/cpython 3.15.2`\n - `SisyphusMD/project-rules 0.3.1`\n\n</details>\n\n</blockquote>\n</details>\n\n",
+  "body": "This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.\n\nThis repository currently has no open or pending branches.\n\n## Detected Dependencies\n\n<details><summary>github-actions (14)</summary>\n<blockquote>\n\n<details><summary>.forgejo/workflows/bottles.yml (6)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/install-matrix.yml (7)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `ubuntu 26.04-arm`\n\n</details>\n\n<details><summary>.forgejo/workflows/macos.yml (6)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/prerelease.yml (27)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/prune-rcs.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n<details><summary>.forgejo/workflows/publish-release.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n<details><summary>.forgejo/workflows/publish.yml (27)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-arm64.yml (3)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `ubuntu 26.04-arm`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-macos.yml (8)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/release.yml (18)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/submit-tap-formula.yml (1)</summary>\n\n - `https://code.forgejo.org/forgejo/download-artifact v7@769f970437aa3291b13f35dc23fc87967d7fb19f`\n\n</details>\n\n<details><summary>.forgejo/workflows/tap-bottles.yml (7)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `https://code.forgejo.org/forgejo/upload-artifact v5@cb8afe72b42edc798abfb8fcb556cf660d894245`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/tests.yml (37)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `docker/setup-buildx-action v4.4.1@f87e5991a6d7451dcb8d9637bfbc97413f497069`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.11.0`\n - `python 3.11.0`\n - `python 3.13.18`\n - `python 3.13.18`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n - `python 3.15.2`\n\n</details>\n\n<details><summary>.forgejo/workflows/warm-bottle-mirror.yml (1)</summary>\n\n - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`\n\n</details>\n\n</blockquote>\n</details>\n\n<details><summary>pep621 (1)</summary>\n<blockquote>\n\n<details><summary>pyproject.toml (15)</summary>\n\n - `python >=3.11`\n - `aiomqtt >=2.0.0`\n - `cryptography >=43`\n - `bleak >=0.22.0`\n - `mypy ==2.4.1`\n - `pytest ==9.2.0`\n - `pytest-asyncio ==1.5.0`\n - `pytest-cov ==7.1.0`\n - `pyyaml ==6.0.3`\n - `ruff ==0.17.6`\n - `pytest-cov >=5.0`\n - `syrupy >=4.0`\n - `aiohasupervisor ==0.11.0`\n - `pytest-cov >=5.0`\n - `pytest-homeassistant ==2026.11.2`\n\n</details>\n\n</blockquote>\n</details>\n\n<details><summary>regex (9)</summary>\n<blockquote>\n\n<details><summary>.forgejo/workflows/bottles.yml (1)</summary>\n\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n\n</details>\n\n<details><summary>.forgejo/workflows/release-macos.yml (3)</summary>\n\n - `python/cpython 3.15.2`\n - `python/cpython 3.15.2`\n - `pyinstaller 6.22.3`\n\n</details>\n\n<details><summary>.forgejo/workflows/tests.yml (11)</summary>\n\n - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n - `ubuntu-22.04-compat 22.04@sha256:f64b2ffc2f10ab8f8505aa56b2664bd846cbb9df87c7e2532e30f7667021c0e6`\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`\n - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`\n - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`\n - `ghcr.io/home-assistant/hassfest latest@sha256:b200bb178c5c62f984c2c705c820bd991e5308d6cba6987d24c7d643919ab5cc`\n - `ghcr.io/hacs/action main@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2`\n\n</details>\n\n<details><summary>packaging/homebrew-smoke.Dockerfile (1)</summary>\n\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n\n</details>\n\n<details><summary>packaging/install-smoke.Dockerfile (11)</summary>\n\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`\n - `ubuntu-22.04-compat 22.04@sha256:f64b2ffc2f10ab8f8505aa56b2664bd846cbb9df87c7e2532e30f7667021c0e6`\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`\n - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`\n - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`\n - `homebrew/brew latest@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd`\n - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`\n - `opensuse-leap-15.6-compat 15.6@sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421`\n\n</details>\n\n<details><summary>packaging/package-smoke-rpm.Dockerfile (1)</summary>\n\n - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`\n\n</details>\n\n<details><summary>packaging/package-smoke.Dockerfile (1)</summary>\n\n - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`\n\n</details>\n\n<details><summary>packaging/release-pins.env (3)</summary>\n\n - `quay.io/pypa/manylinux_2_28 2026.11.14-1@sha256:834a11a02642a46e580b62f25f5b04588355092c8677eaf0393e3ea1997001a3`\n - `goreleaser/nfpm v2.49.0@sha256:9ea46a59c4d055ef7071b22f3520b53e8dad98e18043b2f881b53bd7ffec634e`\n - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`\n\n</details>\n\n<details><summary>packaging/release-pins.env (3)</summary>\n\n - `pyinstaller 6.22.3`\n - `python/cpython 3.15.2`\n - `SisyphusMD/project-rules 0.3.1`\n\n</details>\n\n</blockquote>\n</details>\n\n",
   "closed_at": null,
   "comments": [],
   "created_at": "2026-06-28T22:03:01-07:00",
@@ -4358,11 +4358,47 @@
   "assignees": [],
   "body": "Whiskerless’s Bluetooth setup code currently assumes every robot is an LR4. PR #188 adds EVO support by broadening the existing scanner and provisioning checks to accept either model. Extract the setup sequence both models can use so that each model can keep its own discovery and identity checks.\n\n- Keep the existing LR4 entry point, device selection, serial validation, and MQTT defaults.\n- Add regression tests for LR4 discovery and provisioning, including selection by explicit Bluetooth address.\n- Verify on a real LR4 that setup still works and the robot connects to the configured broker.\n\nThis is the prerequisite for #188. The EVO-specific changes stay in #188.",
   "closed_at": null,
-  "comments": [],
+  "comments": [
+   {
+    "body": "Decision: Split Bluetooth setup by layer and keep it modular and DRY. ble/ keeps the one reusable setup sequence (Wi-Fi, certificates, MQTT broker) and never names a robot model. Each model supplies a provisioning profile (BLE service UUID and advertiser name, serial validation, default MQTT topics); the LR4 profile lives in devices/litter_robot_4/. The existing LR4 entry point and explicit-address selection keep working, and the LR4 provisioning service is still required before the first write. Splitting cli.py is separate work. Why: Model-specific checks inside ble/provision.py would grow one branch per robot (PR #188 adds serial-prefix checks there); a profile per model keeps EVO and later robots in their own folders.\n\nDecided by: Cody, 2026-11-19.",
+    "created_at": "2026-11-19T16:33:56-08:00",
+    "id": 38745,
+    "updated_at": "2026-11-19T16:33:56-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Claude (Cody's session) has this issue.",
+    "created_at": "2026-11-19T16:33:57-08:00",
+    "id": 38753,
+    "updated_at": "2026-11-19T16:33:57-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Status: PR #235 is open with every check green, including the AI review, which found nothing blocking. One suggestion was answered on the PR. The real-LR4 check is still to do. It cannot run remotely yet, because pairing mode needs Connect held at the robot and pairing wipes its Wi-Fi. Remote pairing over MQTT and the Bluetooth proxy path are unproven (#222). #235 waits for Cody to be home to run whiskerless provision from the branch and confirm the robot reaches the broker. Then merge.",
+    "created_at": "2026-11-19T17:19:34-08:00",
+    "id": 38980,
+    "updated_at": "2026-11-19T17:19:34-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Status: unchanged since comment 38980. PR #235 is green and mergeable, branch chore/217-ble-provisioning-profile in worktree ~/repos/SisyphusMD/whiskerless-217. It waits only on the real-LR4 check: run `whiskerless provision` from the branch while Cody holds Connect, confirm the robot reaches the broker, then merge #235. No crons or holds. The session is rotating; the successor picks this up.",
+    "created_at": "2026-11-19T21:14:13-08:00",
+    "id": 39462,
+    "updated_at": "2026-11-19T21:14:13-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Status: PR #235 is unchanged, and still waits only on the LR4 bench test with Cody home (run `whiskerless provision` from the branch while he holds Connect, then confirm the robot reaches the broker). #218 and #219 have merged, so this is the last prerequisite for #188. The session is rotating; no crons or holds are running.",
+    "created_at": "2026-11-20T00:41:55-08:00",
+    "id": 39696,
+    "updated_at": "2026-11-20T00:41:55-08:00",
+    "user": "cody"
+   }
+  ],
   "created_at": "2026-11-17T14:53:00-08:00",
   "kind": "issue",
   "labels": [
-   "status:ready",
+   "status:in-progress",
    "type:chore"
   ],
   "milestone": null,
@@ -4374,34 +4410,85 @@
  {
   "assignees": [],
   "body": "The LR4 classifier currently treats unrecognized command types as no-ops, which lets them through by default. Require `allow_dangerous` for unknown types and add regression tests showing that known no-ops still pass and never-send commands remain blocked. This gives EVO support in #188 the same safety rule from day one.\n\nThis is a prerequisite for #188 alongside #217.",
-  "closed_at": null,
-  "comments": [],
+  "closed_at": "2026-11-19T18:34:46-08:00",
+  "comments": [
+   {
+    "body": "Claude (session f565c0c9) has this, on branch fix/218-unknown-command-opt-in.",
+    "created_at": "2026-11-19T17:47:36-08:00",
+    "id": 39150,
+    "updated_at": "2026-11-19T17:47:36-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Technical call: Every type byte other than 01 (read) and 02 (write) is unknown and needs allow_dangerous; the whole byte is read, so 0x12A00000 is no longer taken for a type-2 write. An unknown type aimed at a never-send opcode, register or panel value is NEVER, so the opt-in cannot unlock a reset. \"Known no-ops\" are the writes already proven to be discarded (0x1A-0x1C) and stay SAFE. Hazard.NOOP is removed and CommandType.NOOP becomes UNKNOWN. Why: Only types 1 and 2 were ever tested; \"anything else = no-op\" came from the initial commit with no trial behind it, and the safety module already refuses untested commands on cost, not proof. #188 asks for this rule from day one.\n\nDecided by: Claude, 2026-11-19.",
+    "created_at": "2026-11-19T17:50:00-08:00",
+    "id": 39162,
+    "updated_at": "2026-11-19T17:50:00-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Done in #238, merged as 4d6d4de. Every command type other than 01 and 02 now needs allow_dangerous, and a never-send opcode, register or panel value is refused at any type. The commit review found the old parser read only the second type digit, so 0x11A30000 passed as a safe read with no opt-in; that case is now pinned in tests. The branch and worktree are removed. Next: #219, the other prerequisite for #188.",
+    "created_at": "2026-11-19T18:35:39-08:00",
+    "id": 39317,
+    "updated_at": "2026-11-19T18:35:39-08:00",
+    "user": "cody"
+   }
+  ],
   "created_at": "2026-11-17T15:02:26-08:00",
   "kind": "issue",
   "labels": [
-   "status:ready",
+   "status:in-progress",
    "type:bug"
   ],
   "milestone": null,
   "number": 218,
-  "state": "open",
+  "state": "closed",
   "title": "Require opt-in for unknown LR4 command types",
   "user": "cody"
  },
  {
   "assignees": [],
   "body": "Audit the LR4 settings that whiskerless allows at any value. Keep unconditional writes for settings whose full range is verified. For the rest, allow verified values by default and require `allow_dangerous` for unverified values. Add regression tests at the boundaries and confirm that never-send commands remain blocked.\n\nThis is a prerequisite for #188 alongside #217 and #218.",
-  "closed_at": null,
-  "comments": [],
+  "closed_at": "2026-11-20T00:41:17-08:00",
+  "comments": [
+   {
+    "body": "Claude (session 97baacb9) has this, on branch fix/219-verified-value-ranges.",
+    "created_at": "2026-11-19T21:15:01-08:00",
+    "id": 39466,
+    "updated_at": "2026-11-19T21:15:01-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Technical call: A settings write is SAFE only inside its verified range, checked on the full 16-bit value; anything outside it is DANGEROUS and needs allow_dangerous. \"Verified\" means the value lies in the setting's defined domain (an enum, a percentage, minutes since midnight, a seven-day mask, or the range the app offers) and live writes inside that domain were read back. The ranges:\n\n| Reg | Setting | SAFE values | Evidence |\n|---|---|---|---|\n| `0x05` | isDebugModeActive | none | no write recorded (#91) |\n| `0x0E` | panel brightness | each byte 0–100 | written at 5 and stock 40/50; HA ships 0–100 (see the question below) |\n| `0x16` | clean-cycle wait | 3–30 | written at 3, 7 and 20; the app's span |\n| `0x17` | keypad lockout | 0–1 | both written |\n| `0x18` | night-light mode | 0–2 | enum, all three written |\n| `0x19` | night-light brightness | 0–100 | percentage, `0x63`/`0x64` written |\n| `0x1A` | panel sleep mode (discarded) | 0–1 | discarded writes at 0/1 |\n| `0x1B`/`0x1C` | panel sleep/wake (discarded) | 0–1439 | discarded writes inside the day |\n| `0x1D` | weekday sleep mask | 0–`0x7F` | seven-day mask; `0x00`, `0x01` and `0x7F` written |\n| `0x1E`–`0x2B` | weekday sleep/wake | 0–1439 | distinct per-day writes read back |\n\nThe never-send checks still run first, so no value or opt-in unlocks them. The builders keep their clamps, so `whiskerless set` refuses an out-of-range value up front and says so, instead of quietly sending a different value. Why: These registers took any 16-bit value, including `0x05`, which has never been written. Anything past the tested range is a write nobody has seen land, and #188 needs the same rule per model.\n\nDecided by: Claude, 2026-11-19.",
+    "created_at": "2026-11-19T21:19:11-08:00",
+    "id": 39472,
+    "updated_at": "2026-11-19T21:19:11-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Decision: Panel brightness stays sendable at 0-100 per level without allow_dangerous. Why: It is what the Home Assistant sliders already offer, and brightness is reversible; only 5, 40 and 50 have been written.\n\nDecided by: Cody, 2026-11-20.",
+    "created_at": "2026-11-20T00:29:24-08:00",
+    "id": 39650,
+    "updated_at": "2026-11-20T00:29:24-08:00",
+    "user": "cody"
+   },
+   {
+    "body": "Done in #240, merged as 4df4531. Every LR4 settings register now has a verified range. A value outside it needs allow_dangerous, debug mode (0x05) has no safe value, panel brightness is checked per level (0-100, per the decision above), and never-send targets stay refused at any value. `whiskerless set` refuses an out-of-range value before it connects. Branch and worktree removed. Next: #188 still waits on #217 (LR4 provisioning bench test).",
+    "created_at": "2026-11-20T00:41:54-08:00",
+    "id": 39692,
+    "updated_at": "2026-11-20T00:41:54-08:00",
+    "user": "cody"
+   }
+  ],
   "created_at": "2026-11-17T15:05:58-08:00",
   "kind": "issue",
   "labels": [
-   "status:ready",
+   "status:in-progress",
    "type:bug"
   ],
   "milestone": null,
   "number": 219,
-  "state": "open",
+  "state": "closed",
   "title": "Enforce verified value ranges for LR4 setting writes",
   "user": "cody"
  },
@@ -4675,5 +4762,279 @@
   "state": "closed",
   "title": "Generate the Home Assistant OS Mosquitto listener during setup",
   "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "This PR contains the following updates:\n\n| Package | Change | [Age](https://docs.renovatebot.com/merge-confidence/) | [Confidence](https://docs.renovatebot.com/merge-confidence/) |\n|---|---|---|---|\n| [ruff](https://docs.astral.sh/ruff) ([source](https://github.com/astral-sh/ruff), [changelog](https://github.com/astral-sh/ruff/blob/main/CHANGELOG.md)) | `==0.17.5` → `==0.17.6` | ![age](https://developer.mend.io/api/mc/badges/age/pypi/ruff/0.17.6?slim=true) | ![confidence](https://developer.mend.io/api/mc/badges/confidence/pypi/ruff/0.17.5/0.17.6?slim=true) |\n\n---\n\n### Release Notes\n\n<details>\n<summary>astral-sh/ruff (ruff)</summary>\n\n### [`v0.17.6`](https://github.com/astral-sh/ruff/blob/HEAD/CHANGELOG.md#0176)\n\n[Compare Source](https://github.com/astral-sh/ruff/compare/0.17.5...0.17.6)\n\nReleased on 2026-11-19.\n\n##### Preview features\n\n- \\[`flake8-type-checking`] Add a fix for `runtime-string-union` (`TC010`) ([#&#8203;15635](https://github.com/astral-sh/ruff/pull/15635))\n\n##### Bug fixes\n\n- Fix handling of parenthesized duplicate items (`B033`, `RUF068`) ([#&#8203;30493](https://github.com/astral-sh/ruff/pull/30493))\n- \\[`pyflakes`] Fix false negative when a name is assigned more than once (`F823`) ([#&#8203;30524](https://github.com/astral-sh/ruff/pull/30524))\n- \\[`pylint`] Avoid false positive when collection is modified in loop (`PLR1733`, `PLR1736`) ([#&#8203;30466](https://github.com/astral-sh/ruff/pull/30466))\n- \\[`ruff`] Avoid syntax error in `useless-finally` fix for inline `try` bodies (`RUF072`) ([#&#8203;30349](https://github.com/astral-sh/ruff/pull/30349))\n- Treat relative imports from `.__future__` as ordinary imports ([#&#8203;30260](https://github.com/astral-sh/ruff/pull/30260))\n\n##### Rule changes\n\n- \\[`flake8-simplify`] Avoid redundant `bool` wrappers in `SIM208` fixes ([#&#8203;30457](https://github.com/astral-sh/ruff/pull/30457))\n- \\[`pyflakes`] Ignore `__traceback_hide__` in `unused-variable` (`F841`) ([#&#8203;29600](https://github.com/astral-sh/ruff/pull/29600))\n\n##### Performance\n\n- Decode in-memory notebooks directly from their source string ([#&#8203;30385](https://github.com/astral-sh/ruff/pull/30385))\n- Short-circuit exact qualified-name checks ([#&#8203;30058](https://github.com/astral-sh/ruff/pull/30058))\n- Stream JSON diagnostics to the output writer ([#&#8203;30384](https://github.com/astral-sh/ruff/pull/30384))\n\n##### Documentation\n\n- Fix the multiline string example in Known Deviations from Black ([#&#8203;30447](https://github.com/astral-sh/ruff/pull/30447))\n- Include the category in individual rule documentation pages ([#&#8203;30503](https://github.com/astral-sh/ruff/pull/30503))\n\n##### Other changes\n\n- Update Rust toolchain to 1.100 and MSRV to 1.98 ([#&#8203;30416](https://github.com/astral-sh/ruff/pull/30416))\n\n##### Contributors\n\n- [@&#8203;pseudo-usama](https://github.com/pseudo-usama)\n- [@&#8203;G26karthik](https://github.com/G26karthik)\n- [@&#8203;MichaReiser](https://github.com/MichaReiser)\n- [@&#8203;apathydevil](https://github.com/apathydevil)\n- [@&#8203;Shivansh-S17](https://github.com/Shivansh-S17)\n- [@&#8203;charliermarsh](https://github.com/charliermarsh)\n- [@&#8203;ntBre](https://github.com/ntBre)\n- [@&#8203;anujdas](https://github.com/anujdas)\n- [@&#8203;chammika](https://github.com/chammika)\n- [@&#8203;imryanthedev](https://github.com/imryanthedev)\n- [@&#8203;Daverball](https://github.com/Daverball)\n\n</details>\n\n---\n\n### Configuration\n\n📅 **Schedule**: (UTC)\n\n- Branch creation\n  - At any time (no schedule defined)\n- Automerge\n  - At any time (no schedule defined)\n\n🚦 **Automerge**: Enabled.\n\n♻ **Rebasing**: Whenever PR is behind base branch, or you tick the rebase/retry checkbox.\n\n🔕 **Ignore**: Close this PR and you won't be reminded about this update again.\n\n---\n\n - [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check this box\n\n---\n\nRefs #211: standing issue for dependency updates.\n\nNo tests: dependency pins and their generated files are checked by the existing build and test jobs.\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0NC4yNTMuMiIsInVwZGF0ZWRJblZlciI6IjQ0LjI1My4yIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6WyJwYXRjaC11cGRhdGUiXX0=-->\n",
+  "closed_at": "2026-11-19T09:10:52-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `6703471c34`: Single-line Renovate bump of ruff from 0.17.5 to 0.17.6, referencing the standing dependency-update issue #211. The diff is minimal, correctly scoped, and the 'No tests' justification is appropriate for a linter version pin.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-19T08:09:30-08:00",
+    "id": 38132,
+    "updated_at": "2026-11-19T08:09:30-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-19T08:09:22-08:00",
+  "head": "refs/pull/231/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "4ed3d31d3c7e6ad848bd8fa82bc4228e3d855481",
+  "merged": true,
+  "milestone": null,
+  "number": 231,
+  "reviews": [],
+  "state": "closed",
+  "title": "fix(deps): update dependency ruff to v0.17.6",
+  "user": "renovate"
+ },
+ {
+  "assignees": [],
+  "body": "Copy of the canonical script from SisyphusMD/project-rules#105 (issues SisyphusMD/project-rules#103 and #104). The old 16,000-token output cap cut long reviews off before their verdict, and a </think> the model quoted could leak its reasoning ahead of the JSON so the verdict failed to parse. Cody approved the 40,000 cap on 2026-11-19.",
+  "closed_at": "2026-11-19T16:40:43-08:00",
+  "comments": [
+   {
+    "body": "Decision: Admin-merge the AI-review sync PR past its failing AI review check (Cody: \"Yes\"). Why: The required review runs main's old parser, which cannot parse a review of this diff (it quotes </think>); the copy is byte-identical to project-rules main and every other check is green.\n\nDecided by: Cody, 2026-11-19.",
+    "created_at": "2026-11-19T16:36:47-08:00",
+    "id": 38764,
+    "updated_at": "2026-11-19T16:36:47-08:00",
+    "user": "cody"
+   }
+  ],
+  "created_at": "2026-11-19T12:30:04-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:in-progress",
+   "type:bug"
+  ],
+  "milestone": null,
+  "number": 232,
+  "state": "closed",
+  "title": "AI review: take the 40,000-token output cap and verdict-parse fix from project-rules",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #232\n\nByte-identical copy of `.forgejo/scripts/ai-review.py` from SisyphusMD/project-rules#105 (tests live there):\n- the model output cap goes from 16,000 to 40,000 tokens (`MAX_OUTPUT_TOKENS` overrides it), since hidden reasoning alone ran past 16,000 on long reviews;\n- a cut-off answer fails closed with a status that says to split the PR or raise the cap, and every run logs token usage;\n- a `</think>` the model quotes no longer leaks its reasoning ahead of the verdict and breaks the parse.",
+  "closed_at": "2026-11-19T16:40:43-08:00",
+  "comments": [],
+  "created_at": "2026-11-19T12:31:06-08:00",
+  "head": "refs/pull/233/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "3fc864d7d08f4a4b098756ae7ec46e28b07651d8",
+  "merged": true,
+  "milestone": null,
+  "number": 233,
+  "reviews": [],
+  "state": "closed",
+  "title": "AI review: 40,000-token output cap and verdict-parse fix",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "cli.py is about 3,300 lines and holds every subcommand. Split it into per-command modules behind the existing entry point, with no behaviour change. Kept out of #217 so that diff stays reviewable and #188 rebases once. Agreed with Cody on 2026-11-19 while settling the #217 design.",
+  "closed_at": null,
+  "comments": [],
+  "created_at": "2026-11-19T16:33:57-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:ready",
+   "type:chore"
+  ],
+  "milestone": null,
+  "number": 234,
+  "state": "open",
+  "title": "Split cli.py into per-command modules",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #217\n\nThe BLE provisioning code in `ble/` assumed every robot was an LR4: it held the LR4 service UUID and advertised name, checked for LR4 serials and built `prod/LR4/...` topics. PR #188 extends those checks to accept the EVO as well, which would add one branch per model inside the shared sequence.\n\nNow each model supplies a `ProvisioningProfile` (service UUID, advertised name, serial check, default topics). The LR4's profile lives in `devices/litter_robot_4/provisioning.py`, moved verbatim from `ble/`. `scan()`, `read_device_mac()` and `ProvisioningConfig` take it as a keyword argument, and `whiskerless provision` passes the LR4 profile. The command's prompts, serial validation, explicit `--address` selection and the check that the connected device exposes the LR4 provisioning service before the first write are unchanged.\n\nNew tests drive the shared sequence with a made-up model: they reject a scan that offers an LR4 when another model is being provisioned, a connection to an LR4 under that other profile, and any serial or topic that does not come from the profile. The existing LR4 discovery, explicit-address and provisioning tests now run through the LR4 profile.\n\nLibrary callers of these three functions must pass `profile=`; the CHANGELOG says so. Splitting `cli.py` is #234.\n\nStill to do before merge: provision a real LR4 with this branch and confirm it connects to the broker (#217).\n",
+  "closed_at": null,
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `8a088d9dfe`: Clean extraction of model-specific provisioning details into a `ProvisioningProfile` interface, with the LR4 profile moved to `devices/litter_robot_4/provisioning.py`. The shared BLE code no longer names any model, the CLI passes the LR4 profile explicitly, and new tests verify cross-model rejection and profile-driven behaviour. Docs and CHANGELOG are updated in the same PR.\n\n### Withdrawn\n\n- **F1** (suggestion, `src/whiskerless/ble/provision.py:215`) Removed public `ProvisioningConfig.check_serial` without a deprecation shim: Cody's reply is correct: `ProvisioningConfig` lives in `whiskerless.ble.__all__`, which is neither `whiskerless.__all__` nor a `whiskerless.devices.<device>.__all__` submodule. CONTRIBUTING.md's compatibility promise explicitly says everything else 'is internal and may be renamed, moved or deleted without notice.' The bundled integration never imports `whiskerless.ble` (the invariant test would catch it). No shim is required, and adding one would reintroduce an LR4-specific rule into `ble/`, which is exactly what #217 removes.\n  - Reviewer: Withdrawn. The compatibility promise does not cover `whiskerless.ble`; the removal is within the stated 'may be deleted without notice' scope.\n\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W3siaWQiOiAiRjEiLCAiZmlsZSI6ICJzcmMvd2hpc2tlcmxlc3MvYmxlL3Byb3Zpc2lvbi5weSIsICJsaW5lIjogMjE1LCAic2V2ZXJpdHkiOiAic3VnZ2VzdGlvbiIsICJzdGF0dXMiOiAid2l0aGRyYXduIiwgInRpdGxlIjogIlJlbW92ZWQgcHVibGljIGBQcm92aXNpb25pbmdDb25maWcuY2hlY2tfc2VyaWFsYCB3aXRob3V0IGEgZGVwcmVjYXRpb24gc2hpbSIsICJkZXRhaWwiOiAiQ29keSdzIHJlcGx5IGlzIGNvcnJlY3Q6IGBQcm92aXNpb25pbmdDb25maWdgIGxpdmVzIGluIGB3aGlza2VybGVzcy5ibGUuX19hbGxfX2AsIHdoaWNoIGlzIG5laXRoZXIgYHdoaXNrZXJsZXNzLl9fYWxsX19gIG5vciBhIGB3aGlza2VybGVzcy5kZXZpY2VzLjxkZXZpY2U+Ll9fYWxsX19gIHN1Ym1vZHVsZS4gQ09OVFJJQlVUSU5HLm1kJ3MgY29tcGF0aWJpbGl0eSBwcm9taXNlIGV4cGxpY2l0bHkgc2F5cyBldmVyeXRoaW5nIGVsc2UgJ2lzIGludGVybmFsIGFuZCBtYXkgYmUgcmVuYW1lZCwgbW92ZWQgb3IgZGVsZXRlZCB3aXRob3V0IG5vdGljZS4nIFRoZSBidW5kbGVkIGludGVncmF0aW9uIG5ldmVyIGltcG9ydHMgYHdoaXNrZXJsZXNzLmJsZWAgKHRoZSBpbnZhcmlhbnQgdGVzdCB3b3VsZCBjYXRjaCBpdCkuIE5vIHNoaW0gaXMgcmVxdWlyZWQsIGFuZCBhZGRpbmcgb25lIHdvdWxkIHJlaW50cm9kdWNlIGFuIExSNC1zcGVjaWZpYyBydWxlIGludG8gYGJsZS9gLCB3aGljaCBpcyBleGFjdGx5IHdoYXQgIzIxNyByZW1vdmVzLiIsICJyZXNwb25zZSI6ICJXaXRoZHJhd24uIFRoZSBjb21wYXRpYmlsaXR5IHByb21pc2UgZG9lcyBub3QgY292ZXIgYHdoaXNrZXJsZXNzLmJsZWA7IHRoZSByZW1vdmFsIGlzIHdpdGhpbiB0aGUgc3RhdGVkICdtYXkgYmUgZGVsZXRlZCB3aXRob3V0IG5vdGljZScgc2NvcGUuIn1d -->",
+    "created_at": "2026-11-19T16:53:37-08:00",
+    "id": 38834,
+    "updated_at": "2026-11-20T01:05:14-08:00",
+    "user": "forgejo-actions"
+   },
+   {
+    "body": "F1: no shim, because `whiskerless.ble` is outside the compatibility promise. CONTRIBUTING.md (\"The Python API — a compatibility promise\") covers only `whiskerless.__all__` and each `whiskerless.devices.<device>.__all__` with the submodules it re-exports; it says everything else \"is internal and may be renamed, moved or deleted without notice\". `ProvisioningConfig` is in `whiskerless.ble.__all__`, not in either promised surface, and the bundled integration never imports `whiskerless.ble` (the repo invariant test would fail if it did). The CHANGELOG entry is a courtesy for anyone driving the library directly, not a deprecation window. A shim on `ProvisioningConfig` would also put an LR4 rule back into `ble/`, which is what #217 removes.",
+    "created_at": "2026-11-19T17:04:23-08:00",
+    "id": 38873,
+    "updated_at": "2026-11-19T17:04:23-08:00",
+    "user": "cody"
+   }
+  ],
+  "created_at": "2026-11-19T16:49:51-08:00",
+  "head": "chore/217-ble-provisioning-profile",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": null,
+  "merged": false,
+  "milestone": null,
+  "number": 235,
+  "reviews": [],
+  "state": "open",
+  "title": "Take each robot model's provisioning profile in the shared BLE setup",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "body": "Copy of the canonical AI review from SisyphusMD/project-rules#108 (issue SisyphusMD/project-rules#55). Reviews at the 40,000-token cap could outlast the 20-minute job, which was then killed with the required check left pending. Now a 40-minute deadline ends the review with an error status, inside a 45-minute job. Cody approved the 45-minute limit on 2026-11-19.",
+  "closed_at": "2026-11-19T18:12:32-08:00",
+  "comments": [],
+  "created_at": "2026-11-19T17:41:24-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:in-progress",
+   "type:bug"
+  ],
+  "milestone": null,
+  "number": 236,
+  "state": "closed",
+  "title": "AI review: take the 40-minute deadline and 45-minute job limit from project-rules",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #236\n\nSync from SisyphusMD/project-rules#108 (byte-identical copies of the script and workflow; tests live there). A 40-minute deadline from the review's start ends a slow review with an error status instead of the job being killed at 20 minutes with the required check left pending. The job limit is now 45 minutes.",
+  "closed_at": "2026-11-19T18:12:32-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `8b352d128d`: Clean, well-reasoned change that adds a SIGALRM-based 40-minute deadline inside a 45-minute job timeout so a slow review ends with an error status instead of leaving the required check pending. The signal handling, exception hierarchy, alarm cancellation in `finally`, and broadened catch-all are all correct and well-commented.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-19T17:49:25-08:00",
+    "id": 39157,
+    "updated_at": "2026-11-19T17:49:25-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-19T17:41:25-08:00",
+  "head": "refs/pull/237/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "d3261a1a1658a9639f75594f3e155290adaf4bd7",
+  "merged": true,
+  "milestone": null,
+  "number": 237,
+  "reviews": [],
+  "state": "closed",
+  "title": "AI review: 40-minute deadline inside a 45-minute job",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #218\n\nThe safety guard read only the second digit of a command's two-digit type byte. A type byte ending in 1 (`0x11`, `0x21`, …) was classified as a read and sent with no opt-in, so `0x11A30000`, a reset-class opcode, went out as `safe`. One ending in 2 inherited full write rules. Every other type was taken for a firmware no-op and also sent without opt-in, although only types `01` and `02` have ever been tried on a robot. The one unknown field that has been tried, the panel press type, was performed rather than ignored.\n\nNow the whole type byte is parsed. Any type other than `01` or `02` is `dangerous` and needs `allow_dangerous`. A never-send opcode, register or panel value is refused at any type, so the opt-in cannot unlock a reset. Writes already proven to be discarded (`0x1A`–`0x1C`) stay `safe`. A raw panel-register write with an unknown type is still sent at most once.\n\n`Hazard.NOOP` is removed and `CommandType.NOOP` is renamed `CommandType.UNKNOWN`. Nothing in the library or integration used them; the CHANGELOG lists the change under breaking changes. The protocol, codec, safety and contributor docs now describe the type as two digits and name the new refusal.\n\nThe new tests reject `0x11A30000` and `0x11AC0000` even with `allow_dangerous`, reject `0x03180001` without it, classify `0x12A00000` as `dangerous` rather than a safe report macro, and require at-most-once delivery for `0x12010201`. Each failed against `main`. The design is recorded on #218 (comment 39162).\n",
+  "closed_at": "2026-11-19T18:34:46-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `dcb6a90727`: The PR correctly fixes the type-byte parsing bug (only the second hex digit was read, so 0x11 was taken for a read), reclassifies unknown types as DANGEROUS requiring opt-in, keeps never-send targets unconditionally refused regardless of type, and adds focused regression tests that cover the new branches. The logic, docs, CHANGELOG, and test coverage all align with the issue and project rules.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-19T18:09:23-08:00",
+    "id": 39247,
+    "updated_at": "2026-11-19T18:20:08-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-19T18:05:57-08:00",
+  "head": "refs/pull/238/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "4d6d4deb55deec82b28d50629ef2f68596970456",
+  "merged": true,
+  "milestone": null,
+  "number": 238,
+  "reviews": [],
+  "state": "closed",
+  "title": "Require opt-in for unknown LR4 command types",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "This PR contains the following updates:\n\n| Package | Update | Change |\n|---|---|---|\n| [ubuntu-22.04-compat](https://hub.docker.com/_/ubuntu) ([source](https://git.launchpad.net/cloud-images/+oci/ubuntu-base)) | digest | `9abcaff` → `252bffe` |\n\n---\n\n### Configuration\n\n📅 **Schedule**: (UTC)\n\n- Branch creation\n  - At any time (no schedule defined)\n- Automerge\n  - At any time (no schedule defined)\n\n🚦 **Automerge**: Enabled.\n\n♻ **Rebasing**: Whenever PR is behind base branch, or you tick the rebase/retry checkbox.\n\n🔕 **Ignore**: Close this PR and you won't be reminded about this update again.\n\n---\n\n - [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check this box\n\n---\n\nRefs #211: standing issue for dependency updates.\n\nNo tests: dependency pins and their generated files are checked by the existing build and test jobs.\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0NC4yNTYuMCIsInVwZGF0ZWRJblZlciI6IjQ0LjI1Ni4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n",
+  "closed_at": "2026-11-19T22:10:29-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `7e8ae13eea`: Routine Renovate digest bump for the Ubuntu 22.04 Docker image, updated consistently in both the workflow and the Dockerfile. No issues found.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-19T21:11:04-08:00",
+    "id": 39461,
+    "updated_at": "2026-11-19T21:11:04-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-19T21:09:31-08:00",
+  "head": "refs/pull/239/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "6c3f24762f262414d9ac921c387da2446e675c4f",
+  "merged": true,
+  "milestone": null,
+  "number": 239,
+  "reviews": [],
+  "state": "closed",
+  "title": "chore(deps): update ubuntu-22.04-compat:22.04 docker digest to 252bffe",
+  "user": "renovate"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #219\n\nEvery LR4 settings register in the safety guard's safe bank took any 16-bit value without an opt-in. `0x0216FFFF` went out as freely as the 20-minute wait that was actually tested, and debug mode (`0x05`) was in the bank although it has never been written.\n\nNow each settings register has the range recorded in the technical call on #219: the domain the setting can hold, where writes were read back. A value outside that range is DANGEROUS and needs `allow_dangerous`. `0x05` has no safe value. Panel brightness (`0x0E`) is checked level by level, because a range on the packed value would pass `0x00FF`. The never-send and unknown-type checks still run first, so no value or opt-in unlocks a reset target.\n\n`whiskerless set` used to connect and then hit the guard. It now refuses an out-of-range value before connecting, names the value that was typed, and points to `send --allow-dangerous`.\n\nThe new tests reject the following, and each one was seen to fail against `main`:\n- a value one past either end of each register's range, and `0xFFFF`\n- a 16-bit value on the 0/1 lockout flag\n- any write to `0x05`\n- a panel brightness level over 100 in either byte\n- `set` connecting for a write the guard refuses\n\nA test that pins the range table whole fails if a register is added at any value or dropped. Never-send targets are checked at several values with `allow_dangerous`. Every Home Assistant entity range and the integration test values are inside the new ranges.\n",
+  "closed_at": "2026-11-20T00:41:17-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `17da0fddbd`: Well-structured PR that replaces the flat safe-settings set with per-register verified ranges, adds per-byte checking for panel brightness, removes untested debug mode from the safe bank, and moves the CLI's refusal before the MQTT connect. Tests cover every boundary, pin the table whole, and re-verify never-send targets. Docs and CHANGELOG are consistent with the code.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-19T21:29:23-08:00",
+    "id": 39489,
+    "updated_at": "2026-11-20T00:31:38-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-19T21:28:42-08:00",
+  "head": "refs/pull/240/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "4df4531520efc0d5f9c73dacda971b982790f91f",
+  "merged": true,
+  "milestone": null,
+  "number": 240,
+  "reviews": [],
+  "state": "closed",
+  "title": "Require opt-in for LR4 setting values outside their verified range",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "This PR contains the following updates:\n\n| Package | Update | Change |\n|---|---|---|\n| [ubuntu-22.04-compat](https://hub.docker.com/_/ubuntu) ([source](https://git.launchpad.net/cloud-images/+oci/ubuntu-base)) | digest | `252bffe` → `f64b2ff` |\n\n---\n\n### Configuration\n\n📅 **Schedule**: (UTC)\n\n- Branch creation\n  - At any time (no schedule defined)\n- Automerge\n  - At any time (no schedule defined)\n\n🚦 **Automerge**: Enabled.\n\n♻ **Rebasing**: Whenever PR is behind base branch, or you tick the rebase/retry checkbox.\n\n🔕 **Ignore**: Close this PR and you won't be reminded about this update again.\n\n---\n\n - [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check this box\n\n---\n\nRefs #211: standing issue for dependency updates.\n\nNo tests: dependency pins and their generated files are checked by the existing build and test jobs.\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0NC4yNTYuMSIsInVwZGF0ZWRJblZlciI6IjQ0LjI1Ni4xIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6W119-->\n",
+  "closed_at": "2026-11-20T02:09:27-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `c246fabc8e`: Clean Renovate-generated Docker digest update for the Ubuntu 22.04 base image, consistently applied in both the workflow and the Dockerfile, linked to the standing dependency-updates issue #211. No problems found.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-20T00:13:10-08:00",
+    "id": 39585,
+    "updated_at": "2026-11-20T01:10:31-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-20T00:09:43-08:00",
+  "head": "refs/pull/241/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "498283eeb78e0ab2c4f27ea2d31aed6836e41838",
+  "merged": true,
+  "milestone": null,
+  "number": 241,
+  "reviews": [],
+  "state": "closed",
+  "title": "chore(deps): update ubuntu-22.04-compat:22.04 docker digest to f64b2ff",
+  "user": "renovate"
  }
 ]
