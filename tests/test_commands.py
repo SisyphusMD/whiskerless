@@ -87,6 +87,13 @@ def test_button_presses_ask_for_at_most_once_delivery() -> None:
     assert not commands.request_state().at_most_once
 
 
+def test_a_raw_press_with_an_unknown_type_is_still_sent_at_most_once() -> None:
+    # The firmware may act on an unknown type as a press, so it must not be redelivered.
+    assert commands.is_edge_triggered("0x12010201")
+    assert commands.is_edge_triggered("0x03010201")
+    assert not commands.is_edge_triggered("0x01010000")
+
+
 def test_enabling_the_sleep_schedule_arms_every_day() -> None:
     """Writing 1 would arm Sunday only — 0x1D is a per-day bitmask."""
     assert commands.set_weekday_sleep_enabled(True).value == const.WEEKDAY_SLEEP_ALL_DAYS

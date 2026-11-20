@@ -73,7 +73,8 @@ def is_edge_triggered(code: str) -> bool:
     """True for a panel-button write, which must never be delivered twice."""
 
     ctype, register, _ = parse_code(code)
-    return ctype is CommandType.WRITE and register == const.Register.PANEL_BUTTON
+    # Any non-read type: an unknown one may still be acted on as a press.
+    return ctype is not CommandType.READ and register == const.Register.PANEL_BUTTON
 
 
 def _cmd(

@@ -111,8 +111,8 @@ network. So **every outbound command is classified and gated by
   `safety.py` first.
 - Power (`0x02010101`) needs `allow_dangerous`. It toggles, and a robot switched off
   has left the network, so nothing over MQTT can bring it back.
-- Untraced / control-band / calibration writes are refused unless explicitly
-  allowed.
+- Untraced / control-band / calibration writes and unknown command types are refused
+  unless explicitly allowed.
 
 If you add a new command, classify it in `safety.py` and add a test. Never send a
 raw opcode that bypasses the guard.

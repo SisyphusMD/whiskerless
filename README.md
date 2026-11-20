@@ -689,8 +689,8 @@ trial never repeated). None is worth a bricked board, so it guards every send:
 - **Power and WiFi need an explicit opt-in**, because a robot that is switched off,
   or has had its radio switched off, has left the network — and nothing over MQTT
   reaches it there.
-- **Untraced / control-band / calibration writes** are refused unless you
-  override them on purpose.
+- **Untraced / control-band / calibration writes** and command types other than
+  read (`01`) and write (`02`) are refused unless you override them on purpose.
 
 The routine presses — clean cycle, reset, empty — are ungated. Writing the panel
 button register reproduces the exact code the panel emits, so the robot cannot tell

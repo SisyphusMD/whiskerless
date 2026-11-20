@@ -9,7 +9,7 @@ import pytest
 from whiskerless.devices.litter_robot_4 import commands
 from whiskerless.devices.litter_robot_4.commands import Command
 from whiskerless.exceptions import DangerousCommandError, NeverSendError, ProtocolError
-from whiskerless.safety import Hazard, assert_sendable, classify_code
+from whiskerless.safety import PANEL_BUTTON_NEVER, Hazard, assert_sendable, classify_code
 
 
 @pytest.mark.parametrize(
@@ -28,7 +28,10 @@ from whiskerless.safety import Hazard, assert_sendable, classify_code
         ("0x012D0000", Hazard.SAFE),       # reading it is still a read
         ("0x02300001", Hazard.DANGEROUS),  # power candidate (control band)
         ("0x02A70003", Hazard.DANGEROUS),  # report macro with non-zero jump index
-        ("0x00120000", Hazard.NOOP),       # type nibble not 1/2
+        ("0x00120000", Hazard.DANGEROUS),  # type byte not 01/02
+        ("0x03180001", Hazard.DANGEROUS),  # unknown type on a safe settings register
+        ("0x12A00000", Hazard.DANGEROUS),  # high type digit set: not a type-2 write
+        ("0x021A0001", Hazard.SAFE),       # known no-op: read-only view, write discarded
     ],
 )
 def test_classify(code: str, hazard: Hazard) -> None:
@@ -139,13 +142,29 @@ def test_a_non_hex_command_is_refused_before_it_is_classified(code: str) -> None
         assert_sendable(code, allow_dangerous=True)
 
 
-def test_an_unrecognised_type_nibble_is_a_no_op_not_a_write() -> None:
-    """The firmware acts on type 1 and 2 and ignores the rest.
+def test_an_unknown_command_type_needs_opt_in() -> None:
+    """The firmware is said to ignore any type but 1 and 2; that was never tried.
 
-    Classifying an unknown nibble as anything else would either refuse a command
-    that does nothing, or — far worse — reason about it as though the register
-    and value mattered.
+    Treating it as a no-op let an untested byte through with no opt-in.
     """
-    # Type nibble 3 with an opcode that would be NEVER if it were a real write.
-    assert classify_code("0x03A30000") is Hazard.NOOP
-    assert_sendable("0x03A30000")
+    with pytest.raises(DangerousCommandError):
+        assert_sendable("0x03180001")
+    assert assert_sendable("0x03180001", allow_dangerous=True) is Hazard.DANGEROUS
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "0x03A30000",
+        "0x00AC0000",
+        "0x11A30000",  # low digit 1: the old parser took this for a read and sent it
+        "0x11AC0000",
+        "0x122D0001",
+        *(f"0x0301{value:04X}" for value in sorted(PANEL_BUTTON_NEVER)),
+    ],
+)
+def test_an_unknown_type_never_unlocks_a_never_send_target(code: str) -> None:
+    # If the firmware does not ignore the type after all, the override must not
+    # be the thing that sent a reset.
+    with pytest.raises(NeverSendError):
+        assert_sendable(code, allow_dangerous=True)

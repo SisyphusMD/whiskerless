@@ -23,7 +23,7 @@ class NeverSendError(SafetyError):
 
 
 class DangerousCommandError(SafetyError):
-    """An untraced / control-band / calibration write was refused.
+    """An untraced / control-band / calibration write or unknown command type was refused.
 
     These registers are unverified or contradicted by the reverse-engineering
     and can corrupt persisted scale/ToF calibration or trip an unknown action.
