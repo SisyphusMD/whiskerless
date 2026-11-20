@@ -2762,7 +2762,7 @@ def _print_orientation(store: RobotProfileStore) -> None:
               "    whiskerless monitor        watch its telemetry live\n"
               "    whiskerless robots         list what this machine knows\n")
     print("  All commands   whiskerless --help\n"
-          "  Docs           https://github.com/SisyphusMD/whiskerless\n")
+          "  Docs           https://forgejo.bryantserver.com/SisyphusMD/whiskerless\n")
 
 
 # --- presentation ------------------------------------------------------------

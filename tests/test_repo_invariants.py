@@ -17,6 +17,7 @@ import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 import yaml
@@ -25,6 +26,17 @@ from whiskerless.cli import build_parser
 
 REPO = Path(__file__).resolve().parent.parent
 INTEGRATION = REPO / "custom_components" / "whiskerless"
+
+
+def test_notification_blueprint_import_links_match_its_source_url() -> None:
+    path = "blueprints/automation/whiskerless/litter_robot_notifications.yaml"
+    blueprint = yaml.load((REPO / path).read_text(), Loader=yaml.BaseLoader)["blueprint"]
+    url = f"https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/{path}"
+    assert blueprint["source_url"] == url
+    guide = (REPO / "docs/setup/notifications.md").read_text()
+    assert f"```text\n{url}\n```" in guide
+    for doc in [guide, (REPO / "README.md").read_text()]:
+        assert f"?blueprint_url={quote(url, safe='')})" in doc
 
 
 def _json(path: Path) -> Any:

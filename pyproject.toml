@@ -91,12 +91,9 @@ test-ha-current = [
     "pytest-homeassistant==2026.11.2",
 ]
 
-# Source points at Forgejo because that is where the code actually lives and where releases are
-# cut; GitHub is a mirror. Homepage, docs and issues point at GitHub because that is where users
-# are — HACS installs from it, and issues and pull requests are handled there.
 [project.urls]
-Homepage = "https://github.com/SisyphusMD/whiskerless"
-Documentation = "https://github.com/SisyphusMD/whiskerless/tree/main/docs"
+Homepage = "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
+Documentation = "https://forgejo.bryantserver.com/SisyphusMD/whiskerless/src/branch/main/docs"
 Source = "https://forgejo.bryantserver.com/SisyphusMD/whiskerless"
 Issues = "https://forgejo.bryantserver.com/SisyphusMD/whiskerless/issues"
 

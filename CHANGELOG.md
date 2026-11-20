@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Use Forgejo for CLI update checks, the Homebrew tap and notification blueprint imports (#228).
+
 - A settings write now needs `allow_dangerous` when its value is outside the range the setting
   can hold and was tested in, such as a clean-cycle wait of 0 or 31 minutes, a panel brightness level over 100,
   or any write to debug mode (`0x05`), which has never been tested. Until now every settings

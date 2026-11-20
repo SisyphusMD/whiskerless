@@ -16,7 +16,7 @@ blueprint:
     arrives as a `whiskerless_alert` event that any automation can use.
   domain: automation
   author: SisyphusMD
-  source_url: https://github.com/SisyphusMD/whiskerless/blob/main/blueprints/automation/whiskerless/litter_robot_notifications.yaml
+  source_url: https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/blueprints/automation/whiskerless/litter_robot_notifications.yaml
   homeassistant:
     min_version: "2024.10.0"
   input:

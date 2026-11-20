@@ -1,9 +1,9 @@
-<img src="https://raw.githubusercontent.com/SisyphusMD/whiskerless/main/brand/banner.png" alt="whiskerless" width="470">
+<img src="https://forgejo.bryantserver.com/SisyphusMD/whiskerless/raw/branch/main/brand/banner.png" alt="whiskerless" width="470">
 
 [![PyPI](https://img.shields.io/pypi/v/whiskerless?color=4c1)](https://pypi.org/project/whiskerless/)
 [![Python](https://img.shields.io/pypi/pyversions/whiskerless)](https://pypi.org/project/whiskerless/)
-[![HACS custom](https://img.shields.io/badge/HACS-custom-41BDF5)](https://github.com/SisyphusMD/whiskerless#home-assistant-hacs)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/SisyphusMD/whiskerless/blob/main/LICENSE)
+[![HACS custom](https://img.shields.io/badge/HACS-custom-41BDF5)](https://forgejo.bryantserver.com/SisyphusMD/whiskerless#home-assistant-hacs)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/src/branch/main/LICENSE)
 
 <br>
 
@@ -226,7 +226,7 @@ Going local loses the Whisker app's push notifications. A blueprint brings them 
 faults that break through Focus, quiet hours, reminders while an alert is left alone, and
 a Silence button. Import it once, then create an automation from it and pick the phones:
 
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FSisyphusMD%2Fwhiskerless%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fwhiskerless%2Flitter_robot_notifications.yaml)
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fforgejo.bryantserver.com%2FSisyphusMD%2Fwhiskerless%2Fraw%2Fbranch%2Fmain%2Fblueprints%2Fautomation%2Fwhiskerless%2Flitter_robot_notifications.yaml)
 
 The integration's **Configure** button sets the alert thresholds and reminder times.
 Every alert is also a `whiskerless_alert` event any automation can use;
@@ -240,13 +240,16 @@ them needs a system Python except PyPI's.
 **Homebrew (macOS and Linux):**
 
 ```bash
-brew tap sisyphusmd/tap
+brew tap --custom-remote sisyphusmd/tap https://forgejo.bryantserver.com/SisyphusMD/homebrew-tap.git
 brew trust sisyphusmd/tap    # one-time; Homebrew 6+ won't load a third-party tap until trusted
-brew install sisyphusmd/tap/whiskerless
 ```
 
+The stable v0.1.3 release predates Homebrew support. For that release, use the signed installer
+or PyPI. To install the prebuilt release candidate, run `brew install sisyphusmd/tap/whiskerless-rc`.
+Starting with the first stable release that ships bottles, use `brew install sisyphusmd/tap/whiskerless`.
+
 **macOS signed installer** — download `whiskerless-<version>-macos-arm64.pkg` for Apple Silicon
-from the [releases](https://github.com/SisyphusMD/whiskerless/releases) and double-click.
+from the [releases](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/releases) and double-click.
 It's signed and **notarized by Apple**, so there's no
 "unidentified developer" warning. The first time it scans, macOS asks to let
 your terminal use Bluetooth — allow it.
@@ -757,7 +760,7 @@ optional and change nothing about the project. Everything here is free and MIT-l
 
 ## License
 
-[MIT](https://github.com/SisyphusMD/whiskerless/blob/main/LICENSE). Not affiliated with or endorsed by Whisker. "Litter-Robot" is a
+[MIT](https://forgejo.bryantserver.com/SisyphusMD/whiskerless/src/branch/main/LICENSE). Not affiliated with or endorsed by Whisker. "Litter-Robot" is a
 trademark of its respective owner; this project is independent and interoperates
 with hardware you own.
 

@@ -65,10 +65,10 @@ def test_todays_cache_is_used_without_touching_the_network(
     assert "99.0.0" in message
 
 
-def test_a_stale_cache_survives_an_unreachable_github(
+def test_a_stale_cache_survives_an_unreachable_forge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channel: tuple[str, str]
 ) -> None:
-    """An unreachable GitHub must not make an out-of-date install look current."""
+    """An unreachable Forgejo must not make an out-of-date install look current."""
     channel_name, marker = channel
     monkeypatch.setattr(update_check, "_fetch_latest", lambda: None)
     (tmp_path / marker).write_text(
@@ -185,7 +185,7 @@ def test_a_candidate_install_asks_the_endpoint_that_returns_candidates(
 
     monkeypatch.setattr(update_check.urllib.request, "urlopen", _open)
     assert update_check._fetch_latest("0.2.0-rc.35") == "v0.2.0-rc.36"
-    assert "releases?" in asked[0]
+    assert asked == ["https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless/releases?limit=10"]
 
 
 def test_a_stable_install_still_asks_for_the_latest_stable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -202,7 +202,7 @@ def test_a_stable_install_still_asks_for_the_latest_stable(monkeypatch: pytest.M
 
     monkeypatch.setattr(update_check.urllib.request, "urlopen", _open)
     assert update_check._fetch_latest("0.2.0") == "v0.3.0"
-    assert asked[0].endswith("/releases/latest")
+    assert asked == ["https://forgejo.bryantserver.com/api/v1/repos/SisyphusMD/whiskerless/releases/latest"]
 
 
 def test_a_draft_release_is_never_offered(monkeypatch: pytest.MonkeyPatch) -> None:

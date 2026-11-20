@@ -24,7 +24,7 @@ description: |
   Includes the one-time BLE provisioner that re-points a robot at your own
   broker, so the robot never talks to Whisker's cloud again.
 vendor: SisyphusMD
-homepage: https://github.com/SisyphusMD/whiskerless
+homepage: https://forgejo.bryantserver.com/SisyphusMD/whiskerless
 license: MIT
 
 # A host below the floor gets a package-manager refusal at install time instead of a binary that

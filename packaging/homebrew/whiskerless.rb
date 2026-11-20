@@ -96,7 +96,7 @@ REPLACE_BOTTLE_BLOCK
 
       Provisioning is reversible through the Whisker app, but it is the step that moves the robot
       off the cloud — read the setup guide first:
-        https://github.com/SisyphusMD/whiskerless/tree/main/docs/setup
+        https://forgejo.bryantserver.com/SisyphusMD/whiskerless/src/branch/main/docs/setup
     EOS
   end
 
