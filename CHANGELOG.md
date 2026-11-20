@@ -8,6 +8,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Use Forgejo for CLI update checks, the Homebrew tap and notification blueprint imports (#228).
 
+- A settings write now needs `allow_dangerous` when its value is outside the range the setting
+  can hold and was tested in, such as a clean-cycle wait of 0 or 31 minutes, a panel brightness level over 100,
+  or any write to debug mode (`0x05`), which has never been tested. Until now every settings
+  register took any 16-bit value with no opt-in. `whiskerless set` names the refused code and
+  points to `send --allow-dangerous`, before it connects. Never-send commands stay refused at
+  any value. (#219)
+
 - A raw command with a type other than read (`01`) or write (`02`) now needs `allow_dangerous`,
   and one aimed at a never-send target is refused outright. Until now only the type's second
   digit was read, so `0x11A30000`, a reset-class opcode, passed as a safe read and was sent
@@ -91,6 +98,8 @@ much of the hopper work.
 - Clean cycle wait time is a number (3 to 30 minutes), not a select.
 - Library: `Hazard.MOTOR`, `MotorCommandError`, `allow_motor`, `LitterRobot4Client` and `WhiskerlessAuthError` are removed.
 - Library: `Hazard.NOOP` is removed and `CommandType.NOOP` is now `CommandType.UNKNOWN`. (#218)
+- Library: `safety.SAFE_SETTINGS_REGISTERS` is replaced by `SAFE_SETTING_VALUES`, a verified
+  range per register, and panel brightness is checked per level. (#219)
 
 ### Added
 

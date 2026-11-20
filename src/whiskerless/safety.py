@@ -26,7 +26,9 @@ because the mechanism is known. The same holds for a type byte other than
 ``01`` or ``02``. It was assumed to be ignored, but never tried, and the one
 unknown field that was tried points the other way: an unknown panel press type
 is normalised to a short press and performed. So it needs ``allow_dangerous``,
-and never-send targets stay refused.
+and never-send targets stay refused. A setting value outside the range verified
+for its register is handled the same way: writes inside the range were read back,
+and what the firmware does with one past it has not been seen.
 
 The command grammar guarded here is the LR4 ESP wire format: a 10-character
 string ``0xTTRRVVVV`` where ``TT`` is the type (``01``=read, ``02``=write/macro),
@@ -124,19 +126,39 @@ PANEL_BUTTON_SAFE: frozenset[int] = frozenset({0x0201, 0x0401, 0x0801})
 #: dangerous instead.
 SAFE_REPORT_MACROS: frozenset[int] = frozenset({0xA0, 0xA1, 0xA7, 0xA9, 0xAE})
 
-#: Registers whose writes are safe. Most are reversible settings validated by a
-#: live read-modify-restore sweep; 0x1A-0x1C are read-only views whose refused
-#: writes are acknowledged and discarded.
-SAFE_SETTINGS_REGISTERS: frozenset[int] = frozenset(
-    {0x05, 0x0E, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, *range(0x1E, 0x2C)}
-)
+_MINUTES_OF_DAY = range(1440)
+
+#: Settings registers and the values verified for each: the setting's own domain
+#: (an enum, a percentage, minutes since midnight, the seven-day mask, the span
+#: the app offers), inside which live writes were read back. A value outside its
+#: range is a write nobody has seen land, so it is DANGEROUS, not SAFE. 0x1A-0x1C
+#: are read-only views whose refused writes are acknowledged and discarded; they
+#: are bounded the same way because the discard was only seen inside the domain.
+#: 0x05 (debug mode) is absent: no write to it has ever been recorded.
+SAFE_SETTING_VALUES: dict[int, range] = {
+    0x16: range(3, 31),       # clean-cycle wait, minutes; written at 3, 7 and 20
+    0x17: range(2),           # keypad lockout
+    0x18: range(3),           # night light off / on / auto
+    0x19: range(101),         # night-light brightness, %
+    0x1A: range(2),
+    0x1B: _MINUTES_OF_DAY,
+    0x1C: _MINUTES_OF_DAY,
+    0x1D: range(0x80),        # bit i arms weekday i, Sunday-first
+    **dict.fromkeys(range(0x1E, 0x2C), _MINUTES_OF_DAY),
+}
+
+#: Panel brightness packs two levels into one value, hi byte for a bright room
+#: and lo byte for a dark one, so the range applies to each byte. A range on the
+#: packed value would pass 0x00FF.
+PANEL_BRIGHTNESS_REGISTER: int = 0x0E
+PANEL_BRIGHTNESS_LEVELS: range = range(101)
 
 
 class Hazard(Enum):
     """How dangerous a parsed command is."""
 
-    SAFE = "safe"            # read, report macro (value 0), or settings write
-    DANGEROUS = "dangerous"  # untraced / control-band / calibration / unknown type
+    SAFE = "safe"            # read, report macro (value 0), or verified settings write
+    DANGEROUS = "dangerous"  # untraced, unverified value, or unknown type
     NEVER = "never"          # brick / reset-class — unconditionally refused
 
 
@@ -197,8 +219,13 @@ def classify(ctype: CommandType, register: int, value: int) -> Hazard:
         return Hazard.DANGEROUS
     if register in SAFE_REPORT_MACROS:
         return Hazard.SAFE if value == 0 else Hazard.DANGEROUS
-    if register in SAFE_SETTINGS_REGISTERS:
-        return Hazard.SAFE
+    if register == PANEL_BRIGHTNESS_REGISTER:
+        high, low = value >> 8, value & 0xFF
+        if high in PANEL_BRIGHTNESS_LEVELS and low in PANEL_BRIGHTNESS_LEVELS:
+            return Hazard.SAFE
+        return Hazard.DANGEROUS
+    if register in SAFE_SETTING_VALUES:
+        return Hazard.SAFE if value in SAFE_SETTING_VALUES[register] else Hazard.DANGEROUS
     # Untested, so refused by default: what the firmware does with a register it
     # has no handler for has never been observed either way.
     return Hazard.DANGEROUS
@@ -223,8 +250,8 @@ def assert_sendable(code: str, *, allow_dangerous: bool = False) -> Hazard:
         )
     if hazard is Hazard.DANGEROUS and not allow_dangerous:
         raise DangerousCommandError(
-            f"{code} is untraced/unverified (control-band, calibration, "
-            "unknown opcode or unknown command type); pass allow_dangerous=True "
-            "to override"
+            f"{code} is untraced/unverified (unknown opcode, unknown command "
+            "type, or a setting value outside its verified range); pass "
+            "allow_dangerous=True to override"
         )
     return hazard
