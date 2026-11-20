@@ -446,6 +446,35 @@ def test_set_reports_a_write_that_never_committed(capsys: pytest.CaptureFixture[
     assert "not confirmed" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    ("setting", "value", "code"),
+    [
+        ("clean-cycle-wait", "0", "0x02160000"),
+        ("clean-cycle-wait", "31", "0x0216001F"),
+        ("panel-brightness", "101", "0x020E6565"),
+    ],
+)
+def test_set_refuses_an_unverified_value_before_connecting(
+    capsys: pytest.CaptureFixture[str], setting: str, value: str, code: str
+) -> None:
+    """The builders clamp to what the register can hold, not to what was tested.
+
+    So the refusal names what was typed, and the way to send it anyway, rather
+    than the robot being connected to only for the guard to refuse the write.
+    """
+
+    class Unreachable(FakeLink):
+        def __init__(self, *_: object, **__: object) -> None:
+            raise AssertionError("connected for a write the guard refuses")
+
+    with patch("whiskerless.cli.LitterRobot4Link", Unreachable):
+        assert _run("set", setting, value, *BASE) == 1
+    err = capsys.readouterr().err
+    assert f"{setting} {value} is outside the range" in err
+    assert code in err
+    assert "--allow-dangerous" in err
+
+
 def test_a_derived_register_says_where_the_real_setting_lives(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
