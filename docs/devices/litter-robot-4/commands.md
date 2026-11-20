@@ -23,17 +23,24 @@ Encodings are PROVEN by a live read-modify-restore sweep. whiskerless writes, re
 back, and retries — but *accepting* a write is the robot's call, and the panel sleep
 bank turns some of these down (see [registers.md](registers.md#the-panel-sleep-bank-is-not-a-plain-settings-bank)).
 
-| Setting | Reg | Code | Encoding | Accepted? |
-|---|---|---|---|---|
-| Night-light mode | `0x18` | `0x0218000M` | 0 = off, 1 = on, 2 = auto | yes |
-| Night-light brightness | `0x19` | `0x021900VV` | 0–100 % (direct) | yes |
-| Clean-cycle wait time | `0x16` | `0x021600VV` | minutes | yes |
-| Keypad / control lockout | `0x17` | `0x0217000B` | 0 / 1 | yes |
-| Panel brightness | `0x0E` | `0x020EHHLL` | hi byte = High level, lo byte = Low level | yes |
-| Panel sleep mode | `0x1A` | `0x021A000B` | 0 / 1 | no — read-only, follows `0x1D` |
-| Panel sleep / wake time | `0x1B` / `0x1C` | `0x021BVVVV` | minutes since midnight (16-bit) | no — read-only view of today's weekday pair |
-| Weekday sleep schedule | `0x1D` | `0x021DMMMM` | **per-day bitmask**, Sunday = bit 0. `0x7F` all days, `0x00` none — writing `1` arms Sunday alone | yes |
-| Weekday sleep/wake ×14 | `0x1E–0x2B` | `0x021E..2B VVVV` | minutes since midnight, Sunday-first — see [compatibility.md](compatibility.md#weekday-schedule) | yes |
+The safety guard sends a settings write without `allow_dangerous` only inside the
+**Safe values** column: the domain the setting can hold, where writes at some values
+were read back. What the firmware does past it has not been seen, so a value outside it
+needs `allow_dangerous` (`whiskerless send --allow-dangerous`). Safe means the guard
+lets it out, not that the robot keeps it: see the **Accepted?** column.
+
+| Setting | Reg | Code | Encoding | Safe values | Accepted? |
+|---|---|---|---|---|---|
+| Night-light mode | `0x18` | `0x0218000M` | 0 = off, 1 = on, 2 = auto | 0–2 | yes |
+| Night-light brightness | `0x19` | `0x021900VV` | 0–100 % (direct) | 0–100 | yes |
+| Clean-cycle wait time | `0x16` | `0x021600VV` | minutes | 3–30, the app's span; written at 3, 7 and 20 | yes |
+| Keypad / control lockout | `0x17` | `0x0217000B` | 0 / 1 | 0–1 | yes |
+| Panel brightness | `0x0E` | `0x020EHHLL` | hi byte = High level, lo byte = Low level | each byte 0–100 | yes |
+| Panel sleep mode | `0x1A` | `0x021A000B` | 0 / 1 | 0–1 | no — read-only, follows `0x1D` |
+| Panel sleep / wake time | `0x1B` / `0x1C` | `0x021BVVVV` | minutes since midnight (16-bit) | 0–1439 | no — read-only view of today's weekday pair |
+| Weekday sleep schedule | `0x1D` | `0x021DMMMM` | **per-day bitmask**, Sunday = bit 0. `0x7F` all days, `0x00` none — writing `1` arms Sunday alone | 0–`0x7F` | yes |
+| Weekday sleep/wake ×14 | `0x1E–0x2B` | `0x021E..2B VVVV` | minutes since midnight, Sunday-first — see [compatibility.md](compatibility.md#weekday-schedule) | 0–1439 | yes |
+| Debug mode | `0x05` | `0x0205VVVV` | unknown; never written (backlog #91) | none | untested |
 
 ## Actions (`0x01`, the panel button register)
 
