@@ -70,7 +70,7 @@ dev = [
     # Only the repo-invariant tests need it: quality_scale.yaml and the shipped
     # example automations are checked for drift, and neither is Python.
     # renovate: datasource=pypi depName=pyyaml
-    "pyyaml==6.0.3",
+    "pyyaml==6.0.4",
     # renovate: datasource=pypi depName=ruff
     "ruff==0.17.6",
 ]
