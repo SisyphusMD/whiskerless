@@ -17,10 +17,14 @@ concurrency:
 jobs:
   review:
     name: Review
-    # Replies on PRs only, and never the reviewer's own comment.
+    # Replies on PRs only, never the reviewer's own comment, and only from someone who can push or
+    # wrote the PR: any signed-in account can comment on a public repo, and each run holds the
+    # Studio model for up to 45 minutes. Forgejo sets repository.permissions to the commenter's own.
     if: >-
       github.event_name == 'pull_request_target' ||
-      (github.event.issue.pull_request && github.event.comment.user.login != 'forgejo-actions')
+      (github.event.issue.pull_request && github.event.comment.user.login != 'forgejo-actions' &&
+      (github.event.repository.permissions.push ||
+      github.event.comment.user.login == github.event.issue.user.login))
     runs-on: ubuntu-latest
     # Above the script's MODEL_DEADLINE (40 minutes) plus its API calls.
     timeout-minutes: 45
