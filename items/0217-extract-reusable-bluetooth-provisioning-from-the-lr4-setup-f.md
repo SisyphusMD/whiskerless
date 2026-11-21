@@ -32,3 +32,11 @@ Status: unchanged since comment 38980. PR #235 is green and mergeable, branch ch
 ## cody, 2026-11-20T00:41:55-08:00
 
 Status: PR #235 is unchanged, and still waits only on the LR4 bench test with Cody home (run `whiskerless provision` from the branch while he holds Connect, then confirm the robot reaches the broker). #218 and #219 have merged, so this is the last prerequisite for #188. The session is rotating; no crons or holds are running.
+
+## cody, 2026-11-20T09:01:21-08:00
+
+Status (2026-11-20): PR #235 is up to date with main (merge d8095e7, plus 8a088d9 moving the library break under Breaking changes) and fully green, AI review included. Worktree `~/repos/SisyphusMD/whiskerless-217`.
+
+Next, needs Cody home: run `whiskerless provision` from the branch while he holds Connect on the LR4, confirm the robot reaches the broker, then merge #235 with /forgejo-merge, clean up and close this.
+
+After that, in order: #221 (held so its CONTRIBUTING.md edit does not put #235 behind main again), #234 (split cli.py), rebase #188 onto the profile seam, #222 (needs Cody home).

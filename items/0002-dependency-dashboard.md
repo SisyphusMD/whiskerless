@@ -5,7 +5,11 @@
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.
 
-This repository currently has no open or pending branches.
+## Open
+
+The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
+
+ - [ ] <!-- rebase-branch=renovate/quay.io-pypa-manylinux_2_28-2026.11.x -->[chore(deps): update quay.io/pypa/manylinux_2_28 docker tag to v2026.11.21-1](pulls/244)
 
 ## Detected Dependencies
 
@@ -248,7 +252,7 @@ This repository currently has no open or pending branches.
  - `pytest ==9.2.0`
  - `pytest-asyncio ==1.5.0`
  - `pytest-cov ==7.1.0`
- - `pyyaml ==6.0.3`
+ - `pyyaml ==6.0.4`
  - `ruff ==0.17.6`
  - `pytest-cov >=5.0`
  - `syrupy >=4.0`
@@ -330,7 +334,7 @@ This repository currently has no open or pending branches.
 
 <details><summary>packaging/release-pins.env (3)</summary>
 
- - `quay.io/pypa/manylinux_2_28 2026.11.14-1@sha256:834a11a02642a46e580b62f25f5b04588355092c8677eaf0393e3ea1997001a3`
+ - `quay.io/pypa/manylinux_2_28 2026.11.14-1@sha256:834a11a02642a46e580b62f25f5b04588355092c8677eaf0393e3ea1997001a3` → [Updates: `2026.11.21-1`]
  - `goreleaser/nfpm v2.49.0@sha256:9ea46a59c4d055ef7071b22f3520b53e8dad98e18043b2f881b53bd7ffec634e`
  - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`
 

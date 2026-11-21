@@ -231,7 +231,7 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 225 | issue | closed | [Prove the standard checks before protecting whiskerless main](items/0225-prove-the-standard-checks-before-protecting-whiskerless-main.md) |
 | 226 | pull | closed | [WIP: Disposable draft to prove standard required checks](items/0226-wip-disposable-draft-to-prove-standard-required-checks.md) |
 | 227 | pull | closed | [Publish Whiskerless Homebrew formulae and bottles through tap PRs](items/0227-publish-whiskerless-homebrew-formulae-and-bottles-through-ta.md) |
-| 228 | issue | open | [Use Forgejo for installs and updates outside Marketplace](items/0228-use-forgejo-for-installs-and-updates-outside-marketplace.md) |
+| 228 | issue | closed | [Use Forgejo for installs and updates outside Marketplace](items/0228-use-forgejo-for-installs-and-updates-outside-marketplace.md) |
 | 229 | issue | closed | [Generate Home Assistant OS Mosquitto configuration in whiskerless setup](items/0229-generate-home-assistant-os-mosquitto-configuration-in-whiske.md) |
 | 230 | pull | closed | [Generate the Home Assistant OS Mosquitto listener during setup](items/0230-generate-the-home-assistant-os-mosquitto-listener-during-set.md) |
 | 231 | pull | closed | [fix(deps): update dependency ruff to v0.17.6](items/0231-fix-deps-update-dependency-ruff-to-v0-17-6.md) |
@@ -245,3 +245,6 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 239 | pull | closed | [chore(deps): update ubuntu-22.04-compat:22.04 docker digest to 252bffe](items/0239-chore-deps-update-ubuntu-22-04-compat-22-04-docker-digest-to.md) |
 | 240 | pull | closed | [Require opt-in for LR4 setting values outside their verified range](items/0240-require-opt-in-for-lr4-setting-values-outside-their-verified.md) |
 | 241 | pull | closed | [chore(deps): update ubuntu-22.04-compat:22.04 docker digest to f64b2ff](items/0241-chore-deps-update-ubuntu-22-04-compat-22-04-docker-digest-to.md) |
+| 242 | pull | closed | [chore: default update checks, the Homebrew tap, links and blueprint imports to Forgejo](items/0242-chore-default-update-checks-the-homebrew-tap-links-and-bluep.md) |
+| 243 | pull | closed | [fix(deps): update dependency pyyaml to v6.0.4](items/0243-fix-deps-update-dependency-pyyaml-to-v6-0-4.md) |
+| 244 | pull | open | [chore(deps): update quay.io/pypa/manylinux_2_28 docker tag to v2026.11.21-1](items/0244-chore-deps-update-quay-io-pypa-manylinux-2-28-docker-tag-to-.md) |
