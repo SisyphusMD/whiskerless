@@ -20,6 +20,7 @@ jobs:
     # Replies on PRs only, never the reviewer's own comment, and only from someone who can push or
     # wrote the PR: any signed-in account can comment on a public repo, and each run holds the
     # Studio model for up to 45 minutes. Forgejo sets repository.permissions to the commenter's own.
+    # The bot login matches BOT_LOGIN below (a test holds them equal): a job-level if cannot read env.
     if: >-
       github.event_name == 'pull_request_target' ||
       (github.event.issue.pull_request && github.event.comment.user.login != 'forgejo-actions' &&
@@ -30,6 +31,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # github.sha is the base branch's commit (pull_request_target) or the default branch's
+          # (issue_comment), never the PR's: named so the reviewer cannot come from the PR it reviews.
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Review the PR
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -41,4 +47,5 @@ jobs:
           # Keyless proxy in forgejo-runner (bryantserver/k8s apps/forgejo/runner/llm-proxy).
           LLM_URL: http://studio-llm.forgejo-runner.svc.cluster.local:8080/v1/chat/completions
           MODEL: qwen3.8-flash-next
+          BOT_LOGIN: forgejo-actions
         run: python3 -I .forgejo/scripts/ai-review.py

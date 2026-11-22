@@ -9,14 +9,17 @@ Each run reads the PR, its diff and every human comment, plus the findings this 
 before (kept as JSON in one marker comment it edits in place). The model returns the full finding
 list with stable ids: a finding stays open, is resolved by a later commit, or is withdrawn when an
 author's reply convinces it. Only open findings marked blocking, citing a changed file and a line,
-fail the check. Anything that prevents a real review (model unreachable, unparseable answer, diff
-too large) fails closed: the gate never passes by accident.
+fail the check. An unparseable or malformed answer is put back to the model once with the error; a second one
+fails the check, and the comment names what was wrong. Anything that prevents a real review
+(model unreachable, diff too large) fails closed: the gate never passes by accident.
 """
 import base64
+import errno
 import json
 import os
 import re
 import signal
+import socket
 import sys
 import time
 import urllib.error
@@ -29,6 +32,9 @@ HEADERS = {"Authorization": f"token {os.environ['TOKEN']}", "Content-Type": "app
 CONTEXT = os.environ.get("STATUS_CONTEXT", "AI review")
 BOT = os.environ.get("BOT_LOGIN", "forgejo-actions")
 MAX_DIFF = int(os.environ.get("MAX_DIFF_CHARS", "120000"))
+# Replies are bounded like every other part of the prompt, so a long thread cannot crowd out the diff.
+MAX_REPLY_CHARS = 4000
+MAX_REPLIES_CHARS = 30000
 
 SYSTEM = """You are the code reviewer for a small repository. Review the pull request for
 real problems: correctness bugs, security and privacy risks, data loss, broken error handling,
@@ -84,6 +90,20 @@ def pages(path):
         if len(batch) < 50:
             return
         page += 1
+
+
+def bound_replies(replies):
+    """Each reply clipped to its start and end, then the oldest dropped until the rest fit: the
+    newest carry the argument, and a withdrawn finding keeps its reason in the saved state."""
+    kept, total = [], 0
+    for reply in reversed(replies):
+        text = clip(reply, MAX_REPLY_CHARS)
+        if total + len(text) > MAX_REPLIES_CHARS:
+            break
+        kept.append(text)
+        total += len(text)
+    dropped = len(replies) - len(kept)
+    return ([f"[{dropped} older replies omitted]"] if dropped else []) + kept[::-1]
 
 
 def set_status(sha, state, description):
@@ -172,7 +192,9 @@ def linked_issues(body):
 
 # Hidden reasoning counts toward this cap: uncapped, one long review reasoned for 23,119 tokens
 # before a 438-token answer. It must stay small enough to finish inside MODEL_DEADLINE at the
-# slowest observed speed (59 tok/s, so about 11 minutes); a review that reaches it is stuck.
+# slowest observed speed (59 tok/s, so about 11 minutes); a review that reaches it is stuck. A
+# retry under its schema is capped at RESTATE_OUTPUT_TOKENS (about 5 minutes), so both fit; a
+# server that refuses the schema costs a third, full call, which can reach the deadline.
 MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "40000"))
 # Everything between the pending status and the saved comment, counted from the script's start,
 # the model's queueing on the shared Studio included. urlopen's timeout bounds each socket read,
@@ -187,6 +209,36 @@ class CutOff(RuntimeError):
     pass
 
 
+class NoJSON(ValueError):
+    """An answer with no readable verdict; `raw` keeps its text for the restate request."""
+
+    def __init__(self, raw):
+        super().__init__("no JSON object in the model's answer")
+        self.raw = raw
+
+
+# What validate accepts, as a strict json_schema. oMLX enforces it with a grammar that starts after
+# the reasoning but caps that reasoning near 4,096 tokens, too few for a review, so it constrains
+# only the retry, which restates an answer already reasoned out.
+_TEXT = {"type": "string"}
+ANSWER_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["summary", "findings"],
+    "properties": {"summary": _TEXT, "findings": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False,
+        "required": ["id", "severity", "status", "title", "detail", "response"],
+        "properties": {"id": {"type": "string", "pattern": "^\\s*\\S.*$"}, "file": _TEXT, "line": {"type": "integer"},
+                       "severity": {"type": "string", "enum": ["blocking", "suggestion"]},
+                       "status": {"type": "string", "enum": ["open", "resolved", "withdrawn"]},
+                       "title": _TEXT, "detail": _TEXT, "response": _TEXT}}}},
+}
+# The restate quotes this much of a rejected answer: the start and end of its text, and the end of
+# its reasoning, where the verdict was reached.
+RESTATE_CONTENT_CHARS = 6000
+RESTATE_REASONING_CHARS = 12000
+# A schema-constrained answer reasons for at most about 4,096 tokens and then writes only the JSON.
+RESTATE_OUTPUT_TOKENS = 16000
+
+
 # Not a TimeoutError: urllib wraps any OSError raised while it connects in a URLError.
 class Deadline(Exception):
     pass
@@ -196,23 +248,72 @@ def _deadline(signum, frame):
     raise Deadline(f"the review passed its {MODEL_DEADLINE // 60}-minute deadline")
 
 
-def ask_model(messages):
+# Waits before each retry of a model request that never reached the server. A failed name lookup
+# or a refused or unroutable connection happens before anything is sent, so repeating it cannot
+# review twice; a timeout or an HTTP error may come after the model started, so those still fail
+# at once. About a minute rides out a blip; a longer outage should fail and show on the PR.
+CONNECT_RETRY_DELAYS = (5, 15, 30)
+# Bounds each socket read (and the connect), not the call; MODEL_DEADLINE bounds the call.
+MODEL_READ_TIMEOUT = 900
+UNSENT_ERRNOS = {errno.ECONNREFUSED, errno.EHOSTUNREACH, errno.ENETUNREACH, errno.ENETDOWN}
+
+
+def never_connected(error):
+    if not isinstance(error, urllib.error.URLError) or isinstance(error, urllib.error.HTTPError):
+        return False
+    reason = error.reason
+    return isinstance(reason, socket.gaierror) or (isinstance(reason, OSError)
+                                                   and reason.errno in UNSENT_ERRNOS)
+
+
+def open_model(req):
+    for delay in CONNECT_RETRY_DELAYS:
+        try:
+            return urllib.request.urlopen(req, timeout=MODEL_READ_TIMEOUT)
+        except urllib.error.URLError as e:
+            if not never_connected(e):
+                raise
+            print(f"model request did not connect ({e.reason}); retrying in {delay}s")
+            time.sleep(delay)
+    return urllib.request.urlopen(req, timeout=MODEL_READ_TIMEOUT)
+
+
+def clip(text, limit):
+    """Text over `limit` keeps its start and its end, where a verdict usually sits."""
+    if len(text) <= limit:
+        return text
+    half = limit // 2
+    return text[:half] + "\n[...]\n" + text[-half:]
+
+
+def ask_model(messages, schema=None):
+    cap = min(MAX_OUTPUT_TOKENS, RESTATE_OUTPUT_TOKENS) if schema else MAX_OUTPUT_TOKENS
     body = {"model": os.environ["MODEL"], "messages": messages, "temperature": 0,
-            "max_tokens": MAX_OUTPUT_TOKENS, "stream": False}
+            "max_tokens": cap, "stream": False}
+    if schema:
+        body["response_format"] = {"type": "json_schema",
+                                   "json_schema": {"name": "review", "strict": True, "schema": schema}}
     req = urllib.request.Request(os.environ["LLM_URL"], method="POST", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=900) as r:
+    with open_model(req) as r:
         reply = json.loads(r.read())
-    choice = reply["choices"][0]
+    choices = reply.get("choices") if isinstance(reply, dict) else None
+    if not choices or not isinstance(choices[0], dict):
+        # A server error body ({"error": ...}) is an unreadable answer, not a broken script.
+        raise ValueError(f"model reply has no choices: {json.dumps(reply, default=str)[:500]}")
+    choice = choices[0]
     usage = reply.get("usage") or {}
     # Logged so the cap can be re-sized from real reviews; nothing else records it.
     finish = choice.get("finish_reason")
     print(f"model usage: {json.dumps(usage)} finish_reason={finish}")
     # The token count decides only when the server does not say why it stopped.
-    if finish == "length" or (finish is None
-                              and (usage.get("completion_tokens") or 0) >= MAX_OUTPUT_TOKENS):
-        raise CutOff(f"the model's answer was cut off at {MAX_OUTPUT_TOKENS} output tokens")
-    text = choice["message"].get("content") or ""
+    if finish == "length" or (finish is None and (usage.get("completion_tokens") or 0) >= cap):
+        raise CutOff(f"the model's answer was cut off at {cap} output tokens")
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        raise ValueError("model reply has no message")
+    text = message.get("content") or ""
+    reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
     # The server's reasoning parser can end early on a literal </think> the model quotes (from a
     # diff of this very line), leaking the rest of its reasoning, braces and all, ahead of the
@@ -229,29 +330,118 @@ def ask_model(messages):
             return json.loads(segment[start:])
         except ValueError:
             continue
-    raise ValueError("no JSON object in the model's answer")
+    raise NoJSON({"content": clip(text, RESTATE_CONTENT_CHARS), "reasoning": reasoning[-RESTATE_REASONING_CHARS:]})
 
 
-def validate(result, files, prior):
+NOT_BLOCKING = " (Not blocking: it did not cite a changed file and line.)"
+
+
+def validate(result, files, prior, lenient=False):
+    """The model's answer as {summary, findings}. A malformed finding raises, or with `lenient`
+    is left out of `findings` and named in `malformed`; a wrong overall shape always raises."""
     if not isinstance(result, dict) or not isinstance(result.get("findings"), list) \
             or not isinstance(result.get("summary"), str):
         raise ValueError("answer is not {summary: str, findings: list}")
-    findings = []
+    findings, malformed = [], []
     for f in result["findings"]:
-        if not isinstance(f, dict) or not str(f.get("id", "")).strip():
-            raise ValueError("finding without an id")
-        if f.get("severity") not in ("blocking", "suggestion") \
+        if not isinstance(f, dict) or not isinstance(f.get("id"), str) or not f["id"].strip():
+            problem = "finding without an id"
+        elif f.get("severity") not in ("blocking", "suggestion") \
                 or f.get("status") not in ("open", "resolved", "withdrawn"):
-            raise ValueError(f"finding {f['id']} has an invalid severity or status")
-        # A blocking finding must point at the change; otherwise it can only advise.
-        if f["severity"] == "blocking" and not (f.get("file") in files and isinstance(f.get("line"), int)):
+            problem = f"finding {f['id']} has an invalid severity or status"
+        else:
+            problem = None
+        if problem:
+            # The finding itself goes in the error, so a re-ask names the exact defect.
+            problem = f"{problem}: {json.dumps(f, default=str)[:500]}"
+            if not lenient:
+                raise ValueError(problem)
+            malformed.append(problem)
+            continue
+        # A blocking finding must point at the change; otherwise it can only advise. A JSON true is a
+        # Python int, so the line check is on the exact type.
+        if f["severity"] == "blocking" and not (f.get("file") in files and type(f.get("line")) is int):
             f["severity"] = "suggestion"
-            f["detail"] = (f.get("detail") or "") + " (Not blocking: it did not cite a changed file and line.)"
+            f["detail"] = (f.get("detail") or "") + NOT_BLOCKING
         findings.append(f)
-    # A finding the model forgot is not a finding it withdrew: carry it over unchanged.
+    # A finding the model forgot is not a finding it withdrew: carry it over, except that a blocker
+    # saved before the exact line check (with `line: true`) is held to it now. One whose file has
+    # left the diff still blocks until the model resolves it: dropping it would fail open.
     seen = {f["id"] for f in findings}
-    findings += [p for p in prior if p.get("id") not in seen]
-    return {"summary": result["summary"], "findings": findings}
+    for saved in prior:
+        if saved.get("id") in seen:
+            continue
+        weak = saved.get("severity") == "blocking" and type(saved.get("line")) is not int
+        findings.append({**saved, "severity": "suggestion", "detail": (saved.get("detail") or "") + NOT_BLOCKING}
+                        if weak else saved)
+    checked = {"summary": result["summary"], "findings": findings}
+    if malformed:
+        checked["malformed"] = malformed
+    return checked
+
+
+# An answer the model could not have meant: a body without a verdict, a reply without choices, or
+# a verdict of the wrong shape. KeyError and TypeError stay out: they mean a broken script or setup.
+UNREADABLE = (ValueError, IndexError, AttributeError)
+
+
+def restate(messages, note):
+    """The retry, constrained to ANSWER_SCHEMA so its shape cannot be wrong. A server that refuses
+    response_format gets the same request unconstrained."""
+    retry = [*messages, {"role": "user", "content": note}]
+    try:
+        return ask_model(retry, schema=ANSWER_SCHEMA)
+    except urllib.error.HTTPError as e:
+        # 400 is also how a server says the prompt is too long; only a refusal of the format itself
+        # is worth asking again without it.
+        detail = e.read().decode("utf-8", "replace") if e.code in (400, 422) else ""
+        if not re.search(r"response_format|json_schema|schema|grammar", detail, re.I):
+            raise
+        print(f"the model server refused a json_schema answer (HTTP {e.code}); asking without one")
+        return ask_model(retry)
+
+
+def get_result(messages, files, prior):
+    """Ask the model; an answer that cannot be read or checked goes back to it once with the
+    error, to be restated as the JSON object. A second bad answer, or one cut off at the retry's
+    cap, still fails the review (`malformed` is set). Whatever in either answer was well-formed is
+    kept, so a finding the retry leaves out still counts. A retry that succeeds says so."""
+    answer = None
+    try:
+        answer = ask_model(messages)
+        return validate(answer, files, prior)
+    except UNREADABLE as e:
+        first = str(e) or type(e).__name__
+        # A NoJSON answer's text is bounded already; a parsed verdict is clipped like text.
+        raw = getattr(e, "raw", None)
+        rejected = json.dumps(raw if raw is not None else answer, default=str)
+        if raw is None:
+            rejected = clip(rejected, RESTATE_CONTENT_CHARS)
+    note = (f"Your answer was rejected: {first}. Restate the review you reached as the one JSON object "
+            "described above: keep every finding you meant to report, and fix only what made it unreadable.")
+    if rejected != "null":
+        # Each request is stateless: this quote is the only copy of the answer the model sees.
+        note += "\nThe rejected answer was:\n" + rejected
+    # The first answer's usable findings, kept in case the second cannot be read at all.
+    try:
+        fallback = validate(answer, files, prior, lenient=True)["findings"]
+    except ValueError:
+        fallback = prior
+    print(f"model answer rejected ({first}); asking once more")
+    try:
+        result = validate(restate(messages, note), files, prior, lenient=True)
+    except (*UNREADABLE, CutOff) as e:
+        second = str(e) or type(e).__name__
+        if isinstance(e, CutOff):
+            # The same prompt meets the same cap, so only a quieter Studio or a smaller PR helps.
+            second += "; re-review when the Studio is idle, or split the PR"
+        return {"summary": "The model's answer could not be used, even after one retry.",
+                "findings": fallback,
+                "malformed": [f"first answer: {first}", f"second answer: {second}"]}
+    seen = {f["id"] for f in result["findings"]}
+    result["findings"] += [f for f in fallback if f.get("id") not in seen]
+    result["retried"] = first
+    return result
 
 
 def render(result, sha):
@@ -268,10 +458,19 @@ def render(result, sha):
             if f.get("response"):
                 lines.append(f"  - Reviewer: {f['response']}")
         lines.append("")
-    if not result["findings"]:
+    if not result["findings"] and not result.get("malformed"):
         lines.append("No findings.")
+    if result.get("malformed"):
+        lines += ["### Malformed model output", "",
+                  ("The model's answer was rejected and re-asked once; this is what was still wrong, "
+                   "so the check fails until a re-review returns a readable answer:"), ""]
+        lines += [f"- {problem}".replace("\n", " ") for problem in result["malformed"]]
+        lines.append("")
+    if result.get("retried") and not result.get("malformed"):
+        lines += [f"(The model's first answer was rejected ({result['retried']}); this is its second, with any finding the first had that it left out.)", ""]
     lines += ["", "Disagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.",
-              # Base64, so no finding text can close the HTML comment that carries the state.
+              # Base64, so no finding text can close the HTML comment that carries the state. Always
+              # the body's last line: main reads the last marker, so one echoed in text above loses.
               f"<!-- ai-review-state {base64.b64encode(json.dumps(result['findings']).encode()).decode()} -->"]
     return "\n".join(lines)
 
@@ -292,13 +491,14 @@ def main():
             comments = list(pages(f"/issues/{n}/comments"))
             marker = next((c for c in comments if c["user"]["login"] == BOT and MARKER in c["body"]), None)
             prior = []
-            if marker and (m := STATE_RE.search(marker["body"])):
-                prior = json.loads(base64.b64decode(m.group(1)))
+            if marker and (found := STATE_RE.findall(marker["body"])):
+                # An empty or broken state raises, and the review fails closed.
+                prior = json.loads(base64.b64decode(found[-1]))
             if len(diff) > MAX_DIFF:
                 set_status(sha, "failure", f"Diff is {len(diff)} chars, over {MAX_DIFF}: split the PR")
                 sys.exit("diff too large to review")
-            replies = [f"{c['user']['login']} ({c['created_at']}): {c['body']}" for c in comments
-                       if c["user"]["login"] != BOT]
+            replies = bound_replies([f"{c['user']['login']} ({c['created_at']}): {c['body']}"
+                                     for c in comments if c["user"]["login"] != BOT])
             user = "\n\n".join([
                 "Rules (from main, trusted):\n" + repo_rules(),
                 f"PR #{n}: {pr['title']}\n\n{pr.get('body') or ''}",
@@ -307,8 +507,8 @@ def main():
                 "Replies on the PR, oldest first:\n" + ("\n---\n".join(replies) if replies else "none"),
                 "Diff:\n" + diff,
             ])
-            result = validate(ask_model([{"role": "system", "content": SYSTEM},
-                                         {"role": "user", "content": user}]), changed_files(diff), prior)
+            result = get_result([{"role": "system", "content": SYSTEM},
+                                 {"role": "user", "content": user}], changed_files(diff), prior)
             body = render(result, sha)
             blocking = [f for f in result["findings"]
                         if f["status"] == "open" and f["severity"] == "blocking"]
@@ -342,15 +542,19 @@ def main():
         set_status(sha, "error", f"Review could not run: {type(e).__name__}; re-run or reply to retry")
         sys.exit(f"review failed closed: {e}")
     try:
-        if blocking:
+        if result.get("malformed"):
+            set_status(sha, "failure", f"Model answer malformed after a retry ({len(result['malformed'])} problems)"
+                       f"; blocking: {', '.join(f['id'] for f in blocking) or 'none'}")
+        elif blocking:
             set_status(sha, "failure", f"{len(blocking)} blocking: " + ", ".join(f["id"] for f in blocking))
         else:
-            set_status(sha, "success", f"No blocking findings ({len(result['findings'])} total)")
+            retried = ", after a retry" if result.get("retried") else ""
+            set_status(sha, "success", f"No blocking findings ({len(result['findings'])} total{retried})")
     except Exception as e:
         # The check stays pending; a failed job at least shows on the PR's Actions tab.
         sys.exit(f"review saved but its status could not be set: {e}")
     print(body)
-    if blocking:
+    if blocking or result.get("malformed"):
         sys.exit(1)
 
 
