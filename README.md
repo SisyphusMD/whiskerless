@@ -248,3 +248,7 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 242 | pull | closed | [chore: default update checks, the Homebrew tap, links and blueprint imports to Forgejo](items/0242-chore-default-update-checks-the-homebrew-tap-links-and-bluep.md) |
 | 243 | pull | closed | [fix(deps): update dependency pyyaml to v6.0.4](items/0243-fix-deps-update-dependency-pyyaml-to-v6-0-4.md) |
 | 244 | pull | open | [chore(deps): update quay.io/pypa/manylinux_2_28 docker tag to v2026.11.21-1](items/0244-chore-deps-update-quay-io-pypa-manylinux-2-28-docker-tag-to-.md) |
+| 245 | issue | closed | [AI review runs on any signed-in user's PR comment](items/0245-ai-review-runs-on-any-signed-in-user-s-pr-comment.md) |
+| 246 | pull | closed | [fix(ai-review): start a review from a PR comment only for pushers and the PR author](items/0246-fix-ai-review-start-a-review-from-a-pr-comment-only-for-push.md) |
+| 247 | issue | closed | [chore(ci): bring the AI review copy up to canonical project-rules 64b857c](items/0247-chore-ci-bring-the-ai-review-copy-up-to-canonical-project-ru.md) |
+| 248 | pull | closed | [chore(ci): copy the AI review from project-rules 64b857c](items/0248-chore-ci-copy-the-ai-review-from-project-rules-64b857c.md) |
