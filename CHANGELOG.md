@@ -6,6 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Bring the AI review copy up to project-rules 64b857c (connect retry, malformed-answer re-ask, pinned checkout) (#247).
 - Use Forgejo for CLI update checks, the Homebrew tap and notification blueprint imports (#228).
 
 - A settings write now needs `allow_dangerous` when its value is outside the range the setting
