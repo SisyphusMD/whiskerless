@@ -510,7 +510,7 @@ jobs:
         run: |
           set -euo pipefail
           # renovate: datasource=docker depName=ghcr.io/home-assistant/hassfest
-          HASSFEST="ghcr.io/home-assistant/hassfest:latest@sha256:b200bb178c5c62f984c2c705c820bd991e5308d6cba6987d24c7d643919ab5cc"
+          HASSFEST="ghcr.io/home-assistant/hassfest:latest@sha256:d5269221a05a4b744f2bf88d22af9449f8c490bbc54c9097a9c53cd9cfc76bfe"
           cid=""
           trap 'test -z "$cid" || docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           cid=$(docker create "image-mirror.lan.bryantserver.com/$HASSFEST")
