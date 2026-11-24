@@ -6,6 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Bring the AI review copy up to project-rules 72f8fcc (an answer cut off while still reasoning is asked once more under the answer schema) (#252).
 - Bring the AI review copy up to project-rules 64b857c (connect retry, malformed-answer re-ask, pinned checkout) (#247).
 - Use Forgejo for CLI update checks, the Homebrew tap and notification blueprint imports (#228).
 
