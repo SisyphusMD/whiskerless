@@ -192,9 +192,11 @@ def linked_issues(body):
 
 # Hidden reasoning counts toward this cap: uncapped, one long review reasoned for 23,119 tokens
 # before a 438-token answer. It must stay small enough to finish inside MODEL_DEADLINE at the
-# slowest observed speed (59 tok/s, so about 11 minutes); a review that reaches it is stuck. A
-# retry under its schema is capped at RESTATE_OUTPUT_TOKENS (about 5 minutes), so both fit; a
-# server that refuses the schema costs a third, full call, which can reach the deadline.
+# slowest observed speed (59 tok/s, so about 11 minutes). A model can spend all of it reasoning:
+# at temperature 0 the same prompt does so every time, so an answer cut off before any of its text
+# is retried under the schema, which bounds the reasoning; one cut off mid-verdict still fails.
+# That retry is capped at RESTATE_OUTPUT_TOKENS (about 5 minutes), so both fit; a server that
+# refuses the schema costs a third, full call, which can reach the deadline.
 MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "40000"))
 # Everything between the pending status and the saved comment, counted from the script's start,
 # the model's queueing on the shared Studio included. urlopen's timeout bounds each socket read,
@@ -207,6 +209,14 @@ STARTED = time.monotonic()
 
 class CutOff(RuntimeError):
     pass
+
+
+class ReasoningCutOff(CutOff):
+    """Cut off before any answer text, so no finding is lost; `raw` keeps the end of its reasoning."""
+
+    def __init__(self, message, raw=None):
+        super().__init__(message)
+        self.raw = raw
 
 
 class NoJSON(ValueError):
@@ -307,9 +317,17 @@ def ask_model(messages, schema=None):
     finish = choice.get("finish_reason")
     print(f"model usage: {json.dumps(usage)} finish_reason={finish}")
     # The token count decides only when the server does not say why it stopped.
-    if finish == "length" or (finish is None and (usage.get("completion_tokens") or 0) >= cap):
-        raise CutOff(f"the model's answer was cut off at {cap} output tokens")
     message = choice.get("message")
+    if finish == "length" or (finish is None and (usage.get("completion_tokens") or 0) >= cap):
+        error = f"the model's answer was cut off at {cap} output tokens"
+        if not isinstance(message, dict):
+            raise CutOff(error)
+        content = message.get("content") or ""
+        # An unclosed <think> is reasoning the server left in the content.
+        if re.sub(r"<think>.*?(?:</think>|\Z)", "", content, flags=re.S).strip():
+            raise CutOff(error)
+        reasoning = message.get("reasoning_content") or message.get("reasoning") or content
+        raise ReasoningCutOff(error, {"reasoning": reasoning[-RESTATE_REASONING_CHARS:]} if reasoning else None)
     if not isinstance(message, dict):
         raise ValueError("model reply has no message")
     text = message.get("content") or ""
@@ -403,22 +421,29 @@ def restate(messages, note):
 
 def get_result(messages, files, prior):
     """Ask the model; an answer that cannot be read or checked goes back to it once with the
-    error, to be restated as the JSON object. A second bad answer, or one cut off at the retry's
-    cap, still fails the review (`malformed` is set). Whatever in either answer was well-formed is
+    error, to be restated as the JSON object; one cut off at the cap before any answer text is
+    asked for the whole review again under the schema, which bounds its reasoning. A second bad
+    answer, or one cut off at the retry's cap, still fails the review (`malformed` is set). Whatever in either answer was well-formed is
     kept, so a finding the retry leaves out still counts. A retry that succeeds says so."""
     answer = None
     try:
         answer = ask_model(messages)
         return validate(answer, files, prior)
-    except UNREADABLE as e:
+    except (*UNREADABLE, ReasoningCutOff) as e:
+        cut = isinstance(e, ReasoningCutOff)
         first = str(e) or type(e).__name__
         # A NoJSON answer's text is bounded already; a parsed verdict is clipped like text.
         raw = getattr(e, "raw", None)
         rejected = json.dumps(raw if raw is not None else answer, default=str)
         if raw is None:
             rejected = clip(rejected, RESTATE_CONTENT_CHARS)
-    note = (f"Your answer was rejected: {first}. Restate the review you reached as the one JSON object "
-            "described above: keep every finding you meant to report, and fix only what made it unreadable.")
+    if cut:
+        note = (f"Your answer was rejected: {first}, before you wrote any of it. Review the whole diff "
+                "again and give the complete review as the one JSON object described above; any "
+                "reasoning quoted below is unfinished notes, not a verdict.")
+    else:
+        note = (f"Your answer was rejected: {first}. Restate the review you reached as the one JSON object "
+                "described above: keep every finding you meant to report, and fix only what made it unreadable.")
     if rejected != "null":
         # Each request is stateless: this quote is the only copy of the answer the model sees.
         note += "\nThe rejected answer was:\n" + rejected
@@ -529,8 +554,8 @@ def main():
     except SystemExit:
         raise
     except CutOff as e:
-        # The same prompt hits the same cap again, so a re-run cannot help.
-        set_status(sha, "error", f"Model output hit the {MAX_OUTPUT_TOKENS}-token cap: "
+        # Cut off mid-verdict: a retry could drop a finding already written, so it fails closed.
+        set_status(sha, "error", f"Model output hit the {MAX_OUTPUT_TOKENS}-token cap mid-answer: "
                    "split the PR or raise MAX_OUTPUT_TOKENS")
         sys.exit(f"review failed closed: {e}")
     except Deadline as e:
