@@ -44,7 +44,7 @@ No tests: dependency pins and their generated files are checked by the existing 
 ## forgejo-actions, 2026-11-20T23:09:02-08:00
 
 <!-- ai-review -->
-**AI review** of `ff0cf5715e`: This Renovate bump updates the pinned manylinux image tag and digest and is scoped to the standing dependency-update issue. Existing CI covers the build path, and no blocking correctness, security, or test issues are apparent.
+**AI review** of `d51a418e16`: Clean Renovate patch bump of the manylinux_2_28 Docker image (tag + digest) in packaging/release-pins.env, properly referenced to the standing issue #211, with a justified `No tests:` annotation since the existing build jobs exercise the new image.
 
 No findings.
 

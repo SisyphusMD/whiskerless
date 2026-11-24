@@ -258,7 +258,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `syrupy >=4.0`
  - `aiohasupervisor ==0.11.0`
  - `pytest-cov >=5.0`
- - `pytest-homeassistant ==2026.11.2`
+ - `pytest-homeassistant ==2026.11.3`
 
 </details>
 
@@ -284,16 +284,16 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>.forgejo/workflows/tests.yml (11)</summary>
 
- - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`
- - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`
- - `ubuntu-22.04-compat 22.04@sha256:f64b2ffc2f10ab8f8505aa56b2664bd846cbb9df87c7e2532e30f7667021c0e6`
+ - `debian-12-compat 12-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e`
+ - `debian-13-current 13-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0`
+ - `ubuntu-22.04-compat 22.04@sha256:b000e69a50ff940390233025e7a337fb8469b509e2334fa4d018ac30f3e18cdb`
  - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`
  - `fedora-43-compat 43@sha256:f01112b9a1f1d0504ad962d9adfa401425033f8ab067e0a821904ebdde5b8ca5`
  - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`
  - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`
  - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`
  - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`
- - `ghcr.io/home-assistant/hassfest latest@sha256:b200bb178c5c62f984c2c705c820bd991e5308d6cba6987d24c7d643919ab5cc`
+ - `ghcr.io/home-assistant/hassfest latest@sha256:d5269221a05a4b744f2bf88d22af9449f8c490bbc54c9097a9c53cd9cfc76bfe`
  - `ghcr.io/hacs/action main@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2`
 
 </details>
@@ -306,10 +306,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>packaging/install-smoke.Dockerfile (11)</summary>
 
- - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`
+ - `debian-13-current 13-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0`
  - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`
- - `debian-12-compat 12-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc`
- - `ubuntu-22.04-compat 22.04@sha256:f64b2ffc2f10ab8f8505aa56b2664bd846cbb9df87c7e2532e30f7667021c0e6`
+ - `debian-12-compat 12-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e`
+ - `ubuntu-22.04-compat 22.04@sha256:b000e69a50ff940390233025e7a337fb8469b509e2334fa4d018ac30f3e18cdb`
  - `ubuntu-26.04-current 26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db`
  - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`
  - `fedora-44-current 44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e`
@@ -336,7 +336,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `quay.io/pypa/manylinux_2_28 2026.11.14-1@sha256:834a11a02642a46e580b62f25f5b04588355092c8677eaf0393e3ea1997001a3` → [Updates: `2026.11.21-1`]
  - `goreleaser/nfpm v2.49.0@sha256:9ea46a59c4d055ef7071b22f3520b53e8dad98e18043b2f881b53bd7ffec634e`
- - `debian-13-current 13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2`
+ - `debian-13-current 13-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0`
 
 </details>
 

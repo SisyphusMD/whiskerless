@@ -252,3 +252,10 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 246 | pull | closed | [fix(ai-review): start a review from a PR comment only for pushers and the PR author](items/0246-fix-ai-review-start-a-review-from-a-pr-comment-only-for-push.md) |
 | 247 | issue | closed | [chore(ci): bring the AI review copy up to canonical project-rules 64b857c](items/0247-chore-ci-bring-the-ai-review-copy-up-to-canonical-project-ru.md) |
 | 248 | pull | closed | [chore(ci): copy the AI review from project-rules 64b857c](items/0248-chore-ci-copy-the-ai-review-from-project-rules-64b857c.md) |
+| 249 | pull | closed | [chore(deps): update ghcr.io/home-assistant/hassfest:latest docker digest to d526922](items/0249-chore-deps-update-ghcr-io-home-assistant-hassfest-latest-doc.md) |
+| 250 | pull | closed | [fix(deps): update dependency pytest-homeassistant to v2026.11.3](items/0250-fix-deps-update-dependency-pytest-homeassistant-to-v2026-11-.md) |
+| 251 | pull | closed | [chore(deps): update ubuntu-22.04-compat:22.04 docker digest to b000e69](items/0251-chore-deps-update-ubuntu-22-04-compat-22-04-docker-digest-to.md) |
+| 252 | issue | closed | [chore(ci): bring the AI review copy up to project-rules 72f8fcc](items/0252-chore-ci-bring-the-ai-review-copy-up-to-project-rules-72f8fc.md) |
+| 253 | pull | closed | [chore(ci): bring the AI review copy up to project-rules 72f8fcc](items/0253-chore-ci-bring-the-ai-review-copy-up-to-project-rules-72f8fc.md) |
+| 254 | pull | closed | [chore(deps): update debian-12-compat:12-slim docker digest to e67eeea](items/0254-chore-deps-update-debian-12-compat-12-slim-docker-digest-to-.md) |
+| 255 | pull | closed | [chore(deps): update debian-13-current:13-slim docker digest to 8aa5a7b](items/0255-chore-deps-update-debian-13-current-13-slim-docker-digest-to.md) |
