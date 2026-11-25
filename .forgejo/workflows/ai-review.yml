@@ -1,7 +1,7 @@
 # CodeRabbit-style review on the house LLM; main's protection requires its `AI review` status.
-# pull_request_target and issue_comment both run this file and the script from main, so a PR
-# cannot change how it is reviewed. A reply on the PR re-runs the review, which can withdraw a
-# finding. Canonical copy: SisyphusMD/project-rules; repos get a copy.
+# pull_request_target and issue_comment both run this file from main and the script from
+# project-rules main, so a PR cannot change how it is reviewed. A reply on the PR re-runs the
+# review, which can withdraw a finding. Canonical copy: SisyphusMD/project-rules; repos get a copy.
 name: AI review
 on:
   pull_request_target:
@@ -27,13 +27,46 @@ jobs:
       (github.event.repository.permissions.push ||
       github.event.comment.user.login == github.event.issue.user.login))
     runs-on: ubuntu-latest
-    # Above the script's MODEL_DEADLINE (40 minutes) plus its API calls.
+    # Above the script's MODEL_DEADLINE (40 minutes) plus its API calls and the fetch.
     timeout-minutes: 45
     steps:
+      - name: Hold the check until this review answers
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+        # A head that already passed is reviewed again on an edit or a reply. The script sets the
+        # status itself, so without this a failure before it starts would leave the old pass standing.
+        run: |
+          python3 -I - <<'EOS'
+          import json, os, urllib.request
+
+          def api(path, body=None):
+              req = urllib.request.Request(
+                  os.environ["API"] + path, data=None if body is None else json.dumps(body).encode(),
+                  headers={"Authorization": "token " + os.environ["TOKEN"], "Content-Type": "application/json"})
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read())
+
+          pr = api("/pulls/" + os.environ["PR"])
+          if pr["state"] == "open":
+              api("/statuses/" + pr["head"]["sha"],
+                  {"state": "pending", "context": "AI review", "description": "Starting"})
+          EOS
+      - name: Fetch the gate scripts
+        env:
+          FORGEJO_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          # Always main (SisyphusMD/project-rules#78): one copy for every repo, outside the PR's checkout and
+          # with no local fallback, so the job fails when it cannot be fetched. The repo is public.
+          timeout 120 git clone --quiet --depth 1 --single-branch --branch main \
+            "$FORGEJO_URL/SisyphusMD/project-rules.git" /tmp/gate
+          git -C /tmp/gate log -1 --format='gate scripts: project-rules %H'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # github.sha is the base branch's commit (pull_request_target) or the default branch's
-          # (issue_comment), never the PR's: named so the reviewer cannot come from the PR it reviews.
+          # (issue_comment), never the PR's: named so the CONTRIBUTING.md it reads cannot come from the PR it reviews.
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Review the PR
@@ -48,4 +81,4 @@ jobs:
           LLM_URL: http://studio-llm.forgejo-runner.svc.cluster.local:8080/v1/chat/completions
           MODEL: qwen3.8-flash-next
           BOT_LOGIN: forgejo-actions
-        run: python3 -I .forgejo/scripts/ai-review.py
+        run: python3 -I /tmp/gate/.forgejo/scripts/ai-review.py
