@@ -259,3 +259,5 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 253 | pull | closed | [chore(ci): bring the AI review copy up to project-rules 72f8fcc](items/0253-chore-ci-bring-the-ai-review-copy-up-to-project-rules-72f8fc.md) |
 | 254 | pull | closed | [chore(deps): update debian-12-compat:12-slim docker digest to e67eeea](items/0254-chore-deps-update-debian-12-compat-12-slim-docker-digest-to-.md) |
 | 255 | pull | closed | [chore(deps): update debian-13-current:13-slim docker digest to 8aa5a7b](items/0255-chore-deps-update-debian-13-current-13-slim-docker-digest-to.md) |
+| 256 | issue | closed | [Run the gate scripts and rules from project-rules main](items/0256-run-the-gate-scripts-and-rules-from-project-rules-main.md) |
+| 257 | pull | closed | [chore(gate): run the gate scripts and rules from project-rules main](items/0257-chore-gate-run-the-gate-scripts-and-rules-from-project-rules.md) |

@@ -5112,10 +5112,10 @@
   "closed_at": null,
   "comments": [
    {
-    "body": "<!-- ai-review -->\n**AI review** of `d51a418e16`: Clean Renovate patch bump of the manylinux_2_28 Docker image (tag + digest) in packaging/release-pins.env, properly referenced to the standing issue #211, with a justified `No tests:` annotation since the existing build jobs exercise the new image.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "body": "<!-- ai-review -->\n**AI review** of `33162679c0`: The one-line manylinux pin update is scoped to the standing Renovate issue and appears covered by existing CI; no correctness, safety, or test defects were found. The only note is that the PR description uses `Refs` rather than the rule-required `Closes` issue-link form.\n\n### Open\n\n- **F1** (suggestion, `packaging/release-pins.env:35`) Issue link syntax does not match rule 6: The PR description says `Refs #211`, but RULES.md rule 6 requires the description to name its issue as `Closes #n` (or `Closes owner/repo#n`). For a standing Renovate issue, either record a decision/exception allowing `Refs` or use the approved link form that satisfies the issue-link gate without closing the standing issue.\n\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W3siaWQiOiAiRjEiLCAiZmlsZSI6ICJwYWNrYWdpbmcvcmVsZWFzZS1waW5zLmVudiIsICJsaW5lIjogMzUsICJzZXZlcml0eSI6ICJzdWdnZXN0aW9uIiwgInN0YXR1cyI6ICJvcGVuIiwgInRpdGxlIjogIklzc3VlIGxpbmsgc3ludGF4IGRvZXMgbm90IG1hdGNoIHJ1bGUgNiIsICJkZXRhaWwiOiAiVGhlIFBSIGRlc2NyaXB0aW9uIHNheXMgYFJlZnMgIzIxMWAsIGJ1dCBSVUxFUy5tZCBydWxlIDYgcmVxdWlyZXMgdGhlIGRlc2NyaXB0aW9uIHRvIG5hbWUgaXRzIGlzc3VlIGFzIGBDbG9zZXMgI25gIChvciBgQ2xvc2VzIG93bmVyL3JlcG8jbmApLiBGb3IgYSBzdGFuZGluZyBSZW5vdmF0ZSBpc3N1ZSwgZWl0aGVyIHJlY29yZCBhIGRlY2lzaW9uL2V4Y2VwdGlvbiBhbGxvd2luZyBgUmVmc2Agb3IgdXNlIHRoZSBhcHByb3ZlZCBsaW5rIGZvcm0gdGhhdCBzYXRpc2ZpZXMgdGhlIGlzc3VlLWxpbmsgZ2F0ZSB3aXRob3V0IGNsb3NpbmcgdGhlIHN0YW5kaW5nIGlzc3VlLiIsICJyZXNwb25zZSI6ICIifV0= -->",
     "created_at": "2026-11-20T23:09:02-08:00",
     "id": 41142,
-    "updated_at": "2026-11-24T00:14:45-08:00",
+    "updated_at": "2026-11-24T20:37:34-08:00",
     "user": "forgejo-actions"
    }
   ],
@@ -5421,5 +5421,57 @@
   "state": "closed",
   "title": "chore(deps): update debian-13-current:13-slim docker digest to 8aa5a7b",
   "user": "renovate"
+ },
+ {
+  "assignees": [],
+  "body": "Decided on SisyphusMD/project-rules#78 (2026-11-24): every repo runs the gate scripts, and the AI review reads the rules, from project-rules main instead of its own copies. Switch `ci.yml` and `ai-review.yml` to canonical (project-rules af7417d1; this also brings in the canonical commenter gate where it was missing), and remove the four gate script copies and `.forgejo/RULES.md` in the same change. Where present, copy `mirror-lockdown.yml` again for its source header. issue-archive.py stays a copy.",
+  "closed_at": "2026-11-24T19:38:34-08:00",
+  "comments": [
+   {
+    "body": "Landed in #257 (58402f08). The next PR is the first run of the fetched scripts.",
+    "created_at": "2026-11-24T19:38:59-08:00",
+    "id": 46215,
+    "updated_at": "2026-11-24T19:38:59-08:00",
+    "user": "cody"
+   }
+  ],
+  "created_at": "2026-11-24T19:05:49-08:00",
+  "kind": "issue",
+  "labels": [
+   "status:in-progress",
+   "type:chore"
+  ],
+  "milestone": null,
+  "number": 256,
+  "state": "closed",
+  "title": "Run the gate scripts and rules from project-rules main",
+  "user": "cody"
+ },
+ {
+  "assignees": [],
+  "base": "main",
+  "body": "Closes #256\n\nThis repo ran its own copies of the gate scripts and kept a copy of the rules for the AI review, and copies drift. `ci.yml` and `ai-review.yml` now fetch the scripts and `RULES.md` from project-rules main on every run and fail when they cannot (SisyphusMD/project-rules#78). The gate jobs and `ai-review.yml` are project-rules main's (6a6d41b4), and the copies are removed in the same change, so no run is left without either.\n\nThe reasons in test_workflow_security.py name project-rules main as the scripts' source. mirror-lockdown.yml is copied again for its source header.\n\nLarge diff: 890 of the removed lines are the deleted copies, and the added workflow lines come from project-rules main, where they were reviewed and tested.\n",
+  "closed_at": "2026-11-24T19:38:34-08:00",
+  "comments": [
+   {
+    "body": "<!-- ai-review -->\n**AI review** of `c43167210f`: The PR correctly implements issue #256: gate scripts and RULES.md are now fetched from project-rules main instead of local copies, the four script copies and .forgejo/RULES.md are removed, the workflows are updated to the project-rules versions, mirror-lockdown.yml gets its source header, and test_workflow_security.py reflects the new trust source. The security model is preserved (scripts come from a trusted branch the PR cannot modify), the large-diff justification holds, and the change is coherent with the linked decision in project-rules#78.\n\nNo findings.\n\nDisagree? Reply on this PR with your reasoning; the reviewer re-reads every reply.\n<!-- ai-review-state W10= -->",
+    "created_at": "2026-11-24T19:17:54-08:00",
+    "id": 46110,
+    "updated_at": "2026-11-24T19:17:54-08:00",
+    "user": "forgejo-actions"
+   }
+  ],
+  "created_at": "2026-11-24T19:11:41-08:00",
+  "head": "refs/pull/257/head",
+  "kind": "pull",
+  "labels": [],
+  "merge_commit_sha": "58402f0898a70bca89b3dd4c16dcdb51532f4fd9",
+  "merged": true,
+  "milestone": null,
+  "number": 257,
+  "reviews": [],
+  "state": "closed",
+  "title": "chore(gate): run the gate scripts and rules from project-rules main",
+  "user": "cody"
  }
 ]
