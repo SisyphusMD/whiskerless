@@ -1,5 +1,6 @@
 # The GitHub copy is a read-only mirror of the Forgejo repository, and GitHub cannot turn pull
 # requests off, so new ones are closed with a pointer to Forgejo.
+# Canonical copy: SisyphusMD/project-rules; repos get a copy.
 name: Mirror lockdown
 
 on:

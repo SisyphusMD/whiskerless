@@ -1,6 +1,7 @@
 # PR checks for issue-first repos; main's protection rule requires every job.
 # pull_request_target runs this file from main, not from the PR, so a PR cannot weaken a check
-# by editing it. Jobs check out the PR head only as data (lint, scan, diff); none runs its code.
+# by editing it; the gate scripts come from project-rules main. Jobs check out the PR head only as
+# data (lint, scan, diff); none runs its code.
 # Canonical copy: SisyphusMD/project-rules; repos get a copy.
 name: CI
 on:
@@ -18,11 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # The base commit's copy of the check, so a PR cannot edit the check to pass itself.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          persist-credentials: false
+      - name: Fetch the gate scripts
+        env:
+          FORGEJO_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          # Always main (SisyphusMD/project-rules#78): one copy for every repo, outside the PR's checkout and
+          # with no local fallback, so the job fails when it cannot be fetched. The repo is public.
+          timeout 120 git clone --quiet --depth 1 --single-branch --branch main \
+            "$FORGEJO_URL/SisyphusMD/project-rules.git" /tmp/gate
+          git -C /tmp/gate log -1 --format='gate scripts: project-rules %H'
       - name: PR names its issue
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -31,12 +37,22 @@ jobs:
           FORGEJO_URL: ${{ github.server_url }}
           REPO: ${{ github.repository }}
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 -I .forgejo/scripts/issue-link.py
+        run: python3 -I /tmp/gate/.forgejo/scripts/issue-link.py
   tests-with-code:
     name: Tests with code
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Fetch the gate scripts
+        env:
+          FORGEJO_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          # Always main (SisyphusMD/project-rules#78): one copy for every repo, outside the PR's checkout and
+          # with no local fallback, so the job fails when it cannot be fetched. The repo is public.
+          timeout 120 git clone --quiet --depth 1 --single-branch --branch main \
+            "$FORGEJO_URL/SisyphusMD/project-rules.git" /tmp/gate
+          git -C /tmp/gate log -1 --format='gate scripts: project-rules %H'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -56,15 +72,22 @@ jobs:
             git -c http.extraHeader="Authorization: Basic $(printf 'x:%s' "$TOKEN" | base64 -w0)" \
               fetch --quiet origin "$BASE_SHA"
           fi
-          # The base commit's copy only, so a PR cannot loosen or replace the check: with no trusted
-          # copy the job fails rather than run the PR's, which would run with the token in reach.
-          git show "$BASE_SHA:.forgejo/scripts/tests-with-code.py" > /tmp/tests-with-code.py
-          python3 -I /tmp/tests-with-code.py "$BASE_SHA" "$HEAD_SHA"
+          python3 -I /tmp/gate/.forgejo/scripts/tests-with-code.py "$BASE_SHA" "$HEAD_SHA"
   diff-size:
     name: Diff size
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Fetch the gate scripts
+        env:
+          FORGEJO_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          # Always main (SisyphusMD/project-rules#78): one copy for every repo, outside the PR's checkout and
+          # with no local fallback, so the job fails when it cannot be fetched. The repo is public.
+          timeout 120 git clone --quiet --depth 1 --single-branch --branch main \
+            "$FORGEJO_URL/SisyphusMD/project-rules.git" /tmp/gate
+          git -C /tmp/gate log -1 --format='gate scripts: project-rules %H'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -82,10 +105,7 @@ jobs:
             git -c http.extraHeader="Authorization: Basic $(printf 'x:%s' "$TOKEN" | base64 -w0)" \
               fetch --quiet origin "$BASE_SHA"
           fi
-          # The base commit's copy only, so a PR cannot loosen or replace the check: with no trusted
-          # copy the job fails rather than run the PR's, which would run with the token in reach.
-          git show "$BASE_SHA:.forgejo/scripts/diff-size.py" > /tmp/diff-size.py
-          python3 -I /tmp/diff-size.py "$BASE_SHA" "$HEAD_SHA"
+          python3 -I /tmp/gate/.forgejo/scripts/diff-size.py "$BASE_SHA" "$HEAD_SHA"
   lint:
     name: Lint
     runs-on: ubuntu-latest
