@@ -261,3 +261,7 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 255 | pull | closed | [chore(deps): update debian-13-current:13-slim docker digest to 8aa5a7b](items/0255-chore-deps-update-debian-13-current-13-slim-docker-digest-to.md) |
 | 256 | issue | closed | [Run the gate scripts and rules from project-rules main](items/0256-run-the-gate-scripts-and-rules-from-project-rules-main.md) |
 | 257 | pull | closed | [chore(gate): run the gate scripts and rules from project-rules main](items/0257-chore-gate-run-the-gate-scripts-and-rules-from-project-rules.md) |
+| 258 | pull | closed | [chore(deps): update ghcr.io/home-assistant/hassfest:latest docker digest to 2ef5a60](items/0258-chore-deps-update-ghcr-io-home-assistant-hassfest-latest-doc.md) |
+| 259 | issue | closed | [Call the shared gate and AI review workflows instead of copying them](items/0259-call-the-shared-gate-and-ai-review-workflows-instead-of-copy.md) |
+| 260 | pull | closed | [chore(gate): call the shared gate and AI review workflows](items/0260-chore-gate-call-the-shared-gate-and-ai-review-workflows.md) |
+| 261 | pull | closed | [chore(deps): update ghcr.io/home-assistant/hassfest:latest docker digest to c57bc87](items/0261-chore-deps-update-ghcr-io-home-assistant-hassfest-latest-doc.md) |

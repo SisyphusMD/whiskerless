@@ -293,7 +293,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `rocky-8-compat 8@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6`
  - `rocky-10-current 10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8`
  - `opensuse-leap-16-current 16.0@sha256:a4115e2f5aea9712a7c73974fd94000a034fc3051ef29b5f7722fbf04070dd9d`
- - `ghcr.io/home-assistant/hassfest latest@sha256:d5269221a05a4b744f2bf88d22af9449f8c490bbc54c9097a9c53cd9cfc76bfe`
+ - `ghcr.io/home-assistant/hassfest latest@sha256:c57bc877d983137cbe648b16d850642f272551bb3248298452c789e5edfd0776`
  - `ghcr.io/hacs/action main@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2`
 
 </details>
