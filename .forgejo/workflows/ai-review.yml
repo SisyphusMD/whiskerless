@@ -1,7 +1,8 @@
 # CodeRabbit-style review on the house LLM; main's protection requires its `AI review` status.
-# pull_request_target and issue_comment both run this file from main and the script from
-# project-rules main, so a PR cannot change how it is reviewed. A reply on the PR re-runs the
-# review, which can withdraw a finding. Canonical copy: SisyphusMD/project-rules; repos get a copy.
+# The job is SisyphusMD/project-rules main's review.yml, so no repo copies the job (#78), and
+# pull_request_target and issue_comment both run this file from main, so a PR cannot change how
+# it is reviewed. A reply on the PR re-runs the review, which can withdraw a finding.
+# Only this caller is copied. Canonical copy: SisyphusMD/project-rules; repos get a copy.
 name: AI review
 on:
   pull_request_target:
@@ -11,74 +12,13 @@ on:
     types: [created]
 concurrency:
   # One review per PR at a time, never cancelled: the reviewer's own comment also lands in this
-  # group, and cancelling would stop a review between saving its findings and its status.
+  # group, and cancelling would stop a review between saving its findings and its status. It
+  # lives here because Forgejo ignores concurrency in a called workflow.
   group: ai-review-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: false
 jobs:
-  review:
-    name: Review
-    # Replies on PRs only, never the reviewer's own comment, and only from someone who can push or
-    # wrote the PR: any signed-in account can comment on a public repo, and each run holds the
-    # Studio model for up to 45 minutes. Forgejo sets repository.permissions to the commenter's own.
-    # The bot login matches BOT_LOGIN below (a test holds them equal): a job-level if cannot read env.
-    if: >-
-      github.event_name == 'pull_request_target' ||
-      (github.event.issue.pull_request && github.event.comment.user.login != 'forgejo-actions' &&
-      (github.event.repository.permissions.push ||
-      github.event.comment.user.login == github.event.issue.user.login))
-    runs-on: ubuntu-latest
-    # Above the script's MODEL_DEADLINE (40 minutes) plus its API calls and the fetch.
-    timeout-minutes: 45
-    steps:
-      - name: Hold the check until this review answers
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
-          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
-        # A head that already passed is reviewed again on an edit or a reply. The script sets the
-        # status itself, so without this a failure before it starts would leave the old pass standing.
-        run: |
-          python3 -I - <<'EOS'
-          import json, os, urllib.request
-
-          def api(path, body=None):
-              req = urllib.request.Request(
-                  os.environ["API"] + path, data=None if body is None else json.dumps(body).encode(),
-                  headers={"Authorization": "token " + os.environ["TOKEN"], "Content-Type": "application/json"})
-              with urllib.request.urlopen(req, timeout=60) as r:
-                  return json.loads(r.read())
-
-          pr = api("/pulls/" + os.environ["PR"])
-          if pr["state"] == "open":
-              api("/statuses/" + pr["head"]["sha"],
-                  {"state": "pending", "context": "AI review", "description": "Starting"})
-          EOS
-      - name: Fetch the gate scripts
-        env:
-          FORGEJO_URL: ${{ github.server_url }}
-        run: |
-          set -euo pipefail
-          # Always main (SisyphusMD/project-rules#78): one copy for every repo, outside the PR's checkout and
-          # with no local fallback, so the job fails when it cannot be fetched. The repo is public.
-          timeout 120 git clone --quiet --depth 1 --single-branch --branch main \
-            "$FORGEJO_URL/SisyphusMD/project-rules.git" /tmp/gate
-          git -C /tmp/gate log -1 --format='gate scripts: project-rules %H'
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # github.sha is the base branch's commit (pull_request_target) or the default branch's
-          # (issue_comment), never the PR's: named so the CONTRIBUTING.md it reads cannot come from the PR it reviews.
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Review the PR
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # read:issue only, for linked issues in other repos.
-          ISSUE_READ_TOKEN: ${{ secrets.ISSUE_READ_TOKEN }}
-          FORGEJO_URL: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
-          # Keyless proxy in forgejo-runner (bryantserver/k8s apps/forgejo/runner/llm-proxy).
-          LLM_URL: http://studio-llm.forgejo-runner.svc.cluster.local:8080/v1/chat/completions
-          MODEL: qwen3.8-flash-next
-          BOT_LOGIN: forgejo-actions
-        run: python3 -I /tmp/gate/.forgejo/scripts/ai-review.py
+  shared-review:
+    uses: SisyphusMD/project-rules/.forgejo/workflows/review.yml@main
+    secrets:
+      # read:issue only, for linked issues in other repos.
+      ISSUE_READ_TOKEN: ${{ secrets.ISSUE_READ_TOKEN }}
