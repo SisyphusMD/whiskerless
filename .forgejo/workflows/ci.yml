@@ -1,5 +1,6 @@
 # PR checks for issue-first repos; main's protection rule requires every called job. The jobs are
-# SisyphusMD/project-rules main's gate.yml and gate-lint.yml, so no repo copies the jobs (#78).
+# SisyphusMD/project-rules main's gate.yml and gate-lint.yml, so no repo copies the jobs
+# (SisyphusMD/project-rules#78).
 # pull_request_target runs this file from main, not from the PR, so a PR cannot change its checks.
 # This file keeps what a called workflow cannot: the trigger, the concurrency group and which
 # secret the jobs may see. Only this caller is copied. Canonical copy: SisyphusMD/project-rules;
