@@ -1,8 +1,10 @@
-# PR checks for issue-first repos; main's protection rule requires every job.
-# pull_request_target runs this file from main, not from the PR, so a PR cannot weaken a check
-# by editing it; the gate scripts come from project-rules main. Jobs check out the PR head only as
-# data (lint, scan, diff); none runs its code.
-# Canonical copy: SisyphusMD/project-rules; repos get a copy.
+# PR checks for issue-first repos; main's protection rule requires every called job. The jobs are
+# SisyphusMD/project-rules main's gate.yml and gate-lint.yml, so no repo copies the jobs
+# (SisyphusMD/project-rules#78).
+# pull_request_target runs this file from main, not from the PR, so a PR cannot change its checks.
+# This file keeps what a called workflow cannot: the trigger, the concurrency group and which
+# secret the jobs may see. Only this caller is copied. Canonical copy: SisyphusMD/project-rules;
+# repos get a copy.
 name: CI
 on:
   pull_request_target:
@@ -14,153 +16,10 @@ concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
-  issue-link:
-    name: Issue link
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Fetch the gate scripts
-        env:
-          FORGEJO_URL: ${{ github.server_url }}
-        run: |
-          set -euo pipefail
-          # Always main (SisyphusMD/project-rules#78): one copy for every repo, outside the PR's checkout and
-          # with no local fallback, so the job fails when it cannot be fetched. The repo is public.
-          timeout 120 git clone --quiet --depth 1 --single-branch --branch main \
-            "$FORGEJO_URL/SisyphusMD/project-rules.git" /tmp/gate
-          git -C /tmp/gate log -1 --format='gate scripts: project-rules %H'
-      - name: PR names its issue
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # read:issue only, for `owner/repo#n`: the job token cannot read other private repos.
-          ISSUE_READ_TOKEN: ${{ secrets.ISSUE_READ_TOKEN }}
-          FORGEJO_URL: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 -I /tmp/gate/.forgejo/scripts/issue-link.py
-  tests-with-code:
-    name: Tests with code
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Fetch the gate scripts
-        env:
-          FORGEJO_URL: ${{ github.server_url }}
-        run: |
-          set -euo pipefail
-          # Always main (SisyphusMD/project-rules#78): one copy for every repo, outside the PR's checkout and
-          # with no local fallback, so the job fails when it cannot be fetched. The repo is public.
-          timeout 120 git clone --quiet --depth 1 --single-branch --branch main \
-            "$FORGEJO_URL/SisyphusMD/project-rules.git" /tmp/gate
-          git -C /tmp/gate log -1 --format='gate scripts: project-rules %H'
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Code changes come with tests
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # The full head history usually holds the base; fetch it otherwise, with the token
-          # passed per command because the checkout does not keep credentials.
-          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-            git -c http.extraHeader="Authorization: Basic $(printf 'x:%s' "$TOKEN" | base64 -w0)" \
-              fetch --quiet origin "$BASE_SHA"
-          fi
-          python3 -I /tmp/gate/.forgejo/scripts/tests-with-code.py "$BASE_SHA" "$HEAD_SHA"
-  diff-size:
-    name: Diff size
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Fetch the gate scripts
-        env:
-          FORGEJO_URL: ${{ github.server_url }}
-        run: |
-          set -euo pipefail
-          # Always main (SisyphusMD/project-rules#78): one copy for every repo, outside the PR's checkout and
-          # with no local fallback, so the job fails when it cannot be fetched. The repo is public.
-          timeout 120 git clone --quiet --depth 1 --single-branch --branch main \
-            "$FORGEJO_URL/SisyphusMD/project-rules.git" /tmp/gate
-          git -C /tmp/gate log -1 --format='gate scripts: project-rules %H'
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Diff stays small
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-            git -c http.extraHeader="Authorization: Basic $(printf 'x:%s' "$TOKEN" | base64 -w0)" \
-              fetch --quiet origin "$BASE_SHA"
-          fi
-          python3 -I /tmp/gate/.forgejo/scripts/diff-size.py "$BASE_SHA" "$HEAD_SHA"
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      # -I everywhere: the checkout is the PR's, so Python must not import modules from it.
-      - name: Install linters
-        env:
-          # renovate: datasource=pypi depName=ruff
-          RUFF: "0.17.5"
-          # renovate: datasource=pypi depName=yamllint
-          YAMLLINT: "1.37.1"
-        run: |
-          python3 -I -m venv /tmp/lint
-          /tmp/lint/bin/pip install -q --index-url https://artifacts.lan.bryantserver.com/pypi.org/simple/ \
-            "ruff==$RUFF" "yamllint==$YAMLLINT"
-      - name: Python
-        run: |
-          /tmp/lint/bin/ruff check .
-          git ls-files -z '*.py' | xargs -0 -r python3 -I -m py_compile
-      - name: YAML
-        run: |
-          /tmp/lint/bin/yamllint -s -d '{extends: relaxed, rules: {line-length: disable}}' .forgejo
-  secrets:
-    name: Secrets
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: gitleaks over the PR head's history
-        env:
-          # renovate: datasource=github-tags depName=gitleaks/gitleaks
-          GITLEAKS_VERSION: 8.28.0
-          GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
-        run: |
-          set -euo pipefail
-          tgz="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -fsSL -o "/tmp/$tgz" \
-            "https://artifacts.lan.bryantserver.com/github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tgz"
-          echo "$GITLEAKS_SHA256  /tmp/$tgz" | sha256sum -c -
-          tar -xzf "/tmp/$tgz" -C /tmp gitleaks
-          # Allowlists come from main only, so a PR cannot allowlist its own secret.
-          rm -f .gitleaks.toml .gitleaksignore
-          git show "${{ github.event.pull_request.base.sha }}:.gitleaks.toml" > .gitleaks.toml 2>/dev/null || rm -f .gitleaks.toml
-          git show "${{ github.event.pull_request.base.sha }}:.gitleaksignore" > .gitleaksignore 2>/dev/null || rm -f .gitleaksignore
-          # Only the PR head's history: the clone also holds issue-archive (rule 21), whose nightly
-          # copy of issue text is not code and would fail every PR on a hex string quoted in an
-          # issue. gitleaks exits 0 when it scans nothing, so re-prove both directions (a head
-          # secret fails, an archive-only one passes) on any version bump; proven on 8.28.0.
-          /tmp/gitleaks git --no-banner --redact --log-opts="${{ github.event.pull_request.head.sha }}" .
+  shared-gate:
+    uses: SisyphusMD/project-rules/.forgejo/workflows/gate.yml@main
+    secrets:
+      # read:issue only, for `owner/repo#n`: the job token cannot read other private repos.
+      ISSUE_READ_TOKEN: ${{ secrets.ISSUE_READ_TOKEN }}
+  shared-lint:
+    uses: SisyphusMD/project-rules/.forgejo/workflows/gate-lint.yml@main
