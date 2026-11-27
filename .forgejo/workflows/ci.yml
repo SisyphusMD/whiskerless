@@ -23,3 +23,6 @@ jobs:
       ISSUE_READ_TOKEN: ${{ secrets.ISSUE_READ_TOKEN }}
   shared-lint:
     uses: SisyphusMD/project-rules/.forgejo/workflows/gate-lint.yml@main
+    secrets:
+      # Read-only on the owner's private .project-rules manifest, which these jobs read.
+      PROJECT_RULES_TOKEN: ${{ secrets.PROJECT_RULES_TOKEN }}

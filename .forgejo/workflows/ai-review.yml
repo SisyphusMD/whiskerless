@@ -23,3 +23,5 @@ jobs:
     secrets:
       # read:issue only, for linked issues in other repos.
       ISSUE_READ_TOKEN: ${{ secrets.ISSUE_READ_TOKEN }}
+      # Read-only on the owner's private .project-rules manifest, which the review reads.
+      PROJECT_RULES_TOKEN: ${{ secrets.PROJECT_RULES_TOKEN }}
