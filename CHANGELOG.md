@@ -6,6 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- issue-archive calls project-rules' shared workflow instead of carrying a copy of the job and script (#264).
 - The CI and AI review callers hand the owner's read-only `PROJECT_RULES_TOKEN` to the shared jobs, which will read the owner's private `.project-rules` manifest (SisyphusMD/project-rules#143).
 - CI and AI review call project-rules' shared workflows instead of carrying copies of the jobs (#259).
 - Run the gate scripts and the rules from project-rules main instead of this repo's copies (copies drift) (#256).

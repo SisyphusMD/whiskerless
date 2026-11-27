@@ -1,6 +1,9 @@
 # Nightly export of issues, PRs, comments and reviews to the issue-archive branch.
-# Push mirrors carry git only; this branch is how issue history reaches the annex mirror.
-# Canonical copy: SisyphusMD/project-rules; repos get a copy.
+# Push mirrors carry git only; this branch is how issue history reaches the backup mirror.
+# The job is SisyphusMD/project-rules main's archive.yml, so no repo copies the job or its script
+# (SisyphusMD/project-rules#144). This file keeps what a called workflow cannot: the schedule, the
+# concurrency group and which secret the job may see. Canonical copy: SisyphusMD/project-rules;
+# repos get a copy.
 name: Issue archive
 on:
   schedule:
@@ -10,36 +13,8 @@ concurrency:
   group: issue-archive
   cancel-in-progress: false
 jobs:
-  archive:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Export to the issue-archive branch
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORGEJO_URL: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          basic=$(printf 'x:%s' "$TOKEN" | base64 -w0)
-          git config --global http.extraHeader "Authorization: Basic $basic"
-          git config --global user.name 'issue-archive'
-          git config --global user.email 'issue-archive@noreply.bryantserver.com'
-          url="$FORGEJO_URL/$REPO.git"
-          git clone --quiet --no-checkout "$url" src
-          git -C src checkout --quiet "$SHA" -- .forgejo/scripts/issue-archive.py
-          if git ls-remote --exit-code "$url" refs/heads/issue-archive >/dev/null; then
-            git clone --quiet --branch issue-archive --single-branch "$url" archive
-          else
-            git init --quiet -b issue-archive archive
-            git -C archive remote add origin "$url"
-          fi
-          python3 -I src/.forgejo/scripts/issue-archive.py archive
-          git -C archive add -A
-          if git -C archive diff --cached --quiet; then
-            echo "no changes"
-          else
-            git -C archive commit --quiet -m "chore(archive): export issues and PRs (nightly)"
-            git -C archive push --quiet origin issue-archive
-          fi
+  shared-archive:
+    uses: SisyphusMD/project-rules/.forgejo/workflows/archive.yml@main
+    secrets:
+      # Read-only on the owner's .project-rules, for the archive's committer address.
+      PROJECT_RULES_TOKEN: ${{ secrets.PROJECT_RULES_TOKEN }}
