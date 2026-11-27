@@ -265,3 +265,5 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 259 | issue | closed | [Call the shared gate and AI review workflows instead of copying them](items/0259-call-the-shared-gate-and-ai-review-workflows-instead-of-copy.md) |
 | 260 | pull | closed | [chore(gate): call the shared gate and AI review workflows](items/0260-chore-gate-call-the-shared-gate-and-ai-review-workflows.md) |
 | 261 | pull | closed | [chore(deps): update ghcr.io/home-assistant/hassfest:latest docker digest to c57bc87](items/0261-chore-deps-update-ghcr-io-home-assistant-hassfest-latest-doc.md) |
+| 262 | pull | closed | [chore(deps): update ghcr.io/home-assistant/hassfest:latest docker digest to 83464e9](items/0262-chore-deps-update-ghcr-io-home-assistant-hassfest-latest-doc.md) |
+| 263 | pull | closed | [ci: map PROJECT_RULES_TOKEN into the shared jobs](items/0263-ci-map-project-rules-token-into-the-shared-jobs.md) |
