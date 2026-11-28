@@ -1,4 +1,4 @@
-# #244 chore(deps): update quay.io/pypa/manylinux_2_28 docker tag to v2026.11.21-1
+# #244 chore(deps): update quay.io/pypa/manylinux_2_28 docker tag to v2026.11.27-1
 
 - Kind: pull, state: open, by renovate, created 2026-11-20T23:08:45-08:00
 - Labels: none; milestone: none
@@ -8,7 +8,7 @@ This PR contains the following updates:
 
 | Package | Update | Change |
 |---|---|---|
-| quay.io/pypa/manylinux_2_28 | patch | `2026.11.14-1` → `2026.11.21-1` |
+| quay.io/pypa/manylinux_2_28 | patch | `2026.11.14-1` → `2026.11.27-1` |
 
 Held for hand review: the glibc floor check runs in CI, but no check encodes judgement about the toolchain change itself.
 
@@ -38,13 +38,13 @@ Held for hand review: the glibc floor check runs in CI, but no check encodes jud
 Refs #211: standing issue for dependency updates.
 
 No tests: dependency pins and their generated files are checked by the existing build and test jobs.
-<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0NC4yNTcuNiIsInVwZGF0ZWRJblZlciI6IjQ0LjI1Ny42IiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6WyJwYXRjaC11cGRhdGUiXX0=-->
+<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0NC4yNTcuNiIsInVwZGF0ZWRJblZlciI6IjQ0LjI2MC4zIiwidGFyZ2V0QnJhbmNoIjoibWFpbiIsImxhYmVscyI6WyJwYXRjaC11cGRhdGUiXX0=-->
 
 
 ## forgejo-actions, 2026-11-20T23:09:02-08:00
 
 <!-- ai-review -->
-**AI review** of `649d4917d8`: Single-line Renovate bump of the manylinux_2_28 build image (tag + digest). The change is correct, minimal, and exercised by existing CI build jobs. The only open item is the pre-existing suggestion about `Refs` vs `Closes` syntax for standing issues.
+**AI review** of `03597513e3`: Single-line Renovate bump of the manylinux_2_28 Docker image tag and digest in packaging/release-pins.env. The change is minimal, correct, and serves the standing dependency-update issue #211. No code bugs, security risks, or missing tests identified.
 
 ### Open
 

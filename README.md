@@ -247,7 +247,7 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 241 | pull | closed | [chore(deps): update ubuntu-22.04-compat:22.04 docker digest to f64b2ff](items/0241-chore-deps-update-ubuntu-22-04-compat-22-04-docker-digest-to.md) |
 | 242 | pull | closed | [chore: default update checks, the Homebrew tap, links and blueprint imports to Forgejo](items/0242-chore-default-update-checks-the-homebrew-tap-links-and-bluep.md) |
 | 243 | pull | closed | [fix(deps): update dependency pyyaml to v6.0.4](items/0243-fix-deps-update-dependency-pyyaml-to-v6-0-4.md) |
-| 244 | pull | open | [chore(deps): update quay.io/pypa/manylinux_2_28 docker tag to v2026.11.21-1](items/0244-chore-deps-update-quay-io-pypa-manylinux-2-28-docker-tag-to-.md) |
+| 244 | pull | open | [chore(deps): update quay.io/pypa/manylinux_2_28 docker tag to v2026.11.27-1](items/0244-chore-deps-update-quay-io-pypa-manylinux-2-28-docker-tag-to-.md) |
 | 245 | issue | closed | [AI review runs on any signed-in user's PR comment](items/0245-ai-review-runs-on-any-signed-in-user-s-pr-comment.md) |
 | 246 | pull | closed | [fix(ai-review): start a review from a PR comment only for pushers and the PR author](items/0246-fix-ai-review-start-a-review-from-a-pr-comment-only-for-push.md) |
 | 247 | issue | closed | [chore(ci): bring the AI review copy up to canonical project-rules 64b857c](items/0247-chore-ci-bring-the-ai-review-copy-up-to-canonical-project-ru.md) |
@@ -267,3 +267,5 @@ Generated nightly from the primary Forgejo; do not edit. `json/` holds the full 
 | 261 | pull | closed | [chore(deps): update ghcr.io/home-assistant/hassfest:latest docker digest to c57bc87](items/0261-chore-deps-update-ghcr-io-home-assistant-hassfest-latest-doc.md) |
 | 262 | pull | closed | [chore(deps): update ghcr.io/home-assistant/hassfest:latest docker digest to 83464e9](items/0262-chore-deps-update-ghcr-io-home-assistant-hassfest-latest-doc.md) |
 | 263 | pull | closed | [ci: map PROJECT_RULES_TOKEN into the shared jobs](items/0263-ci-map-project-rules-token-into-the-shared-jobs.md) |
+| 264 | issue | closed | [Call project-rules' shared issue-archive workflow](items/0264-call-project-rules-shared-issue-archive-workflow.md) |
+| 265 | pull | closed | [chore(ci): call the shared issue-archive workflow](items/0265-chore-ci-call-the-shared-issue-archive-workflow.md) |
